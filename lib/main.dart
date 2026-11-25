@@ -17538,7 +17538,7 @@ extension ProjectNatSweep on _HomePageState {
   }
 
   // IPSWEEP: هر IP تمیز را با اتصال واقعی روی یک سرور پشت کلودفلر امتحان می‌کند.
-  // فقط IP‌هایی که ترافیک تونل (google و youtube) بدهند نگه داشته می‌شوند (حداکثر ۱۰ تا).
+  // همه‌ی IPهایی که ترافیک تونل (google و youtube) بدهند نگه داشته می‌شوند؛ بدون سقف تعداد نتیجه.
   // IPSWEEP: IP‌های باز را روی همه‌ی پورت‌های CDN (_natCfPorts) پیدا می‌کند، سپس هر جفت IP:پورت
   // را با اتصال واقعی و بررسی تونل (google و youtube) می‌سنجد. فقط جفت‌های ترافیک‌دار نگه داشته می‌شوند.
   Future<List<CleanIp>> _atIpSweep(List<Server> pool, Duration budget) =>
@@ -17654,7 +17654,6 @@ extension ProjectNatSweep on _HomePageState {
       wantVpn = true;
       for (var i = 0; i < cands.length; i++) {
         if (abort || AutoTestEngine._abortRequested || AutoTestEngine._phase != _AtPhase.running) break;
-        if (winners.length >= 10) break;
         if (DateTime.now().difference(t0) > budget) break;
         final c = cands[i];
         cleanIps = [c];
