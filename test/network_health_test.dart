@@ -324,6 +324,8 @@ void main() {
         global: LinkHealth.healthy,
         domesticSamples: 3,
         globalSamples: 3,
+        domesticSuccesses: 2,
+        globalSuccesses: 2,
         domesticLatencyMs: 151,
         globalLatencyMs: 230,
       );
@@ -332,6 +334,8 @@ void main() {
         global: LinkHealth.healthy,
         domesticSamples: 3,
         globalSamples: 3,
+        domesticSuccesses: 2,
+        globalSuccesses: 2,
         domesticLatencyMs: 150,
         globalLatencyMs: 230,
       );
