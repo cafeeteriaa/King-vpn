@@ -690,7 +690,7 @@ was tested unless supplied evidence proves it. Keep the answer concise and usefu
       );
       var cleaned = raw
           .replaceFirst(RegExp(r'^\s*```(?:json)?\s*'), '')
-          .replaceFirst(RegExp(r'\s*```\s*, '')
+          .replaceFirst(RegExp(r'\s*```\s*$'), '')
           .trim();
       final jsonStart = cleaned.indexOf('{');
       final jsonEnd = cleaned.lastIndexOf('}');
