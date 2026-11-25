@@ -568,3 +568,12 @@ These are three distinct technical review passes by the same assistant, not thre
 - Three-pass review: (1) compatibility — public descriptor fields are preserved; (2) lifecycle/security — registry identity and capabilities cannot drift after registration; (3) regression — post-registration mutation and snapshot immutability are covered.
 - Commits: `abb124448ec405050b80e8f0e31e0f44f7497b7d` (descriptor snapshots), `fb9d48a14b9f3fa907e73b350226c19dbb822489` (frozen identity in chain validation), `37fce6c2eab1aafb93bf4d704ba89926c03a9ac4` (snapshot ID correction), `d6c9042b05adf2b7b889228319c0b91f76de19fc` (capability immutability test).
 - Test count: 34. Latest-head CI required.
+
+
+## 2026-11-25 — CI-discovered active-vs-cleanup snapshot correction
+
+- The CI run for `3bb1ee5778513c0bcd046fa88ed1617d2abd22ed` exposed a semantic bug in the new snapshot: `cleanupPendingEngineIds` was reporting every live active hop as pending cleanup, even while the route was healthy.
+- Corrected the getter to expose retained IDs only after the coordinator has entered the failed state with cleanup still outstanding. Healthy active routes and ordinary in-progress disconnects no longer appear as cleanup failures.
+- The failed CI run had 313 passing tests and one failing snapshot assertion; the failure was isolated to this reporting semantic, not compilation. The assertion now matches the corrected lifecycle distinction.
+- Three-pass review: (1) state semantics — active and cleanup-pending are distinct; (2) lifecycle — retained handles remain visible after failed rollback; (3) regression — the existing snapshot test covers healthy-active state while cleanup-retry tests cover failed state.
+- Fix commit: `f1bb315f5885d3421e25b63073d5d73f422d1dac`. Latest-head CI must verify this correction and the later registry/transport changes.
