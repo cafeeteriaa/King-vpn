@@ -502,3 +502,15 @@ These are three distinct technical review passes by the same assistant, not thre
 - Extended the failed-stop retry test to attempt a new connection before cleanup retry; it verifies the explicit cleanup-pending result and confirms no second native start occurs.
 - Three-pass review: (1) state semantics — connected and cleanup-pending are distinct; (2) lifecycle safety — no new engine can overlap a still-owned native handle; (3) regression — reconnect is blocked until reverse-order cleanup succeeds.
 - Commits: `2aa5b14650cea4a485484882948de61eaee28f10` (cleanup-pending guard), `3cfc20a107c48fa483f6ac7823a4efe6f9077298` (reconnect regression test).
+
+
+## 2026-11-25 — Read-only lifecycle state and safe Fusion telemetry
+
+- Added an additive, immutable `KingFusionSnapshot` exposing coordinator state, busy/disconnect flags, active engine IDs, pending cleanup IDs and the lifecycle event sequence. Native handles and configuration payloads are deliberately excluded.
+- Made the coordinator's state internally owned and externally read-only (`state` getter). Callers can no longer mutate the state machine independently of native resource ownership.
+- Added opt-in lifecycle telemetry with monotonically increasing sequence numbers, timestamps, safe event types, engine IDs, sanitized failure codes and active-hop counts. Events cover state transitions, preflight rejection, hop start/failure, traffic verification, rollback, cleanup and disconnect.
+- Observer exceptions are isolated; a faulty telemetry consumer cannot break connection startup or cleanup. No raw adapter exception strings, user configuration, credentials or native handles are included in event fields.
+- Added regression coverage for immutable snapshots, monotonic event sequencing, secret-free event content and listener exception isolation. Fusion test count is now 26.
+- Three-pass review: (1) API compatibility — event listener is optional and all additions are additive; existing adapter interfaces and call sites remain unchanged; (2) security/lifecycle — state is read-only externally and telemetry excludes secrets/handles; (3) regression — tests cover event ordering, snapshot contents and observer failures.
+- Commits: `dcaf38d76b24232d7c7959b9f5a29555d1558918` (snapshot/event API), `affca07a66d94ba066ef51fa4aac090715b9c773` (telemetry tests), `e64f46f565075e986ec8b19f7eaef566c838b012` (state-storage and validation telemetry correction).
+- The newest exact-head CI run is pending. The earlier `c41cb6c` run has passed Flutter tests and Dart analysis but its Android arm64 APK step is still in progress; it does not validate this newer telemetry revision.
