@@ -10784,6 +10784,14 @@ ListTile( // KINGEXTRAS row
         final currentBatch = List<String>.of(batch);
         batch.clear();
         await _natRangeAdd(currentBatch, count: false);
+        // Rebuild only from the current active/overflow queues. This avoids
+        // retaining a second full copy of every historical disk record.
+        have
+          ..clear()
+          ..addAll([
+            for (final server in [...pending, ...natRestPending])
+              '${server.host}|${server.port}',
+          ]);
         reused += currentBatch.length;
       }
 
@@ -10794,10 +10802,8 @@ ListTile( // KINGEXTRAS row
           continue;
         }
         final key = '$ip|$port';
-        if (have.contains(key)) continue;
-        // _natRangeAdd updates the active/overflow queues after every batch;
-        // those queues provide cross-batch deduplication without retaining an
-        // additional in-memory set proportional to the complete disk history.
+        if (!have.add(key)) continue;
+        have.add('$ip:$port');
         batch.add(key);
         if (batch.length >= memoryBatchSize) {
           await flushMemoryBatch();

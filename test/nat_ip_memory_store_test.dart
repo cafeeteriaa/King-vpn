@@ -143,7 +143,7 @@ void main() {
   });
 
   test('failed streaming filter preserves malformed original snapshot', () async {
-    const original = '{"ip":"192.0.2.1","port":443}\\nnot-json\\n';
+    const original = '{"ip":"192.0.2.1","port":443}\nnot-json\n';
     await store.file.parent.create(recursive: true);
     await store.file.writeAsString(original);
 
