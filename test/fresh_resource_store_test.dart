@@ -217,7 +217,7 @@ void main() {
       );
       final buffer = StringBuffer();
       for (final link in expected) {
-        buffer.write('not-a-config\\r\\n$link\\r\\n');
+        buffer.write('not-a-config\\r$link\\r\\n');
       }
       await snapshot.writeAsString(buffer.toString(), flush: true);
 
