@@ -2457,7 +2457,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
     def test_ip_auto_storage_load_and_save_are_mode_isolated_across_awaits(self):
         source = (ROOT / 'lib' / 'ip_auto_scan.dart').read_text(encoding='utf-8')
         load_start = source.index('Future<void> ipAutoLoad() async {')
-        save_start = source.index('Future<bool> _ipAutoSave() async {', load_start)
+        save_start = source.index('Future<bool> _ipAutoSave()', load_start)
         load = source[load_start:save_start]
         save_end = source.index('/// Inventory پویا', save_start)
         save = source[save_start:save_end]
@@ -2473,13 +2473,16 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn("'cursors': cursors", save)
         self.assertIn("'position': position", save)
         self.assertIn('return await p.setString(checkpointKey, jsonEncode({', save)
+        self.assertIn('Future<bool> _ipAutoSaveQueue = Future<bool>.value(true);', source)
+        self.assertIn('final operation = _ipAutoSaveQueue.then((_) async {', save)
+        self.assertIn('_ipAutoSaveQueue = operation.catchError(', save)
         self.assertIn('if (nationalMode != saveNationalMode ||', save)
 
     def test_ip_auto_uses_one_mode_specific_checkpoint_for_hits_pending_and_cursors(self):
         source = (ROOT / 'lib' / 'ip_auto_scan.dart').read_text(encoding='utf-8')
         self.assertIn("ipauto_checkpoint_v2_${loadNationalMode ? 'nat' : 'glob'}", source)
         self.assertIn("ipauto_checkpoint_v2_${saveNationalMode ? 'nat' : 'glob'}", source)
-        load = source[source.index('Future<void> ipAutoLoad() async {'):source.index('Future<bool> _ipAutoSave() async {')]
+        load = source[source.index('Future<void> ipAutoLoad() async {'):source.index('Future<bool> _ipAutoSave()')]
         save = source[source.index('Future<bool> _ipAutoSave() async {'):source.index('/// Inventory پویا')]
         self.assertIn("final checkpointRaw = p.getString(checkpointKey);", load)
         self.assertIn("if (checkpointRaw != null && checkpointRaw.isNotEmpty)", load)
