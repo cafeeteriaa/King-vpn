@@ -1448,6 +1448,12 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('fetchedAll', saved_list)
         self.assertNotIn('take(3000)', saved_list)
         self.assertNotIn('shuffle()', saved_list)
+        self.assertNotIn('_resMax', source)
+        res_start = source.index('void _resAdd(Server srv)')
+        res_end = source.index('// SRCSPLIT:', res_start)
+        res_add = source[res_start:res_end]
+        self.assertNotIn('_resMap.length >=', res_add)
+        self.assertIn('_resMap[srv.key] = e;', res_add)
 
     def test_saved_server_and_pending_queues_are_not_count_truncated(self):
         source = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
