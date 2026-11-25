@@ -219,6 +219,25 @@ class _FakeTrafficVerifier implements KingFusionTrafficVerifier {
 
 void main() {
   group('KING Fusion Engine', () {
+    test('failure result snapshots caller-owned cleanup identifiers immutably', () {
+      final sourceIds = <String>['engine-a'];
+      final result = KingFusionResult.failure(
+        failedEngineId: 'engine-b',
+        failureCode: 'E-FUSION-ROLLBACK',
+        startedHops: 1,
+        cleanupFailedEngineIds: sourceIds,
+      );
+
+      sourceIds
+        ..clear()
+        ..add('tampered');
+      expect(result.cleanupFailedEngineIds, ['engine-a']);
+      expect(
+        () => result.cleanupFailedEngineIds[0] = 'rewritten',
+        throwsA(isA<UnsupportedError>()),
+      );
+    });
+
     test('exposes immutable secret-free lifecycle snapshots and ordered events', () async {
       final events = <KingFusionEvent>[];
       final adapterEvents = <String>[];
