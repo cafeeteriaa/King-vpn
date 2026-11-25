@@ -3942,19 +3942,12 @@ class _AsyncMutex {
 }
 
 final _AsyncMutex _coreStartMutex = _AsyncMutex();
-// LOOPCAP: شمارنده‌ی هر بار دکمه‌ی اتصال. سروری که دو بار بدون ترافیک شد کنار می‌رود و
-// سقف کل تلاش‌های هسته برای هر بار اتصال دیده می‌شود (جلوی حلقه‌ی بی‌پایان را می‌گیرد).
+// Per-endpoint retry memory prevents hammering the same repeatedly silent server.
+// It does not cap the number of distinct candidates attempted in a connection run.
 final Map<String, int> zeroTrafficRun = {};
-int realStartsRun = 0;
-const int kMaxRealStartsPerTap = 40;
 bool lastFindGoodRejected = false; // د-۲: جستجوی قبلی آزاد نشد؛ فراخواننده باید بداند
 int _personalPingGen = 0; // مشکل ۷: نسل پینگ شخصی؛ نسل قدیمی لغو می‌شود
 // مشکل ۱۲: migration های DEFSYNC حذف شدند؛ دیگر تنظیمات کاربر بازنویسی نمی‌شوند.
-// د-۱: بودجه‌ی تأیید تونل (NATVERIFY) برای هر تپ. عدد پیش‌فرض است و قابل تغییر.
-const Duration kNatVerifyBudget = Duration(minutes: 6);
-// NATPINGCAP: سقف کل مرحله‌ی تأیید پینگ از تونل در نت ملی (قبلاً بی‌سقف بود)
-const int kNatPingDeadlineSec = 45;
-final Stopwatch natVerifyClock = Stopwatch();
 const int kMaxZeroTrafficPerServer = 2;
 
 Future<void> pool<T>(
@@ -7862,10 +7855,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         // A server is healthy only after a real request crosses the tunnel.
         final trafficCheck = Stopwatch()..start();
         var natOk = await _tunnelTrafficOk();
-        final natOverBudget = natVerifyClock.elapsed > kNatVerifyBudget;
-        if (!natOk && natOverBudget && wantVpn) {
-          dbg('NATVERIFY: سقف زمان تأیید تونل (${kNatVerifyBudget.inMinutes} دقیقه) در این تپ تمام شد؛ نردبان برای ${s.name} اجرا نشد');
-        } else if (!natOk && wantVpn && !abort) {
+        if (!natOk && wantVpn && !abort) {
           await _stopCore();
           natOk = await _natLadder(s, socialGate: _tunnelTrafficOk, maxTries: 6);
         } else if (!natOk && !wantVpn) {
@@ -8368,13 +8358,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         lastStartNoTunnel = false;
         return false;
       }
-      if (realStartsRun >= kMaxRealStartsPerTap) {
-        lastFail = 'توقف امن: تلاش‌های این اتصال به سقف رسید';
-        lastStartNoTunnel = false;
-        wantVpn = false;
-        return false;
-      }
-      realStartsRun++;
     }
     // QUIETSTART: برای اتصال واقعی VPN، تا پایان شروع هسته و بررسی تونل هیچ تست هسته‌ی
     // جدیدی (Xray اضافه داخل همین پروسه) شروع نمی‌شود و تست‌های در حال اجرا تا ۴ ثانیه
@@ -9296,13 +9279,14 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         // derived from the remaining shared verification deadline.
         final pingTries = nationalMode || indestructibleMode ? 3 : 2;
         var pingUsed = 0;
-        // VERIFYCAP: فقط اتصال عادی/خلبان: کل مرحله‌ی تأیید تونل حداکثر ۲۵ ثانیه. نت ملی بدون محدودیت (دست نخورده)
-        final verifyBudget = Duration(
-            seconds: nationalMode
-                ? kNatPingDeadlineSec // NATPINGCAP: نت ملی هم سقف دارد
-                : (s.personal ? 1 : 25)); // PERS1S: سرور شخصی ۱ ثانیه، بقیه ۲۵ ثانیه
+        // Regular mode retains its short per-server verification window.
+        // National mode has no aggregate deadline: each individual ping probe
+        // still has a finite timeout, and the loop remains cancellable by user intent.
+        final verifyBudget = Duration(seconds: s.personal ? 1 : 25);
         final verifyClock = Stopwatch()..start();
-        Duration verifyRemaining() => verifyBudget - verifyClock.elapsed;
+        Duration verifyRemaining() => nationalMode
+            ? const Duration(seconds: 30)
+            : verifyBudget - verifyClock.elapsed;
         for (var i = 0;
             i < pingTries &&
                 p == null &&
@@ -12615,16 +12599,11 @@ ListTile( // KINGEXTRAS row
     );
   }
 
-  // TAPRESET: سقف‌های هر-اتصال و کش DoH فقط در نقاط ورود کاربر ریست می‌شوند
-  // (_doConnect، personalFolderConnect، و شروع personalConnectAt(0)). failover و
-  // retryها این را صدا نمی‌زنند، پس سقف‌ها در یک تپ معنا دارند.
+  // TAPRESET: وضعیت مسیرهای تطبیقی و کش DoH در نقاط ورود کاربر تازه می‌شوند.
+  // این reset هیچ سقف تعداد/زمانی برای کشف یا تلاش روی کاندیداها تعیین نمی‌کند.
   void _resetTapCounters() {
-    realStartsRun = 0; // مشکل ۱: قبلاً هیچ‌وقت reset نمی‌شد
     _ladderUsedThisConnect = 0; // مشکل ۶: مسیرهای مستقیم _connectLoop از _acquire رد نمی‌شوند
     natDohCacheClear(); // ج-۲: کش DoH قبل از اولین probe این تپ تازه شود
-    natVerifyClock
-      ..reset()
-      ..start(); // د-۱: بودجه‌ی تأیید تونل هم هر-تپ است (در _doConnect بعد از تبلیغ دوباره شروع می‌شود)
     // PERSCANCEL: دیگر اینجا نسل پینگ شخصی را زیاد نمی‌کنیم. این کار پینگ‌هایی را
     // که همان لحظه‌ی تپ شخصی شروع شده‌اند (قبل از تبلیغ) لغو می‌کرد و نتیجه «سالم ۰» می‌داد.
   }
