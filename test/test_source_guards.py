@@ -1909,6 +1909,19 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('Duration(milliseconds: 250)', handler)
 
 
+    def test_fresh_resources_page_uses_paged_store_reads(self):
+        page = (ROOT / 'lib' / 'fresh_resources_page.dart').read_text(encoding='utf-8')
+        store = (ROOT / 'lib' / 'fresh_resource_store.dart').read_text(encoding='utf-8')
+        refresh_start = page.index('Future<void> _refresh() async {')
+        refresh_end = page.index('Future<void> _changePage(', refresh_start)
+        refresh = page[refresh_start:refresh_end]
+        self.assertIn('FreshResourceStore.readPage(offset: _pageOffset, limit: _pageSize)', refresh)
+        self.assertNotIn('FreshResourceStore.readLinks()', refresh)
+        self.assertIn('static Future<FreshResourcePage> readPage(', store)
+        self.assertIn('file.openRead()', store)
+        self.assertIn('hasMore: hasMore', store)
+        self.assertIn('FreshResourceStore.readLinks()', page[page.index('Future<void> _copyAll()'):page.index('Future<void> _clear()')])
+
     def test_fresh_resources_refresh_checks_mounted_before_set_state(self):
         source = (ROOT / 'lib' / 'fresh_resources_page.dart').read_text(encoding='utf-8')
         start = source.index('Future<void> _refresh() async {')
