@@ -1411,6 +1411,8 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('packed.add(pos + i + 1)', source)
         self.assertIn('final int lineCount;', source)
         self.assertIn('final int byteLength;', source)
+        self.assertIn('final String signature;', source)
+        self.assertIn('if (signature != h.signature)', source)
         self.assertIn('_hotOffsetAtLine(raf, h, start)', source)
         self.assertIn('_hotOffsetAtLine(raf, h, endLine)', source)
         self.assertNotIn('final List<int> offs;', source)
