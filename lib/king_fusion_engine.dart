@@ -458,7 +458,9 @@ class KingFusionEngine {
       state = KingFusionState.failed;
       return KingFusionResult.failure(
         failedEngineId: currentEngineId,
-        failureCode: 'E-FUSION-EXCEPTION',
+        failureCode: _disconnectRequested
+            ? 'E-FUSION-CANCELLED'
+            : 'E-FUSION-EXCEPTION',
         startedHops: startedCount,
         cleanupFailedEngineIds: cleanupFailures,
       );
