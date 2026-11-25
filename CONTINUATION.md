@@ -623,3 +623,12 @@ These are three distinct technical review passes by the same assistant, not thre
 - Dedicated Fusion test count: 42. Exact latest-head CI is required.
 
 - Follow-up test-quality refinement: the reentrant-connect regression now captures and awaits the returned `Future<KingFusionResult>` directly, rather than observing completion through a detached callback. This makes the assertion deterministic and ensures the rejection result is observed by the test. Commit: `34146d04c8f935bc0f0f376a8da167bddba73cc1`.
+
+
+## 2026-11-25 — Snapshot visibility for pending disconnect operations
+
+- Found that the snapshot's `disconnectRequested` flag remained false during the synchronous `disconnectRequested` event callback: the shared disconnect future was already published, but `_disconnectRequested` is reserved for cancelling an in-flight connect and had not yet been set.
+- Snapshot projection now reports `disconnectRequested` when either the in-flight cancellation flag is set or the shared disconnect operation exists. This keeps the observable snapshot consistent with the lifecycle event and the connection guard without changing the cancellation signal's internal semantics.
+- Extended the reentrant disconnect observer regression to capture the snapshot during `disconnectRequested` and assert it is true then, and false again after disconnect completes.
+- Three-pass review: (1) compatibility — additive correction to the existing snapshot boolean; (2) lifecycle — public snapshot now reflects the committed disconnect transition during observer callbacks; (3) regression — assertions cover both pending and completed states.
+- Commits: `008d4d3de4cf84dfbf80b5200bccd9a5a3bdc67b` (snapshot projection), `232e169e73fe90445ba8bf830898653e16c93ba9` (regression assertion). Dedicated Fusion test count remains 42.
