@@ -1718,15 +1718,69 @@ final Map<String, dynamic> _natConfiguredRangeOffsets = {}; // per-range address
 
 Set<String> natIpMemHosts() => {for (final e in natIpMem) '${e['ip']}'};
 
+bool _natIpMemLoaded = false;
+Future<bool>? _natIpMemLoadFuture;
+
+Future<JsonLinesInventoryStore> _natIpMemStore() async {
+  final directory = await getApplicationSupportDirectory();
+  return JsonLinesInventoryStore(
+    File('${directory.path}/nat_ip_memory.jsonl'),
+  );
+}
+
 Future<void> natIpMemLoad() async {
+  if (_natIpMemLoaded) return;
+  final active = _natIpMemLoadFuture;
+  if (active != null) {
+    _natIpMemLoaded = await active;
+    return;
+  }
+  final task = _natIpMemLoadImpl();
+  _natIpMemLoadFuture = task;
+  try {
+    _natIpMemLoaded = await task;
+  } finally {
+    if (identical(_natIpMemLoadFuture, task)) _natIpMemLoadFuture = null;
+  }
+}
+
+Future<bool> _natIpMemLoadImpl() async {
   try {
     final p = await SharedPreferences.getInstance();
-    final s = p.getString(_ipMemKey);
-    if (s != null) {
+    final store = await _natIpMemStore();
+    if (await store.file.exists()) {
+      // Stream the committed JSONL snapshot. A malformed record fails visibly;
+      // the previous in-memory state is not replaced by a partial inventory.
+      final loaded = await store.readAll();
       natIpMem
         ..clear()
-        ..addAll((jsonDecode(s) as List).cast<Map<String, dynamic>>());
+        ..addAll(loaded);
+    } else {
+      // One-time, lossless migration from the former SharedPreferences value.
+      final legacy = p.getString(_ipMemKey);
+      if (legacy != null && legacy.isNotEmpty) {
+        final decoded = jsonDecode(legacy);
+        if (decoded is! List) {
+          throw const FormatException('Legacy NAT IP inventory is not a list');
+        }
+        final migrated = <Map<String, dynamic>>[];
+        for (final entry in decoded) {
+          if (entry is! Map) {
+            throw const FormatException('Legacy NAT IP entry is not an object');
+          }
+          migrated.add(Map<String, dynamic>.from(entry));
+        }
+        await store.replaceAll(migrated);
+        natIpMem
+          ..clear()
+          ..addAll(migrated);
+        // Remove the old preference only after the durable file is committed.
+        await p.remove(_ipMemKey);
+      } else {
+        natIpMem.clear();
+      }
     }
+
     natRanges = (p.getString(_rangeKey) ?? '')
         .split(RegExp(r'[\r\n,; ]+'))
         .map((value) => value.trim())
@@ -1738,7 +1792,8 @@ Future<void> natIpMemLoad() async {
               wrap: false,
             ).addresses.isNotEmpty)
         .toList(growable: false);
-    _natConfiguredRangeCursor = (p.getInt('natConfiguredRangeCursor') ?? 0).clamp(0, 1 << 31).toInt();
+    _natConfiguredRangeCursor =
+        (p.getInt('natConfiguredRangeCursor') ?? 0).clamp(0, 1 << 31).toInt();
     _natConfiguredRangeOffsets.clear();
     final savedOffsets = p.getString('natConfiguredRangeOffsetsV1');
     if (savedOffsets != null && savedOffsets.isNotEmpty) {
@@ -1755,8 +1810,10 @@ Future<void> natIpMemLoad() async {
         logError(e, stk);
       }
     }
+    return true;
   } catch (e, stk) {
     logError(e, stk);
+    return false;
   }
 }
 
@@ -1797,6 +1854,9 @@ Future<bool> natIpMemSaveMany(Iterable<String> ips, int port) {
   final values = ips.toSet().toList(growable: false);
   final operation = _natIpMemSaveQueue.then((_) async {
     if (values.isEmpty) return true;
+    if (!_natIpMemLoaded) await natIpMemLoad();
+    if (!_natIpMemLoaded) return false;
+
     final timestamp = DateTime.now().millisecondsSinceEpoch;
     final nextMem = List<Map<String, dynamic>>.of(natIpMem);
     for (final ip in values.reversed) {
@@ -1804,9 +1864,8 @@ Future<bool> natIpMemSaveMany(Iterable<String> ips, int port) {
       nextMem.insert(0, {'ip': ip, 'port': port, 't': timestamp});
     }
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final committed = await prefs.setString(_ipMemKey, jsonEncode(nextMem));
-      if (!committed) return false;
+      final store = await _natIpMemStore();
+      await store.replaceAll(nextMem);
       natIpMem
         ..clear()
         ..addAll(nextMem);
