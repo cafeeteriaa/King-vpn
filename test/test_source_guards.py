@@ -1366,6 +1366,18 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         export_end = source.index('List<String> natHotUrls()', export_start)
         self.assertIn('await hotStorageAllow()', source[export_start:export_end])
 
+    def test_hot_cache_export_masks_credentials_while_streaming(self):
+        source = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
+        start = source.index('Future<void> hotExportToDownload() async')
+        end = source.index('List<String> natHotUrls()', start)
+        body = source[start:end]
+        self.assertIn('.openRead()', body)
+        self.assertIn('.transform(const LineSplitter())', body)
+        self.assertIn('_maskUuidsForExport(line)', body)
+        self.assertNotIn('src.readAsString()', body)
+        self.assertIn('if (exportFailed)', body)
+        self.assertIn('await exportSink.close();', body)
+
     def test_hot_source_fetch_does_not_truncate_each_source_inventory(self):
         source = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
         self.assertNotIn('natHotPerSource', source)
