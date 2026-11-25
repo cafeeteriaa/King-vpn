@@ -4115,5 +4115,14 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('wraps from the saved cursor', tests)
         self.assertIn('empty inventory and non-positive batch sizes', tests)
 
+    def test_endpoint_index_canonicalizes_ipv6_by_address_bytes(self):
+        scanner = (ROOT / 'lib' / 'nat_ip_scan.dart').read_text(encoding='utf-8')
+        tests = (ROOT / 'test' / 'nat_ip_scan_test.dart').read_text(encoding='utf-8')
+        self.assertIn('String natCanonicalIpAddress(InternetAddress address)', scanner)
+        self.assertIn('address.rawAddress', scanner)
+        self.assertIn('natCanonicalIpAddress(parsed)', scanner)
+        self.assertIn('IPv6 equivalents normalize to one compressed representation', tests)
+        self.assertIn('all-zero and trailing-zero IPv6 runs compress correctly', tests)
+
 if __name__ == '__main__':
     unittest.main()
