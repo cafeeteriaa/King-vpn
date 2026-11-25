@@ -9705,8 +9705,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         wantVpn) {
       // no data at all: the ping was fake. Replace it
       // در طول توربو failover نکن (ریستارت عمدی هسته است)
-      s.speed = 0;
-      s.speedAt = DateTime.now();
+      s.recordSpeed(null);
       lastWhy = 'سرعت واقعی صفر بود';
       if (!busy && !switching) {
         await _failover();
