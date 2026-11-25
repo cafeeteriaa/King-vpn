@@ -613,36 +613,57 @@ extension NipHunt on _HomePageState {
     if (ips.isEmpty || templates.isEmpty || port < 1 || port > 65535) {
       return false;
     }
-    _set('نت ملی: بررسی $label (' + ips.length.toString() + ' آدرس)…');
-    final hits = await nipScan(
-      ips,
-      port: port,
-      want: ips.length,
-      budget: const Duration(minutes: 2),
-      cancelled: () => abort,
-    );
-    if (abort || hits.isEmpty) return false;
+    // A DNS hostname can resolve to more endpoints than one two-minute
+    // probe window can cover. Process every resolved address in resumable-size
+    // slices; do not advance the template cursor after only the first slice.
+    const ipBatchSize = 256;
+    final totalBatches = (ips.length + ipBatchSize - 1) ~/ ipBatchSize;
+    for (var ipOffset = 0; ipOffset < ips.length; ipOffset += ipBatchSize) {
+      if (abort) return false;
+      final scanBatch = ips.skip(ipOffset).take(ipBatchSize).toList();
+      final batchNumber = ipOffset ~/ ipBatchSize + 1;
+      _set('نت ملی: بررسی $label • دسته $batchNumber/$totalBatches • '
+          '${ips.length} آدرس…');
 
-    for (var offset = 0; offset < hits.length; offset += 8) {
-      if (abort) return false;
-      final batch = hits.skip(offset).take(8);
-      final candidates = <Server>[];
-      for (var i = 0; i < batch.length; i++) {
-        final hit = batch.elementAt(i);
-        final template = templates[(offset + i) % templates.length];
-        final link = nipSwapLink(template, hit.ip);
-        if (link == null) continue;
-        final candidate = Server.parse(link);
-        if (candidate != null) candidates.add(candidate);
+      var completed = 0;
+      var hits = <NipHit>[];
+      // The slice is deliberately small enough to fit comfortably inside the
+      // per-batch budget. If the OS still interrupts it, retry this exact slice
+      // rather than committing the template cursor and skipping its tail.
+      while (completed < scanBatch.length) {
+        completed = 0;
+        hits = await nipScan(
+          scanBatch,
+          port: port,
+          want: scanBatch.length,
+          budget: const Duration(minutes: 2),
+          cancelled: () => abort,
+          onProgress: (done, total) => completed = done,
+        );
+        if (abort) return false;
       }
-      if (candidates.isEmpty) continue;
-      _set('نت ملی: اعتبارسنجی تونلی ' + candidates.length.toString() + ' کاندیدا…');
-      if (await _connectLoop(candidates, trust: false)) {
-        final winner = current;
-        if (winner != null) _natAdd(winner);
-        return true;
+
+      for (var offset = 0; offset < hits.length; offset += 8) {
+        if (abort) return false;
+        final batch = hits.skip(offset).take(8).toList(growable: false);
+        final candidates = <Server>[];
+        for (var i = 0; i < batch.length; i++) {
+          final hit = batch[i];
+          final template = templates[(offset + i) % templates.length];
+          final link = nipSwapLink(template, hit.ip);
+          if (link == null) continue;
+          final candidate = Server.parse(link);
+          if (candidate != null) candidates.add(candidate);
+        }
+        if (candidates.isEmpty) continue;
+        _set('نت ملی: اعتبارسنجی تونلی ' + candidates.length.toString() + ' کاندیدا…');
+        if (await _connectLoop(candidates, trust: false)) {
+          final winner = current;
+          if (winner != null) _natAdd(winner);
+          return true;
+        }
+        if (abort) return false;
       }
-      if (abort) return false;
     }
     return false;
   }
