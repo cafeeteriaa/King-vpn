@@ -5,6 +5,7 @@ import 'http_response_policy.dart';
 import 'background_concurrency_policy.dart';
 import 'proc_stat_cpu.dart';
 import 'speed_probe_policy.dart';
+import 'failover_retry_policy.dart';
 import 'king_local_ai.dart';
 import 'king_ai_console.dart';
 import 'king_chat_page.dart';
@@ -3274,6 +3275,7 @@ bool _validHost(String h) {
 
 // BUSYDROP: how many times a dropped failover was re-scheduled
 int _failoverRetries = 0;
+Timer? _failoverRetryTimer;
 
 // a broken %XX / UTF-8 sequence in a name must never throw
 String _safeDecodeComp(String t) {
@@ -5832,6 +5834,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _failoverRetryTimer?.cancel();
+    _failoverRetryTimer = null;
     watch?.cancel();
     dropTimer?.cancel();
     tick?.cancel();
@@ -12964,6 +12968,9 @@ ListTile( // KINGEXTRAS row
 
     abort = true; // جستجوی در جریان را هم قطع کن
     wantVpn = false;
+    _failoverRetryTimer?.cancel();
+    _failoverRetryTimer = null;
+    _failoverRetries = 0;
     _connGen++; // DISCONNECTFIX: cancel any connect still in flight
     pendingFailover = false;
     switching = true;
@@ -13289,17 +13296,25 @@ ListTile( // KINGEXTRAS row
       return;
     }
     if (busy) {
-      // BUSYDROP: busy → try again in 10 s (max 30 times) instead of dropping it
-      if (_failoverRetries < 30) {
-        _failoverRetries++;
-        Future.delayed(const Duration(seconds: 10), () {
-          if (mounted && wantVpn && !connected && !busy) {
+      // BUSYDROP-V2: keep one retry scheduled while work is busy. The retry
+      // callback re-enters _failover even if busy is still true, so it can
+      // schedule the next backoff instead of silently dropping the recovery.
+      if (_failoverRetryTimer?.isActive != true) {
+        _failoverRetries =
+            nextFailoverRetryStage(_failoverRetries);
+        final delay = failoverBusyRetryDelay(_failoverRetries);
+        dbg('FAILOVER-BUSY-RETRY: attempt-stage=$_failoverRetries delay=${delay.inSeconds}s');
+        _failoverRetryTimer = Timer(delay, () {
+          _failoverRetryTimer = null;
+          if (mounted && wantVpn && !connected) {
             unawaited(_failover().catchError((e) => logError(e)));
           }
         });
       }
       return;
     }
+    _failoverRetryTimer?.cancel();
+    _failoverRetryTimer = null;
     _failoverRetries = 0;
     // STOP-RACE: a switch must not undo a stop the user already asked for
     if (!wantVpn) return;

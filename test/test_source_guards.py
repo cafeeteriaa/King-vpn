@@ -623,6 +623,17 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn('autoTuneNow()', tick)
 
 
+    def test_failover_busy_retry_has_no_finite_attempt_ceiling(self):
+        main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        policy = (ROOT / 'lib' / 'failover_retry_policy.dart').read_text(encoding='utf-8')
+        self.assertIn('Timer? _failoverRetryTimer;', main)
+        self.assertIn('nextFailoverRetryStage(_failoverRetries)', main)
+        self.assertIn('failoverBusyRetryDelay(_failoverRetries)', main)
+        self.assertNotIn('_failoverRetries < 30', main)
+        self.assertIn('if (mounted && wantVpn && !connected)', main)
+        self.assertIn('Timer(delay, () {', main)
+        self.assertIn('failoverBusyRetryDelay', policy)
+
     def test_pilot_scanner_and_ip_ranges_are_isolated_from_general_scanners(self):
         main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
         pilot = (ROOT / 'lib' / 'iran_ai_extras.dart').read_text(encoding='utf-8')
