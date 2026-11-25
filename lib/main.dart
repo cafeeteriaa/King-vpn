@@ -4777,22 +4777,23 @@ bool _looksBase64(String body) {
 }
 
 Future<List<Server>> fetchServers({bool Function()? stop, int? quickCap}) async {
-  // QUICKLIST: quickCap = دریافت سریع؛ به ~۲۰۰ سرور که رسید بقیه‌ی منابع رها می‌شوند
-  // و بعد از اتصال، لیست کامل در پس‌زمینه دریافت می‌شود
+  // QUICKLIST is an explicitly short first-pass path. Full discovery has no
+  // total-source deadline or per-source result ceiling; every configured
+  // source gets a turn, and a slow source is retried on the next refresh.
   srcFetchState.clear();
   srcFetchCount.clear();
   final all = <String, Server>{};
-  final sw = Stopwatch()..start();
-  final dl = quickCap != null ? const Duration(seconds: 12) : fetchDeadline;
+  final sourceTimeout = quickCap != null
+      ? const Duration(seconds: 12)
+      : fetchDeadline;
   // لینک‌های اضافه‌ی کاربر اول دریافت می‌شوند
   await pool<String>([...userListUrls, ...listUrls], fetchWorkers, (u) async {
-    if ((stop?.call() ?? false) || sw.elapsed > dl || (quickCap != null && all.length >= quickCap)) {
+    if ((stop?.call() ?? false) || (quickCap != null && all.length >= quickCap)) {
       srcFetchState[u] = 'skip';
       return;
     }
     try {
-      final r =
-          await getListMirror(u);
+      final r = await getListMirror(u).timeout(sourceTimeout);
       if (r.statusCode != 200) {
         srcFetchState[u] = 'fail';
         return;
@@ -4831,7 +4832,7 @@ Future<List<Server>> fetchServers({bool Function()? stop, int? quickCap}) async 
         ..shuffle();
       var pn = 0;
       var okN = 0;
-      for (final l in lines.take(quickCap != null ? 30 : maxPerSource)) {
+      for (final l in quickCap != null ? lines.take(30) : lines) {
         final s = Server.parse(l);
         if (s != null) {
           s.src = u;
