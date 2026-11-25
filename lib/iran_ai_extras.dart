@@ -307,7 +307,7 @@ Future<http.Response?> _raceGet(List<String> urls, Duration t) {
   for (final u in urls) {
     http.get(Uri.parse(u)).timeout(t).then((r0) {
       final r = _safeResp(r0);
-      if (r.statusCode == 200 && r.body.isNotEmpty && !c.isCompleted) {
+      if (isUsableHttpListResponse(r.statusCode, r.body) && !c.isCompleted) {
         c.complete(r);
       }
     }).catchError((e) { logError(e); }).whenComplete(() {
@@ -323,10 +323,14 @@ Future<http.Response> getListMirror(String u) async {
   final skipRaw = ms.isNotEmpty && _rawOk == 0 && _rawFail >= 6;
   if (!skipRaw) {
     try {
-      final r =
+      final response =
           await http.get(Uri.parse(u)).timeout(const Duration(seconds: 8));
-      _rawOk++;
-      return _safeResp(r);
+      final r = _safeResp(response);
+      if (isUsableHttpListResponse(r.statusCode, r.body)) {
+        _rawOk++;
+        return r;
+      }
+      _rawFail++;
     } catch (e, stk) {
       logError(e, stk);
       _rawFail++;
