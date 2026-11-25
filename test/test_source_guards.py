@@ -2681,14 +2681,16 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         fetch = main[start:end]
         self.assertNotIn('maxPerSource', main)
         self.assertNotIn('fetchDeadline', main)
-        self.assertIn('Stream<String>.value(body)', fetch)
+        self.assertIn('withListMirrorStream(u,', fetch)
+        self.assertIn('_streamSourceLines(bytes)', fetch)
         self.assertIn('await for (final line in lines)', fetch)
-        self.assertIn('for (final line in quickLines.take(30))', fetch)
+        self.assertIn('final quickSample = <String>[]', fetch)
+        self.assertNotIn('quickLines.toList()', fetch)
         self.assertIn('quickCap != null', fetch)
 
     def test_raw_subscription_http_errors_fall_through_to_configured_mirrors(self):
         extras = (ROOT / 'lib' / 'iran_ai_extras.dart').read_text(encoding='utf-8')
-        start = extras.index('Future<http.Response> getListMirror(String u)')
+        start = extras.index('Future<http.Response> getListMirror(String u, {bool skipRaw = false})')
         end = extras.index('// ======================= لینک اشتراک', start)
         method = extras[start:end]
         self.assertIn('r.statusCode == 200 && r.bodyBytes.isNotEmpty', method)
@@ -2754,7 +2756,8 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('utf8.decoder', decoder)
         self.assertIn('base64.decode(b64)', decoder)
         self.assertIn("lower.contains('<html')", decoder)
-        self.assertIn("_linkRe.allMatches", decoder)
+        self.assertIn("_linkRe", decoder)
+        self.assertIn(".allMatches(line.replaceAll", decoder)
         self.assertLess(
             decoder.index("lower.contains('<html')"),
             decoder.index("line.contains('://')"),
