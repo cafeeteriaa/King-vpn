@@ -1414,6 +1414,11 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         save_cache_start = source.index('Future<void> _saveCache()')
         save_cache_end = source.index('/// true وقتی در این اجرای برنامه', save_cache_start)
         save_cache = source[save_cache_start:save_cache_end]
+        load_start = source.index('Future<void> _loadCache()')
+        load_end = source.index('DateTime _lastSaveAt', load_start)
+        load_cache = source[load_start:load_end]
+        self.assertIn('good.add(s);', load_cache)
+        self.assertIn('warmKeys.add(s.key);', load_cache)
         self.assertIn("await p.setString('failed2'", save_cache)
         self.assertNotIn('take(4000)', save_cache)
         screen_start = source.index('Future<void> _persistScreenLists()')
