@@ -9,6 +9,8 @@ void main() {
         global: LinkHealth.unreachable,
         domesticSamples: 3,
         globalSamples: 2,
+        domesticSuccesses: 2,
+        globalSuccesses: 0,
       );
       expect(choosePilotNetworkStrategy(evidence), PilotNetworkStrategy.domestic);
     });
@@ -27,6 +29,8 @@ void main() {
         global: LinkHealth.healthy,
         domesticSamples: 2,
         globalSamples: 3,
+        domesticSuccesses: 0,
+        globalSuccesses: 2,
       );
       expect(choosePilotNetworkStrategy(evidence), PilotNetworkStrategy.global);
     });
