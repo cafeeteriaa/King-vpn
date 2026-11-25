@@ -37,6 +37,17 @@ class KingV2RayAdapter implements KingFusionCancellableEngineAdapter {
   bool _starting = false;
   bool _cancelRequested = false;
   int _generation = 0;
+  Future<void>? _stopInFlight;
+
+  Future<void> _stopNativeSerialized() {
+    final current = _stopInFlight;
+    if (current != null) return current;
+    final operation = _stopNative();
+    _stopInFlight = operation;
+    return operation.whenComplete(() {
+      if (identical(_stopInFlight, operation)) _stopInFlight = null;
+    });
+  }
 
   @override
   KingEngineDescriptor get descriptor => _descriptor;
@@ -64,7 +75,7 @@ class KingV2RayAdapter implements KingFusionCancellableEngineAdapter {
       if (generation != _generation || _cancelRequested) {
         // A stop can race a platform start method. Stop again after that
         // method settles so a late native start cannot become an orphan.
-        await _stopNative();
+        await _stopNativeSerialized();
         return const KingEngineStartResult.failed('E-V2RAY-START-CANCELLED');
       }
       final handle = Object();
