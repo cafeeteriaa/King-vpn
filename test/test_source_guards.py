@@ -1367,12 +1367,14 @@ class KingVpnSourceGuardTests(unittest.TestCase):
     def test_hot_source_fetch_does_not_truncate_each_source_inventory(self):
         source = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
         self.assertNotIn('natHotPerSource', source)
-        fetch_start = source.index('Future<List<String>> _hotFetchOne(')
+        fetch_start = source.index('Future<int> _hotFetchOne(String u, String path)')
         fetch_end = source.index('Future<void>? _hotEnsureFuture', fetch_start)
         fetch_body = source[fetch_start:fetch_end]
-        self.assertIn('for (final l in lines)', fetch_body)
+        self.assertIn('_hotWriteSourceLines(u, path,', fetch_body)
+        self.assertIn('const LineSplitter().split(body)', fetch_body)
         self.assertNotIn('out.length >=', fetch_body)
-        self.assertIn("out.add('$u\\t$t');", fetch_body)
+        self.assertNotIn('List<String> _hotSplitIso', source)
+        self.assertIn("sink.writeln('$source\\t$value');", fetch_body)
 
     def test_hot_source_refresh_merges_previous_inventory_without_replacing_on_empty_fetch(self):
         source = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
