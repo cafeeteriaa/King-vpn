@@ -44,26 +44,44 @@ Future<void> ipAutoLoad() async {
   final posKey = '${_ipAutoPosKey}_${loadNationalMode ? 'nat' : 'glob'}';
   final cursorKey = '${_ipAutoCursorKey}_${loadNationalMode ? 'nat' : 'glob'}';
   final pendingKey = '${_ipAutoPendingKey}_${loadNationalMode ? 'nat' : 'glob'}';
+  final checkpointKey = 'ipauto_checkpoint_v2_${loadNationalMode ? 'nat' : 'glob'}';
   try {
     final p = await SharedPreferences.getInstance();
     if (nationalMode != loadNationalMode) return;
-    final savedHits = p.getString(hitsKey) ?? '';
-    final savedPending = p.getString(pendingKey) ?? '';
-    final savedPos = int.tryParse(p.getString(posKey) ?? '') ?? 0;
+    String savedHits;
+    String savedPending;
+    int savedPos;
     final loadedCursors = <String, dynamic>{};
-    final c = p.getString(cursorKey);
-    if (c != null && c.isNotEmpty) {
-      try {
-        final decoded = jsonDecode(c);
-        if (decoded is Map) {
-          for (final entry in decoded.entries) {
-            if (entry.value is num || entry.value is String) {
-              loadedCursors['${entry.key}'] = entry.value;
+    final checkpointRaw = p.getString(checkpointKey);
+    if (checkpointRaw != null && checkpointRaw.isNotEmpty) {
+      final checkpoint = jsonDecode(checkpointRaw);
+      if (checkpoint is! Map) throw const FormatException('Invalid IP Auto checkpoint');
+      savedHits = (checkpoint['hits'] ?? '').toString();
+      savedPending = (checkpoint['pending'] ?? '').toString();
+      savedPos = (checkpoint['position'] as num?)?.toInt() ?? 0;
+      final savedCursors = checkpoint['cursors'];
+      if (savedCursors is Map) {
+        for (final entry in savedCursors.entries) {
+          if (entry.value is num || entry.value is String) loadedCursors['${entry.key}'] = entry.value;
+        }
+      }
+    } else {
+      // One-time migration path for the original split preference keys.
+      savedHits = p.getString(hitsKey) ?? '';
+      savedPending = p.getString(pendingKey) ?? '';
+      savedPos = int.tryParse(p.getString(posKey) ?? '') ?? 0;
+      final legacyCursors = p.getString(cursorKey);
+      if (legacyCursors != null && legacyCursors.isNotEmpty) {
+        try {
+          final decoded = jsonDecode(legacyCursors);
+          if (decoded is Map) {
+            for (final entry in decoded.entries) {
+              if (entry.value is num || entry.value is String) loadedCursors['${entry.key}'] = entry.value;
             }
           }
+        } catch (e, stk) {
+          logError(e, stk);
         }
-      } catch (e, stk) {
-        logError(e, stk);
       }
     }
     if (nationalMode != loadNationalMode) return;
@@ -83,8 +101,9 @@ Future<void> ipAutoLoad() async {
   }
 }
 
-Future<void> _ipAutoSave() async {
-  // Persist an immutable snapshot under the keys belonging to its captured mode.
+Future<bool> _ipAutoSave() async {
+  // Persist one immutable mode-specific checkpoint so hits, pending work and
+  // cursors can never be restored from different points in the same run.
   final saveNationalMode = nationalMode;
   if (_ipAutoLoadedNat != null && _ipAutoLoadedNat != saveNationalMode) return;
   final hits = List<String>.of(ipAutoHits);
@@ -94,19 +113,22 @@ Future<void> _ipAutoSave() async {
   final hitsKey = saveNationalMode ? _ipAutoKeyNat : _ipAutoKeyGlob;
   final cursorKey = '${_ipAutoCursorKey}_${saveNationalMode ? 'nat' : 'glob'}';
   final posKey = '${_ipAutoPosKey}_${saveNationalMode ? 'nat' : 'glob'}';
-  final pendingKey = '${_ipAutoPendingKey}_${saveNationalMode ? 'nat' : 'glob'}';
+  final checkpointKey = 'ipauto_checkpoint_v2_${saveNationalMode ? 'nat' : 'glob'}';
   try {
     final p = await SharedPreferences.getInstance();
     if (nationalMode != saveNationalMode ||
         (_ipAutoLoadedNat != null && _ipAutoLoadedNat != saveNationalMode)) {
-      return;
+      return false;
     }
-    await p.setString(hitsKey, hits.join('\n'));
-    await p.setString(pendingKey, pending.join('\n'));
-    await p.setString(cursorKey, jsonEncode(cursors));
-    await p.setString(posKey, position.toString());
+    return await p.setString(checkpointKey, jsonEncode({
+      'hits': hits.join('\n'),
+      'pending': pending.join('\n'),
+      'cursors': cursors,
+      'position': position,
+    }));
   } catch (e, stk) {
     logError(e, stk);
+    return false;
   }
 }
 
@@ -622,7 +644,10 @@ extension IpAutoExt on _HomePageState {
             } finally {
               sheetScanRunning = false;
               // Keep the lock until the snapshot is persisted.
-              await _ipAutoSave();
+              final checkpointSaved = await _ipAutoSave();
+              if (!checkpointSaved) {
+                upd(() => ipAutoStatus = 'ذخیره checkpoint ناموفق بود؛ وضعیت قبلی حفظ شد و دسته بعدی نباید جلو برود.');
+              }
               ipAutoBusy = false;
               dnsxManualBusy = false;
               upd(() {});
