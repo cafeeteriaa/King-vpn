@@ -4754,25 +4754,42 @@ Future<List<Server>> fetchServers({bool Function()? stop, int? quickCap}) async 
           return;
         }
       }
-      final lines = body
-          .split(RegExp(r'[\r\n]+'))
-          .where((l) =>
-              l.contains('://') && !l.contains('[email') && !l.contains('protected]'))
-          .toList()
-        ..shuffle();
+      // Keep full-source parsing line-streamed: splitting a large subscription
+      // into a second giant List duplicated memory pressure on low-RAM devices.
+      final lines = Stream<String>.value(body)
+          .transform(const LineSplitter())
+          .map((line) => line.trim())
+          .where((line) =>
+              line.contains('://') &&
+              !line.contains('[email') &&
+              !line.contains('protected]'));
       var pn = 0;
       var okN = 0;
-      final sourceLines = quickCap == null ? lines : lines.take(30);
-      for (final l in sourceLines) {
-        final s = Server.parse(l);
-        if (s != null) {
-          s.src = u;
+      Future<void> consumeLine(String line) async {
+        final server = Server.parse(line);
+        if (server != null) {
+          server.src = u;
           okN++;
-          all.putIfAbsent(s.key, () => s);
+          all.putIfAbsent(server.key, () => server);
         }
-        // FREEZEFIX: give the UI thread a frame every few parses
+        // FREEZEFIX: give the UI thread a frame every few parses.
         if (++pn % 25 == 0) {
           await Future<void>.delayed(const Duration(milliseconds: 2));
+        }
+      }
+
+      if (quickCap != null) {
+        // The fast-connect path intentionally samples a small randomized prefix.
+        final quickLines = await lines.toList();
+        quickLines.shuffle();
+        for (final line in quickLines.take(30)) {
+          await consumeLine(line);
+        }
+      } else {
+        // Exhaustive mode consumes every candidate without materializing a
+        // second full list of lines in memory.
+        await for (final line in lines) {
+          await consumeLine(line);
         }
       }
       srcFetchState[u] = okN > 0 ? 'ok' : 'fail';
