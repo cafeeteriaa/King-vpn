@@ -20,7 +20,7 @@ class LargeProjectEditingGuards(unittest.TestCase):
             "total + content.length > 7500",
             "content.length > 4000",
             "entry['size'] as num) <= 16000",
-            "entries.take(40)",
+            "candidates.take(40)",
             "scored.take(6)",
         )
         for marker in forbidden:

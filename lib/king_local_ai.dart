@@ -1654,7 +1654,7 @@ was tested unless supplied evidence proves it. Keep the answer concise and usefu
     String task,
     List<Map> candidates,
   ) async {
-    final shortlist = candidates.take(40)
+    final shortlist = candidates
         .map((entry) => entry['path'] as String).toList();
     if (shortlist.isEmpty) return const [];
     // Keep repository triage deterministic: do not ask the conversational
