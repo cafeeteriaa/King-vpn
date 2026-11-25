@@ -373,6 +373,7 @@ const int _nipFrontSniBatchSize = 8;
 const String _nipFrontSniCursorKey = 'nip_front_sni_cursor_v1';
 int _nipFrontSniCursor = 0;
 Future<void>? _nipFrontSniCursorLoadFuture;
+Future<void> _nipFrontSniScanQueue = Future<void>.value();
 Future<void> _nipEnsureFrontSniCursorLoaded() {
   return _nipFrontSniCursorLoadFuture ??= () async {
     try {
@@ -435,27 +436,45 @@ Future<String?> nipFrontProbe(String ip, int port, String sni) async {
 
 Future<String?> nipFindFrontSni(String ip, int port, {bool Function()? cancelled}) async {
   await _nipEnsureFrontSniCursorLoaded();
-  // Previously verified SNI names are promoted into the fronting candidate
-  // pool, while the complete domain catalog remains available for discovery.
-  final inventory = <String>{
-    ...natFrontSnis,
-    ...dnsxFullDomains(),
-    ...(_goldScan['sni'] ?? const <String>[]),
-  }.toList()..sort();
-  if (inventory.isEmpty) return null;
-  final start = _nipFrontSniCursor % inventory.length;
-  final count = min(_nipFrontSniBatchSize, inventory.length);
-  // Advance synchronously before the first await so concurrent IP probes do
-  // not all repeat the same domain slice.
-  _nipFrontSniCursor = (start + count) % inventory.length;
-  _nipPersistFrontSniCursor(_nipFrontSniCursor);
-  for (var offset = 0; offset < count; offset++) {
-    if (cancelled?.call() ?? false) return null;
-    final sni = inventory[(start + offset) % inventory.length];
-    final ok = await nipFrontProbe(ip, port, sni);
-    if (ok != null) return ok;
+
+  // Serialize cursor ownership. A cancelled probe must never reserve and skip
+  // domains that were not actually tested by this invocation.
+  final previous = _nipFrontSniScanQueue;
+  final release = Completer<void>();
+  _nipFrontSniScanQueue = release.future;
+  await previous;
+  try {
+    final inventory = <String>{
+      ...natFrontSnis,
+      ...dnsxFullDomains(),
+      ...(_goldScan['sni'] ?? const <String>[]),
+    }.toList()..sort();
+    if (inventory.isEmpty) return null;
+
+    final start = _nipFrontSniCursor % inventory.length;
+    final count = min(_nipFrontSniBatchSize, inventory.length);
+    var completed = 0;
+    for (var offset = 0; offset < count; offset++) {
+      if (cancelled?.call() ?? false) break;
+      final sni = inventory[(start + offset) % inventory.length];
+      final ok = await nipFrontProbe(ip, port, sni);
+      completed++;
+      if (ok != null) {
+        _nipFrontSniCursor = (start + completed) % inventory.length;
+        _nipPersistFrontSniCursor(_nipFrontSniCursor);
+        return ok;
+      }
+    }
+    // Commit only probes that actually completed. Unvisited names remain
+    // queued after cancellation or interruption.
+    if (completed > 0) {
+      _nipFrontSniCursor = (start + completed) % inventory.length;
+      _nipPersistFrontSniCursor(_nipFrontSniCursor);
+    }
+    return null;
+  } finally {
+    release.complete();
   }
-  return null;
 }
 
 /// همان کانفیگ را با IP و SNI جدید می‌سازد؛ Host اصلی سرور حفظ می‌شود.
