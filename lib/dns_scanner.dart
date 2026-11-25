@@ -125,6 +125,7 @@ List<String> dnsxFullDomains() {
     ...natIrDomains,
     ..._dnsxHostsFrom(iranDomains),
     ..._dnsxHostsFrom(_iranMoreDomains),
+    ..._dnsxHostsFrom(natFrontSnis),
     ..._dnsxHostsFrom(natRelayHosts),
   };
   final domains = all.where((value) => value.trim().isNotEmpty).toList()
@@ -384,13 +385,9 @@ Future<void> dnsxAutoPick({bool Function()? stop}) async {
     if (cached is List && dnsxBestCache.isEmpty) {
       dnsxBestCache = [for (final x in cached) x.toString()];
     }
-    final at = p.get('dnsx_at_v1_$sfx');
-    final last = at is int ? at : 0;
     final now = DateTime.now().millisecondsSinceEpoch;
-    // فاصله‌ی ۲۴ ساعته همیشه رعایت شود، حتی وقتی نتیجه‌ای نبود (جلوگیری از اسکن تکراری)
-    // اگر DNS سالمی نداریم، زودتر دوباره اسکن می‌شود (۶ ساعت)؛ وگرنه هر ۲۴ ساعت
-    final gapMs = dnsxBestCache.isEmpty ? 6 * 3600 * 1000 : 24 * 3600 * 1000;
-    if (now - last < gapMs) return;
+    // No fixed 6/24-hour cooldown: every scheduler invocation resumes the
+    // current mode's complete DNS inventory, while the busy lock prevents overlap.
     final savedDns = await goldDnsList();
     if (nationalMode != scanNationalMode) return;
     final list = {...savedDns, ...(scanNationalMode ? kDnsxNationalDefaults : kDnsxDefaults)}.toList();

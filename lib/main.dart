@@ -1030,7 +1030,7 @@ Future<void> _dbgProbSave() async {
     final l = dbgProbs.entries.toList()
       ..sort((a, b) => b.value.last.compareTo(a.value.last));
     final out = <String>[];
-    for (final e in l.take(400)) {
+    for (final e in l) {
       out.add([
         e.key,
         e.value.msg,
@@ -6350,6 +6350,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           s.ai = null; // force revalidation; cached provider-era flags are not generic web evidence
           s.miss = (j['m'] as num?)?.toInt() ?? 0;
           s.restored = true; // RESTORE: همان سرورهای سالم قبلی؛ حذف نمی‌شوند
+          good.add(s); // Restore the cached server object so warm-first and national revalidation can actually run.
           warmKeys.add(s.key);
           // Restored cache entries are candidates until the current session
           // verifies real TUN traffic; do not promote legacy ping-only cache data.
@@ -6450,6 +6451,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     saveT = Timer(const Duration(seconds: 20), _saveCache);
   }
 
+  void _scheduleCacheSaveRetry() {
+    if (saveT?.isActive == true) return;
+    saveT = Timer(const Duration(seconds: 30), _saveCache);
+  }
+
   // ALL healthy servers (no count limit), best speed first, kept on disk
   // A healthy server is only dropped after [missLimit] failed re-checks.
   Future<void> _saveCache() async {
@@ -6464,13 +6470,12 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           .where((e) => now.difference(e.value) < failWindow)
           .toList()
         ..sort((a, b) => b.value.compareTo(a.value));
-      if (fl.length > 4000) fl = fl.take(4000).toList();
-      await p.setString('failed2',
+      final failedSaved = await p.setString('failed2',
           await _shJson({for (final e in fl) e.key: e.value.millisecondsSinceEpoch}));
       final keep = good.where((s) => s.miss < missLimit).toList()
         ..sort(bySpeedThenPing);
       // KEEPLIST: همیشه ذخیره می‌شود (حتی اگر فعلاً خالی باشد)
-      await p.setString(
+      final goodSaved = await p.setString(
           'cache',
           await _shJson(keep
               .map((s) => {
@@ -6481,8 +6486,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                     'm': s.miss
                   })
               .toList()));
+      if (!failedSaved || !goodSaved) _scheduleCacheSaveRetry();
     } catch (e, stk) {
       logError(e, stk);
+      _scheduleCacheSaveRetry();
     }
   }
 
@@ -6526,7 +6533,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         final keepList = <Server>[
           if (cur != null && !cur.personal) cur,
           ..._usable().where((x) => !identical(x, cur) && !x.personal),
-        ].take(60).toList();
+        ];
         await p.setString(
             'screen_good_v1',
             jsonEncode([
@@ -6594,8 +6601,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       final p = await SharedPreferences.getInstance();
       await p.setStringList(
           'list_cache',
-          (fetchedAll.toList()..shuffle())
-              .take(3000)
+          fetchedAll
               .map((s) => '${s.src ?? ''}\t${s.link}')
               .toList());
       await p.setInt('list_time', DateTime.now().millisecondsSinceEpoch);
@@ -6882,7 +6888,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       if (!natHotReady()) {
         _set('پوشه‌ی منابع تازه هنوز ساخته نشده: روی «پوشه منابع تازه» بزن و حدود ۱۰ دقیقه صبر کن');
       }
-      final hotOff = await natHotNext(300, fetch: false); // هر دور ۳۰۰ تا؛ اگر پیدا نشد دور بعد ادامه می‌دهد
+      final hotOff = await natHotNext(null, fetch: false); // complete local hot inventory
       // FRESH-DISK: منابع تازه‌ی ذخیره‌شده روی گوشی در اتصال آفلاین هم قابل استفاده‌اند.
       final diskLinks = await FreshResourceStore.readLinks();
       final diskOff = <Server>[];
@@ -7530,7 +7536,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     if (ipMode && !abort) {
       final top = (alive.toList()..sort(_cmpAlive))
           .where((s) => s.ipLink == null && !s.ipTried)
-          .take(40)
           .toList();
       await pool<Server>(top, 24, (s) async {
         s.ipTried = true;
@@ -7936,7 +7941,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     final useMatrix = nationalMode;
     final multi = useMatrix;
     final order = useMatrix
-        ? <int>[0, ..._natOrder(s, full: _resFull).where((v) => v != 0).take(max(0, natMaxVariants - 1))]
+        ? <int>[0, ..._natOrder(s, full: _resFull).where((v) => v != 0)]
         : const [0]; // اول کانفیگ اصلی، سپس variantهای سازگار
     // NATBUDGET: one server may only use a limited time per pass; the rest of
     // its variants continue in the next pass (natCursorAdvance)
@@ -8009,7 +8014,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       }
     }
     if (multi && genTried > 0) natCursorAdvance(s, genTried);
-    if (s.isIp) natIpDeadRun.add('${s.host}|${s.port}'); // DEADRUN
     return null;
   }
 
@@ -8667,8 +8671,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           await _stopCore();
           return false;
         }
-        if (nationalMode && nv > 0) natVariantResult(nv, pp != null);
-        if (pp != null) {
+            if (pp != null) {
           trafficFailure = false;
           break;
         }
@@ -8698,8 +8701,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           await _stopCore();
           return false;
         }
-        if (nationalMode && nv > 0) natVariantResult(nv, earlyPing != null);
-        if (earlyPing != null) {
+            if (earlyPing != null) {
           trafficFailure = false;
           break; // this config variant has real outbound traffic
         }
@@ -9812,10 +9814,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   bool _resBusy = false, _resDirty = false, _resNext = false;
   DateTime? _resHold, _resLast, _resUi;
   int _resDone = 0, _resTotal = 0;
-  static const int _resMax = 5000;
   static const Duration _resEvery = Duration(hours: 48); // FOLDERS: تست خودکار هر ۴۸ ساعت
-  int _resMergeCursor = 0; // FOLDERS: چرخش سهم سرورهای سالم در صف نت ملی
-  bool _resFull = false; // second-chance pass: every variant
+    bool _resFull = false; // second-chance pass: every variant
 
   Future<void> _resLoad() async {
     try {
@@ -9848,28 +9848,51 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     if (mounted) setState(() {});
   }
 
-  Future<void> _resSave() async {
-    if (!_resDirty) return;
+  Future<void> _resSaveQueue = Future<void>.value();
+
+  void _scheduleResSave() {
+    if (_resSaveT?.isActive == true) return;
+    _resSaveT = Timer(const Duration(seconds: 30), () {
+      _resSaveT = null;
+      unawaited(_resSave());
+    });
+  }
+
+  Future<void> _resSave() {
+    if (!_resDirty) return _resSaveQueue;
     _resDirty = false;
-    try {
-      final p = await SharedPreferences.getInstance();
-      await p.setString(
-          'natres2',
-          jsonEncode({
-            'last': _resLast?.millisecondsSinceEpoch,
-            'items': _resMap.values
-                .map((e) => {
-                      'l': e.link,
-                      'a': e.added.millisecondsSinceEpoch,
-                      'c': e.checked?.millisecondsSinceEpoch,
-                      'p': e.s.ping
-                    })
-                .toList()
-          }));
-    } catch (e) {
+    // Capture a complete immutable snapshot before entering the serialized write queue.
+    final snapshot = jsonEncode({
+      'last': _resLast?.millisecondsSinceEpoch,
+      'items': _resMap.values
+          .map((e) => {
+                'l': e.link,
+                'a': e.added.millisecondsSinceEpoch,
+                'c': e.checked?.millisecondsSinceEpoch,
+                'p': e.s.ping
+              })
+          .toList()
+    });
+    final operation = _resSaveQueue.then((_) async {
+      try {
+        final p = await SharedPreferences.getInstance();
+        final committed = await p.setString('natres2', snapshot);
+        if (!committed) {
+          _resDirty = true;
+          _scheduleResSave();
+        }
+      } catch (e, stk) {
+        _resDirty = true;
+        logError(e, stk);
+        _scheduleResSave();
+      }
+    });
+    _resSaveQueue = operation.catchError((Object e, StackTrace stk) {
       _resDirty = true;
-      logError(e);
-    }
+      logError(e, stk);
+      _scheduleResSave();
+    });
+    return operation;
   }
 
   // a server passed a real test: it goes into the folder (or is refreshed)
@@ -9889,29 +9912,13 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       } else {
         final c = Server.parse(srv.link);
         if (c == null) return;
-        if (_resMap.length >= _resMax) {
-          // full: the entry verified the longest ago makes room
-          String? oldK;
-          DateTime? oldT;
-          _resMap.forEach((k, v) {
-            final t = v.checked ?? v.added;
-            if (oldT == null || t.isBefore(oldT!)) {
-              oldT = t;
-              oldK = k;
-            }
-          });
-          if (oldK != null) _resMap.remove(oldK);
-        }
         c.ping = srv.ping;
         final e = _NatResItem(srv.link, c, now);
         e.checked = now;
         _resMap[srv.key] = e;
       }
       _resDirty = true;
-      _resSaveT ??= Timer(const Duration(seconds: 30), () { // FOLDERS: ذخیره کمتر، کمتر CPU/IO
-        _resSaveT = null;
-        _resSave();
-      });
+      _scheduleResSave(); // FOLDERS: debounce writes without dropping inventory
       final u = _resUi;
       if (mounted &&
           inForeground &&
@@ -10326,19 +10333,16 @@ ListTile( // KINGEXTRAS row
           idle = 0;
           autoUpgrade = true;
           autoCycle = true;
-          // NATRANGE: پس‌زمینه، هر ۵ دقیقه، بخشی کم از بازه‌های IP با سرعت کم
-          // NATPENDCAP: وقتی صف فعال و سرریز با هم پرند، اسکن بازه‌ی تازه را موقتاً مکث کن
+          // Continue configured range scanning whenever the previous slice is idle.
+          // Configured ranges are independent scan inputs; saved server
+          // templates are optional and never gate user-supplied ranges.
           final hasRangeTemplate = pending.isNotEmpty ||
-              natRestPending.isNotEmpty || natTemplateSeeds.isNotEmpty || good.isNotEmpty;
-          if (localPilotOn && cpuHot == 0 && hasRangeTemplate &&
-              DateTime.now().difference(natRangeLast) >
-                  const Duration(minutes: 5) &&
-              pending.length + natRestPending.length <
-                  max(3000, natAdaptiveWorkers() * 1500)) {
-            natRangeLast = DateTime.now();
+              natRestPending.isNotEmpty || natTemplateSeeds.isNotEmpty ||
+              good.isNotEmpty || natRanges.isNotEmpty;
+          if (localPilotOn && cpuHot == 0 && hasRangeTemplate && !_natRangeScanBusy) {
             unawaited(() async {
               final ips = await natRangeScanStep(
-                  known: [...pending, ...natRestPending],
+                  known: <Server>{...pending, ...natRestPending, ...natTemplateSeeds, ...good, ...fetchedAll, ..._resMap.values.map((entry) => entry.s)}.toList(growable: false),
                   // Scale each scan slice with device capacity; the shared
                   // monotonic deadline below remains the hard runtime budget.
                   maxAddrs: max(8192, min(16384, natAdaptiveWorkers() * 2048)),
@@ -10542,7 +10546,7 @@ ListTile( // KINGEXTRAS row
       final r = _natRank(b) - _natRank(a); // NATIONALPATCH
       return r != 0 ? r : bySpeedThenPing(a, b);
     });
-    final run = l.take(80).toList();
+    final run = l;
     // NATFIRST: نت ملی همان لحظه‌ی اولین سرور سالم را وصل می‌کند؛ بقیه در پس‌زمینه گشته می‌شوند
     final need = nationalMode ? 1 : max(fastPickN, 6);
     final fsw = Stopwatch()..start();
@@ -10607,32 +10611,18 @@ ListTile( // KINGEXTRAS row
   // دامنه‌ها ابتدا به IP تبدیل می‌شوند. سرورهایی که پورتشان باز است جلوی صف
   // می‌آیند؛ بقیه حذف نمی‌شوند. اعتبار واقعی همچنان با تست اتصال از تونل است.
   Future<void> _natMergeCache() async {
-    // NATIONAL-MERGE: در nationalMode، منابع تازه (natHotNext) + پوشه‌ی
-    // سرورهای سالم (_resMap) با نسبت ثابت به صف اضافه می‌شوند
-    // (منابع تازه ۴۰۰، پوشه ۳۰۰ با چرخش _resMergeCursor).
+    // Merge the complete fresh-resource and saved-healthy inventories.
+    // Queue partitioning is lossless and never pauses source reads.
     if (!nationalMode || !kNatMergeCache) return;
-    final queueLimit = max(3000, natAdaptiveWorkers() * 1500);
-    if (pending.length + natRestPending.length >= queueLimit) return;
-    // FOLDERS: سهم ثابت در هر دور. منابع تازه ۴۰۰ کانفیگ، سرورهای سالم ۳۰۰ تا
-    // (با چرخش، تا همه‌ی پوشه نوبت بگیرد). سرورهایی که همین الان در صف یا در
-    // لیست سالم هستند دوباره اضافه نمی‌شوند.
     final queued = {for (final s in [...pending, ...natRestPending]) s.link};
     final goodLinks = {for (final g in good) g.link};
-    final rest = <Server>[];
-    for (final e in _resMap.values) {
-      final hs = Server.parse(e.link);
-      if (hs != null && !goodLinks.contains(hs.link)) rest.add(hs);
-    }
     final fromHealthy = <Server>[];
-    if (rest.isNotEmpty) {
-      final st = _resMergeCursor % rest.length;
-      final take = min(300, rest.length);
-      for (var i = 0; i < take; i++) {
-        fromHealthy.add(rest[(st + i) % rest.length]);
-      }
-      _resMergeCursor = (st + take) % rest.length;
+    for (final entry in _resMap.values) {
+      if (goodLinks.contains(entry.link)) continue;
+      final server = Server.parse(entry.link);
+      if (server != null) fromHealthy.add(server);
     }
-    final fromFresh = await natHotNext(400);
+    final fromFresh = await natHotNext(null);
     final c = [...fromFresh, ...fromHealthy];
     if (c.isEmpty) return;
     final add = [for (final s in c) if (queued.add(s.link)) s];
@@ -10658,8 +10648,16 @@ ListTile( // KINGEXTRAS row
     if (!kNatIpScanOn) return; // IPOFF: بررسی IP سرورها خاموش است
     try {
       final seenLinks = <String>{};
+      final scanSources = <Server>[
+        ...pending,
+        ...natRestPending,
+        ...natTemplateSeeds,
+        ...good,
+        ...fetchedAll,
+        ..._resMap.values.map((entry) => entry.s),
+      ];
       final cands = <Server>[
-        for (final s in [...pending, ...natRestPending])
+        for (final s in scanSources)
           if (seenLinks.add(s.link)) s,
       ];
       if (cands.isEmpty) return;
@@ -10667,14 +10665,10 @@ ListTile( // KINGEXTRAS row
       cands.sort((a, b) =>
           (memHosts.contains(a.host) ? 0 : 1) -
           (memHosts.contains(b.host) ? 0 : 1));
-      // سقف بررسی در هر دور: بقیه برای دور بعد نگه داشته می‌شوند
-      const checkCap = 400; // فیکس ۱۹: قبلاً ۳۰۰۰؛ بقیه در overflow می‌روند و دور بعد بررسی می‌شوند
-      final overflow = cands.length > checkCap ? cands.sublist(checkCap) : <Server>[];
-      if (cands.length > checkCap) cands.removeRange(checkCap, cands.length);
       const scanBudget = Duration(seconds: 90);
       const dnsTimeout = Duration(seconds: 3);
       const dnsBatch = 16;
-      final ipOf = <String, String>{};
+      final ipOf = <String, List<String>>{};
       final hosts = {
         for (final s in cands)
           if (s.host.isNotEmpty) s.host,
@@ -10686,7 +10680,7 @@ ListTile( // KINGEXTRAS row
         for (var j = i; j < min(i + dnsBatch, hosts.length); j++) {
           final host = hosts[j];
           if (InternetAddress.tryParse(host) != null) {
-            ipOf[host] = host;
+            ipOf[host] = [host];
           } else {
             chunk.add(host);
           }
@@ -10697,11 +10691,18 @@ ListTile( // KINGEXTRAS row
         );
         for (var j = 0; j < chunk.length; j++) {
           if (abort) break;
-          if (resolved[j].isNotEmpty) ipOf[chunk[j]] = resolved[j].first.address;
+          if (resolved[j].isNotEmpty) {
+            ipOf[chunk[j]] = resolved[j].map((address) => address.address).toSet().toList(growable: false);
+          }
         }
       }
-      final targets = [for (final s in cands) if (ipOf.containsKey(s.host)) s];
+      final targets = <({Server server, String ip})>[
+        for (final server in cands)
+          for (final ip in ipOf[server.host] ?? const <String>[])
+            (server: server, ip: ip),
+      ];
       final ok = <Server>[];
+      final okSeen = <String>{};
       const batch = 20;
       // Preserve the original 90-second TCP budget independently of DNS time.
       final deadline = Stopwatch()..start();
@@ -10710,32 +10711,28 @@ ListTile( // KINGEXTRAS row
           i += batch) {
         final chunk = targets.sublist(i, min(i + batch, targets.length));
         _set('نت ملی: بررسی IP ${i + chunk.length}/${targets.length}...');
-        final res = await Future.wait(chunk.map((s) => natTcpProbe(
-              ipOf[s.host]!,
-              s.port,
+        final res = await Future.wait(chunk.map((target) => natTcpProbe(
+              target.ip,
+              target.server.port,
               const Duration(milliseconds: 1500),
               cancelled: () =>
                   abort || deadline.elapsed >= scanBudget,
             )));
         natIpScanned += chunk.length;
-        // DEADSKIP: IPهایی که در همین نشست رد شده‌اند دوباره تست نمی‌شوند
+        // Every configured endpoint is retried on future scan cycles; failures do not blacklist it.
         for (var k = 0; k < chunk.length; k++) {
-          final s = chunk[k];
-          if (natIpDeadRun.contains('${s.host}|${s.port}')) continue;
-          if (res[k] != null) {
+          final s = chunk[k].server;
+          if (res[k] != null && okSeen.add(s.link)) {
             ok.add(s);
             natIpFound++;
           }
         }
-        if (ok.isNotEmpty) break; // اولین دسته‌ی باز را فوراً تست می‌کنیم
+        // Continue through the remaining endpoint inventory until the time slice ends.
       }
       if (ok.isEmpty) {
         // هیچ IP ای باز نشد: همه‌ی سرورها تست می‌شوند (چیزی حذف نمی‌شود)
-        // DEADSKIP: فقط سرورهایی که اخیراً شکست نخورده‌اند دوباره به صف می‌روند
-        pending = [
-          for (final s in [...cands, ...overflow])
-            if (!_recentFail(s) && !_bad(s)) s
-        ];
+        // Keep the complete configured endpoint inventory for subsequent scan cycles.
+        pending = [...cands];
         natRestPending = [];
         return;
       }
@@ -10748,12 +10745,10 @@ ListTile( // KINGEXTRAS row
       }
       final okLinks = {for (final s in ok) s.link};
       pending = ok;
-      // DEADSKIP: همان قاعده برای باقی‌مانده‌ی صف نت ملی
+      // Unverified endpoints remain in the overflow queue without failure filters.
       natRestPending = [
         for (final s in cands)
-          if (!okLinks.contains(s.link) && !_recentFail(s) && !_bad(s)) s,
-        for (final s in overflow)
-          if (!_recentFail(s) && !_bad(s)) s,
+          if (!okLinks.contains(s.link)) s,
       ];
       _set('نت ملی: ${ok.length} سرور با IP باز پیدا شد، تست می‌شود');
     } catch (e, stk) {
@@ -10774,7 +10769,6 @@ ListTile( // KINGEXTRAS row
         final port = (e['port'] as num?)?.toInt() ?? 0;
         if (InternetAddress.tryParse(ip) == null || port <= 0) continue;
         if (have.contains('$ip|$port') || have.contains('$ip:$port')) continue;
-        if (natIpDeadRun.contains('$ip|$port')) continue; // DEADRUN: failed this run
         items.add('$ip|$port');
       }
       if (items.isEmpty) return;
@@ -11674,20 +11668,11 @@ ListTile( // KINGEXTRAS row
     final runNationalMode = nationalMode;
     try {
       if (!runNationalMode || abort) return;
-      final hasRangeTemplate = pending.isNotEmpty ||
-          natRestPending.isNotEmpty || natTemplateSeeds.isNotEmpty || good.isNotEmpty;
-      if (!hasRangeTemplate) {
-        dbg('NAT range scan deferred: no config template is available');
-        return;
-      }
-      final queueLimit = max(3000, natAdaptiveWorkers() * 1500);
-      if (pending.length + natRestPending.length >= queueLimit) {
-        dbg('NAT range scan deferred: candidate queue is draining');
-        return;
-      }
+      // Explicitly configured IP ranges are valid inputs even without a
+      // saved VPN template; queue size never pauses their continuation.
       final ips = await natRangeScanStep(
-          known: [...pending, ...natRestPending],
-          maxAddrs: 30000, // SCANCAP: قبلاً ۱۰۰ هزار با بودجه ۱۲ دقیقه
+          known: <Server>{...pending, ...natRestPending, ...natTemplateSeeds, ...good, ...fetchedAll, ..._resMap.values.map((entry) => entry.s)}.toList(growable: false),
+          maxAddrs: max(8192, natAdaptiveWorkers() * 2048), // resumable continuation slice
           conc: natAdaptiveWorkers(),
           stop: () => abort || nationalMode != runNationalMode,
           budget: const Duration(minutes: 3));
@@ -11742,28 +11727,31 @@ ListTile( // KINGEXTRAS row
       // FREEZEFIX2: IP servers already found are tested first. The long scan
       // (up to 12 min) used to run before them, which is what looked like a freeze.
       // IPFIX: فقط IP های تازه‌ی همین prescan منتظر تست‌اند (نه همه‌ی IP های کانفیگ‌ها)
-      final ipWaiting = [...pending, ...natRestPending]
-          .any((s) => natFreshHosts.contains(s.host));
       // DOMAINALWAYS2: دامنه‌های .ir در هر دور اجرا می‌شوند (سقف ۳ دقیقه)
       if (runNationalMode && !abort && (round % 2 == 0)) {
         final domHits = await _natDomainFirst(
             [...pending, ...natRestPending],
             conc: natAdaptiveWorkers(),
             stop: () => abort || modeChanged());
-        if (abort || modeChanged()) return;
+        // Persist completed endpoint hits even when the user cancels mid-scan.
+        // Cancellation stops new probes; it must not discard already verified data.
         await _natRangeAdd(domHits);
+        if (abort || modeChanged()) return;
       }
-      final hasTpl = pending.isNotEmpty || natRestPending.isNotEmpty ||
-          natTemplateSeeds.isNotEmpty || good.isNotEmpty;
-      if (runNationalMode && !abort && !ipWaiting && pending.isEmpty && hasTpl) {
+      final hasScanSources = pending.isNotEmpty || natRestPending.isNotEmpty ||
+          natTemplateSeeds.isNotEmpty || good.isNotEmpty || fetchedAll.isNotEmpty ||
+          _resMap.isNotEmpty || natRanges.isNotEmpty;
+      if (runNationalMode && !abort && hasScanSources) {
         final ips = await natRangeScanStep(
-            known: [...pending, ...natRestPending],
-            maxAddrs: 100000, // هر دور تا ۱۰۰ هزار آدرس
+            known: <Server>{...pending, ...natRestPending, ...natTemplateSeeds, ...good, ...fetchedAll, ..._resMap.values.map((entry) => entry.s)}.toList(growable: false),
+            maxAddrs: max(8192, natAdaptiveWorkers() * 2048), // resumable continuation slice
             conc: natAdaptiveWorkers(),
             stop: () => abort || modeChanged(),
             budget: const Duration(minutes: 3));
-        if (abort || modeChanged()) return;
+        // A cancelled range step may still return fully completed addresses.
+        // Commit those results before honoring the stop request.
         await _natRangeAdd(ips);
+        if (abort || modeChanged()) return;
       }
       if (abort || modeChanged()) return;
       // CRITICAL for نت ملی: do NOT destroy existing configs.
@@ -12793,10 +12781,11 @@ ListTile( // KINGEXTRAS row
         if (nationalMode) {
           if (pending.isEmpty) await _natMergeCache();
           final hasTpl = pending.isNotEmpty || natRestPending.isNotEmpty ||
-              natTemplateSeeds.isNotEmpty || good.isNotEmpty;
+              natTemplateSeeds.isNotEmpty || good.isNotEmpty || natRanges.isNotEmpty;
           if (pending.isEmpty && hasTpl) {
             await _natMemoryReuse();
             await _natPrescan();
+            if (natRanges.isNotEmpty) await _natScanOnly();
           } else if (pending.isEmpty) {
             dbg('V8-NAT: no template - skipping prescan');
             _set('نت ملی: هیچ کانفیگی موجود نیست. با نت جهانی وصل شو یا کانفیگ اضافه کن.');
@@ -14742,13 +14731,6 @@ ListTile( // KINGEXTRAS row
       if (failed.length > 80) {
         final cut = now.subtract(const Duration(minutes: 15));
         failed.removeWhere((_, t) => t.isBefore(cut));
-        if (failed.length > 120) {
-          final keys = failed.keys.toList();
-          final n = (keys.length * 0.4).round();
-          for (var i = 0; i < n && i < keys.length; i++) {
-            failed.remove(keys[i]);
-          }
-        }
       }
       dbg('♥ متصل ${up}s • ${current?.name ?? '-'} • پینگ ${current?.ping ?? '-'}'
           ' • سرعت ${current?.speed == null ? '-' : current!.speed!.toStringAsFixed(2)} • سالم ${good.length}'
@@ -16035,7 +16017,7 @@ ListTile( // KINGEXTRAS row
     final waiting = pending.where((s) => !favs.containsKey(s.key)).toList();
     if (waiting.isNotEmpty) {
       rows.add(header('تست‌نشده'));
-      rows.addAll(waiting.take(30));
+      rows.addAll(waiting);
     }
     final el = (searchSw?.elapsedMilliseconds ?? 0) / 1000;
     final rate = el > 0 ? totalTested / el : 0.0;
@@ -17530,129 +17512,105 @@ extension ProjectNatSweep on _HomePageState {
 
   // Build dual-stack seeds from every known IP endpoint. IPv6 endpoints
   // remain exact /128 seeds; no guessed neighbouring /64 is enumerated.
-  List<String> _atAutoRanges(List<Server> servers) {
-    final blocks = <String>{};
-    for (final server in servers) {
-      if (!server.isIp) continue;
-      final address = InternetAddress.tryParse(server.host.trim());
-      if (address == null) continue;
-      if (address.type == InternetAddressType.IPv6) {
-        blocks.add('${address.address}/128');
-      } else if (address.type == InternetAddressType.IPv4) {
-        final octets = address.address.split('.');
-        blocks.add('${octets[0]}.${octets[1]}.${octets[2]}.0/24');
-      }
-    }
-    return blocks.toList(growable: false);
-  }
+  // IPSWEEP: endpointهای دقیق Cloudflare ثبت‌شده در کانفیگ‌های پروژه
+  // با TCP و سپس ترافیک واقعی تونل اعتبارسنجی می‌شوند؛ CIDRهای عمومی passive می‌مانند.
+  Future<List<CleanIp>> _atIpSweep(List<Server> pool, Duration budget) =>
+      natWithSharedRangeCursorLock(() => _atIpSweepUnlocked(pool, budget));
 
-  // IPSWEEP: هر IP تمیز را با اتصال واقعی روی یک سرور پشت کلودفلر امتحان می‌کند.
-  // فقط IP‌هایی که ترافیک تونل (google و youtube) بدهند نگه داشته می‌شوند (حداکثر ۱۰ تا).
-  // IPSWEEP: IP‌های باز را روی همه‌ی پورت‌های CDN (_natCfPorts) پیدا می‌کند، سپس هر جفت IP:پورت
-  // را با اتصال واقعی و بررسی تونل (google و youtube) می‌سنجد. فقط جفت‌های ترافیک‌دار نگه داشته می‌شوند.
-  Future<List<CleanIp>> _atIpSweep(List<Server> pool, Duration budget) async {
-    Server? server;
-    for (final x in pool) {
-      if (_natCdnNets.contains(x.net)) {
-        server = x;
-        break;
-      }
+  Future<List<CleanIp>> _atIpSweepUnlocked(List<Server> pool, Duration budget) async {
+    // Active probing is limited to exact IP:port pairs declared by configured
+    // Cloudflare VPN server records. Public CDN CIDRs remain passive inventory;
+    // they are never expanded into arbitrary third-party port probes here.
+    final endpointServers = pool
+        .where((server) =>
+            _natCdnNets.contains(server.net) &&
+            server.port >= 1 &&
+            server.port <= 65535)
+        .toList(growable: false);
+    if (endpointServers.isEmpty || budget <= Duration.zero) {
+      return <CleanIp>[];
     }
-    if (server == null) return <CleanIp>[];
-    final sv = server;
     final vIdx = _natSpecs.indexWhere((x) => x.name == 'IP تمیز Cloudflare');
     if (vIdx <= 0) {
-      dbg('IPSCAN: حالت «IP تمیز Cloudflare» در ماتریس پیدا نشد '
-          '(vIdx=$vIdx، تعداد ماتریس=${_natSpecs.length})');
+      dbg('IPSCAN: حالت «IP تمیز Cloudflare» در ماتریس پیدا نشد (vIdx=$vIdx)');
       return <CleanIp>[];
     }
 
-    // Dual-stack CDN and discovered endpoint inventory. Each port owns a
-    // persisted cursor, so a bounded slice never becomes a permanent coverage cap.
-    final ranges = <String>{
-      ..._cfRanges,
-      ..._cfRangesV6,
-      ..._atAutoRanges(good),
-    }.toList(growable: false);
-    await _natLoadRangeCursors();
-    final scanDeadline = DateTime.now().add(const Duration(seconds: 35));
-    final opened = <CleanIp>[];
-    const sweepBatchSize = 128;
-    final portStart = (int.tryParse(
-          _cfRangeCursors['atsweep:port_cursor']?.toString() ?? '0') ?? 0) %
-        _natCfPorts.length;
-    for (var portOffset = 0; portOffset < _natCfPorts.length; portOffset++) {
-      final portIndex = (portStart + portOffset) % _natCfPorts.length;
-      final port = _natCfPorts[portIndex];
+    // Resolve only the configured server hosts, preserving each declared port.
+    final endpointByKey = <String, Server>{};
+    for (final configured in endpointServers) {
       if (abort || AutoTestEngine._abortRequested) break;
-      final left = scanDeadline.difference(DateTime.now());
-      if (left <= Duration.zero || ranges.isEmpty) break;
-      final prefix = 'atsweep:$port:';
-      final localCursors = <String, dynamic>{
-        for (final entry in _cfRangeCursors.entries)
-          if (entry.key.startsWith(prefix))
-            entry.key.substring(prefix.length): entry.value,
-      };
-      final pool2 = _getCfIps(
-        batchSize: sweepBatchSize,
-        liveRanges: ranges,
-        cursors: localCursors,
-      );
-      if (pool2.isEmpty) continue;
+      final resolved = configured.isIp
+          ? <String>[configured.host]
+          : await nipResolveAll(configured.host);
+      if (abort || AutoTestEngine._abortRequested) break;
+      for (final ip in resolved) {
+        endpointByKey.putIfAbsent('${ip}|${configured.port}', () => configured);
+      }
+    }
+    if (endpointByKey.isEmpty || abort || AutoTestEngine._abortRequested) {
+      return <CleanIp>[];
+    }
+
+    final byPort = <int, Set<String>>{};
+    for (final entry in endpointByKey.entries) {
+      final split = entry.key.split('|');
+      if (split.length != 2) continue;
+      final port = int.tryParse(split[1]);
+      if (port == null) continue;
+      (byPort[port] ??= <String>{}).add(split[0]);
+    }
+
+    final opened = <CleanIp>[];
+    final scanClock = Stopwatch()..start();
+    for (final entry in byPort.entries) {
+      if (abort || AutoTestEngine._abortRequested) break;
+      final remaining = budget - scanClock.elapsed;
+      if (remaining <= Duration.zero) break;
+      final ips = entry.value.toList(growable: false);
       var completed = 0;
       final hits = await natScanIps(
-        pool2,
-        port: port,
+        ips,
+        port: entry.key,
         concurrency: 24,
-        want: pool2.length,
-        budget: left,
+        want: ips.length,
+        budget: remaining,
+        timeout: const Duration(milliseconds: 1500),
         cancelled: () => abort || AutoTestEngine._abortRequested,
         onProgress: (done, total, hitCount) => completed = done,
       );
-      // Cursor advancement is committed only if every address in this slice
-      // completed for this port. Interrupted slices are retried, never skipped.
-      if (completed < pool2.length) break;
-      _cfRangeCursors.removeWhere((key, _) => key.startsWith(prefix));
-      for (final entry in localCursors.entries) {
-        _cfRangeCursors['$prefix${entry.key}'] = entry.value;
-      }
-      _cfRangeCursors['atsweep:port_cursor'] =
-          (portIndex + 1) % _natCfPorts.length;
-      try {
-        final prefs = await SharedPreferences.getInstance();
-        await prefs.setString('natRangeScanCursorsV2', jsonEncode(_cfRangeCursors));
-      } catch (e, st) {
-        logError(e, st);
-      }
+      // A partial slice is retried on the next invocation; it is never promoted.
+      if (completed < ips.length) break;
       for (final hit in hits) {
-        opened.add(CleanIp(hit.ip, hit.ms, port));
+        opened.add(CleanIp(hit.ip, hit.ms, entry.key));
       }
-    }
-    dbg('IPSCAN: ${opened.length} جفت IP:پورت باز');
-    var cands = opened;
-    if (cands.isEmpty && !abort) {
-      cands = [for (final ip in await _cleanCandidates()) CleanIp(ip, 0, 443)];
     }
 
     final winners = <CleanIp>[];
-    final saved = List<CleanIp>.of(cleanIps);
-    final key = _nk(sv);
-    final prevNatVar = natVar[key]; // FIXSWEEP: حالت یادگرفته‌شده‌ی قبلی را پاک نکن
-    final t0 = DateTime.now();
-    final prevWant = wantVpn;
+    final savedCleanIps = List<CleanIp>.of(cleanIps);
+    final previousWant = wantVpn;
+    final validationClock = Stopwatch()..start();
     try {
       wantVpn = true;
-      for (var i = 0; i < cands.length; i++) {
-        if (abort || AutoTestEngine._abortRequested || AutoTestEngine._phase != _AtPhase.running) break;
-        if (winners.length >= 10) break;
-        if (DateTime.now().difference(t0) > budget) break;
-        final c = cands[i];
-        cleanIps = [c];
+      for (var i = 0; i < opened.length; i++) {
+        if (abort ||
+            AutoTestEngine._abortRequested ||
+            AutoTestEngine._phase != _AtPhase.running ||
+            validationClock.elapsed > budget) {
+          break;
+        }
+        final candidate = opened[i];
+        final configured = endpointByKey['${candidate.ip}|${candidate.port}'];
+        if (configured == null) continue;
+        final key = _nk(configured);
+        final previousVariant = natVar[key];
+        cleanIps = [candidate];
         natVar[key] = vIdx;
-        autoTestText.value = 'سنجش IP تمیز ${winners.length}/10 • ${i + 1}/${cands.length}';
+        autoTestText.value =
+            'سنجش endpoint تنظیم‌شده ${i + 1}/${opened.length} • نتیجه سالم: ${winners.length}';
         var ok = false;
         try {
-          if (await _start(sv)) {
+          if (await _start(configured)) {
             await Future.delayed(const Duration(seconds: 2));
             ok = await _tunnelTrafficOk();
           }
@@ -17660,19 +17618,19 @@ extension ProjectNatSweep on _HomePageState {
           logError(e, stk);
         } finally {
           await _stopV2();
+          if (previousVariant != null) {
+            natVar[key] = previousVariant;
+          } else {
+            natVar.remove(key);
+          }
         }
-        if (ok) winners.add(c);
+        if (ok) winners.add(candidate);
       }
     } finally {
-      // FIXSWEEP: اگر کاربر وسط اسکن قطع کرده، wantVpn نباید دوباره true شود
-      wantVpn = prevWant && !abort;
-      if (prevNatVar != null) {
-        natVar[key] = prevNatVar;
-      } else {
-        natVar.remove(key);
-      }
-      cleanIps = saved;
+      wantVpn = previousWant && !abort;
+      cleanIps = savedCleanIps;
     }
+    dbg('IPSCAN: ${opened.length} endpoint باز • ${winners.length} تونل تأییدشده');
     return winners;
   }
 }

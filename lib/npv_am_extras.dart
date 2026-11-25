@@ -949,7 +949,6 @@ Future<int?> _cfProbeMs(String ip, Duration t) async {
     raw = await Socket.connect(ip, 443, timeout: t);
     k = await SecureSocket.secure(raw,
             host: 'cloudflare.com',
-            onBadCertificate: (_) => true,
             supportedProtocols: const ['http/1.1'])
         .timeout(t);
     k.write(
@@ -1502,15 +1501,16 @@ extension NpvAmExtras on _HomePageState {
                     ),
                   const SizedBox(height: 8),
                   Flexible(
-                    child: ListView(
+                    child: ListView.builder(
                       shrinkWrap: true,
-                      children: [
-                        for (final e in cleanIps.take(10))
-                          Directionality(
-                            textDirection: TextDirection.ltr,
-                            child: Text('${e.ip}    ${e.ms} ms'),
-                          ),
-                      ],
+                      itemCount: cleanIps.length,
+                      itemBuilder: (context, index) {
+                        final e = cleanIps[index];
+                        return Directionality(
+                          textDirection: TextDirection.ltr,
+                          child: Text('${e.ip}    ${e.ms} ms'),
+                        );
+                      },
                     ),
                   ),
                   if (cleanIps.isEmpty && _cleanBusy == null)
@@ -1825,7 +1825,18 @@ Future<void> _goldIpStep() async {
       .where((ip) => !_goldIps.containsKey(ip))
       .take(240)
       .toList();
-  if (batch.isEmpty) return;
+  if (batch.isEmpty) {
+    // Already-known addresses are completed work too: advance the staged
+    // range cursor so a fully-known slice cannot starve later prefixes.
+    if (cands.isNotEmpty) {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(
+        _cleanRangeCursorKey,
+        jsonEncode(_cleanStagedRangeCursors),
+      );
+    }
+    return;
+  }
   final r = await _goldProbe(batch);
   var found = 0;
   for (final ip in batch) {
@@ -1979,19 +1990,19 @@ Future<void> goldShowList(BuildContext context) async {
                 const Divider(),
                 const Text('سرورهای سالم (سریع → کند):',
                     style: TextStyle(fontWeight: FontWeight.bold)),
-                for (final v in srvL.take(200))
+                for (final v in srvL)
                   Text('${v.ping} ms  •  ${Server.parse(v.link)?.name ?? v.link}',
                       style: const TextStyle(fontSize: 12)),
                 const Divider(),
                 const Text('IP تمیز (سریع → کند):',
                     style: TextStyle(fontWeight: FontWeight.bold)),
-                for (final v in ipL.take(200))
+                for (final v in ipL)
                   Text('${v.ms} ms  •  ${v.ip}:${v.port}',
                       style: const TextStyle(fontSize: 12, fontFamily: 'monospace')),
                 const Divider(),
                 const Text('DNS سالم (سریع → کند):',
                     style: TextStyle(fontWeight: FontWeight.bold)),
-                for (final e in dnsL.take(200))
+                for (final e in dnsL)
                   Text('${e.value} ms  •  ${e.key}',
                       style: const TextStyle(fontSize: 12, fontFamily: 'monospace')),
                 for (final k in const ['sni_candidates', 'ip_candidates', 'sni', 'port', 'tls']) ...[
@@ -2005,7 +2016,7 @@ Future<void> goldShowList(BuildContext context) async {
                         'tls': 'پروتکل TLS مشاهده‌شده',
                       }[k]! + ' (${(_goldScan[k] ?? const []).length}):',
                       style: const TextStyle(fontWeight: FontWeight.bold)),
-                  for (final x in (_goldScan[k] ?? const <String>[]).take(200))
+                  for (final x in (_goldScan[k] ?? const <String>[]))
                     Text(x, style: const TextStyle(fontSize: 12, fontFamily: 'monospace')),
                 ],
               ],

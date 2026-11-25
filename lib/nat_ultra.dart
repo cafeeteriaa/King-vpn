@@ -11,7 +11,6 @@ part of 'main.dart';
 
 int natLevel = 1;
 int natRound = 1; // V12: 1 = pass 1 (skip failed), 2 = pass 2 (retry all)
-const int natMaxVariants = 5000; // V8 • فیکس ۱۷: قبلاً 0x7FFFFFFF
 int natFloor = 0;
 List<Server> natRestPending = [];
 
@@ -507,7 +506,11 @@ int natGrow(int n) {
     final port = rnd.nextBool();
     final portIdx = port ? rnd.nextInt(_natCfPorts.length) : null;
     final clean = rnd.nextBool();
-    final cleanIdx = clean ? rnd.nextInt(10) : null;
+    // Select across the complete currently available clean-IP inventory;
+    // when it is empty, a null index uses the rotating picker after discovery.
+    final cleanIdx = clean && cleanIps.isNotEmpty
+        ? rnd.nextInt(cleanIps.length)
+        : null;
     // DNSNAT: جایگزین‌ها از DNSهای سالم اسکن (اگر هست) انتخاب می‌شوند
     // نیمی از انتخاب‌ها از DNSهای اسکن‌شده و نیمی از لیست ثابت، تا تنوع حفظ شود
     final dnsPool = (dnsxBestCache.isNotEmpty && rnd.nextBool()) ? dnsxBestCache : _natDnsList;
@@ -647,51 +650,11 @@ class _NatFacts {
         port = s.port;
 }
 
-const Set<String> _natRetiredNames = {
-  'Fragment ریز و کند',
-  'fp=android',
-};
-
-bool natRetired(int v) =>
-    v > 0 && v < _natSpecs.length && _natRetiredNames.contains(_natSpecs[v].name);
-
-// VARCB: circuit breaker برای variantها (فقط نت ملی)
-// هر variant بعد از ۲۰ شکست پشت‌سرهم، یک ساعت غیرفعال می‌شود
-const int _varcbLimit = 20;
-const Duration _varcbCooldown = Duration(hours: 1);
-final Map<int, int> _variantFailStreak = {};
-final Map<int, DateTime> _variantCooldown = {};
-
-void natVariantResult(int v, bool ok) {
-  if (v <= 0) return;
-  final cd = _variantCooldown[v];
-  if (cd != null && DateTime.now().isBefore(cd)) return;
-  if (ok) {
-    _variantFailStreak.remove(v);
-    _variantCooldown.remove(v);
-    return;
-  }
-  final n = (_variantFailStreak[v] ?? 0) + 1;
-  if (n >= _varcbLimit) {
-    _variantFailStreak.remove(v);
-    _variantCooldown[v] = DateTime.now().add(_varcbCooldown);
-    dbg('VARCB: حالت #$v بعد از $n شکست پیاپی، یک ساعت غیرفعال شد');
-  } else {
-    _variantFailStreak[v] = n;
-  }
-}
-
-bool natVariantCooling(int v) {
-  final cd = _variantCooldown[v];
-  return cd != null && DateTime.now().isBefore(cd);
-}
 
 bool _natAppliesF(_NatFacts f, int v) {
   if (v < 0 || v >= _natSpecs.length) return false;
   if (v == 0) return true;
   if (natDisabled.contains(v)) return false;
-  if (natVariantCooling(v)) return false; // VARCB
-  if (natRetired(v)) return false;
   final x = _natSpecs[v];
   if (x.other && !f.hasOther) return false;
   if ((x.fp != null || x.alpn != null || x.frag != null || x.noise) &&
@@ -1748,12 +1711,10 @@ const String _ipMemKey = 'natIpMem';
 const String _rangeKey = 'natRanges';
 
 final List<Map<String, dynamic>> natIpMem = [];
-final Set<String> natIpDeadRun = {};
 List<String> natRanges = [];
 int natRangeCursor = 0; // generic range cursor
 int _natConfiguredRangeCursor = 0; // next range index for fair round-robin coverage
 final Map<String, dynamic> _natConfiguredRangeOffsets = {}; // per-range address cursor
-DateTime natRangeLast = DateTime.fromMillisecondsSinceEpoch(0);
 
 Set<String> natIpMemHosts() => {for (final e in natIpMem) '${e['ip']}'};
 
@@ -1830,33 +1791,40 @@ Future<void> natDomMemSave(String host, int port) async {
   }
 }
 
-Future<bool> natIpMemSaveMany(Iterable<String> ips, int port) async {
+Future<bool> _natIpMemSaveQueue = Future<bool>.value(true);
+
+Future<bool> natIpMemSaveMany(Iterable<String> ips, int port) {
   final values = ips.toSet().toList(growable: false);
-  if (values.isEmpty) return true;
-  final timestamp = DateTime.now().millisecondsSinceEpoch;
-  for (final ip in values.reversed) {
-    natIpMem.removeWhere((entry) => entry['ip'] == ip && entry['port'] == port);
-    natIpMem.insert(0, {'ip': ip, 'port': port, 't': timestamp});
-  }
-  try {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_ipMemKey, jsonEncode(natIpMem));
-    return true;
-  } catch (e, stk) {
+  final operation = _natIpMemSaveQueue.then((_) async {
+    if (values.isEmpty) return true;
+    final timestamp = DateTime.now().millisecondsSinceEpoch;
+    final nextMem = List<Map<String, dynamic>>.of(natIpMem);
+    for (final ip in values.reversed) {
+      nextMem.removeWhere((entry) => entry['ip'] == ip && entry['port'] == port);
+      nextMem.insert(0, {'ip': ip, 'port': port, 't': timestamp});
+    }
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final committed = await prefs.setString(_ipMemKey, jsonEncode(nextMem));
+      if (!committed) return false;
+      natIpMem
+        ..clear()
+        ..addAll(nextMem);
+      return true;
+    } catch (e, stk) {
+      logError(e, stk);
+      return false;
+    }
+  });
+  _natIpMemSaveQueue = operation.catchError((Object e, StackTrace stk) {
     logError(e, stk);
     return false;
-  }
+  });
+  return operation;
 }
 
 Future<void> natIpMemSave(String ip, int port) async {
-  natIpMem.removeWhere((e) => e['ip'] == ip && e['port'] == port);
-  natIpMem.insert(0, {'ip': ip, 'port': port, 't': DateTime.now().millisecondsSinceEpoch});
-  try {
-    final p = await SharedPreferences.getInstance();
-    await p.setString(_ipMemKey, jsonEncode(natIpMem));
-  } catch (e, stk) {
-    logError(e, stk);
-  }
+  await natIpMemSaveMany([ip], port);
 }
 
 
@@ -2084,21 +2052,16 @@ const List<String> natIrDomains = [
 Future<List<String>> _natDomainFirst(List<Server> known,
     {required int conc, bool Function()? stop}) async {
   final out = <String>[];
+  final outKeys = <String>{};
   if (!kNatIpScanOn || known.isEmpty) return out;
-  // Bound endpoint collection, DNS resolution, and TCP probes together.
-  // Starting the monotonic clock only after DNS resolution allowed a slow
-  // resolver to keep this background phase alive far beyond its advertised cap.
-  const scanBudget = Duration(seconds: 45);
-  final scanClock = Stopwatch()..start();
-  bool expired() => scanClock.elapsed >= scanBudget;
-  bool cancelled() => (stop != null && stop()) || expired();
+  bool cancelled() => stop?.call() ?? false;
   try {
-    // Only inspect hosts and ports explicitly present in the user's/current
-    // server configurations. Do not scan unrelated public domains or all
-    // 65,535 ports on third-party hosts.
+    // Active probes stay within exact host:port pairs from the supplied VPN
+    // configurations. There is no aggregate wall-clock deadline: every
+    // resolved endpoint is processed in resumable-size batches.
     final endpoints = <String, Set<int>>{};
     for (final server in known) {
-      if (cancelled()) return const <String>[];
+      if (cancelled()) return out;
       final host = server.host.trim();
       final port = server.port;
       if (host.isEmpty || port <= 0 || port > 65535) continue;
@@ -2107,7 +2070,7 @@ Future<List<String>> _natDomainFirst(List<Server> known,
     natDomainHosts = endpoints.length;
     final resolved = <String, Set<int>>{};
     for (final entry in endpoints.entries) {
-      if (cancelled()) return const <String>[];
+      if (cancelled()) return out;
       final parsed = InternetAddress.tryParse(entry.key);
       var addresses = parsed == null
           ? await safeLookup(entry.key)
@@ -2119,7 +2082,7 @@ Future<List<String>> _natDomainFirst(List<Server> known,
             .whereType<InternetAddress>()
             .toList(growable: false);
       }
-      if (cancelled()) return const <String>[];
+      if (cancelled()) return out;
       for (final address in addresses) {
         if (address.type != InternetAddressType.IPv4 &&
             address.type != InternetAddressType.IPv6) continue;
@@ -2129,46 +2092,70 @@ Future<List<String>> _natDomainFirst(List<Server> known,
     natDomainIps = resolved.length;
     natDomainOpen = 0;
     dbg('بررسی endpointهای کانفیگ: ${endpoints.length} دامنه/IP • ${resolved.length} IP • فقط پورت‌های تعریف‌شده');
+
     final grouped = <int, List<String>>{};
     for (final entry in resolved.entries) {
       for (final port in entry.value) {
         (grouped[port] ??= <String>[]).add(entry.key);
       }
     }
+    final effectiveConcurrency =
+        natAdaptiveConcurrency(conc.clamp(1, 32).toInt());
+    final batchSize = max(1, effectiveConcurrency * 2);
     for (final entry in grouped.entries) {
-      if (cancelled()) {
-        return const <String>[];
+      final ips = entry.value;
+      for (var offset = 0; offset < ips.length; offset += batchSize) {
+        final batch = ips.skip(offset).take(batchSize).toList(growable: false);
+        final pending = <String>{...batch};
+        final batchHits = <String, NatIpHit>{};
+        void flushCompletedBatchHits() {
+          for (final hit in batchHits.values) {
+            final key = '${hit.ip}|${entry.key}';
+            if (outKeys.add(key)) out.add(key);
+          }
+          natDomainOpen = out.length;
+        }
+
+        // Retry only endpoints that have not completed a TCP attempt. Completed
+        // failures are not needlessly re-probed just because another endpoint
+        // exhausted the current time slice.
+        while (pending.isNotEmpty) {
+          if (cancelled()) {
+            flushCompletedBatchHits();
+            return out;
+          }
+          final attempt = pending.toList(growable: false);
+          final attemptHits = await natScanIps(
+            attempt,
+            port: entry.key,
+            concurrency: effectiveConcurrency,
+            want: attempt.length,
+            budget: const Duration(seconds: 10),
+            timeout: const Duration(milliseconds: 1200),
+            cancelled: cancelled,
+            onIpComplete: (ip, latencyMs) {
+              pending.remove(ip);
+              if (latencyMs != null) {
+                batchHits.putIfAbsent(ip, () => NatIpHit(ip, latencyMs));
+              }
+            },
+          );
+          // Defensive merge in case a future scanner implementation returns
+          // hits without invoking the per-endpoint completion callback.
+          for (final hit in attemptHits) {
+            batchHits.putIfAbsent(hit.ip, () => hit);
+          }
+          if (cancelled()) {
+            flushCompletedBatchHits();
+            return out;
+          }
+        }
+        flushCompletedBatchHits();
       }
-      final hits = await natScanIps(
-        entry.value,
-        port: entry.key,
-        concurrency: conc.clamp(1, 32).toInt(),
-        // Probe every resolved endpoint in this port group; the shared 45s
-        // deadline and adaptive concurrency bound the discovery phase.
-        want: entry.value.length,
-        budget: const Duration(seconds: 5),
-        timeout: const Duration(milliseconds: 1200),
-        cancelled: cancelled,
-      );
-      // A cancelled or expired scan must not leak its partial hits to the
-      // caller, which may otherwise persist them as newly discovered servers.
-      if (cancelled()) {
-        return const <String>[];
-      }
-      for (final hit in hits) {
-        out.add('${hit.ip}|${entry.key}');
-        natDomainOpen = out.length;
-      }
-    }
-    if (cancelled()) {
-      return const <String>[];
     }
   } catch (e, stk) {
     logError(e, stk);
   }
-  // Exceptions can race the deadline/cancel signal too; never return a partial
-  // result set once the caller has invalidated this discovery batch.
-  if (cancelled()) return const <String>[];
   return out;
 }
 
@@ -2203,23 +2190,21 @@ Future<List<String>> natDeviceHosts() async {
 }
 
 List<String> natSeedBlocks(List<String> hosts) {
-  // Seed discovered IPv4 hosts with their /24 and IPv6 hosts with exact /128s.
-  // Do not infer an enormous neighbouring IPv6 /64 from one endpoint.
+  // Saved endpoint IPs authorize probes of those exact addresses only.
+  // Broader CIDRs must come from the operator's explicit configured ranges.
+  // Keep both address families without inferring neighboring hosts or subnets.
   final out = <String>{};
   for (final host in hosts) {
     final parsed = InternetAddress.tryParse(host.trim());
     if (parsed == null) continue;
-    if (parsed.type == InternetAddressType.IPv6) {
-      out.add('${parsed.address}/128');
-      continue;
+    if (parsed.type == InternetAddressType.IPv4 ||
+        parsed.type == InternetAddressType.IPv6) {
+      final prefix = parsed.type == InternetAddressType.IPv4 ? 32 : 128;
+      out.add('${parsed.address}/$prefix');
     }
-    if (parsed.type != InternetAddressType.IPv4) continue;
-    final octets = parsed.address.split('.');
-    out.add('${octets[0]}.${octets[1]}.${octets[2]}.0/24');
   }
   return out.toList()..sort();
 }
-
 int natMemQueued = 0;
 int natRandomLast = 0;
 final Set<String> natScanHits = {};
@@ -2241,8 +2226,40 @@ Future<void> _natLoadRangeCursors() async {
   if (_natRangeCursorsLoaded) return;
   try {
     final prefs = await SharedPreferences.getInstance();
-    // V3 stores the last completed TCP port value, not an index into a
-    // changing priority list. Legacy V1/V2 values were indexes and are reset.
+    // V4 is a single atomic checkpoint for address, port and configured-range cursors.
+    // Read it first; retain V2/V3 and configured-offset keys as migration fallback.
+    final checkpointRaw = prefs.getString('natRangeCheckpointV4');
+    if (checkpointRaw != null && checkpointRaw.isNotEmpty) {
+      final checkpoint = jsonDecode(checkpointRaw);
+      if (checkpoint is Map) {
+        final savedPorts = checkpoint['ports'];
+        if (savedPorts is Map) {
+          for (final entry in savedPorts.entries) {
+            if (entry.value is num) {
+              final port = (entry.value as num).toInt();
+              if (port >= 0 && port <= 65535) _natRangePortCursors['${entry.key}'] = port;
+            }
+          }
+        }
+        final savedCursors = checkpoint['cursors'];
+        if (savedCursors is Map) {
+          for (final entry in savedCursors.entries) {
+            if (entry.value is num || entry.value is String) _cfRangeCursors['${entry.key}'] = entry.value;
+          }
+        }
+        final savedOffsets = checkpoint['offsets'];
+        if (savedOffsets is Map) {
+          _natConfiguredRangeOffsets
+            ..clear()
+            ..addEntries(savedOffsets.entries.where((entry) => entry.value is num || entry.value is String).map((entry) => MapEntry('${entry.key}', '${entry.value}')));
+        }
+        final configuredCursor = checkpoint['configuredCursor'];
+        if (configuredCursor is num) _natConfiguredRangeCursor = configuredCursor.toInt().clamp(0, 1 << 31).toInt();
+        _natRangeCursorsLoaded = true;
+        return;
+      }
+    }
+    // Legacy fallback for installations without a V4 checkpoint.
     final rawPortCursors = prefs.getString('natRangePortCursorsV3');
     if (rawPortCursors != null && rawPortCursors.isNotEmpty) {
       final decodedPorts = jsonDecode(rawPortCursors);
@@ -2386,7 +2403,22 @@ Map<String, dynamic> _genAddrsIso(Map<String, dynamic> args) {
   return {'addrs': addrs, 'cursors': cursors};
 }
 
-// RANGEGUARD: یک اسکن بازه در هر لحظه؛ _natKeep و _natEscalate روی cursors مشترک نمی‌نویسند
+// Shared exclusive gate for NAT range discovery and configured-endpoint validation.
+// Hold it for the complete operation so active probes and cursor commits cannot race.
+Future<void> _natSharedRangeCursorQueue = Future<void>.value();
+Future<T> natWithSharedRangeCursorLock<T>(Future<T> Function() action) async {
+  final previous = _natSharedRangeCursorQueue;
+  final release = Completer<void>();
+  _natSharedRangeCursorQueue = release.future;
+  await previous;
+  try {
+    return await action();
+  } finally {
+    release.complete();
+  }
+}
+
+// RANGEGUARD: range discovery and endpoint validation use one exclusive gate.
 bool _natRangeScanBusy = false;
 
 Future<List<String>> natRangeScanStep({
@@ -2395,7 +2427,7 @@ Future<List<String>> natRangeScanStep({
   int conc = 4,
   bool Function()? stop,
   Duration budget = const Duration(minutes: 2),
-}) async {
+}) => natWithSharedRangeCursorLock(() async {
   if (_natRangeScanBusy) return const <String>[];
   _natRangeScanBusy = true;
   try {
@@ -2404,7 +2436,7 @@ Future<List<String>> natRangeScanStep({
   } finally {
     _natRangeScanBusy = false;
   }
-}
+});
 
 Future<List<String>> _natRangeScanStepBody({
   required List<Server> known,
@@ -2542,38 +2574,53 @@ Future<List<String>> _natRangeScanStepBody({
   );
   if (!savedHits || shouldAbort()) return const <String>[];
 
-  // Commit only this port's cursors after every address in its slice finished.
-  _cfRangeCursors.removeWhere((key, _) => key.startsWith(portPrefix));
+  // Build a complete next checkpoint off to the side. One preference write
+  // commits every cursor together; a failed write leaves the in-memory cursors
+  // untouched so this exact slice can be retried safely.
+  final nextCursors = Map<String, dynamic>.from(_cfRangeCursors)
+    ..removeWhere((key, _) => key.startsWith(portPrefix));
   for (final entry in generatedCursors.entries) {
-    _cfRangeCursors['$portPrefix${entry.key}'] = entry.value;
+    nextCursors['$portPrefix${entry.key}'] = entry.value;
   }
+  final nextOffsets = Map<String, dynamic>.from(_natConfiguredRangeOffsets);
+  var nextConfiguredCursor = _natConfiguredRangeCursor;
   if (configuredRanges.isNotEmpty) {
-    _natConfiguredRangeOffsets.removeWhere((key, _) => key.startsWith(portPrefix));
+    nextOffsets.removeWhere((key, _) => key.startsWith(portPrefix));
     for (final entry in configuredBatch.nextOffsets.entries) {
-      _natConfiguredRangeOffsets['$portPrefix${entry.key}'] = entry.value;
+      nextOffsets['$portPrefix${entry.key}'] = entry.value;
     }
-    _natConfiguredRangeOffsets[portPrefix + '__range_cursor'] =
-        configuredBatch.nextCursor.toString();
-    _natConfiguredRangeCursor = configuredBatch.nextCursor;
+    nextOffsets[portPrefix + '__range_cursor'] = configuredBatch.nextCursor.toString();
+    nextConfiguredCursor = configuredBatch.nextCursor;
   }
-  _natRangePortCursors[modeKey] = port;
+  final nextPorts = Map<String, int>.from(_natRangePortCursors)
+    ..[modeKey] = port;
+  try {
+    final prefs = await SharedPreferences.getInstance();
+    final committed = await prefs.setString('natRangeCheckpointV4', jsonEncode({
+      'cursors': nextCursors,
+      'ports': nextPorts,
+      'offsets': nextOffsets,
+      'configuredCursor': nextConfiguredCursor,
+    }));
+    if (!committed || shouldAbort()) return const <String>[];
+  } catch (e, stk) {
+    logError(e, stk);
+    return const <String>[];
+  }
 
+  _cfRangeCursors
+    ..clear()
+    ..addAll(nextCursors);
+  _natConfiguredRangeOffsets
+    ..clear()
+    ..addAll(nextOffsets);
+  _natConfiguredRangeCursor = nextConfiguredCursor;
+  _natRangePortCursors
+    ..clear()
+    ..addAll(nextPorts);
   natTemplateSeeds = seeds.toList();
   natRandomLast = 0;
   natIpScanned += slice.length;
-
-  try {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString('natRangeScanCursorsV2', jsonEncode(_cfRangeCursors));
-    await prefs.setString('natRangePortCursorsV3', jsonEncode(_natRangePortCursors));
-    if (configuredRanges.isNotEmpty) {
-      await prefs.setString(
-          'natConfiguredRangeOffsetsV1', jsonEncode(_natConfiguredRangeOffsets));
-      await prefs.setInt('natConfiguredRangeCursor', _natConfiguredRangeCursor);
-    }
-  } catch (e, stk) {
-    logError(e, stk);
-  }
 
   return hits.map((hit) => '${hit.ip}|$port').toList(growable: false);
 }
@@ -2606,12 +2653,9 @@ Future<void> userListsSave(String text) async {
 }
 
 // HOTCAP: کاهش از ۲ میلیون برای جلوگیری از OOM روی گوشی ضعیف
-const int natHotPerSource = 80000;
 const int natHotMin = 30000;
-const int natHotMax = 400000;
 List<Server> Function()? natExtraSource;
 const Duration natHotTtl = Duration(hours: 72);
-const Duration natHotFetchDeadline = Duration(seconds: 900);
 bool _hotBusy = false;
 DateTime? _hotFailAt;
 int _hotCursor = 0;
@@ -2741,7 +2785,6 @@ Future<List<String>> _hotFetchOne(String u) async {
     // فیکس ۱۱: split روی رشته‌ی چند مگابایتی در isolate انجام می‌شود
     final lines = await compute(_hotSplitIso, body);
     for (final l in lines) {
-      if (out.length >= natHotPerSource) break;
       final t = l.trim();
       if (!t.contains('://') || t.contains('[email') || t.contains('protected]')) {
         continue;
@@ -2786,11 +2829,9 @@ Future<void> _natHotEnsureImpl({bool force = false}) async {
     final dir = '/data/data/com.kingvpn.king_vpn/files';
     final parts = [for (var i = 0; i < urls.length; i++) '$dir/hot_part_$i.txt'];
     final extraPath = '$dir/hot_part_extra.txt';
-    final sw = Stopwatch()..start();
     try {
       await pool<int>([for (var i = 0; i < urls.length; i++) i], fetchWorkers,
           (i) async {
-        if (sw.elapsed > natHotFetchDeadline) return;
         final lines = await _hotFetchOne(urls[i]);
         if (lines.isEmpty) return;
         await File(parts[i]).writeAsString(lines.join('\n'), flush: true);
@@ -2812,18 +2853,13 @@ Future<void> _natHotEnsureImpl({bool force = false}) async {
       final offs = <int>[0];
       var pos = 0;
       final sink = File(newPath).openWrite();
+      var freshTotal = 0;
       try {
-        var full = false;
         final seenKeys = <String>{};
-        final mergeFrom = <String>[
-          if (File(extraPath).existsSync()) extraPath,
-          for (final i in mixed) parts[i],
-        ];
-        for (final pth in mergeFrom) {
-          if (full) break;
-          final pf = File(pth);
-          if (!pf.existsSync()) continue;
-          await for (final line in pf
+        Future<void> appendInventoryFile(String path) async {
+          final file = File(path);
+          if (!file.existsSync()) return;
+          await for (final line in file
               .openRead()
               .transform(utf8.decoder)
               .transform(const LineSplitter())) {
@@ -2831,30 +2867,30 @@ Future<void> _natHotEnsureImpl({bool force = false}) async {
             final tab = line.indexOf('\t');
             final cfg = tab >= 0 ? line.substring(tab + 1) : line;
             if (!seenKeys.add(cfg)) continue;
-            final b = utf8.encode(line);
-            sink.add(b);
+            final bytes = utf8.encode(line);
+            sink.add(bytes);
             sink.add(const [10]);
-            pos += b.length + 1;
+            pos += bytes.length + 1;
             offs.add(pos);
-            if (offs.length - 1 >= natHotMax) {
-              full = true;
-              break;
-            }
           }
         }
+
+        // Fresh sources are processed in full before the old cache is appended.
+        final mergeFrom = <String>[
+          if (File(extraPath).existsSync()) extraPath,
+          for (final i in mixed) parts[i],
+        ];
+        for (final path in mergeFrom) {
+          await appendInventoryFile(path);
+        }
+        freshTotal = offs.length - 1;
+        // A temporarily partial source response must never erase older entries.
+        if (f.existsSync()) await appendInventoryFile(f.path);
       } finally {
         await sink.close();
       }
       final total = offs.length - 1;
-      final oldIdx = await _hotLoad();
-      final oldTotal = oldIdx == null ? 0 : oldIdx.offs.length - 1;
-      if (total > 0 && oldTotal > 0 && total < oldTotal ~/ 2) {
-        dbg('پوشه‌ی منابع تازه: ساخت جدید فقط $total کانفیگ داشت (قبلی $oldTotal)؛ پوشه‌ی قبلی نگه داشته شد');
-        _hotFailAt = DateTime.now();
-        try {
-          await File(newPath).delete();
-        } catch (e) { errJournalAdd(e, kind: 'SILENT-FILE'); }
-      } else if (total > 0) {
+      if (freshTotal > 0 && total > 0) {
         _hotFailAt = null;
         await File(newPath).rename(_hotPath());
         _hot = _HotIdx(_hotPath(), offs);

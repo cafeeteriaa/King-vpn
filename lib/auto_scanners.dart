@@ -100,7 +100,7 @@ Future<int?> _autoSniOk(String ip, int port, String sni) async {
       raw,
       host: sni,
       supportedProtocols: const ['http/1.1'],
-      onBadCertificate: (_) => true,
+      // Keep platform certificate validation enabled for trustworthy SNI evidence.
     ).timeout(const Duration(seconds: 4));
     secure.write(
       'GET / HTTP/1.1\r\n'
@@ -138,7 +138,8 @@ Future<String?> _autoAlpnOk(String ip, int port, String sni, String alpn) async 
     secure = await SecureSocket.secure(raw,
         host: sni,
         supportedProtocols: [alpn],
-        onBadCertificate: (_) => true)
+        // Use the platform trust store for ALPN evidence.
+      )
         .timeout(const Duration(seconds: 4));
     return secure.selectedProtocol;
   } catch (_) {
@@ -306,15 +307,15 @@ Future<void> autoScanRun(void Function(String) say,
       ...goodServers,
       ...pendingServers,
     };
-    if (scanNationalMode) {
-      for (final server in nationalEndpointServers) {
-        if (!server.isIp) domainSources.add(server.host);
-      }
-    } else {
+    final configuredSniServers = <Server>{...nationalEndpointServers};
+    if (!scanNationalMode) {
       for (final entry in _goldSrv.values) {
         final server = Server.parse(entry.link);
-        if (server != null && !server.isIp) domainSources.add(server.host);
+        if (server != null) configuredSniServers.add(server);
       }
+    }
+    for (final server in configuredSniServers) {
+      if (!server.isIp) domainSources.add(server.host);
     }
     final domainInventory = scanNationalMode
         ? dnsxNationalFirstDomains(extra: domainSources)
@@ -392,38 +393,52 @@ Future<void> autoScanRun(void Function(String) say,
     }.toList()..sort();
     say('موجودی مستقل کشف شد: ${domainInventory.length} دامنه و ${discoveredIpCandidates.length} IP کاندیدا (بدون تأیید اتصال)');
 
-    // Probe each domain only at its own DNS-resolved A/AAAA addresses.
-    // This no longer depends on saved VPN configurations; DNS observations
-    // are used for ordinary HTTPS/SNI reachability on TCP/443, not port sweeps.
+    // Passive DNS discovery covers the full domain inventory above. Active
+    // TLS/SNI probes are narrower: only exact host:port endpoints in saved VPN
+    // configurations are contacted, using each configuration's declared SNI.
+    final sniTargets = <String, Set<String>>{};
+    for (final server in configuredSniServers) {
+      if (cancelled()) break;
+      final host = server.host.trim();
+      final sni = server.sni.trim().isNotEmpty ? server.sni.trim() : host;
+      if (host.isEmpty || sni.isEmpty || server.port < 1 || server.port > 65535) continue;
+      final resolved = await _autoResolveDualStackTargets(
+        domains: [host],
+        cancelled: cancelled,
+      );
+      final targets = sniTargets.putIfAbsent(sni, () => <String>{});
+      for (final ip in resolved) {
+        targets.add('$ip|${server.port}');
+      }
+    }
+
     final sniHits = <String>[];
-    final sniTargets = <String, List<String>>{};
     var n = 0;
-    sniLoop:
-    for (final d in domainBatch) {
+    for (final entry in sniTargets.entries) {
       n++;
       if (scanNationalMode) {
         await natManualYield(shouldAbort: () => cancelled());
-        if (cancelled()) break sniLoop;
+        if (cancelled()) break;
       }
-      final resolved = await _autoResolveDualStackTargets(
-        domains: [d],
-        cancelled: cancelled,
-      );
-      sniTargets[d] = resolved;
       var ok = false;
-      for (var offset = 0; offset < resolved.length; offset += 4) {
-        if (cancelled()) break sniLoop;
-        final batch = resolved.skip(offset).take(4);
-        final checks = await Future.wait(
-          batch.map((ip) => _autoSniOk(ip, 443, d)),
-        );
+      final endpoints = entry.value.toList(growable: false);
+      for (var offset = 0; offset < endpoints.length; offset += 4) {
+        if (cancelled()) break;
+        final batch = endpoints.skip(offset).take(4);
+        final checks = await Future.wait(batch.map((endpoint) async {
+          final parts = endpoint.split('|');
+          if (parts.length != 2) return null;
+          final port = int.tryParse(parts[1]);
+          if (port == null) return null;
+          return _autoSniOk(parts[0], port, entry.key);
+        }));
         if (checks.any((latency) => latency != null)) {
           ok = true;
           break;
         }
       }
-      if (ok) sniHits.add(d);
-      say('SNI $n/${domainBatch.length} • پاسخ HTTPS (کاندیدا): ${sniHits.length}');
+      if (ok) sniHits.add(entry.key);
+      say('SNI endpoint $n/${sniTargets.length} • پاسخ HTTPS (کانفیگ‌شده): ${sniHits.length}');
     }
 
     if (cancelled()) {
@@ -465,20 +480,23 @@ Future<void> autoScanRun(void Function(String) say,
       return;
     }
 
-    // ALPN is checked against the DNS-resolved addresses for the same SNI.
-    // No saved server record is required for this independent TLS inventory.
+    // ALPN probes use the same exact configured host:port/SNI tuples.
     final tlsHits = <String>[];
     for (final alpn in const ['h2', 'http/1.1']) {
       if (cancelled()) break;
       var ok = false;
-      for (final d in domainBatch) {
-        final targetIps = sniTargets[d] ?? const <String>[];
-        for (var offset = 0; offset < targetIps.length; offset += 4) {
+      for (final entry in sniTargets.entries) {
+        final endpoints = entry.value.toList(growable: false);
+        for (var offset = 0; offset < endpoints.length; offset += 4) {
           if (cancelled()) break;
-          final batch = targetIps.skip(offset).take(4);
-          final selected = await Future.wait(
-            batch.map((ip) => _autoAlpnOk(ip, 443, d, alpn)),
-          );
+          final batch = endpoints.skip(offset).take(4);
+          final selected = await Future.wait(batch.map((endpoint) async {
+            final parts = endpoint.split('|');
+            if (parts.length != 2) return null;
+            final port = int.tryParse(parts[1]);
+            if (port == null) return null;
+            return _autoAlpnOk(parts[0], port, entry.key, alpn);
+          }));
           for (final protocol in selected.whereType<String>()) {
             if (protocol.isNotEmpty && !tlsHits.contains(protocol)) {
               tlsHits.add(protocol);
@@ -489,7 +507,7 @@ Future<void> autoScanRun(void Function(String) say,
         }
         if (ok) break;
       }
-      if (ok) say('TLS/ALPN مشاهده شد: $alpn (کاندیدا)');
+      if (ok) say('TLS/ALPN مشاهده شد: $alpn (کانفیگ‌شده)');
     }
 
     if (cancelled()) {

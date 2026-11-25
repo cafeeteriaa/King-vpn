@@ -44,26 +44,44 @@ Future<void> ipAutoLoad() async {
   final posKey = '${_ipAutoPosKey}_${loadNationalMode ? 'nat' : 'glob'}';
   final cursorKey = '${_ipAutoCursorKey}_${loadNationalMode ? 'nat' : 'glob'}';
   final pendingKey = '${_ipAutoPendingKey}_${loadNationalMode ? 'nat' : 'glob'}';
+  final checkpointKey = 'ipauto_checkpoint_v2_${loadNationalMode ? 'nat' : 'glob'}';
   try {
     final p = await SharedPreferences.getInstance();
     if (nationalMode != loadNationalMode) return;
-    final savedHits = p.getString(hitsKey) ?? '';
-    final savedPending = p.getString(pendingKey) ?? '';
-    final savedPos = int.tryParse(p.getString(posKey) ?? '') ?? 0;
+    String savedHits;
+    String savedPending;
+    int savedPos;
     final loadedCursors = <String, dynamic>{};
-    final c = p.getString(cursorKey);
-    if (c != null && c.isNotEmpty) {
-      try {
-        final decoded = jsonDecode(c);
-        if (decoded is Map) {
-          for (final entry in decoded.entries) {
-            if (entry.value is num || entry.value is String) {
-              loadedCursors['${entry.key}'] = entry.value;
+    final checkpointRaw = p.getString(checkpointKey);
+    if (checkpointRaw != null && checkpointRaw.isNotEmpty) {
+      final checkpoint = jsonDecode(checkpointRaw);
+      if (checkpoint is! Map) throw const FormatException('Invalid IP Auto checkpoint');
+      savedHits = (checkpoint['hits'] ?? '').toString();
+      savedPending = (checkpoint['pending'] ?? '').toString();
+      savedPos = (checkpoint['position'] as num?)?.toInt() ?? 0;
+      final savedCursors = checkpoint['cursors'];
+      if (savedCursors is Map) {
+        for (final entry in savedCursors.entries) {
+          if (entry.value is num || entry.value is String) loadedCursors['${entry.key}'] = entry.value;
+        }
+      }
+    } else {
+      // One-time migration path for the original split preference keys.
+      savedHits = p.getString(hitsKey) ?? '';
+      savedPending = p.getString(pendingKey) ?? '';
+      savedPos = int.tryParse(p.getString(posKey) ?? '') ?? 0;
+      final legacyCursors = p.getString(cursorKey);
+      if (legacyCursors != null && legacyCursors.isNotEmpty) {
+        try {
+          final decoded = jsonDecode(legacyCursors);
+          if (decoded is Map) {
+            for (final entry in decoded.entries) {
+              if (entry.value is num || entry.value is String) loadedCursors['${entry.key}'] = entry.value;
             }
           }
+        } catch (e, stk) {
+          logError(e, stk);
         }
-      } catch (e, stk) {
-        logError(e, stk);
       }
     }
     if (nationalMode != loadNationalMode) return;
@@ -83,31 +101,41 @@ Future<void> ipAutoLoad() async {
   }
 }
 
-Future<void> _ipAutoSave() async {
-  // Persist an immutable snapshot under the keys belonging to its captured mode.
+Future<bool> _ipAutoSaveQueue = Future<bool>.value(true);
+
+Future<bool> _ipAutoSave() {
+  // Capture immutable snapshots synchronously, then serialize writes so an
+  // older slow write can never overwrite a newer checkpoint.
   final saveNationalMode = nationalMode;
-  if (_ipAutoLoadedNat != null && _ipAutoLoadedNat != saveNationalMode) return;
   final hits = List<String>.of(ipAutoHits);
   final pending = List<String>.of(ipAutoPendingCore);
   final cursors = Map<String, dynamic>.of(ipAutoCursors);
   final position = ipAutoPos;
-  final hitsKey = saveNationalMode ? _ipAutoKeyNat : _ipAutoKeyGlob;
-  final cursorKey = '${_ipAutoCursorKey}_${saveNationalMode ? 'nat' : 'glob'}';
-  final posKey = '${_ipAutoPosKey}_${saveNationalMode ? 'nat' : 'glob'}';
-  final pendingKey = '${_ipAutoPendingKey}_${saveNationalMode ? 'nat' : 'glob'}';
-  try {
-    final p = await SharedPreferences.getInstance();
-    if (nationalMode != saveNationalMode ||
-        (_ipAutoLoadedNat != null && _ipAutoLoadedNat != saveNationalMode)) {
-      return;
+  final checkpointKey = 'ipauto_checkpoint_v2_${saveNationalMode ? 'nat' : 'glob'}';
+  final operation = _ipAutoSaveQueue.then((_) async {
+    if (_ipAutoLoadedNat != null && _ipAutoLoadedNat != saveNationalMode) return false;
+    try {
+      final p = await SharedPreferences.getInstance();
+      if (nationalMode != saveNationalMode ||
+          (_ipAutoLoadedNat != null && _ipAutoLoadedNat != saveNationalMode)) {
+        return false;
+      }
+      return await p.setString(checkpointKey, jsonEncode({
+        'hits': hits.join('\n'),
+        'pending': pending.join('\n'),
+        'cursors': cursors,
+        'position': position,
+      }));
+    } catch (e, stk) {
+      logError(e, stk);
+      return false;
     }
-    await p.setString(hitsKey, hits.join('\n'));
-    await p.setString(pendingKey, pending.join('\n'));
-    await p.setString(cursorKey, jsonEncode(cursors));
-    await p.setString(posKey, position.toString());
-  } catch (e, stk) {
+  });
+  _ipAutoSaveQueue = operation.catchError((Object e, StackTrace stk) {
     logError(e, stk);
-  }
+    return false;
+  });
+  return operation;
 }
 
 /// Inventory پویا برای اسکن IP؛ رنج‌های تنظیم‌شده و بلوک‌های کشف‌شده
@@ -196,12 +224,9 @@ extension IpAutoExt on _HomePageState {
       final p = await SharedPreferences.getInstance();
       if (_ipAutoHalt(modeSnapshot: runNationalMode)) return;
 
-      final last = int.tryParse(p.getString(_ipAutoAtKey) ?? '') ?? 0;
       final now = DateTime.now().millisecondsSinceEpoch;
-      // اگر هنوز IP سالمی پیدا نشده، زودتر دوباره امتحان می‌شود (۶ ساعت)؛ وگرنه هر ۲۴ ساعت
-      final gapMs = ipAutoHits.isEmpty ? 6 * 3600 * 1000 : 24 * 3600 * 1000;
-      if (now - last < gapMs) return;
-
+      // No fixed retry interval: each scheduler invocation resumes the next
+      // persisted inventory slice after the previous run releases its locks.
       final completed = await _ipAutoRunOnce((s) => ipAutoStatus = s);
       // Failed, cancelled, or mode-switched scans must not consume the retry interval.
       if (completed && !_ipAutoHalt(modeSnapshot: runNationalMode)) {
@@ -212,7 +237,10 @@ extension IpAutoExt on _HomePageState {
     } finally {
       // Persist while the locks are still held so another scan cannot mutate
       // the shared result lists before their snapshot is taken.
-      await _ipAutoSave();
+      final checkpointSaved = await _ipAutoSave();
+      if (!checkpointSaved) {
+        ipAutoStatus = 'ذخیره checkpoint ناموفق بود؛ پیشرفت ذخیره‌شده قبلی برای بازیابی حفظ شد.';
+      }
       ipAutoBusy = false;
       dnsxManualBusy = false;
     }
@@ -378,7 +406,8 @@ extension IpAutoExt on _HomePageState {
     if (runNationalMode) {
       say('دریافت الگوهای مستقل نت ملی...');
       try {
-        final nationalSeeds = await natHotNext(50, fetch: false);
+        // Load the complete local national inventory; downstream work uses resumable slices.
+        final nationalSeeds = await natHotNext(null, fetch: false);
         if (halted()) return false;
         if (nationalSeeds.isNotEmpty) {
           natTemplateSeeds = nationalSeeds.toList();
@@ -506,6 +535,11 @@ extension IpAutoExt on _HomePageState {
         ipAutoPendingCore.add(candidate);
       }
     }
+    // Persist the completed TCP cursor and the full core-verification backlog
+    // before starting slower VPN-core checks. A process death can then resume
+    // verification without rescanning the already completed TCP inventory.
+    final tcpCheckpointSaved = await _ipAutoSave();
+    if (!tcpCheckpointSaved || halted()) return false;
     if (tpl.isEmpty) {
       // TCP discovery can proceed without a VPN template. Keep its candidates
       // in the durable core-verification queue until a real template is known.
@@ -529,6 +563,8 @@ extension IpAutoExt on _HomePageState {
       checked++;
       if (seen.contains(c)) {
         ipAutoPendingCore.remove(c);
+        final checkpointSaved = await _ipAutoSave();
+        if (!checkpointSaved || halted()) return false;
         continue;
       }
       final parts = c.split('|');
@@ -559,6 +595,10 @@ extension IpAutoExt on _HomePageState {
       }
       ipAutoPendingCore.remove(c);
       ipAutoHits.insert(0, c);
+      // Commit each confirmed result with its pending-queue removal so a crash
+      // cannot lose a success or resurrect it as unverified work.
+      final resultCheckpointSaved = await _ipAutoSave();
+      if (!resultCheckpointSaved || halted()) return false;
       // Core outbound delay is not proof of a clean IP or Android TUN health.
       // Keep it as a candidate only; promotion requires a real user tunnel test.
       seen.add(c);
@@ -622,7 +662,10 @@ extension IpAutoExt on _HomePageState {
             } finally {
               sheetScanRunning = false;
               // Keep the lock until the snapshot is persisted.
-              await _ipAutoSave();
+              final checkpointSaved = await _ipAutoSave();
+              if (!checkpointSaved) {
+                upd(() => ipAutoStatus = 'ذخیره checkpoint ناموفق بود؛ وضعیت قبلی حفظ شد و دسته بعدی نباید جلو برود.');
+              }
               ipAutoBusy = false;
               dnsxManualBusy = false;
               upd(() {});

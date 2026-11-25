@@ -185,8 +185,12 @@ Future<List<String>> nipIranCidrs() async {
 String? nipSwapLink(Server t, String ip) {
   final l = t.link;
   final lower = l.toLowerCase();
-  if (lower.startsWith('ss://')) return null;
   try {
+    if (lower.startsWith('ss://')) {
+      final swapped = _natSetHost(l, ip, t.host);
+      final parsed = Server.parse(swapped);
+      return parsed != null && parsed.host == ip ? swapped : null;
+    }
     if (lower.startsWith('vmess://')) {
       var b = natB64Normalize(l.substring(8));
       final j = jsonDecode(utf8.decode(base64.decode(b)));
@@ -264,7 +268,7 @@ Future<String?> nipResolve(String host) async {
 
 /// بلوک‌های هاست یک IP را برای نت ملی ذخیره می‌کند (کلید: IP).
 Future<void> natPrefetchAsn(List<Server> list) async {
-  final hosts = list.where((server) => !server.cdn).toList(growable: false);
+  final hosts = list.toList(growable: false);
   final ips = <String>{};
   for (var offset = 0; offset < hosts.length; offset += 8) {
     final batch = hosts.skip(offset).take(8);
@@ -385,8 +389,8 @@ Future<void> _nipEnsureFrontSniCursorLoaded() {
   }();
 }
 Future<void> _nipFrontSniCursorSaveQueue = Future<void>.value();
-void _nipPersistFrontSniCursor(int value) {
-  _nipFrontSniCursorSaveQueue = _nipFrontSniCursorSaveQueue.then((_) async {
+Future<void> _nipPersistFrontSniCursor(int value) {
+  return _nipFrontSniCursorSaveQueue = _nipFrontSniCursorSaveQueue.then((_) async {
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setInt(_nipFrontSniCursorKey, value);
@@ -406,7 +410,6 @@ Future<String?> nipFrontProbe(String ip, int port, String sni) async {
       raw,
       host: sni,
       supportedProtocols: const ['http/1.1'],
-      onBadCertificate: (_) => true,
     ).timeout(const Duration(seconds: 4));
     sec.write(
       'GET / HTTP/1.1\r\n'
@@ -460,7 +463,7 @@ Future<String?> nipFindFrontSni(String ip, int port, {bool Function()? cancelled
       completed++;
       if (ok != null) {
         _nipFrontSniCursor = (start + completed) % inventory.length;
-        _nipPersistFrontSniCursor(_nipFrontSniCursor);
+        await _nipPersistFrontSniCursor(_nipFrontSniCursor);
         return ok;
       }
     }
@@ -468,7 +471,7 @@ Future<String?> nipFindFrontSni(String ip, int port, {bool Function()? cancelled
     // queued after cancellation or interruption.
     if (completed > 0) {
       _nipFrontSniCursor = (start + completed) % inventory.length;
-      _nipPersistFrontSniCursor(_nipFrontSniCursor);
+      await _nipPersistFrontSniCursor(_nipFrontSniCursor);
     }
     return null;
   } finally {
@@ -504,34 +507,32 @@ String? nipSwapSni(Server t, String ip, String sni) {
 }
 
 extension NipHunt on _HomePageState {
-  static DateTime? _nipLastHunt;
-
   /// نت ملی: وقتی سرورهای شناخته‌شده جواب ندادند، IP های باز ایران را پیدا
   /// می‌کند و کانفیگ‌های خود کاربر را روی آن‌ها امتحان می‌کند.
   /// موفق‌ها ذخیره می‌شوند تا دفعه‌ی بعد اول امتحان شوند.
   Future<bool> _natIpHunt() async {
     if (!nationalMode || connected || abort) return false;
-    final last = _nipLastHunt;
-    if (last != null &&
-        DateTime.now().difference(last) < const Duration(minutes: 4)) {
-      return false;
-    }
-    _nipLastHunt = DateTime.now();
-
-    final sourceServers = <Server>[...good, ...pending];
+    final sourceServers = <Server>[
+      ...good,
+      ...pending,
+      ...natRestPending,
+      ...natTemplateSeeds,
+      ...fetchedAll,
+    ];
     final seenLinks = sourceServers.map((server) => server.link).toSet();
     for (final entry in _resMap.values) {
       if (seenLinks.add(entry.link)) sourceServers.add(entry.s);
     }
     final uniqueTemplates = <String, Server>{};
     for (final server in sourceServers) {
-      if (server.link.toLowerCase().startsWith('ss://')) continue;
-      uniqueTemplates.putIfAbsent(server.host, () => server);
+      uniqueTemplates.putIfAbsent(server.link, () => server);
     }
     final templateInventory = uniqueTemplates.values.toList()
       ..sort((a, b) {
         final hostOrder = a.host.compareTo(b.host);
-        return hostOrder != 0 ? hostOrder : a.link.compareTo(b.link);
+        if (hostOrder != 0) return hostOrder;
+        final portOrder = a.port.compareTo(b.port);
+        return portOrder != 0 ? portOrder : a.link.compareTo(b.link);
       });
     if (templateInventory.isEmpty) {
       _set('برای جستجوی IP سرور نمونه نداریم؛ یک بار با سرورهای پوشه وصل شو');

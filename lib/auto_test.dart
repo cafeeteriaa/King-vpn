@@ -793,7 +793,7 @@ static void _resetCoreDeadStreak() { _atCoreDeadStreak = 0; }
       return [
         'lib/nat_ultra.dart → _natSpecs (لیست حالت‌های پروژه)',
         'این حالت روی چند تلاش با اتصال واقعی ترافیک تونل نداد',
-        'اگر تست دوباره همین را گفت، حالت را در _natRetiredNames (nat_ultra.dart) بگذار؛ کار دیگری لازم نیست',
+        'اگر تست دوباره همین را گفت، علت ناسازگاری را در همان مسیر اصلاح کن؛ حالت از موجودی آزمون حذف نشود',
       ];
     }
     switch (code) {
@@ -1390,21 +1390,14 @@ static void _resetCoreDeadStreak() { _atCoreDeadStreak = 0; }
         if (ba != bb) return ba.compareTo(bb);
         return groups[b]!.length.compareTo(groups[a]!.length);
       });
-    // ERRREPORT2: خطاهای عادی شبکه (دامنه‌ی مرده، timeout) در لیست نمی‌آیند؛ فقط شمارششان نشان داده می‌شود
-    bool noisy(String k) => k.startsWith('شبکه') ||
-        k.startsWith('فایل موقت') ||
-        k.startsWith('داده‌ی نامعتبر');
-    final important = keys.where((k) => !noisy(k)).toList();
-    final noiseCount = keys.length - important.length;
-    if (noiseCount > 0) {
-      out.writeln('(خطاهای عادی شبکه‌ی ${noiseCount} گروه نادیده گرفته شد؛ نیازی به کار نیست)');
-    }
+    // Keep every category visible; ordinary network failures remain useful diagnostics.
+    final important = keys;
     if (important.isEmpty) {
       out.writeln('• هیچ باگ واقعی‌ای در این اجرا ثبت نشد.');
       return out.toString();
     }
     var i = 0;
-    for (final k in important.take(40)) {
+    for (final k in important) {
       final g = groups[k]!;
       final first = g.first;
       final last = g.last;
@@ -1415,9 +1408,8 @@ static void _resetCoreDeadStreak() { _atCoreDeadStreak = 0; }
       out.writeln('   بخش تست: ${first.tag.isEmpty ? '-' : first.tag}');
       out.writeln('   جای خطا در کد: ${first.where}');
       final m = first.msg;
-      out.writeln('   نمونه‌ی پیام: ${m.length > 300 ? '${m.substring(0, 300)}…' : m}');
+      out.writeln('   پیام کامل: $m');
     }
-    if (important.length > 40) out.writeln('… و ${important.length - 40} گروه دیگر');
     return out.toString();
   }
 
@@ -1830,8 +1822,6 @@ static void _resetCoreDeadStreak() { _atCoreDeadStreak = 0; }
   // SUBST: تست فقط برای جایگزینی پورت / IP تمیز / DNS / SNI روی سرورهای سالم
   static const String _atSubstName =
       'نت ملی: جایگزینی پورت/هاست/DNS روی سرورهای سالم';
-  static const int _atSubstServers = 20; // سرورهای سالم (سریع‌ترین‌ها)
-  static const int _atSubstPerServer = 12; // سقف حالت جایگزینی برای هر سرور (SUBSTFAST)
   static const Duration _atSubstTimeout = Duration(seconds: 5); // مهلت هر تست
 
   List<String> _atSubstDims(int v) {
@@ -1874,7 +1864,7 @@ static void _resetCoreDeadStreak() { _atCoreDeadStreak = 0; }
 
     // HEALTHYFIRST: تا پوشه‌ی سرورهای سالم پر نشده، تست شروع نمی‌شود.
     // اگر خالی بود، همان جستجوی نت ملی برنامه اجرا می‌شود تا سرور سالم پیدا شود.
-    var healthy = _usable().take(_atSubstServers).toList();
+    var healthy = _usable().toList();
     if (healthy.isEmpty && !_abortRequested) {
       _set('پوشه‌ی سرورهای سالم خالی است؛ جستجو از پوشه‌ی منابع تازه...');
       try {
@@ -1891,7 +1881,7 @@ static void _resetCoreDeadStreak() { _atCoreDeadStreak = 0; }
       } catch (e, stk) {
         logError(e, stk);
       }
-      healthy = _usable().take(_atSubstServers).toList();
+      healthy = _usable().toList();
     }
     if (healthy.isEmpty) {
       _atAdd('SUBST-NOHEALTHY',
@@ -1903,7 +1893,6 @@ static void _resetCoreDeadStreak() { _atCoreDeadStreak = 0; }
     final dead = good
         .where((x) => !healthySet.contains(x) &&
             (x.badAt != null || x.checkedAt != null))
-        .take(_atSubstServers)
         .toList();
     // IPSWEEP: IP‌ها اول با ترافیک تونل سنجیده می‌شوند؛ فقط IP‌های ترافیک‌دار در پروژه می‌مانند
     autoTestText.value = 'سنجش IP تمیز با تونل...';
@@ -1928,7 +1917,7 @@ static void _resetCoreDeadStreak() { _atCoreDeadStreak = 0; }
     // هیچ حالتی بی‌صدا رد نمی‌شود: یا تست می‌شود، یا با دلیل مشخص در گزارش «جواب نداد» / «تست نشد» می‌آید.
     final allVars = [
       for (var v = 1; v < _natSpecs.length; v++)
-        if (!natDisabled.contains(v) && !natRetired(v)) v
+        if (!natDisabled.contains(v)) v
     ];
     final untried = <int>[...allVars]; // هنوز روی هیچ سروری امتحان نشده
     final failedOnce = <int>{}; // یک بار امتحان شده و ترافیک نداده (برای دور دوم)
@@ -2002,8 +1991,8 @@ static void _resetCoreDeadStreak() { _atCoreDeadStreak = 0; }
 
         // (ب) حالت‌های این سرور
         final cands = pass == 0
-            ? untried.where((v) => _natAppliesF(f, v)).take(_atSubstPerServer).toList()
-            : failedOnce.where((v) => _natAppliesF(f, v)).take(_atSubstPerServer).toList();
+            ? untried.where((v) => _natAppliesF(f, v)).toList()
+            : failedOnce.where((v) => _natAppliesF(f, v)).toList();
         final passed = <String>[];
         int? winner;
         for (final v in cands) {

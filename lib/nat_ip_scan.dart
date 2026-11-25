@@ -548,6 +548,7 @@ Future<List<NatIpHit>> natScanIps(
   Duration timeout = const Duration(milliseconds: 1500),
   bool Function()? cancelled,
   void Function(int done, int total, int hits)? onProgress,
+  void Function(String ip, int? latencyMs)? onIpComplete,
   bool randomize = false,
 }) async {
   if (ips.isEmpty || (want != null && want <= 0)) return <NatIpHit>[];
@@ -610,13 +611,12 @@ Future<List<NatIpHit>> natScanIps(
         ip,
         port,
         timeout,
-        cancelled: () =>
-            aborted() || elapsed.elapsed >= budget ||
-            (want != null && hits.length >= want),
+        // Let an in-flight probe finish its own timeout. The scan budget stops
+        // new work at the next loop boundary; cancellation still aborts sockets.
+        cancelled: aborted,
       );
-      // Do not publish a probe that completed after cancellation or the time budget.
-      // In-flight socket connects are cancelled on stop; late results are discarded.
-      if (aborted() || elapsed.elapsed >= budget) {
+      // A user cancellation is not a completed endpoint: leave it retryable.
+      if (aborted()) {
         done++;
         reportProgress();
         return;
@@ -628,9 +628,18 @@ Future<List<NatIpHit>> natScanIps(
       }
 
       done++;
+      if (onIpComplete != null) {
+        try {
+          onIpComplete(ip, ms);
+        } catch (e) {
+          errJournalAdd(e, kind: 'SILENT-NATIP-COMPLETE-CALLBACK');
+        }
+      }
       // Report every 5 completions (or immediately on a hit) — keeps UI fresh
       // without spamming the callback for thousands of failures.
       if (done % 5 == 0 || ms != null) reportProgress();
+      // The budget is checked before taking another endpoint, not used to
+      // misclassify this completed timeout as unfinished.
     }
   }
 
