@@ -17,6 +17,7 @@ class _KingAiProviderSettingsPageState extends State<KingAiProviderSettingsPage>
   final Map<KingAiProviderId, TextEditingController> _models = {};
   final Map<KingAiProviderId, bool> _configured = {};
   bool _externalEnabled = false;
+  bool _externalCodeEnabled = false;
   bool _loading = true;
   bool _busy = false;
   String? _message;
@@ -45,6 +46,7 @@ class _KingAiProviderSettingsPageState extends State<KingAiProviderSettingsPage>
   Future<void> _load() async {
     try {
       final consent = await _orchestrator.externalProcessingEnabled;
+      final codeConsent = await _orchestrator.externalCodeReviewEnabled;
       final states = <KingAiProviderId, bool>{};
       for (final provider in KingAiProviderOrchestrator.providers) {
         states[provider.id] = await _orchestrator.isConfigured(provider.id);
@@ -52,6 +54,7 @@ class _KingAiProviderSettingsPageState extends State<KingAiProviderSettingsPage>
       if (!mounted) return;
       setState(() {
         _externalEnabled = consent;
+        _externalCodeEnabled = codeConsent;
         _configured
           ..clear()
           ..addAll(states);
@@ -122,6 +125,20 @@ class _KingAiProviderSettingsPageState extends State<KingAiProviderSettingsPage>
     }
   }
 
+  Future<void> _setCodeConsent(bool enabled) async {
+    try {
+      await _orchestrator.setExternalCodeReviewEnabled(enabled);
+      if (mounted) setState(() {
+        _externalCodeEnabled = enabled;
+        _message = enabled
+            ? 'ارسال بخش‌های لازم از سورس پروژه برای بازبینی چندمدلی فعال شد.'
+            : 'ارسال سورس پروژه به ارائه‌دهندگان بیرونی غیرفعال شد.';
+      });
+    } catch (error) {
+      if (mounted) setState(() => _message = 'تغییر رضایت کدنویسی انجام نشد: $error');
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Directionality(
@@ -140,6 +157,16 @@ class _KingAiProviderSettingsPageState extends State<KingAiProviderSettingsPage>
                       title: const Text('اجازه استفاده از هوش مصنوعی آنلاین'),
                       subtitle: const Text(
                         'خاموش باشد، هیچ متن یا تصویری از طریق این موتور به سرویس بیرونی ارسال نمی‌شود. کلیدها جداگانه و امن نگهداری می‌شوند.',
+                      ),
+                    ),
+                  ),
+                  Card(
+                    child: SwitchListTile(
+                      value: _externalCodeEnabled,
+                      onChanged: _busy || !_externalEnabled ? null : _setCodeConsent,
+                      title: const Text('اجازه بازبینی سورس پروژه توسط چند هوش مصنوعی'),
+                      subtitle: const Text(
+                        'این اجازه جدا از چت ابری است. فقط در مسیر توسعه‌دهنده و پس از احراز هویت مالک، بخش‌های لازم از کد برای providerهای فعال ارسال می‌شوند.',
                       ),
                     ),
                   ),
