@@ -11,7 +11,7 @@ class TlsProbeSecurityTest(unittest.TestCase):
         dart_sources = sorted((ROOT / "lib").rglob("*.dart"))
         self.assertTrue(dart_sources, "Dart application sources must be present")
         bypass = re.compile(
-            r"onBadCertificate\\s*:\\s*\\([^)]*\\)\\s*=>\\s*true",
+            r"onBadCertificate\s*:\s*\([^)]*\)\s*=>\s*true",
             re.MULTILINE,
         )
         violations = []
