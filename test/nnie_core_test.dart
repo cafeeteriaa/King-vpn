@@ -35,6 +35,56 @@ List<int> _response({
   return out;
 }
 
+List<int> _dnsNameWire(String name) {
+  final out = <int>[];
+  for (final label in name.split('.')) {
+    out..add(label.length)..addAll(label.codeUnits);
+  }
+  out.add(0);
+  return out;
+}
+
+/// Builds a valid CNAME chain followed by one A record. Each owner uses a
+/// compression pointer to the prior encoded name, so the fixture also covers
+/// pointer decoding across successive records.
+List<int> _cnameChainResponse({
+  int hops = 17,
+  bool trailingByteInFirstCname = false,
+}) {
+  if (hops < 1) throw ArgumentError.value(hops, 'hops');
+  const queryName = 'host0.example.com';
+  final question = _dnsNameWire(queryName);
+  final out = <int>[
+    ..._u16(0x1234), ..._u16(0x8180),
+    ..._u16(1), ..._u16(hops + 1), ..._u16(0), ..._u16(0),
+    ...question, 0, 1, 0, 1,
+  ];
+  var previousNameOffset = 12;
+  for (var i = 0; i < hops; i++) {
+    final targetWire = _dnsNameWire('host${i + 1}.example.com');
+    final rdata = <int>[
+      ...targetWire,
+      if (i == 0 && trailingByteInFirstCname) 0x7f,
+    ];
+    out.addAll([
+      0xc0 | ((previousNameOffset >> 8) & 0x3f),
+      previousNameOffset & 0xff,
+      ..._u16(5), ..._u16(1),
+      0, 0, 0, 60,
+      ..._u16(rdata.length), ...rdata,
+    ]);
+    previousNameOffset = out.length - rdata.length;
+  }
+  out.addAll([
+    0xc0 | ((previousNameOffset >> 8) & 0x3f),
+    previousNameOffset & 0xff,
+    ..._u16(1), ..._u16(1),
+    0, 0, 0, 60,
+    ..._u16(4), 8, 8, 8, 8,
+  ]);
+  return out;
+}
+
 void main() {
   group('androidVpnTunnelEvidence', () {
     test('plugin-managed path accepts an active VPN owned by this app', () {
@@ -309,6 +359,45 @@ void main() {
     test('rejects a truncated packet instead of crashing', () {
       expect(() => NatDnsWireProbe.parseResponse([0, 1, 2], 1, 'google.com'),
           throwsA(isA<FormatException>()));
+    });
+
+    test('accepts a CNAME chain longer than the former 16-hop ceiling', () {
+      final bytes = _cnameChainResponse(hops: 17);
+      expect(
+        NatDnsWireProbe.parseResponse(bytes, 0x1234, 'host0.example.com'),
+        ['8.8.8.8'],
+      );
+    });
+
+    test('rejects CNAME RDATA with trailing bytes outside the encoded name', () {
+      final bytes = _cnameChainResponse(
+        hops: 1,
+        trailingByteInFirstCname: true,
+      );
+      expect(
+        () => NatDnsWireProbe.parseResponse(bytes, 0x1234, 'host0.example.com'),
+        throwsA(isA<FormatException>()),
+      );
+    });
+
+    test('accepts a fully qualified query name with a terminal root dot', () {
+      final bytes = _response(id: 0x1234, rdata: [8, 8, 8, 8]);
+      expect(
+        NatDnsWireProbe.parseResponse(bytes, 0x1234, 'google.com.'),
+        ['8.8.8.8'],
+      );
+    });
+
+    test('rejects the reserved DNS header Z bit', () {
+      final bytes = _response(
+        id: 0x1234,
+        flags: 0x81c0,
+        rdata: [8, 8, 8, 8],
+      );
+      expect(
+        () => NatDnsWireProbe.parseResponse(bytes, 0x1234, 'google.com'),
+        throwsA(isA<FormatException>()),
+      );
     });
 
     test('pre-cancelled DNS probes return without opening a socket', () async {

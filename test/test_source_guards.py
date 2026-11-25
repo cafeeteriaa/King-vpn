@@ -4254,5 +4254,17 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('snapshot maps are immutable copies', tests)
 
 
+    def test_dns_cname_rdata_is_bounded_and_chain_has_no_arbitrary_hop_cap(self):
+        parser = (ROOT / 'lib' / 'nnie_core.dart').read_text(encoding='utf-8')
+        tests = (ROOT / 'test' / 'nnie_core_test.dart').read_text(encoding='utf-8')
+        self.assertIn('encodedEnd: rdEnd', parser)
+        self.assertIn('targetName.nextOffset != rdEnd', parser)
+        self.assertIn('while (true)', parser)
+        self.assertNotIn('hop < 16', parser)
+        self.assertIn('CNAME RDATA length mismatch', parser)
+        self.assertIn('longer than the former 16-hop ceiling', tests)
+        self.assertIn('trailing bytes outside the encoded name', tests)
+
+
 if __name__ == '__main__':
     unittest.main()

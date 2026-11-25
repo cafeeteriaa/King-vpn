@@ -191,120 +191,182 @@ class NatDnsWireProbe {
     return true;
   }
 
-  static int _skipName(List<int> b, int pos) {
-    var p = pos;
-    var jumps = 0;
-    while (p < b.length) {
-      final n = b[p];
-      if (n == 0) return p + 1;
-      if ((n & 0xc0) == 0xc0) {
-        if (p + 1 >= b.length) throw const FormatException('Bad DNS pointer');
-        return p + 2;
-      }
-      if ((n & 0xc0) != 0 || n > 63 || p + 1 + n > b.length) {
-        throw const FormatException('Bad DNS label');
-      }
-      p += n + 1;
-      if (++jumps > 128) throw const FormatException('DNS name too long');
+  /// Decode one DNS name and report the byte offset immediately after its
+  /// encoded representation. [encodedEnd] bounds only the bytes consumed at
+  /// the original location; compression pointers may refer to earlier packet
+  /// data, as required by RFC 1035.
+  static ({String name, int nextOffset}) _decodeName(
+    List<int> b,
+    int start, {
+    int? encodedEnd,
+  }) {
+    if (start < 12 ||
+        start >= b.length ||
+        (encodedEnd != null &&
+            (encodedEnd < start || encodedEnd > b.length))) {
+      throw const FormatException('Invalid DNS name bounds');
     }
-    throw const FormatException('Truncated DNS name');
-  }
-
-  static String _readName(List<int> b, int start) {
     final labels = <String>[];
     var p = start;
-    var resume = -1;
-    var hops = 0;
-    while (p < b.length && hops++ < 128) {
-      final n = b[p];
-      if (n == 0) {
-        if (resume < 0) resume = p + 1;
+    var nextOffset = -1;
+    var jumped = false;
+    var expandedWireLength = 1; // terminating root octet
+    while (true) {
+      if (p >= b.length || (!jumped && encodedEnd != null && p >= encodedEnd)) {
+        throw const FormatException('Truncated DNS name');
+      }
+      final length = b[p];
+      if (length == 0) {
+        if (!jumped) nextOffset = p + 1;
         break;
       }
-      if ((n & 0xc0) == 0xc0) {
-        if (p + 1 >= b.length) throw const FormatException('Bad pointer');
-        final ptr = ((n & 0x3f) << 8) | b[p + 1];
-        // DNS compression pointers must refer to a prior name in this packet.
-        if (ptr < 12 || ptr >= p || ptr >= b.length) {
+      if ((length & 0xc0) == 0xc0) {
+        if (p + 1 >= b.length ||
+            (!jumped && encodedEnd != null && p + 2 > encodedEnd)) {
+          throw const FormatException('Truncated DNS compression pointer');
+        }
+        final pointer = ((length & 0x3f) << 8) | b[p + 1];
+        if (pointer < 12 || pointer >= p || pointer >= b.length) {
           throw const FormatException('Invalid DNS compression pointer target');
         }
-        if (resume < 0) resume = p + 2;
-        p = ptr;
+        if (!jumped) {
+          nextOffset = p + 2;
+          jumped = true;
+        }
+        p = pointer;
         continue;
       }
-      if (n > 63 || p + 1 + n > b.length) throw const FormatException('Bad label');
-      labels.add(ascii.decode(b.sublist(p + 1, p + 1 + n), allowInvalid: false).toLowerCase());
-      p += n + 1;
+      if ((length & 0xc0) != 0 ||
+          length > 63 ||
+          p + 1 + length > b.length ||
+          (!jumped && encodedEnd != null && p + 1 + length > encodedEnd)) {
+        throw const FormatException('Invalid or truncated DNS label');
+      }
+      expandedWireLength += length + 1;
+      if (expandedWireLength > 255) {
+        throw const FormatException('Expanded DNS name exceeds 255 wire octets');
+      }
+      labels.add(
+        ascii.decode(b.sublist(p + 1, p + 1 + length), allowInvalid: false).toLowerCase(),
+      );
+      p += length + 1;
     }
-    if (resume < 0) throw const FormatException('Unterminated name');
-    return labels.join('.');
+    if (nextOffset < 0) throw const FormatException('Unterminated DNS name');
+    return (name: labels.join('.'), nextOffset: nextOffset);
   }
 
-  static List<String> parseResponse(List<int> b, int id, String domain, {int recordType = 1}) {
+  static List<String> parseResponse(
+    List<int> b,
+    int id,
+    String domain, {
+    int recordType = 1,
+  }) {
+    if (recordType != 1 && recordType != 28) {
+      throw ArgumentError.value(recordType, 'recordType');
+    }
     if (b.length < 17) throw const FormatException('Short DNS response');
     final rid = (b[0] << 8) | b[1];
     final flags = (b[2] << 8) | b[3];
     if (rid != id || (flags & 0x8000) == 0 || (flags & 0x7800) != 0) {
       throw const FormatException('DNS ID/QR/opcode mismatch');
     }
-    if ((flags & 0x0200) != 0) throw const FormatException('Truncated DNS response');
-    if ((flags & 0x000f) != 0) throw FormatException('DNS RCODE ${(flags & 15)}');
+    if ((flags & 0x0200) != 0) {
+      throw const FormatException('Truncated DNS response');
+    }
+    if ((flags & 0x0040) != 0) {
+      throw const FormatException('Reserved DNS header Z bit is set');
+    }
+    if ((flags & 0x000f) != 0) {
+      throw FormatException('DNS RCODE ${flags & 15}');
+    }
     final qd = (b[4] << 8) | b[5];
     final an = (b[6] << 8) | b[7];
-    if (qd != 1 || an < 1) throw const FormatException('Missing DNS question/answer');
+    if (qd != 1 || an < 1) {
+      throw const FormatException('Missing DNS question/answer');
+    }
+
     var p = 12;
-    final qname = _readName(b, p);
-    p = _skipName(b, p);
+    final question = _decodeName(b, p);
+    p = question.nextOffset;
     if (p + 4 > b.length) throw const FormatException('Truncated question');
     final qtype = (b[p] << 8) | b[p + 1];
     final qclass = (b[p + 2] << 8) | b[p + 3];
     p += 4;
-    if (qname != domain.toLowerCase() || qtype != recordType || qclass != 1) {
+    final expectedName = domain.toLowerCase().replaceAll(RegExp(r'\\.$'), '');
+    if (question.name != expectedName || qtype != recordType || qclass != 1) {
       throw const FormatException('Question mismatch');
     }
+
     final records = <({String owner, int type, int cls, int rd, int rdlen})>[];
     final cnameTargets = <String, String>{};
     for (var i = 0; i < an; i++) {
-      final owner = _readName(b, p);
-      p = _skipName(b, p);
+      final ownerName = _decodeName(b, p);
+      final owner = ownerName.name;
+      p = ownerName.nextOffset;
       if (p + 10 > b.length) throw const FormatException('Truncated RR');
       final type = (b[p] << 8) | b[p + 1];
       final cls = (b[p + 2] << 8) | b[p + 3];
       final rdlen = (b[p + 8] << 8) | b[p + 9];
       final rd = p + 10;
-      if (rd + rdlen > b.length) throw const FormatException('Bad RDATA length');
+      final rdEnd = rd + rdlen;
+      if (rdEnd > b.length) throw const FormatException('Bad RDATA length');
       records.add((owner: owner, type: type, cls: cls, rd: rd, rdlen: rdlen));
-      if (type == 5 && cls == 1 && rdlen > 0) {
-        cnameTargets[owner] = _readName(b, rd);
+
+      if (type == 5 && cls == 1) {
+        if (rdlen == 0) throw const FormatException('Empty CNAME RDATA');
+        final targetName = _decodeName(b, rd, encodedEnd: rdEnd);
+        if (targetName.nextOffset != rdEnd) {
+          throw const FormatException('CNAME RDATA length mismatch');
+        }
+        final previousTarget = cnameTargets[owner];
+        if (previousTarget != null && previousTarget != targetName.name) {
+          throw const FormatException('Conflicting CNAME targets for one owner');
+        }
+        cnameTargets[owner] = targetName.name;
       }
-      p = rd + rdlen;
+      p = rdEnd;
     }
-    // Only accept A records owned by the queried QNAME or its validated CNAME
-    // chain. An unrelated A record elsewhere in the answer section is ignored.
-    final allowedOwners = <String>{domain.toLowerCase()};
-    var owner = domain.toLowerCase();
-    for (var hop = 0; hop < 16; hop++) {
-      final target = cnameTargets[owner];
+
+    // Follow the finite CNAME records actually present in this response.
+    // Cycle detection makes this loop terminate without an arbitrary hop cap.
+    final allowedOwners = <String>{expectedName};
+    var currentOwner = expectedName;
+    while (true) {
+      final target = cnameTargets[currentOwner];
       if (target == null || !allowedOwners.add(target)) break;
-      owner = target;
+      currentOwner = target;
     }
+
     final ips = <String>[];
     for (final rr in records) {
-      if (rr.type != recordType || rr.cls != 1 ||
-          !allowedOwners.contains(rr.owner)) continue;
+      if (rr.type != recordType ||
+          rr.cls != 1 ||
+          !allowedOwners.contains(rr.owner)) {
+        continue;
+      }
       if (recordType == 1) {
         if (rr.rdlen != 4 || !publicV4(b, rr.rd)) {
-          throw const FormatException('Non-public/blockpage A answer for queried name');
+          throw const FormatException(
+            'Non-public/blockpage A answer for queried name',
+          );
         }
         ips.add('${b[rr.rd]}.${b[rr.rd + 1]}.${b[rr.rd + 2]}.${b[rr.rd + 3]}');
-      } else if (recordType == 28) {
+      } else {
         if (rr.rdlen != 16 || !publicV6(b, rr.rd)) {
-          throw const FormatException('Non-public/blockpage AAAA answer for queried name');
+          throw const FormatException(
+            'Non-public/blockpage AAAA answer for queried name',
+          );
         }
-        ips.add(InternetAddress.fromRawAddress(Uint8List.fromList(b.sublist(rr.rd, rr.rd + 16))).address);
+        ips.add(
+          InternetAddress.fromRawAddress(
+            Uint8List.fromList(b.sublist(rr.rd, rr.rd + 16)),
+          ).address,
+        );
       }
     }
-    if (ips.isEmpty) throw const FormatException('No usable A answer for queried name');
+    if (ips.isEmpty) {
+      throw const FormatException('No usable A/AAAA answer for queried name');
+    }
     return ips;
   }
 

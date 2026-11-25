@@ -834,3 +834,17 @@ These are three distinct technical review passes by the same assistant, not thre
 
 - Full diagnostic export (`exportFullDiag`) now includes the current Fusion/KING AI evidence snapshot: event/failure totals, verified/unverified Android-TUN checks, advisory recovery hint, safe failure code and per-engine failure streaks. It deliberately excludes configuration strings and native handles.
 - Hardened the prompt-context empty-state condition so an external Android-TUN verdict is visible even if no Fusion lifecycle event has yet been observed; added a regression test and source guard.
+
+
+## 2026-11-25 — DNS CNAME wire-format integrity follow-up
+
+- Baseline branch before this patch: `feature/king-fusion-engine-foundation-20261125`, commit `eecd0ae7d561f705e4218fa76cd892d4dd74c548`; PR #53 remains open Draft and is not to be merged automatically.
+- Exact-head baseline GitHub Actions run 45666444977 completed successfully: source-repair guard, Flutter unit tests, Dart analysis, ARM64 release APK build, source packaging and provenance upload all succeeded.
+- Baseline ARM64 artifact: `king-vpn-arm64-release-3289`, 49,187,502 bytes, SHA-256 `5d745a0c1c2f1c89c953fd111cbce2a2c999d3efe935356090490810d93d77b9`. Baseline full-source artifact: `king-vpn-full-source-3289`, SHA-256 `bc7664e7b76062019ef636334f0f1d318f79b9ae43f38d3d5cda1e86df33f51b`.
+- DNS parser review found that CNAME RDATA names were decoded against the whole packet without verifying that the encoded name consumed exactly the declared RDLENGTH. It also found an arbitrary 16-hop CNAME traversal ceiling.
+- The parser now returns the exact encoded-name end offset, bounds the original CNAME RDATA bytes, rejects trailing/short CNAME RDATA and conflicting CNAME targets, and validates the expanded DNS name wire length.
+- CNAME traversal now follows the finite records actually present in the answer section with cycle detection rather than a fixed hop count. FQDN inputs with a terminal root dot are normalized consistently.
+- Reserved DNS header Z-bit responses are rejected. Existing transaction-ID, QR/opcode, TC, RCODE, QNAME/QTYPE/QCLASS, compression-pointer, source-address/port and usable-address checks remain in place.
+- Added regressions for a 17-hop CNAME chain, trailing CNAME RDATA bytes, terminal-root-dot QNAME and the reserved Z bit; added a source guard for the RDATA boundary and no-fixed-hop invariant.
+- Three review passes: (1) protocol semantics — compression pointers retain their original encoded end while the pointed-to suffix is decoded; (2) integrity — CNAME RDATA cannot read beyond RDLENGTH, conflicting aliases and cycles cannot promote an unrelated address, and the chain has no arbitrary ceiling; (3) regression — A/AAAA, IPv6, malformed pointer, RCODE, question mismatch and cancellation tests remain intact alongside the new fixtures.
+- This patch is not validated until a GitHub Actions run completes successfully on its exact new commit. No physical-device or live-network behavior is claimed.
