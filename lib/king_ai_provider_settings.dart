@@ -169,7 +169,7 @@ class _KingAiProviderSettingsPageState extends State<KingAiProviderSettingsPage>
                       onChanged: _busy || !_externalEnabled ? null : _setCodeConsent,
                       title: const Text('اجازه بازبینی سورس پروژه توسط چند هوش مصنوعی'),
                       subtitle: const Text(
-                        'این اجازه جدا از چت ابری است. فقط در مسیر توسعه‌دهنده و پس از احراز هویت مالک، بخش‌های لازم از کد برای providerهای فعال ارسال می‌شوند.',
+                        'این اجازه جدا از چت ابری است. فقط در مسیر توسعه‌دهنده و پس از احراز هویت مالک، بخش‌های لازم از کد برای همه providerهای فعال ارسال می‌شوند؛ هر سرویس ممکن است هزینه جداگانه داشته باشد.',
                       ),
                     ),
                   ),
