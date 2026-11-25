@@ -62,4 +62,22 @@ void main() {
       expect(ageAdjustedThroughput(megabytesPerSecond: 2, measuredAt: now.add(const Duration(seconds: 1)), now: now), isNull);
     });
   });
+
+  group('throughput stability evidence', () {
+    test('stable repeated samples keep full ranking weight', () {
+      expect(throughputStabilityFactor([8, 8, 8]), 1);
+    });
+
+    test('variable samples receive a lower ranking weight', () {
+      final stable = throughputStabilityFactor([8, 8, 8]);
+      final variable = throughputStabilityFactor([2, 8, 14]);
+      expect(variable, lessThan(stable));
+      expect(variable, greaterThan(0));
+    });
+
+    test('one sample and invalid samples do not invent instability', () {
+      expect(throughputStabilityFactor([8]), 1);
+      expect(throughputStabilityFactor([0, -1, double.nan]), 1);
+    });
+  });
 }
