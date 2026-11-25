@@ -104,8 +104,8 @@ Future<bool> _ipAutoSave() async {
     // Persist the work queue before its cursor. The cursor is the commit marker:
     // after a process death, a saved cursor can never point beyond an unsaved
     // TCP hit waiting for core verification.
-    if (!await p.setString(hitsKey, hits.join('\\n'))) return false;
-    if (!await p.setString(pendingKey, pending.join('\\n'))) return false;
+    if (!await p.setString(hitsKey, hits.join('\n'))) return false;
+    if (!await p.setString(pendingKey, pending.join('\n'))) return false;
     if (!await p.setString(posKey, position.toString())) return false;
     if (nationalMode != saveNationalMode) return false;
     if (!await p.setString(cursorKey, jsonEncode(cursors))) return false;
