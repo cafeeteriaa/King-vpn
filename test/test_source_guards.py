@@ -124,7 +124,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
         start = main.index('Future<bool> _connectLoop(')
         begin = main.index('_nnieBeginAttempt(s);', start)
-        end = main.index('Future<void> _measureCurrent', begin)
+        end = main.index('\\n    return false;\\n  }\\n\\n  // REAL speed test right after connecting', begin)
         attempt = main[begin:end]
         for previous in attempt.split('return false;')[:-1]:
             self.assertIn(
