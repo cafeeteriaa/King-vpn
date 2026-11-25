@@ -401,10 +401,13 @@ class KingFusionEngine {
     String? engineId,
     String? failureCode,
   }) {
+    // Sequence numbers describe coordinator activity, not observer delivery.
+    // Keep snapshots meaningful even when telemetry is not configured.
+    final sequence = ++_eventSequence;
     final listener = _eventListener;
     if (listener == null) return;
     final event = KingFusionEvent(
-      sequence: ++_eventSequence,
+      sequence: sequence,
       timestamp: DateTime.now(),
       type: type,
       state: _state,
