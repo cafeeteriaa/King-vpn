@@ -2716,5 +2716,13 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn('savedDns.take(40)', method)
 
 
+    def test_fresh_resource_export_and_hint_use_real_newlines(self):
+        page = (ROOT / 'lib' / 'fresh_resources_page.dart').read_text(encoding='utf-8')
+        self.assertIn(r"_links.join('\n')", page)
+        self.assertNotIn(r"_links.join('\\n')", page)
+        self.assertIn(r"hintText: 'vless://...\nvmess://...'", page)
+        self.assertNotIn(r"hintText: 'vless://...\\nvmess://...'", page)
+
+
 if __name__ == '__main__':
     unittest.main()
