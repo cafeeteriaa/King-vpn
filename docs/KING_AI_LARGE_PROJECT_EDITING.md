@@ -25,8 +25,7 @@ Project-wide input is now divided into sequential inference batches (targeting a
 project-size ceiling. A single file larger than the target remains intact in its own
 batch and is never silently truncated. GitHub also imposes API, blob, tree, and request-size
 limits. If one individual file exceeds the loaded model's actual context window or its
-practical complete-file generation capacity, the operation must fail visibly; patch-based
-editing for oversized individual files remains a further engineering stage.
+practical complete-file generation capacity, the operation must fail visibly; large-file editing now supports SHA-256-anchored exact-text operations. Each anchor must match exactly once, operations are applied sequentially, and stale source hashes or ambiguous anchors fail visibly. The model's context and output capacities remain finite.
 
 ## Safety and delivery
 
@@ -36,3 +35,18 @@ editing for oversized individual files remains a further engineering stage.
 - Changes are written to a new branch and a draft pull request, never directly to main.
 - No merge, release, or production deployment is performed by this workflow.
 - Exact-head source guards, unit tests, analyzer, build, and review remain required.
+
+
+## Large-file patch protocol
+
+For a file too large to regenerate safely, the coding model may return a patch change
+instead of a full replacement:
+
+- `path` identifies a file included in the current authenticated source batch.
+- `baseSha256` must match the SHA-256 of the exact original UTF-8 file.
+- `operations` is an ordered list of exact `find`/`replace` pairs.
+- Every `find` anchor must occur exactly once when its operation is applied.
+- Each operation is applied to the result of the preceding operation; stale hashes,
+  missing anchors, ambiguous anchors, malformed operations, and generated secrets fail.
+- Full-file replacements remain supported for small files. A patch does not bypass
+  owner authentication, path policy, secret checks, review, or CI.

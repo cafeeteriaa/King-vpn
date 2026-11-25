@@ -34,6 +34,14 @@ class LargeProjectEditingGuards(unittest.TestCase):
         self.assertIn("batches.add(currentBatch)", self.source)
         self.assertIn("for (var batchIndex = 0; batchIndex < batches.length; batchIndex++)", self.source)
 
+    def test_large_file_patch_operations_are_supported(self):
+        patch = Path("lib/king_ai_patch_engine.dart").read_text(encoding="utf-8")
+        self.assertIn("baseSha256", self.source)
+        self.assertIn("KingAiPatchEngine.apply(", self.source)
+        self.assertIn("operations: item['operations'] as List", self.source)
+        self.assertIn("must match exactly once", patch)
+        self.assertIn("sha256.convert(utf8.encode(original))", patch)
+
     def test_owner_authenticated_engine_can_be_updated_by_its_own_pipeline(self):
         protected = self.source.split("const protectedPaths = <String>{", 1)[1]
         protected = protected.split("};", 1)[0]

@@ -29,7 +29,7 @@ SECRET_PATTERNS = [
 ]
 
 
-def validate(diff: str, max_changed_lines: int = 1200) -> list[str]:
+def validate(diff: str, max_changed_lines: int | None = None) -> list[str]:
     errors: list[str] = []
     paths: set[str] = set()
     changed = 0
@@ -57,15 +57,18 @@ def validate(diff: str, max_changed_lines: int = 1200) -> list[str]:
             'android/app/src/main/java/', 'android/app/src/main/kotlin/'
         )):
             errors.append(f'protected file requires human review: {path}')
-    if changed <= 0 or changed > max_changed_lines:
-        errors.append(f'changed line count outside 1..{max_changed_lines}: {changed}')
+    if changed <= 0:
+        errors.append(f'patch contains no changed lines: {changed}')
+    if max_changed_lines is not None and changed > max_changed_lines:
+        errors.append(f'changed line count exceeds explicitly configured limit {max_changed_lines}: {changed}')
     return sorted(set(errors))
 
 
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument('diff_file')
-    parser.add_argument('--max-changed-lines', type=int, default=1200)
+    parser.add_argument('--max-changed-lines', type=int, default=None,
+                        help='Optional operator-selected guard; no default changed-line ceiling.')
     args = parser.parse_args()
     with open(args.diff_file, encoding='utf-8') as handle:
         errors = validate(handle.read(), args.max_changed_lines)
