@@ -159,12 +159,10 @@ class FreshResourceStore {
       }
       rethrow;
     } finally {
-      if (await temp.exists()) {
-        try {
-          await temp.delete();
-        } on FileSystemException {
-          // Preserve the original operation's error.
-        }
+      try {
+        if (await temp.exists()) await temp.delete();
+      } on FileSystemException {
+        // Best-effort cleanup must not mask the write/rename failure.
       }
     }
   }
@@ -196,12 +194,10 @@ class FreshResourceStore {
       await temp.writeAsBytes(bytes, flush: true);
       await temp.rename(target.path);
     } finally {
-      if (await temp.exists()) {
-        try {
-          await temp.delete();
-        } on FileSystemException {
-          // Preserve the original operation's error.
-        }
+      try {
+        if (await temp.exists()) await temp.delete();
+      } on FileSystemException {
+        // Best-effort cleanup must not mask the metadata write/rename failure.
       }
     }
   }
