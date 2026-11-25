@@ -17,6 +17,8 @@ KING AI علاوه بر مدل محلی، بتواند با رضایت روشن 
 | DeepSeek | OpenAI-compatible | در این پروفایل فقط متن |
 | Qwen / DashScope | OpenAI-compatible | وابسته به مدل |
 | OpenRouter | OpenAI-compatible | وابسته به مدل انتخابی |
+| Groq | OpenAI-compatible | در پروفایل فعلی فقط متن |
+| Cerebras Inference | OpenAI-compatible | در پروفایل فعلی فقط متن |
 
 نام مدل‌ها پیش‌فرض و قابل‌تغییرند؛ نام، دسترسی، تعرفه و قابلیت هر مدل ممکن است از سمت ارائه‌دهنده تغییر کند. وجود یک گزینه در برنامه به معنی داشتن حساب، API key، اعتبار رایگان یا دسترسی تضمین‌شده نیست.
 
