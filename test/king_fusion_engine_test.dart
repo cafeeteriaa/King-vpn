@@ -1417,6 +1417,30 @@ void main() {
         () => engine.availableEngines.add(descriptor),
         throwsUnsupportedError,
       );
+
+      // Validation must use the captured capability contract, not a mutable
+      // Set still owned by the adapter implementation.
+      final acceptedOriginalTransport = await engine.connect(KingFusionPlan([
+        const KingFusionHop(
+          engineId: 'mutable',
+          configuration: 'opaque-config',
+          requiredTransport: 'tcp',
+        ),
+      ]));
+      expect(acceptedOriginalTransport.connected, isTrue);
+      await engine.disconnect();
+
+      final rejectedMutatedTransport = await engine.connect(KingFusionPlan([
+        const KingFusionHop(
+          engineId: 'mutable',
+          configuration: 'opaque-config',
+          requiredTransport: 'udp',
+        ),
+      ]));
+      expect(
+        rejectedMutatedTransport.failureCode,
+        'E-FUSION-TRANSPORT-UNSUPPORTED',
+      );
     });
 
     test('verificationStarted observer cancellation prevents verifier invocation', () async {
