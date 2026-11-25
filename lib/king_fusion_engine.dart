@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:collection';
 
 /// KING Fusion Engine foundation.
 ///
@@ -196,7 +197,7 @@ class KingFusionEngine {
   // Future.timeout does not cancel a native stop. Keep the in-flight future
   // so repeated disconnects cannot issue overlapping stop calls.
   final Map<KingEngineAdapter, Future<void>> _stopOperations =
-      <KingEngineAdapter, Future<void>>{};
+      HashMap<KingEngineAdapter, Future<void>>.identity();
   KingFusionCancellableTrafficVerifier? _activeVerifier;
   KingFusionCancellableEngineAdapter? _startingAdapter;
   Completer<void>? _disconnectSignal;
@@ -561,9 +562,13 @@ class KingFusionEngine {
   }
 
   /// Failed or timed-out stops remain tracked so a later disconnect can retry.
+  /// Cleanup halts at the first reverse-order failure to keep upstream hops
+  /// alive while a downstream hop may still depend on them.
   Future<List<String>> _rollback() async {
     final failed = <({KingEngineAdapter adapter, Object? handle})>[];
-    for (final item in _active.reversed.toList(growable: false)) {
+    final reverseOrder = _active.reversed.toList(growable: false);
+    for (var index = 0; index < reverseOrder.length; index++) {
+      final item = reverseOrder[index];
       try {
         var stopOperation = _stopOperations[item.adapter];
         if (stopOperation == null) {
@@ -593,8 +598,10 @@ class KingFusionEngine {
         }
         await stopOperation.timeout(nativeStopTimeout);
       } catch (_) {
-        // A timed-out stop remains tracked until the native future settles.
-        failed.add(item);
+        // A downstream hop must be stopped before its upstream dependency.
+        // Retain this hop and every earlier hop; do not tear down underneath it.
+        failed.addAll(reverseOrder.skip(index));
+        break;
       }
     }
     _active
