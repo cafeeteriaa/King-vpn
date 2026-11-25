@@ -1352,8 +1352,10 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('Future<void>? _hotEnsureFuture;', source)
         self.assertIn('await active;', source)
         self.assertIn('Future<void> _natHotEnsureImpl({bool force = false}) async', source)
-        self.assertIn('final seenKeys = <String>{};', source)
-        self.assertIn('if (!seenKeys.add(cfg)) continue;', source)
+        self.assertNotIn('final seenKeys = <String>{};', source)
+        self.assertIn('final oldCachePath = _hotPath();', source)
+        self.assertIn('if (File(oldCachePath).existsSync()) oldCachePath,', source)
+        self.assertIn('const int _hotIndexStride = 256;', source)
         fill_start = source.index('Future<void> hotAutoFill() async')
         fill_end = source.index('Future<void> hotAutoStart()', fill_start)
         self.assertNotIn('manageExternalStorage', source[fill_start:fill_end])
@@ -1379,14 +1381,15 @@ class KingVpnSourceGuardTests(unittest.TestCase):
     def test_hot_source_refresh_merges_previous_inventory_without_replacing_on_empty_fetch(self):
         source = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
         start = source.index('final newPath =')
-        end = source.index('    } finally:\n      for (final p in [...parts, extraPath])', start)
+        end = source.index('    } finally {\n      for (final p in [...parts, extraPath])', start)
         body = source[start:end]
         self.assertIn('final oldCachePath = _hotPath();', body)
         self.assertIn('if (File(oldCachePath).existsSync()) oldCachePath,', body)
         self.assertIn('if (!isOldCache) freshTotal++;', body)
         self.assertIn('if (freshTotal > 0 && total > 0)', body)
         self.assertNotIn('oldTotal ~/ 2', body)
-        self.assertIn("line.indexOf('\\t')", body)
+        self.assertIn('sink.add(b);', body)
+        self.assertNotIn('seenKeys', body)
 
     def test_hot_source_inventory_uses_sparse_index_without_total_record_cap(self):
         source = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
@@ -2365,7 +2368,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
     def test_ip_auto_storage_load_and_save_are_mode_isolated_across_awaits(self):
         source = (ROOT / 'lib' / 'ip_auto_scan.dart').read_text(encoding='utf-8')
         load_start = source.index('Future<void> ipAutoLoad() async {')
-        save_start = source.index('Future<void> _ipAutoSave() async {', load_start)
+        save_start = source.index('Future<bool> _ipAutoSave() async {', load_start)
         load = source[load_start:save_start]
         save_end = source.index('/// Inventory پویا', save_start)
         save = source[save_start:save_end]
