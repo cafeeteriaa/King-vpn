@@ -4170,7 +4170,8 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn("import 'king_v2ray_adapter.dart';", main)
         self.assertIn('Future<bool> _startV2RayViaFusion(', main)
         self.assertEqual(main.count('_startV2RayViaFusion('), 3)
-        self.assertNotIn('v2ray.startV2Ray(', main)
+        self.assertEqual(main.count('v2ray.startV2Ray('), 1)
+        self.assertIn('nativeStartTimeout: const Duration(seconds: 30)', main)
         self.assertIn('await fusion.disconnect();', main)
         self.assertIn('fusion.cleanupPendingEngineIds', main)
         self.assertIn('stop: () => v2ray.stopV2Ray(),', main)
@@ -4181,7 +4182,13 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('supportsMultiHop: false', adapter)
         self.assertIn('verify real outbound traffic', adapter)
         self.assertIn('Future<void> _stopNativeSerialized()', adapter)
+        self.assertIn('cleanupRequired: true', adapter)
+        self.assertIn('final pending = _pendingStart', adapter)
+        self.assertIn('E-V2RAY-START-TIMEOUT', adapter)
+        self.assertIn('cleanupRequired', (ROOT / 'lib' / 'king_fusion_engine.dart').read_text(encoding='utf-8'))
         self.assertIn('cancels a pending native start', tests)
+        self.assertIn('retains a timed-out native start', tests)
+        self.assertIn('retains partially started native core', tests)
         self.assertIn('trafficVerified, isFalse', tests)
         # Fusion is only the native lifecycle owner; existing app-level
         # tunnel and data-plane verification remain authoritative.
