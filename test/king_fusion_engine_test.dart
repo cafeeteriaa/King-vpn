@@ -66,6 +66,49 @@ class _FakeAdapter implements KingEngineAdapter {
   }
 }
 
+class _CancellableStartAdapter
+    implements KingFusionCancellableEngineAdapter {
+  final List<String> events;
+  final Completer<void> entered = Completer<void>();
+  final Completer<void> gate = Completer<void>();
+  int cancelCalls = 0;
+
+  _CancellableStartAdapter(this.events);
+
+  @override
+  final KingEngineDescriptor descriptor = const KingEngineDescriptor(
+    id: 'cancellable-start',
+    title: 'Cancellable start',
+    family: KingEngineFamily.custom,
+    availability: KingEngineAvailability.integrated,
+  );
+
+  @override
+  bool canChainTo(KingEngineAdapter next) => false;
+
+  @override
+  Future<KingEngineStartResult> start({
+    required String configuration,
+    Object? upstreamHandle,
+  }) async {
+    events.add('start:cancellable-start');
+    if (!entered.isCompleted) entered.complete();
+    await gate.future;
+    return const KingEngineStartResult.connected('late-handle');
+  }
+
+  @override
+  Future<void> cancelPendingStart() async {
+    cancelCalls++;
+    if (!gate.isCompleted) gate.complete();
+  }
+
+  @override
+  Future<void> stop(Object? handle) async {
+    events.add('stop:cancellable-start:$handle');
+  }
+}
+
 class _UnavailableAdapter implements KingEngineAdapter {
   @override
   final KingEngineDescriptor descriptor = const KingEngineDescriptor(
@@ -281,6 +324,31 @@ void main() {
       expect(result.failureCode, 'E-FUSION-CONFIG-EMPTY');
       expect(events, isEmpty);
     });
+    test('disconnect asks a cancellable native start to settle promptly', () async {
+      final events = <String>[];
+      final adapter = _CancellableStartAdapter(events);
+      final engine = KingFusionEngine([adapter]);
+      final connecting = engine.connect(KingFusionPlan([
+        const KingFusionHop(
+          engineId: 'cancellable-start',
+          configuration: 'cfg',
+        ),
+      ]));
+
+      await adapter.entered.future;
+      final disconnecting = engine.disconnect();
+      final result = await connecting;
+      await disconnecting;
+
+      expect(result.failureCode, 'E-FUSION-CANCELLED');
+      expect(adapter.cancelCalls, 1);
+      expect(events, [
+        'start:cancellable-start',
+        'stop:cancellable-start:late-handle',
+      ]);
+      expect(engine.state, KingFusionState.idle);
+    });
+
     test('disconnect waits for an in-flight native start and cancels the plan', () async {
       final events = <String>[];
       final gate = Completer<void>();
