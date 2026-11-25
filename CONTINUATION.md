@@ -577,3 +577,15 @@ These are three distinct technical review passes by the same assistant, not thre
 - The failed CI run had 313 passing tests and one failing snapshot assertion; the failure was isolated to this reporting semantic, not compilation. The assertion now matches the corrected lifecycle distinction.
 - Three-pass review: (1) state semantics — active and cleanup-pending are distinct; (2) lifecycle — retained handles remain visible after failed rollback; (3) regression — the existing snapshot test covers healthy-active state while cleanup-retry tests cover failed state.
 - Fix commit: `f1bb315f5885d3421e25b63073d5d73f422d1dac`. Latest-head CI must verify this correction and the later registry/transport changes.
+
+
+## 2026-11-25 — Concurrent disconnect coalescing
+
+- Added a shared in-flight disconnect future. All callers that request disconnect during the same native cleanup operation now join the exact same future; a second caller can no longer return while the first caller is still waiting for a blocked native `stop()`.
+- The cancellation signal is raised only when disconnect is joining an active connect/verification operation. Additional callers joining an already-running teardown do not set a stale cancellation latch.
+- Retained the previous cancellation behavior: disconnect during native startup or traffic verification still signals the active operation, requests optional adapter/verifier cancellation, waits for connect rollback, and then performs any remaining cleanup.
+- Cleanup-failure IDs now use the frozen adapter registry identity instead of re-reading a mutable adapter descriptor after registration.
+- Added a deterministic concurrency regression test: hold native stop, invoke disconnect twice, verify the second future remains pending, release stop, await both callers, and assert exactly one native stop call and final idle state.
+- Three-pass review: (1) API/concurrency — all concurrent callers share one future; (2) lifecycle — joining teardown does not create overlapping native cleanup or stale cancellation state; (3) regression — blocked-stop test asserts both callers observe completion.
+- Commits: `65f8c66b137b3d3d5e7c9c129988229581a92c95` (concurrent disconnect test), `9621086cbf5795811c4e92797bddee00d08b2b04` (coalesced disconnect and stable cleanup identity).
+- CI for `9621086cbf5795811c4e92797bddee00d08b2b04` is pending. The immediately preceding exact-head commit `4a1274f599eeb4a92d40e40c373313b96e5fd7a3` passed both push and pull-request workflows, including Flutter tests, Dart analysis and Android arm64 release APK build; this does not pre-validate the new concurrency change.
