@@ -383,3 +383,15 @@ These are three distinct technical review passes by the same assistant, not thre
 - Three-pass review: (1) state model and nat/global separation; (2) crash windows and queue durability; (3) legacy migration and single-write regression guard.
 - Exact-head CI run 2984 is in progress for commit `46be052d79bf8c5ec06da441ee966b2b96cd541f`. Do not claim this stage validated until source guards, Flutter tests, Dart analysis and ARM64 release build all complete successfully.
 - Device-level tunnel, DNS-leak, IPv4/IPv6 data-plane, network-handover and battery tests remain NOT TESTED.
+
+
+## 2026-11-25 — Fusion data-plane acceptance gate (latest)
+- Extended `lib/king_fusion_engine.dart` with an explicit `KingFusionTrafficVerifier` contract and per-plan `requireTrafficVerification` opt-in.
+- When a plan requires end-to-end evidence, a missing verifier is rejected during preflight, before any adapter starts. Native adapter start success alone cannot satisfy the requested verified-connectivity contract.
+- After all hops start, the verifier must return positive evidence within the configurable positive timeout (default 12 seconds). A negative result rolls back all started hops in reverse order and returns `E-FUSION-TRAFFIC-UNVERIFIED`; verifier exceptions/timeouts use the normal failure cleanup path.
+- Added cancellation fencing after the asynchronous verification await. A disconnect requested while traffic verification is pending now wins over a late positive probe and triggers rollback with `E-FUSION-CANCELLED`.
+- Added regression tests for missing-verifier preflight, negative data-plane evidence and rollback, positive verification, and disconnect during verification.
+- Commits on this feature branch: `12e5ed7efc74109501f83d903fb72350be3d153d`, `e9dcf25e996fc3fcc665f82e333e9fb3d8701ea0`, `7d8a0062251ec7aa879720a1afc030f2862ce4e4`, `fc5045a12ac25adf9d40b031290fd870e3417673`.
+- Three review passes: (1) architecture — verifier is injected and opt-in, preserving existing app connection paths; (2) lifecycle/security — no config or native handle logging, bounded verification wait, reverse rollback and cancellation fencing; (3) regression — added focused unit tests for each new branch.
+- Validation status: latest exact-head workflow lookup returned no PR-triggered workflow run for `fc5045a12ac25adf9d40b031290fd870e3417673`. Do not claim tests, analyzer, or APK build passed until exact-head CI is observed. No device-level data-plane verification is claimed.
+- Next: inspect workflow trigger behavior / PR head, run exact-head CI, fix any failures, then wire a real verifier only to an existing app-owned tunnel probe after confirming it traverses the intended route. Do not replace the current `flutter_v2ray_client` connection lifecycle or claim Xray/Sing-box/WireGuard adapters are integrated without native implementations and device tests.
