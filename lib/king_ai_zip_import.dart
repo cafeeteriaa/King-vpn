@@ -80,7 +80,7 @@ class KingAiZipImport {
       final directory = ByteData.sublistView(centralBytes);
       var cursor = 0;
       for (var i = 0; i < count; i++) {
-        if (cursor + 46 > central.lengthInBytes ||
+        if (cursor + 46 > centralBytes.length ||
             directory.getUint32(cursor, Endian.little) != _central) {
           throw FormatException('Malformed ZIP entry ' + i.toString());
         }
@@ -96,7 +96,7 @@ class KingAiZipImport {
         final external = directory.getUint32(cursor + 38, Endian.little);
         final localOffset = directory.getUint32(cursor + 42, Endian.little);
         final recordLength = 46 + nameLength + extraLength + commentSize;
-        if (cursor + recordLength > central.lengthInBytes) {
+        if (cursor + recordLength > centralBytes.length) {
           throw const FormatException('ZIP central directory entry is truncated.');
         }
         if (compressed == 0xffffffff || expanded == 0xffffffff ||
@@ -186,7 +186,7 @@ class KingAiZipImport {
         );
         extracted.add(path);
       }
-      if (cursor != central.lengthInBytes) {
+      if (cursor != centralBytes.length) {
         throw const FormatException('Unexpected trailing central-directory bytes.');
       }
       return extracted;
