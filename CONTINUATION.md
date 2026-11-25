@@ -309,3 +309,15 @@ These are three distinct technical review passes by the same assistant, not thre
 - CI run 2941 exposed the missing async import; it was corrected. On the subsequent run 2942 (pre-handoff-race snapshot), source guards, Flutter unit tests and Dart analysis passed; the ARM64 release build was still running at the last observation. Run 2944 is queued for the handoff-race follow-up; require a completed exact-head run before calling this branch fully validated.
 - The active Flutter V2Ray connection path in `lib/main.dart` remains unchanged. Fusion is not yet wired into the production connection path; no additional native engine is claimed as integrated.
 - The default branch must remain at `c43d325f9803d4f6306415e511f6790deff9d87e`. PR #53 remains open Draft; no merge has been performed.
+
+
+## 2026-11-25 — IP Auto exact endpoint/template integrity
+
+- Removed the two-template truncation from the national IP Auto template inventory. All templates returned by the national source are retained; the per-run address batch remains a resumable execution slice, not an inventory deletion.
+- Replaced port-only template selection with an exact resolved `IP:port -> all matching source configurations` index. A shared port no longer causes a candidate IP to be tested with an unrelated server configuration.
+- Core verification now tries every original configuration that actually resolves to the exact IP:port pair, preserving each configuration's transport, TLS, SNI, host and credentials. A pair remains in the retry queue if none of its matching configurations passes the two-pass check.
+- Added a reusable immutable endpoint-template index helper in `lib/nat_ip_scan.dart`. It validates IPv4/IPv6 literals and ports, normalizes equivalent IPv6 spellings, optionally constrains indexing to the current generated address slice, deduplicates repeated source identities, and preserves all distinct templates.
+- Added unit coverage for multiple configurations sharing one IP:port, separate ports, IPv4/IPv6, canonical IPv6 normalization, scope exclusion, invalid values and immutable results. Added source guards against restoring `take(2)` truncation or port-only `firstWhere` fallback.
+- This change does not widen active probing to unrelated public/CDN ranges. Active checks remain limited to exact addresses resolved from configured VPN endpoint records; passive inventory and active endpoint verification remain separate.
+- Latest exact-head CI is pending after the scanner/test/source-guard changes. Previous exact-head run 2942 completed successfully for the prior Fusion-only snapshot (unit tests, Dart analysis and ARM64 build); do not transfer that success to the new scanner commits.
+- PR #53 remains open Draft and unmerged. Main remains at `c43d325f9803d4f6306415e511f6790deff9d87e`.
