@@ -99,6 +99,10 @@ void main() {
       expect(variable, greaterThan(0));
     });
 
+    test('even-sized windows use the central-pair median', () {
+      expect(throughputStabilityFactor([2, 8, 14, 20]), closeTo(1 / (1 + 6 / 11), 0.000001));
+    });
+
     test('one sample and invalid samples do not invent instability', () {
       expect(throughputStabilityFactor([8]), 1);
       expect(throughputStabilityFactor([0, -1, double.nan]), 1);
