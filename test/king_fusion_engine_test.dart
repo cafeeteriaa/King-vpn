@@ -860,6 +860,48 @@ void main() {
       expect(engine.state, KingFusionState.idle);
     });
 
+    test('cleanupFailed observer joins disconnect without recursive stop', () async {
+      final events = <String>[];
+      late final KingFusionEngine engine;
+      Future<void>? observerDisconnect;
+      engine = KingFusionEngine(
+        [
+          _FakeAdapter(
+            'first',
+            events,
+            stopFailuresRemaining: 1,
+          ),
+        ],
+        onEvent: (event) {
+          if (event.type == KingFusionEventType.cleanupFailed) {
+            observerDisconnect ??= engine.disconnect();
+          }
+        },
+      );
+      final connected = await engine.connect(KingFusionPlan([
+        const KingFusionHop(engineId: 'first', configuration: 'cfg'),
+      ]));
+      expect(connected.connected, isTrue);
+
+      await engine.disconnect();
+      await observerDisconnect;
+
+      expect(
+        events.where((event) => event.startsWith('stop:first:')).length,
+        1,
+      );
+      expect(engine.state, KingFusionState.failed);
+      expect(engine.cleanupPendingEngineIds, ['first']);
+
+      await engine.disconnect();
+      expect(
+        events.where((event) => event.startsWith('stop:first:')).length,
+        2,
+      );
+      expect(engine.state, KingFusionState.idle);
+      expect(engine.isBusy, isFalse);
+    });
+
     test('does not stop upstream hops while downstream cleanup is failing', () async {
       final events = <String>[];
       final first = _FakeAdapter(
