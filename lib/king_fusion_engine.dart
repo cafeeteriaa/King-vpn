@@ -649,6 +649,20 @@ class KingFusionEngine {
       if (plan.requireTrafficVerification) {
         _emit(KingFusionEventType.verificationPassed);
       }
+      // A synchronous observer can request disconnect from the final
+      // stateChanged/verificationPassed event. Do not report a successful
+      // connect after that teardown has already been committed.
+      if (_disconnectRequested) {
+        final startedCount = _active.length;
+        final cleanupFailures = await _rollback();
+        _setState(KingFusionState.failed);
+        return KingFusionResult.failure(
+          failedEngineId: null,
+          failureCode: 'E-FUSION-CANCELLED',
+          startedHops: startedCount,
+          cleanupFailedEngineIds: cleanupFailures,
+        );
+      }
       return KingFusionResult.success(
         _active.length,
         trafficVerified: plan.requireTrafficVerification,
