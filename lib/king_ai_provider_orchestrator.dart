@@ -244,6 +244,11 @@ $safeSourceContext
     return key != null && key.isNotEmpty && enabled == 'true';
   }
 
+  Future<String> getProviderModel(KingAiProviderId id) async {
+    final saved = (await _secure.read(key: _key(id, 'model')))?.trim();
+    return saved == null || saved.isEmpty ? descriptor(id).defaultModel : saved;
+  }
+
   Future<List<KingAiProviderId>> configuredProviders({bool requireVision = false}) async {
     final result = <KingAiProviderId>[];
     for (final provider in providers) {
