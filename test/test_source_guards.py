@@ -4217,9 +4217,6 @@ class KingVpnSourceGuardTests(unittest.TestCase):
 
 
 
-if __name__ == '__main__':
-    unittest.main()
-
     def test_fusion_lifecycle_events_feed_secret_free_king_ai_evidence(self):
         main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
         bridge = (ROOT / 'lib' / 'king_fusion_learning_bridge.dart').read_text(encoding='utf-8')
@@ -4235,3 +4232,7 @@ if __name__ == '__main__':
         self.assertNotIn('event.handle', bridge)
         self.assertIn('only verified traffic clears failure streaks', tests)
         self.assertIn('snapshot maps are immutable copies', tests)
+
+
+if __name__ == '__main__':
+    unittest.main()
