@@ -655,7 +655,6 @@ bool _natAppliesF(_NatFacts f, int v) {
   if (v < 0 || v >= _natSpecs.length) return false;
   if (v == 0) return true;
   if (natDisabled.contains(v)) return false;
-  if (natRetired(v)) return false;
   final x = _natSpecs[v];
   if (x.other && !f.hasOther) return false;
   if ((x.fp != null || x.alpn != null || x.frag != null || x.noise) &&
