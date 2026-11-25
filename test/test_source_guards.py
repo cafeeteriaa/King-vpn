@@ -1791,12 +1791,12 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         end = source.index('Future<void> natIpMemSave(', start)
         body = source[start:end]
         stage = body.index('final nextMem = List<Map<String, dynamic>>.of(natIpMem);')
-        write = body.index('final committed = await prefs.setString(_ipMemKey, jsonEncode(nextMem));')
-        guard = body.index('if (!committed) return false;', write)
-        mutate = body.index('..addAll(nextMem);', guard)
+        write = body.index('await store.replaceAll(nextMem);')
+        mutate = body.index('..addAll(nextMem);', write)
         self.assertLess(stage, write)
-        self.assertLess(write, guard)
-        self.assertLess(guard, mutate)
+        self.assertLess(write, mutate)
+        self.assertNotIn('setString(_ipMemKey', body)
+        self.assertIn('if (!_natIpMemLoaded) await natIpMemLoad();', body)
 
     def test_clean_ip_inventory_ui_displays_all_entries_lazily(self):
         source = (ROOT / 'lib' / 'npv_am_extras.dart').read_text(encoding='utf-8')
@@ -4365,8 +4365,8 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         save_end = ultra.index('Future<void> natIpMemSave(', save_start)
         save_many = ultra[save_start:save_end]
         self.assertIn('final nextMem = List<Map<String, dynamic>>.of(natIpMem);', save_many)
-        self.assertIn('final committed = await prefs.setString(_ipMemKey, jsonEncode(nextMem));', save_many)
-        self.assertIn('if (!committed) return false;', save_many)
+        self.assertIn('await store.replaceAll(nextMem);', save_many)
+        self.assertNotIn('setString(_ipMemKey', save_many)
         self.assertIn('..addAll(nextMem);', save_many)
         self.assertIn('Future<bool> _natIpMemSaveQueue = Future<bool>.value(true);', ultra)
         self.assertIn('final operation = _natIpMemSaveQueue.then((_) async {', ultra)
