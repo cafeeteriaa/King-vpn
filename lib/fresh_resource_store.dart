@@ -27,8 +27,10 @@ class FreshResourceStore {
     _rootDirectoryForTesting = directory;
   }
 
-  // All mutations and snapshots share one serialized lane. The tail itself
-  // never remains failed, so one failed write cannot poison later operations.
+  // All operations in this Dart isolate share one serialized lane. Static
+  // state is isolate-local; callers in other isolates/processes need an OS-level
+  // file lock before sharing this directory. A failed operation never poisons
+  // the queue for later calls in this isolate.
   static Future<void> _writeTail = Future<void>.value();
 
   static Future<T> _serialized<T>(Future<T> Function() operation) {
