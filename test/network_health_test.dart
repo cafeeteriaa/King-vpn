@@ -2,6 +2,71 @@ import 'package:flutter_test/flutter_test.dart';
 import '../lib/network_health.dart';
 
 void main() {
+  group('network probe cache validity', () {
+    final now = DateTime.utc(2026, 11, 25, 12);
+
+    test('reuses only same-network evidence inside its TTL', () {
+      expect(isProbeCacheFresh(
+        force: false,
+        currentIdentity: 'network-a',
+        cachedIdentity: 'network-a',
+        cachedAt: now.subtract(const Duration(seconds: 30)),
+        now: now,
+        ttl: const Duration(minutes: 2),
+      ), isTrue);
+    });
+
+    test('forces refresh for empty or changed network identity', () {
+      for (final identity in ['', 'network-b']) {
+        expect(isProbeCacheFresh(
+          force: false,
+          currentIdentity: identity,
+          cachedIdentity: 'network-a',
+          cachedAt: now,
+          now: now,
+          ttl: const Duration(minutes: 2),
+        ), isFalse);
+      }
+    });
+
+    test('forces refresh for expired, missing or future-dated cache entries', () {
+      final old = now.subtract(const Duration(minutes: 3));
+      for (final cachedAt in <DateTime?>[
+        old,
+        null,
+        now.add(const Duration(seconds: 1)),
+      ]) {
+        expect(isProbeCacheFresh(
+          force: false,
+          currentIdentity: 'network-a',
+          cachedIdentity: 'network-a',
+          cachedAt: cachedAt,
+          now: now,
+          ttl: const Duration(minutes: 2),
+        ), isFalse);
+      }
+    });
+
+    test('force flag and invalid TTL always bypass cache', () {
+      expect(isProbeCacheFresh(
+        force: true,
+        currentIdentity: 'network-a',
+        cachedIdentity: 'network-a',
+        cachedAt: now,
+        now: now,
+        ttl: const Duration(minutes: 2),
+      ), isFalse);
+      expect(isProbeCacheFresh(
+        force: false,
+        currentIdentity: 'network-a',
+        cachedIdentity: 'network-a',
+        cachedAt: now,
+        now: now,
+        ttl: Duration.zero,
+      ), isFalse);
+    });
+  });
+
   group('Smart Pilot latency aggregation', () {
     test('median handles odd and even endpoint counts', () {
       expect(medianLatencyMs([90, 10, 50]), 50);
