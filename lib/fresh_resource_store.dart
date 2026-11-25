@@ -13,11 +13,13 @@ class FreshResourcePage {
     required this.items,
     required this.offset,
     required this.hasMore,
+    required this.totalCount,
   });
 
   final List<String> items;
   final int offset;
   final bool hasMore;
+  final int totalCount;
 }
 
 /// Persistent, app-private store for freshly downloaded public VPN profiles.
@@ -165,6 +167,7 @@ class FreshResourceStore {
         items: page.items,
         offset: offset,
         hasMore: page.hasMore,
+        totalCount: page.totalCount,
       );
     });
   }
