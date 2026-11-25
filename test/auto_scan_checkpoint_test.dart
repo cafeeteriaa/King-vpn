@@ -67,4 +67,43 @@ void main() {
       expect(decoded.port, isNull);
     });
   });
+
+  group('KING auto-scan fair inventory batches', () {
+    test('wraps from the saved cursor without dropping inventory entries', () {
+      expect(
+        kingNextInventoryBatch(
+          ['a', 'b', 'c', 'd', 'e'],
+          batchSize: 3,
+          lastValue: 'd',
+        ),
+        ['e', 'a', 'b'],
+      );
+    });
+
+    test('an unknown cursor restarts safely and a large batch covers all entries', () {
+      expect(
+        kingNextInventoryBatch([1, 2, 3], batchSize: 20, lastValue: 99),
+        [1, 2, 3],
+      );
+    });
+
+    test('empty inventory and non-positive batch sizes are safe', () {
+      expect(kingNextInventoryBatch<int>([], batchSize: 10), isEmpty);
+      expect(kingNextInventoryBatch([1, 2], batchSize: 0), isEmpty);
+      expect(kingNextInventoryBatch([1, 2], batchSize: -4), isEmpty);
+    });
+
+    test('batch output is immutable and source inventory is unchanged', () {
+      final source = [1, 2, 3, 4];
+      final batch = kingNextInventoryBatch(
+        source,
+        batchSize: 2,
+        lastValue: 2,
+      );
+      expect(batch, [3, 4]);
+      expect(source, [1, 2, 3, 4]);
+      expect(() => batch.add(5), throwsUnsupportedError);
+    });
+  });
+
 }
