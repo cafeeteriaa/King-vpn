@@ -293,6 +293,42 @@ void main() {
       expect(engine.isBusy, isFalse);
     });
 
+    test('disconnectRequested observer cannot start a new connection', () async {
+      final adapterEvents = <String>[];
+      final adapter = _FakeAdapter('first', adapterEvents);
+      late final KingFusionEngine engine;
+      KingFusionResult? reentrantConnectResult;
+      engine = KingFusionEngine(
+        [adapter],
+        onEvent: (event) {
+          if (event.type == KingFusionEventType.disconnectRequested) {
+            reentrantConnectResult ??= null;
+            // The observer runs synchronously while the disconnect operation
+            // is already published but before native cleanup starts.
+            unawaited(engine.connect(KingFusionPlan([
+              const KingFusionHop(engineId: 'first', configuration: 'racing'),
+            ])).then((result) {
+              reentrantConnectResult = result;
+            }));
+          }
+        },
+      );
+
+      final connected = await engine.connect(KingFusionPlan([
+        const KingFusionHop(engineId: 'first', configuration: 'cfg'),
+      ]));
+      expect(connected.connected, isTrue);
+
+      await engine.disconnect();
+
+      expect(reentrantConnectResult?.connected, isFalse);
+      expect(reentrantConnectResult?.failureCode, 'E-FUSION-DISCONNECT-PENDING');
+      expect(adapterEvents.where((event) => event.startsWith('start:')).length, 1);
+      expect(adapterEvents.where((event) => event.startsWith('stop:')).length, 1);
+      expect(engine.state, KingFusionState.idle);
+      expect(engine.isBusy, isFalse);
+    });
+
     test('event listener can request disconnect reentrantly after native start', () async {
       final adapterEvents = <String>[];
       final adapter = _FakeAdapter('first', adapterEvents);
