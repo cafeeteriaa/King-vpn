@@ -190,6 +190,10 @@ class KingFusionEngine {
   /// Upper bound for each native stop attempt; timed-out handles remain tracked.
   final Duration nativeStopTimeout;
   final List<({KingEngineAdapter adapter, Object? handle})> _active = [];
+  // Future.timeout does not cancel a native stop. Keep the in-flight future
+  // so repeated disconnects cannot issue overlapping stop calls.
+  final Map<KingEngineAdapter, Future<void>> _stopOperations =
+      <KingEngineAdapter, Future<void>>{};
   KingFusionCancellableTrafficVerifier? _activeVerifier;
   KingFusionCancellableEngineAdapter? _startingAdapter;
   Completer<void>? _disconnectSignal;
@@ -548,8 +552,35 @@ class KingFusionEngine {
     final failed = <({KingEngineAdapter adapter, Object? handle})>[];
     for (final item in _active.reversed.toList(growable: false)) {
       try {
-        await item.adapter.stop(item.handle).timeout(nativeStopTimeout);
+        var stopOperation = _stopOperations[item.adapter];
+        if (stopOperation == null) {
+          stopOperation = item.adapter.stop(item.handle);
+          _stopOperations[item.adapter] = stopOperation;
+          final trackedOperation = stopOperation;
+          unawaited(
+            trackedOperation.then<void>(
+              (_) {
+                if (identical(
+                  _stopOperations[item.adapter],
+                  trackedOperation,
+                )) {
+                  _stopOperations.remove(item.adapter);
+                }
+              },
+              onError: (Object _, StackTrace __) {
+                if (identical(
+                  _stopOperations[item.adapter],
+                  trackedOperation,
+                )) {
+                  _stopOperations.remove(item.adapter);
+                }
+              },
+            ),
+          );
+        }
+        await stopOperation.timeout(nativeStopTimeout);
       } catch (_) {
+        // A timed-out stop remains tracked until the native future settles.
         failed.add(item);
       }
     }
