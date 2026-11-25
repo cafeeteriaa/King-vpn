@@ -3903,6 +3903,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('globalQueue.length', schedule)
         self.assertIn('final scheduled = <String>[];', schedule)
         self.assertNotIn('take(', schedule)
+        self.assertNotIn('_dnsxHostsFrom(natFrontSnis)', schedule)
 
 
     def test_national_memory_and_subscription_inputs_keep_complete_candidate_sets(self):
