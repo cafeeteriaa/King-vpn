@@ -46,11 +46,11 @@ class KingAiDependencyAnalyzer {
       'scope': 'batch files only; edge targets may belong to other batches',
       'edges': {
         for (final path in batchPaths)
-          if (allEdges.containsKey(path)) path: allEdges[path],
+          if (allEdges.containsKey(path)) path: allEdges[path]!,
       },
       'unresolved': {
         for (final path in batchPaths)
-          if (allUnresolved.containsKey(path)) path: allUnresolved[path],
+          if (allUnresolved.containsKey(path)) path: allUnresolved[path]!,
       },
       'cycles': allCycles.where((cycle) => cycle.any(batchPaths.contains)).toList(),
     };

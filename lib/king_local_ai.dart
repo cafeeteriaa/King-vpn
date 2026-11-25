@@ -688,18 +688,40 @@ was tested unless supplied evidence proves it. Keep the answer concise and usefu
     var completedBatches = 0;
     if (restored != null) {
       completedBatches = restored['completedBatches'] as int;
-      if (completedBatches > batches.length) {
-        throw const FormatException('Repair checkpoint refers to more batches than the current task.');
+      if (completedBatches < 0 || completedBatches > batches.length) {
+        throw const FormatException('Repair checkpoint batch position is invalid for the current task.');
       }
       final restoredChanges = restored['changes'] as Map;
       for (final entry in restoredChanges.entries) {
-        if (entry.key is String && entry.value is String) changes[entry.key as String] = entry.value as String;
+        if (entry.key is! String || entry.value is! String) {
+          throw const FormatException('Repair checkpoint contains a malformed file change.');
+        }
+        final path = entry.key as String;
+        final content = entry.value as String;
+        _validatePath(path);
+        if (!safeFiles.containsKey(path)) {
+          throw FormatException('Repair checkpoint references a file outside the source snapshot: $path');
+        }
+        _rejectSecrets(content);
+        changes[path] = content;
       }
       final restoredOperations = restored['pendingOperations'] as Map;
       for (final entry in restoredOperations.entries) {
-        if (entry.key is String && entry.value is List) {
-          chunkedOperations[entry.key as String] = List<Object?>.from(entry.value as List);
+        if (entry.key is! String || entry.value is! List) {
+          throw const FormatException('Repair checkpoint contains malformed patch operations.');
         }
+        final path = entry.key as String;
+        if (!safeFiles.containsKey(path) || changes.containsKey(path)) {
+          throw FormatException('Repair checkpoint patch target is outside the snapshot or duplicated: $path');
+        }
+        final operations = List<Object?>.from(entry.value as List);
+        for (final operation in operations) {
+          if (operation is! Map || operation['find'] is! String ||
+              operation['replace'] is! String || (operation['find'] as String).isEmpty) {
+            throw FormatException('Repair checkpoint contains an invalid patch operation for $path');
+          }
+        }
+        chunkedOperations[path] = operations;
       }
       summaries.addAll((restored['summaries'] as List).whereType<String>());
     }

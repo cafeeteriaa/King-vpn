@@ -69,7 +69,7 @@ instead of a full replacement:
 
 - Every successfully validated inference batch is checkpointed in the app-private support directory.
 - The checkpoint includes the exact task hash, a canonical source-snapshot hash, completed batch index, validated file changes, pending large-file patch operations, and summaries.
-- Writes use a flushed temporary file followed by an atomic rename; an incomplete temporary write is not treated as a checkpoint.
+- Writes use a flushed temporary file followed by an atomic rename; an incomplete temporary write is not treated as a checkpoint. On resume, every restored path is revalidated against the current owner-editable inventory, secret scanning is rerun, and patch operations are structurally validated before they are trusted.
 - Resume is automatic only for the same task and byte-identical source snapshot. An explicit checkpoint identifier that does not match the current task/source is rejected. Corrupt or stale checkpoints fail visibly.
 - Checkpoint listing and deletion require an active owner session. Completed repairs remove their checkpoint.
 
