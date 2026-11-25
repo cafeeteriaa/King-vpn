@@ -102,7 +102,8 @@ Future<int?> _autoSniOk(String ip, int port, String sni) async {
       raw,
       host: sni,
       supportedProtocols: const ['http/1.1'],
-      onBadCertificate: (_) => true,
+      // Keep platform certificate validation enabled. A probe must not treat
+      // an invalid or self-signed certificate as trusted reachability evidence.
     ).timeout(const Duration(seconds: 4));
     secure.write(
       'GET / HTTP/1.1\r\n'
