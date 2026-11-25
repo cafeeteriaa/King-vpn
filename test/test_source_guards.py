@@ -2656,8 +2656,9 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         keep_end = main.index('Future<void> _natScanOnly() async {', keep_start)
         self.assertIn('natRanges.isNotEmpty', main[keep_start:keep_end])
         escalate_start = main.index('Future<void> _natEscalate(int round) async {')
-        escalate_end = main.index('if (abort || modeChanged()) return;', escalate_start)
-        self.assertIn('natRanges.isNotEmpty', main[escalate_start:escalate_end])
+        scan_sources_at = main.index('final hasScanSources', escalate_start)
+        scan_gate_at = main.index('if (runNationalMode && !abort && hasScanSources)', scan_sources_at)
+        self.assertIn('natRanges.isNotEmpty', main[escalate_start:scan_gate_at])
 
     def test_nat_tcp_probe_uses_cancelable_connection_tasks_and_bounded_polling(self):
         source = (ROOT / 'lib' / 'nat_ip_scan.dart').read_text(encoding='utf-8')
