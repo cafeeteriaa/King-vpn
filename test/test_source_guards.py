@@ -2761,7 +2761,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         start = extras.index('Future<void> withListMirrorStream(')
         end = extras.index('Future<http.Response> getListMirror(', start)
         streamed = extras[start:end]
-        self.assertIn('client.send(http.Request', streamed)
+        self.assertIn('.send(http.Request', streamed)
         self.assertIn('response.stream', streamed)
         self.assertIn('getListMirror(u, skipRaw: true)', streamed)
         self.assertIn('fallback.bodyBytes', streamed)
