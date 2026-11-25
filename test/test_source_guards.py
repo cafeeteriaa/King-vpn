@@ -1781,8 +1781,9 @@ class KingVpnSourceGuardTests(unittest.TestCase):
 
     def test_clean_ip_inventory_ui_displays_all_entries_lazily(self):
         source = (ROOT / 'lib' / 'npv_am_extras.dart').read_text(encoding='utf-8')
-        start = source.index('Future<void> cleanIpDialog(') if 'Future<void> cleanIpDialog(' in source else source.index('ListView.builder(')
-        end = source.index('if (cleanIps.isEmpty && _cleanBusy == null)', start)
+        status = source.index('cleanIpStatus.isNotEmpty')
+        start = source.rfind('Flexible(', 0, status)
+        end = source.index('if (cleanIps.isEmpty && _cleanBusy == null)', status)
         body = source[start:end]
         self.assertIn('ListView.builder(', body)
         self.assertIn('itemCount: cleanIps.length', body)
