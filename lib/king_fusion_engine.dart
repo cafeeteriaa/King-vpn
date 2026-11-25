@@ -975,9 +975,11 @@ class KingFusionEngine {
     _active
       ..clear()
       ..addAll(failed.reversed);
-    return failed
-        .map((item) => _idByAdapter[item.adapter]!)
-        .toList(growable: false);
+    // A fixed-length list is still element-mutable. Results cross the
+    // coordinator boundary, so publish a genuinely immutable cleanup report.
+    return List<String>.unmodifiable(
+      failed.map((item) => _idByAdapter[item.adapter]!),
+    );
   }
 
 }
