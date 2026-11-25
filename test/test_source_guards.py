@@ -4103,6 +4103,10 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('final committed = await prefs.setString(_ipMemKey, jsonEncode(nextMem));', save_many)
         self.assertIn('if (!committed) return false;', save_many)
         self.assertIn('..addAll(nextMem);', save_many)
+        self.assertIn('Future<bool> _natIpMemSaveQueue = Future<bool>.value(true);', ultra)
+        self.assertIn('final operation = _natIpMemSaveQueue.then((_) async {', ultra)
+        self.assertIn('_natIpMemSaveQueue = operation.catchError(', ultra)
+        self.assertIn('await natIpMemSaveMany([ip], port);', ultra)
         self.assertIn('await p.setString(_domMemKey, jsonEncode(natDomMem));', ultra)
 
 
