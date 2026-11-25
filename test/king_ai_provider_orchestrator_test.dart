@@ -34,6 +34,14 @@ void main() {
         KingAiProviderOrchestrator.descriptor(KingAiProviderId.gemini).supportsVision,
         isTrue,
       );
+      expect(
+        KingAiProviderOrchestrator.descriptor(KingAiProviderId.groq).supportsVision,
+        isFalse,
+      );
+      expect(
+        KingAiProviderOrchestrator.descriptor(KingAiProviderId.cerebras).supportsVision,
+        isFalse,
+      );
     });
 
     test('marks OpenRouter free-model availability as non-guaranteed', () {
