@@ -2883,8 +2883,9 @@ Future<void> _natHotEnsureImpl({bool force = false}) async {
       } finally {
         await sink.close();
       }
+      final freshTotal = offs.length - 1;
       final total = offs.length - 1;
-      if (total > 0) {
+      if (freshTotal > 0 && total > 0) {
         _hotFailAt = null;
         await File(newPath).rename(_hotPath());
         _hot = _HotIdx(_hotPath(), offs);
