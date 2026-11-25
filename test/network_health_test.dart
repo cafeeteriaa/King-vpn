@@ -9,10 +9,12 @@ void main() {
       // A server-side 4xx/5xx still proves the network route reached the peer.
       expect(isValidHttpResponseLine('HTTP/1.1 403 Forbidden'), isTrue);
       expect(isValidHttpResponseLine('HTTP/1.0 503 Service Unavailable'), isTrue);
+      expect(isValidHttpResponseLine('  HTTP/1.1\t 200\tOK  '), isTrue);
+      expect(isValidHttpResponseLine('HTTP/1.1 599 Edge Error'), isTrue);
     });
 
     test('rejects malformed, proxy-banner and non-final response lines', () {
-      for (final line in ['', 'connected', 'HTTP/2 200', 'HTTP/1.1 101 Switching Protocols', 'HTTP/1.1 xyz OK', 'HTTP/1.1 600 Unknown']) {
+      for (final line in ['', 'connected', 'HTTP/2 200', 'HTTP/1.1 101 Switching Protocols', 'HTTP/1.1 xyz OK', 'HTTP/1.1 600 Unknown', 'HTTP/1.1 2000 OK', 'HTTP/1.1 099 Early', 'HTTP/1.1 2000', 'HTTP/1.1']) {
         expect(isValidHttpResponseLine(line), isFalse, reason: line);
       }
     });
