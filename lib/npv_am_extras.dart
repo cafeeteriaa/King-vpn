@@ -956,7 +956,7 @@ Future<int?> _cfProbeMs(String ip, Duration t) async {
     await k.flush();
     final txt = await _cfRead(k, t);
     sw.stop();
-    if (txt.contains('cloudflare')) return sw.elapsedMilliseconds;
+    if (isValidCloudflareTraceResponse(txt)) return sw.elapsedMilliseconds;
   } catch (e, stk) {
     logError(e, stk);
   } finally {
@@ -972,7 +972,7 @@ Future<int?> _cfProbeMs(String ip, Duration t) async {
     await h.flush();
     final txt = await _cfRead(h, t);
     sw2.stop();
-    if (txt.contains('cloudflare')) return sw2.elapsedMilliseconds + 40;
+    if (isValidCloudflareTraceResponse(txt)) return sw2.elapsedMilliseconds + 40;
   } catch (e, stk) {
     logError(e, stk);
   } finally {
