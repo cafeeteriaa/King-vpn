@@ -1978,19 +1978,19 @@ Future<void> goldShowList(BuildContext context) async {
                 const Divider(),
                 const Text('سرورهای سالم (سریع → کند):',
                     style: TextStyle(fontWeight: FontWeight.bold)),
-                for (final v in srvL.take(200))
+                for (final v in srvL)
                   Text('${v.ping} ms  •  ${Server.parse(v.link)?.name ?? v.link}',
                       style: const TextStyle(fontSize: 12)),
                 const Divider(),
                 const Text('IP تمیز (سریع → کند):',
                     style: TextStyle(fontWeight: FontWeight.bold)),
-                for (final v in ipL.take(200))
+                for (final v in ipL)
                   Text('${v.ms} ms  •  ${v.ip}:${v.port}',
                       style: const TextStyle(fontSize: 12, fontFamily: 'monospace')),
                 const Divider(),
                 const Text('DNS سالم (سریع → کند):',
                     style: TextStyle(fontWeight: FontWeight.bold)),
-                for (final e in dnsL.take(200))
+                for (final e in dnsL)
                   Text('${e.value} ms  •  ${e.key}',
                       style: const TextStyle(fontSize: 12, fontFamily: 'monospace')),
                 for (final k in const ['sni_candidates', 'ip_candidates', 'sni', 'port', 'tls']) ...[
@@ -2004,7 +2004,7 @@ Future<void> goldShowList(BuildContext context) async {
                         'tls': 'پروتکل TLS مشاهده‌شده',
                       }[k]! + ' (${(_goldScan[k] ?? const []).length}):',
                       style: const TextStyle(fontWeight: FontWeight.bold)),
-                  for (final x in (_goldScan[k] ?? const <String>[]).take(200))
+                  for (final x in (_goldScan[k] ?? const <String>[]))
                     Text(x, style: const TextStyle(fontSize: 12, fontFamily: 'monospace')),
                 ],
               ],
