@@ -2,8 +2,16 @@ import 'dart:math' as math;
 
 /// Validation and unit conversion for real HTTP throughput probes.
 /// A non-success HTTP page must never be ranked as downloaded tunnel traffic.
-bool isUsableSpeedProbeStatus(int statusCode) =>
-    statusCode == 200 || statusCode == 206;
+bool isUsableSpeedProbeResponse(int statusCode, String? contentType) {
+  if (statusCode != 200 && statusCode != 206) return false;
+  final mime = (contentType ?? '').split(';').first.trim().toLowerCase();
+  // A captive portal often answers HTTP 200 with an HTML login/error page.
+  if (mime == 'text/html' || mime == 'application/xhtml+xml' ||
+      mime == 'application/json') {
+    return false;
+  }
+  return true;
+}
 
 double? throughputMegabytesPerSecond({
   required int bytes,
