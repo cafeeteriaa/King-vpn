@@ -634,6 +634,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('host, 443,', national)
         self.assertIn('.cast<List<int>>()', national)
         self.assertIn('.transform(utf8.decoder)', national)
+        self.assertIn('socket.write(buildPilotHttpHeadRequest(host));', national)
         self.assertIn("command.contains('بازه') && command.contains('خلبان')", main)
         self.assertIn("command.contains('اسکن') && command.contains('خلبان')", main)
         self.assertNotIn("label: const Text('بازه‌های IP اختصاصی خلبان')", main)
