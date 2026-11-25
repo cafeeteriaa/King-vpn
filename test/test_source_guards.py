@@ -3093,8 +3093,17 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn('known.take(1200)', domain)
 
         dns = (ROOT / 'lib' / 'dns_scanner.dart').read_text(encoding='utf-8')
-        self.assertIn('final list = {...savedDns,', dns)
+        self.assertIn('final list = {', dns)
+        self.assertIn('...savedDns,', dns)
+        self.assertIn('...discoveredPublicDns,', dns)
+        self.assertIn('await kingDiscoverPublicDnsResolvers()', dns)
         self.assertNotIn('savedDns.take(40)', dns)
+
+        discovery = (ROOT / 'lib' / 'dns_resolver_discovery.dart').read_text(encoding='utf-8')
+        self.assertIn("Uri.https('public-dns.info', '/nameservers.txt')", discovery)
+        self.assertIn('kingParsePublicDnsResolvers(response.body)', discovery)
+        self.assertNotIn('.take(', discovery)
+        self.assertNotIn('sublist(', discovery)
 
 
     def test_ip_generator_returns_exactly_the_addresses_covered_by_its_cursors(self):
