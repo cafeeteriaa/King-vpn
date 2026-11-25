@@ -2736,5 +2736,36 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn('quickLines.shuffle()', fetch)
 
 
+    def test_public_source_ingestion_streams_raw_http_into_line_parser(self):
+        main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        start = main.index('Future<List<Server>> fetchServers(')
+        end = main.index('// ---------- rows', start)
+        fetch = main[start:end]
+        self.assertIn('withListMirrorStream(u,', fetch)
+        self.assertIn('_streamSourceLines(bytes)', fetch)
+        self.assertNotIn('getListMirror(u)', fetch)
+        self.assertNotIn('r.body', fetch)
+
+    def test_streamed_source_decoder_preserves_plain_html_and_base64_inputs(self):
+        main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        start = main.index('Stream<String> _streamSourceLines(')
+        end = main.index('Future<List<Server>> fetchServers(', start)
+        decoder = main[start:end]
+        self.assertIn('utf8.decoder', decoder)
+        self.assertIn('base64.decode(b64)', decoder)
+        self.assertIn("lower.startsWith('<html')", decoder)
+        self.assertIn("_linkRe.allMatches", decoder)
+
+    def test_streamed_raw_fetch_keeps_configured_mirror_fallback(self):
+        extras = (ROOT / 'lib' / 'iran_ai_extras.dart').read_text(encoding='utf-8')
+        start = extras.index('Future<void> withListMirrorStream(')
+        end = extras.index('Future<http.Response> getListMirror(', start)
+        streamed = extras[start:end]
+        self.assertIn('client.send(http.Request', streamed)
+        self.assertIn('response.stream', streamed)
+        self.assertIn('getListMirror(u, skipRaw: true)', streamed)
+        self.assertIn('fallback.bodyBytes', streamed)
+
+
 if __name__ == '__main__':
     unittest.main()
