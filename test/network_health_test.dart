@@ -281,7 +281,34 @@ void main() {
         domesticTlsReachabilityVerified: true,
         globalTlsReachabilityVerified: true,
       );
-      expect(evidence.confidence, closeTo(2 / 6 * 0.55, 0.0001));
+      expect(evidence.confidence, 0);
+    });
+
+    test('confidence scales with expanded probe inventories without a three-target cap', () {
+      const evidence = NetworkEvidence(
+        domestic: LinkHealth.healthy,
+        global: LinkHealth.healthy,
+        domesticSamples: 5,
+        globalSamples: 5,
+        domesticSuccesses: 4,
+        globalSuccesses: 3,
+        domesticTlsReachabilityVerified: true,
+        globalTlsReachabilityVerified: true,
+      );
+      expect(evidence.confidence, closeTo(0.7, 0.0001));
+    });
+
+    test('an unobserved group contributes zero coverage instead of disappearing', () {
+      const evidence = NetworkEvidence(
+        domestic: LinkHealth.healthy,
+        global: LinkHealth.unknown,
+        domesticSamples: 5,
+        globalSamples: 0,
+        domesticSuccesses: 5,
+        globalSuccesses: 0,
+        domesticTlsReachabilityVerified: true,
+      );
+      expect(evidence.confidence, closeTo(0.3875, 0.0001));
     });
 
     test('negative and inconsistent counters cannot create confidence', () {

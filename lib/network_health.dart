@@ -152,23 +152,30 @@ class NetworkEvidence {
       nationalOnly ? domesticTlsReachabilityVerified : globalTlsReachabilityVerified;
 
   double get confidence {
-    // Count actual successful TLS handshakes, not attempts. Failed probes are
-    // evidence for route classification but must never inflate reachability confidence.
-    // Clamp each success count to the number of probes actually attempted in
-    // that group (three targets per group). Defensive bounds keep malformed or
-    // stale snapshots from claiming more evidence than the scanner collected.
-    final domesticCount =
-        domesticSuccesses.clamp(0, domesticSamples.clamp(0, 3)).toInt();
-    final globalCount =
-        globalSuccesses.clamp(0, globalSamples.clamp(0, 3)).toInt();
-    final successfulSamples = domesticCount + globalCount;
-    if (successfulSamples <= 0) return 0;
-    // The dedicated pilot scanner samples exactly three domestic and three global targets.
-    // Six successful samples with both groups verified reach 100%.
-    final coverage = (successfulSamples / 6).clamp(0, 1).toDouble();
+    // Confidence is computed from observed success rates in each independent
+    // group, not a fixed three-target inventory. This remains correct when
+    // endpoint inventories grow or the number of completed probes varies.
+    // Missing groups contribute zero coverage; malformed counters fail closed.
+    if (domesticSamples < 0 ||
+        globalSamples < 0 ||
+        domesticSuccesses < 0 ||
+        globalSuccesses < 0 ||
+        domesticSuccesses > domesticSamples ||
+        globalSuccesses > globalSamples) {
+      return 0;
+    }
+    if (domesticSamples == 0 && globalSamples == 0) return 0;
+    final domesticRate = domesticSamples == 0
+        ? 0.0
+        : domesticSuccesses / domesticSamples;
+    final globalRate =
+        globalSamples == 0 ? 0.0 : globalSuccesses / globalSamples;
+    // Average both independent groups so an unobserved side cannot disappear
+    // from the denominator and make one-sided evidence look fully certain.
+    final coverage = ((domesticRate + globalRate) / 2).clamp(0, 1).toDouble();
     final verified =
-        (domesticTlsReachabilityVerified && domesticCount >= 2 ? 1 : 0) +
-        (globalTlsReachabilityVerified && globalCount >= 2 ? 1 : 0);
+        (domesticTlsReachabilityVerified && domesticSuccesses >= 2 ? 1 : 0) +
+        (globalTlsReachabilityVerified && globalSuccesses >= 2 ? 1 : 0);
     return (coverage * (0.55 + verified * 0.225)).clamp(0, 1).toDouble();
   }
 }
