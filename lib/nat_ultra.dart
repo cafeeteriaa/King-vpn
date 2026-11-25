@@ -2792,16 +2792,21 @@ Future<int> _hotFetchOne(String u, String path) async {
         spool.openRead().transform(utf8.decoder).transform(const LineSplitter()),
       );
     }
-    // Keep base64 compatibility isolated; the common plain-text path above
-    // remains streaming from the network spool into the per-source file.
-    final body = (await spool.readAsString()).trim();
-    if (!RegExp(r'^[A-Za-z0-9+/=_\-\s]+$').hasMatch(body)) return 0;
-    final decoded = utf8.decode(
-      base64.decode(base64.normalize(body.replaceAll(RegExp(r'\s'), ''))),
-      allowMalformed: true,
-    );
-    return await _hotWriteSourceLines(
-        u, path, const LineSplitter().convert(decoded));
+    // Decode base64 payloads incrementally from the disk spool. Whitespace
+    // and URL-safe alphabet variants are normalized per chunk; the converter
+    // retains incomplete quartets between chunks.
+    final normalized = spool
+        .openRead()
+        .transform(utf8.decoder)
+        .map((chunk) => chunk
+            .replaceAll(RegExp(r'\s'), '')
+            .replaceAll('-', '+')
+            .replaceAll('_', '/'));
+    final decodedLines = normalized
+        .transform(base64.decoder)
+        .transform(utf8.decoder)
+        .transform(const LineSplitter());
+    return await _hotWriteSourceLines(u, path, decodedLines);
   } catch (e, stk) {
     logError(e, stk);
     return 0;
