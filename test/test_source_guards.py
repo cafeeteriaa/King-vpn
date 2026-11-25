@@ -3900,5 +3900,24 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn("'type': 'image'", provider)
 
 
+    def test_owner_coding_uses_opted_in_multi_model_reviews_with_redacted_context(self):
+        provider = (ROOT / 'lib' / 'king_ai_provider_orchestrator.dart').read_text(encoding='utf-8')
+        local = (ROOT / 'lib' / 'king_local_ai.dart').read_text(encoding='utf-8')
+        settings = (ROOT / 'lib' / 'king_ai_provider_settings.dart').read_text(encoding='utf-8')
+        review_start = provider.index('Future<List<Map<String, String>>> reviewCodeBatch(')
+        review_end = provider.index('Future<void> saveProvider(', review_start)
+        review = provider[review_start:review_end]
+        self.assertIn('KingAiOwnerAuth.instance.hasActiveSession', review)
+        self.assertIn('externalProcessingEnabled', review)
+        self.assertIn('externalCodeReviewEnabled', review)
+        self.assertIn('configuredProviders()', review)
+        self.assertIn('Future.wait(ids.map(', review)
+        self.assertIn('_redactConversationSecrets(jsonEncode({', local)
+        self.assertIn('reviewCodeBatch(', local)
+        self.assertIn('INDEPENDENT MULTI-MODEL REVIEWS', local)
+        self.assertIn('setExternalCodeReviewEnabled(enabled)', settings)
+        self.assertIn('king_ai_external_code_review_enabled', provider)
+
+
 if __name__ == '__main__':
     unittest.main()
