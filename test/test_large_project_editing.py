@@ -124,6 +124,9 @@ class LargeProjectEditingGuards(unittest.TestCase):
         self.assertIn("_maxExpansionRatio", importer)
         self.assertIn("size/CRC mismatch", importer)
         self.assertIn("Encrypted ZIP entry rejected", importer)
+        self.assertIn("_zip64Eocd", importer)
+        self.assertIn("_zip64ExtraValues", importer)
+        self.assertIn("ZIP64 end record", importer)
 
     def test_owner_task_descriptions_have_no_fixed_character_ceiling(self):
         self.assertNotIn("request.length > 2000", self.source)

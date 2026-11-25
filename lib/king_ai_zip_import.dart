@@ -8,6 +8,8 @@ class KingAiZipImport {
   KingAiZipImport._();
 
   static const int _eocd = 0x06054b50;
+  static const int _zip64Eocd = 0x06064b50;
+  static const int _zip64Locator = 0x07064b50;
   static const int _central = 0x02014b50;
   static const int _local = 0x04034b50;
   static const int _maxExpansionRatio = 1000;
@@ -57,19 +59,66 @@ class KingAiZipImport {
       final end = ByteData.sublistView(tail);
       final disk = end.getUint16(eocdAt + 4, Endian.little);
       final centralDisk = end.getUint16(eocdAt + 6, Endian.little);
-      final diskCount = end.getUint16(eocdAt + 8, Endian.little);
-      final count = end.getUint16(eocdAt + 10, Endian.little);
-      final centralSize = end.getUint32(eocdAt + 12, Endian.little);
-      final centralOffset = end.getUint32(eocdAt + 16, Endian.little);
+      final diskCount16 = end.getUint16(eocdAt + 8, Endian.little);
+      final count16 = end.getUint16(eocdAt + 10, Endian.little);
+      var count = count16;
+      var centralSize = end.getUint32(eocdAt + 12, Endian.little);
+      var centralOffset = end.getUint32(eocdAt + 16, Endian.little);
       final commentLength = end.getUint16(eocdAt + 20, Endian.little);
-      if (disk != 0 || centralDisk != 0 || diskCount != count) {
+      final absoluteEocd = archiveLength - tailLength + eocdAt;
+      var directoryLimit = absoluteEocd;
+      if (disk != 0 || centralDisk != 0) {
         throw const FormatException('Multi-disk ZIP is not supported.');
       }
-      if (count == 0xffff || centralSize == 0xffffffff || centralOffset == 0xffffffff) {
-        throw const FormatException('ZIP64 is not supported by this importer.');
+      if (eocdAt + 22 + commentLength != tail.length) {
+        throw const FormatException('ZIP end record/comment bounds are invalid.');
       }
-      if (eocdAt + 22 + commentLength > tail.length ||
-          centralOffset + centralSize > archiveLength) {
+      if (diskCount16 == 0xffff || count16 == 0xffff ||
+          centralSize == 0xffffffff || centralOffset == 0xffffffff) {
+        final locatorOffset = absoluteEocd - 20;
+        if (locatorOffset < 0) {
+          throw const FormatException('ZIP64 locator is missing.');
+        }
+        await file.setPosition(locatorOffset);
+        final locatorBytes = await file.read(20);
+        if (locatorBytes.length != 20) {
+          throw const FormatException('ZIP64 locator is truncated.');
+        }
+        final locator = ByteData.sublistView(locatorBytes);
+        if (locator.getUint32(0, Endian.little) != _zip64Locator ||
+            locator.getUint32(4, Endian.little) != 0 ||
+            locator.getUint32(16, Endian.little) != 1) {
+          throw const FormatException('Invalid or multi-disk ZIP64 locator.');
+        }
+        final zip64Offset = _uint64(locator, 8, 'ZIP64 end-record offset');
+        if (zip64Offset + 56 > locatorOffset) {
+          throw const FormatException('ZIP64 end-record bounds are invalid.');
+        }
+        directoryLimit = zip64Offset;
+        await file.setPosition(zip64Offset);
+        final zip64Bytes = await file.read(56);
+        if (zip64Bytes.length != 56) {
+          throw const FormatException('ZIP64 end record is truncated.');
+        }
+        final zip64 = ByteData.sublistView(zip64Bytes);
+        final zip64RecordSize = _uint64(zip64, 4, 'ZIP64 end-record size');
+        if (zip64.getUint32(0, Endian.little) != _zip64Eocd ||
+            zip64RecordSize < 44 || zip64Offset + 12 + zip64RecordSize > locatorOffset ||
+            zip64.getUint32(16, Endian.little) != 0 ||
+            zip64.getUint32(20, Endian.little) != 0) {
+          throw const FormatException('Invalid ZIP64 end record.');
+        }
+        final entriesOnDisk = _uint64(zip64, 24, 'ZIP64 disk entry count');
+        count = _uint64(zip64, 32, 'ZIP64 entry count');
+        centralSize = _uint64(zip64, 40, 'ZIP64 central-directory size');
+        centralOffset = _uint64(zip64, 48, 'ZIP64 central-directory offset');
+        if (entriesOnDisk != count) {
+          throw const FormatException('Multi-disk ZIP64 archives are not supported.');
+        }
+      } else if (diskCount16 != count16) {
+        throw const FormatException('Multi-disk ZIP is not supported.');
+      }
+      if (centralOffset + centralSize > directoryLimit) {
         throw const FormatException('ZIP directory bounds are invalid.');
       }
       await file.setPosition(centralOffset);
@@ -88,29 +137,50 @@ class KingAiZipImport {
         final flags = directory.getUint16(cursor + 8, Endian.little);
         final method = directory.getUint16(cursor + 10, Endian.little);
         final crc = directory.getUint32(cursor + 16, Endian.little);
-        final compressed = directory.getUint32(cursor + 20, Endian.little);
-        final expanded = directory.getUint32(cursor + 24, Endian.little);
+        var compressed = directory.getUint32(cursor + 20, Endian.little);
+        var expanded = directory.getUint32(cursor + 24, Endian.little);
         final nameLength = directory.getUint16(cursor + 28, Endian.little);
         final extraLength = directory.getUint16(cursor + 30, Endian.little);
         final commentSize = directory.getUint16(cursor + 32, Endian.little);
+        final diskStart = directory.getUint16(cursor + 34, Endian.little);
         final external = directory.getUint32(cursor + 38, Endian.little);
-        final localOffset = directory.getUint32(cursor + 42, Endian.little);
+        var localOffset = directory.getUint32(cursor + 42, Endian.little);
         final recordLength = 46 + nameLength + extraLength + commentSize;
         if (cursor + recordLength > centralBytes.length) {
           throw const FormatException('ZIP central directory entry is truncated.');
-        }
-        if (compressed == 0xffffffff || expanded == 0xffffffff ||
-            localOffset == 0xffffffff) {
-          throw const FormatException('ZIP64 entry is not supported.');
         }
         if ((flags & 1) != 0) throw const FormatException('Encrypted ZIP entry rejected.');
         if (method != 0 && method != 8) {
           throw FormatException('Unsupported ZIP compression method: ' + method.toString());
         }
         final nameBytes = centralBytes.sublist(cursor + 46, cursor + 46 + nameLength);
+        final extraBytes = centralBytes.sublist(
+          cursor + 46 + nameLength,
+          cursor + 46 + nameLength + extraLength,
+        );
         final rawName = (flags & 0x800) != 0
             ? utf8.decode(nameBytes, allowMalformed: false)
             : latin1.decode(nameBytes);
+        if (diskStart != 0 && diskStart != 0xffff) {
+          throw const FormatException('Multi-disk ZIP entry is not supported.');
+        }
+        if (compressed == 0xffffffff || expanded == 0xffffffff ||
+            localOffset == 0xffffffff || diskStart == 0xffff) {
+          final zip64 = _zip64ExtraValues(
+            extraBytes,
+            needExpanded: expanded == 0xffffffff,
+            needCompressed: compressed == 0xffffffff,
+            needOffset: localOffset == 0xffffffff,
+            needDisk: diskStart == 0xffff,
+          );
+          var index = 0;
+          if (expanded == 0xffffffff) expanded = zip64[index++];
+          if (compressed == 0xffffffff) compressed = zip64[index++];
+          if (localOffset == 0xffffffff) localOffset = zip64[index++];
+          if (diskStart == 0xffff && zip64[index] != 0) {
+            throw const FormatException('Multi-disk ZIP64 entry is not supported.');
+          }
+        }
         final path = normalizeEntryPath(rawName);
         cursor += recordLength;
         if (path == null) throw FormatException('Unsafe ZIP path: ' + rawName);
@@ -241,6 +311,58 @@ class KingAiZipImport {
       remaining -= bytes.length;
       yield bytes;
     }
+  }
+
+  static int _uint64(ByteData data, int offset, String field) {
+    final low = data.getUint32(offset, Endian.little);
+    final high = data.getUint32(offset + 4, Endian.little);
+    if (high > 0x7fffffff) {
+      throw FormatException('$field exceeds the platform integer range.');
+    }
+    return (high << 32) | low;
+  }
+
+  static List<int> _zip64ExtraValues(
+    Uint8List extra, {
+    required bool needExpanded,
+    required bool needCompressed,
+    required bool needOffset,
+    required bool needDisk,
+  }) {
+    var cursor = 0;
+    while (cursor + 4 <= extra.length) {
+      final header = ByteData.sublistView(extra, cursor);
+      final id = header.getUint16(0, Endian.little);
+      final length = header.getUint16(2, Endian.little);
+      final start = cursor + 4;
+      if (start + length > extra.length) {
+        throw const FormatException('Malformed ZIP extra-field bounds.');
+      }
+      if (id == 0x0001) {
+        final values = <int>[];
+        var position = start;
+        final end = start + length;
+        void take64(String field) {
+          if (position + 8 > end) {
+            throw FormatException('ZIP64 extra field is missing $field.');
+          }
+          values.add(_uint64(ByteData.sublistView(extra), position, field));
+          position += 8;
+        }
+        if (needExpanded) take64('expanded size');
+        if (needCompressed) take64('compressed size');
+        if (needOffset) take64('local-header offset');
+        if (needDisk) {
+          if (position + 4 > end) {
+            throw const FormatException('ZIP64 extra field is missing disk number.');
+          }
+          values.add(ByteData.sublistView(extra).getUint32(position, Endian.little));
+        }
+        return values;
+      }
+      cursor = start + length;
+    }
+    throw const FormatException('Required ZIP64 extra field is missing.');
   }
 
   static int _findSignature(List<int> bytes, int signature) {
