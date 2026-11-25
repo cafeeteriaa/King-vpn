@@ -173,14 +173,20 @@ class KingAiProviderOrchestrator {
   Future<String> ask({
     required String prompt,
     KingAiProviderId? preferredProvider,
+    bool explicitApproval = false,
   }) =>
-      _route(prompt: prompt, preferredProvider: preferredProvider);
+      _route(
+        prompt: prompt,
+        preferredProvider: preferredProvider,
+        explicitApproval: explicitApproval,
+      );
 
   Future<String> analyzeImage({
     required String prompt,
     required Uint8List imageBytes,
     required String mimeType,
     KingAiProviderId? preferredProvider,
+    bool explicitApproval = false,
   }) async {
     if (imageBytes.isEmpty) throw ArgumentError('تصویر خالی است.');
     if (!const <String>{'image/jpeg', 'image/png', 'image/webp'}.contains(mimeType)) {
@@ -192,6 +198,7 @@ class KingAiProviderOrchestrator {
       imageBytes: imageBytes,
       mimeType: mimeType,
       requireVision: true,
+      explicitApproval: explicitApproval,
     );
   }
 
@@ -201,8 +208,9 @@ class KingAiProviderOrchestrator {
     Uint8List? imageBytes,
     String? mimeType,
     bool requireVision = false,
+    bool explicitApproval = false,
   }) async {
-    if (!await externalProcessingEnabled) {
+    if (!explicitApproval && !await externalProcessingEnabled) {
       throw StateError('ارسال داده به هوش مصنوعی آنلاین غیرفعال است؛ ابتدا رضایت را در تنظیمات فعال کن.');
     }
     final cleanPrompt = prompt.trim();
