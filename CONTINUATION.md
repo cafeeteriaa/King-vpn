@@ -707,3 +707,11 @@ These are three distinct technical review passes by the same assistant, not thre
 - Three-pass review: (1) lifecycle ordering — the original disconnect owns cleanup through observer delivery; (2) resource safety — no duplicate stop is launched from a reentrant observer; (3) recovery regression — a subsequent independent call retries the retained handle.
 - Dedicated Fusion test count: 51 declarations by source inspection. Exact-head CI remains pending; no local Flutter execution is claimed.
 - Commit: `f280d9aa964724580cf8af80089041024d3d8828`.
+
+## 2026-11-25 — Immutable cleanup-failure result boundary
+
+- Corrected a subtle API immutability gap: `toList(growable: false)` prevents resizing but still permits callers to overwrite existing elements. Fusion now publishes rollback failure identifiers through `List.unmodifiable`.
+- Added a regression that attempts to overwrite a returned cleanup-failure engine ID and requires `UnsupportedError`, while retaining the existing cleanup retry assertions.
+- Three-pass review: (1) API semantics — the result's cleanup report is immutable rather than merely fixed-length; (2) integrity — consumers cannot rewrite which engine Fusion reports as requiring cleanup; (3) regression — mutation rejection is tested on a real partial rollback result.
+- Dedicated Fusion test count: 51 declarations; one existing test expanded. Exact-head CI pending; no local Flutter execution is claimed.
+- Commits: `e9828768c2fc3a2a464c5ea97e93112a6b3d5444`, `a6d7867a5da168b9b0139aa4fc0268687bd78806`.
