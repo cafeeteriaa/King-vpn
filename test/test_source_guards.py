@@ -3943,5 +3943,16 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn('maxLength: 2000', console)
 
 
+    def test_cursor_cli_review_is_manual_read_only_and_secret_backed(self):
+        workflow = (ROOT / '.github' / 'workflows' / 'king-ai-cursor-review.yml').read_text(encoding='utf-8')
+        self.assertIn('workflow_dispatch:', workflow)
+        self.assertIn('secrets.CURSOR_API_KEY', workflow)
+        self.assertIn('agent -p --mode=ask', workflow)
+        self.assertIn('actions/upload-artifact@v4', workflow)
+        self.assertNotIn('pull_request:', workflow)
+        self.assertNotIn('--force', workflow)
+        self.assertNotIn('git push', workflow)
+
+
 if __name__ == '__main__':
     unittest.main()
