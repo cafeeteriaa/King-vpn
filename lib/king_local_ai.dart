@@ -920,6 +920,245 @@ was tested unless supplied evidence proves it. Keep the answer concise and usefu
     };
   }
 
+  /// Resolves an imported workspace only when it is a real direct child of
+  /// the app-private imports directory. Symlinked workspace roots are rejected.
+  Future<({Directory workspace, String canonicalPath})>
+      _resolveImportedWorkspace(String workspacePath) async {
+    final support = await getApplicationSupportDirectory();
+    final importsRoot = Directory(
+      '\${support.path}\${Platform.pathSeparator}king_ai_imports',
+    );
+    await importsRoot.create(recursive: true);
+    final canonicalImports = await importsRoot.resolveSymbolicLinks();
+    final requested = Directory(workspacePath);
+    final requestedType = await FileSystemEntity.type(
+      requested.path,
+      followLinks: false,
+    );
+    if (requestedType != FileSystemEntityType.directory) {
+      throw const FormatException('Imported workspace must be a real directory, not a symlink.');
+    }
+    final canonicalWorkspace = await requested.resolveSymbolicLinks();
+    final parent = Directory(canonicalWorkspace).parent.path;
+    final canonicalParent = await Directory(parent).resolveSymbolicLinks();
+    if (canonicalParent != canonicalImports ||
+        canonicalWorkspace == canonicalImports) {
+      throw const FormatException('Workspace is outside the app-private import area.');
+    }
+    return (
+      workspace: Directory(canonicalWorkspace),
+      canonicalPath: canonicalWorkspace,
+    );
+  }
+
+  bool _isImportedSourcePath(String path) {
+    final inAllowedRoot = path.startsWith('lib/') ||
+        path.startsWith('test/') ||
+        path.startsWith('tools/') ||
+        path.startsWith('docs/') ||
+        (!path.contains('/') && path.endsWith('.md'));
+    return inAllowedRoot &&
+        (path.endsWith('.dart') || path.endsWith('.py') || path.endsWith('.md'));
+  }
+
+  String _importedSnapshotHash(Map<String, String> sourceFiles) {
+    final entries = sourceFiles.entries.toList()
+      ..sort((a, b) => a.key.compareTo(b.key));
+    return sha256.convert(utf8.encode(jsonEncode(
+      entries.map((entry) => [entry.key, entry.value]).toList(),
+    ))).toString();
+  }
+
+  /// Reads the editable source inventory of an imported project. Unknown,
+  /// binary, protected and symlink entries remain untouched in the workspace.
+  Future<Map<String, Object?>> inspectImportedProject(
+    String workspacePath,
+  ) async {
+    if (!KingAiOwnerAuth.instance.hasActiveSession) {
+      throw StateError('Owner authentication is required to inspect imported projects.');
+    }
+    final resolved = await _resolveImportedWorkspace(workspacePath);
+    final root = resolved.canonicalPath;
+    final sourceFiles = <String, String>{};
+    final excluded = <String>[];
+    await for (final entity in resolved.workspace.list(
+      recursive: true,
+      followLinks: false,
+    )) {
+      final type = await FileSystemEntity.type(entity.path, followLinks: false);
+      if (type == FileSystemEntityType.directory) continue;
+      final relative = entity.path.substring(root.length + 1)
+          .replaceAll(Platform.pathSeparator, '/');
+      if (type != FileSystemEntityType.file ||
+          !_isImportedSourcePath(relative)) {
+        excluded.add(relative);
+        continue;
+      }
+      try {
+        _validatePath(relative);
+      } on FormatException {
+        excluded.add(relative);
+        continue;
+      }
+      final canonicalParent = await entity.parent.resolveSymbolicLinks();
+      if (canonicalParent != root &&
+          !canonicalParent.startsWith('\${root}\${Platform.pathSeparator}')) {
+        throw FormatException('Imported source escaped its workspace: $relative');
+      }
+      final content = await File(entity.path).readAsString();
+      sourceFiles[relative] = content;
+    }
+    final snapshotHash = _importedSnapshotHash(sourceFiles);
+    return {
+      'workspacePath': root,
+      'sourceFiles': sourceFiles,
+      'sourceFileCount': sourceFiles.length,
+      'excludedEntries': excluded,
+      'excludedEntryCount': excluded.length,
+      'snapshotHash': snapshotHash,
+    };
+  }
+
+  /// Runs the normal resumable multi-file repair pipeline against an imported
+  /// workspace and binds the proposal to the exact source snapshot.
+  Future<Map<String, Object?>> proposeImportedProjectRepair({
+    required String workspacePath,
+    required String task,
+    String? checkpointId,
+  }) async {
+    if (!KingAiOwnerAuth.instance.hasActiveSession) {
+      throw StateError('Owner authentication is required to repair imported projects.');
+    }
+    final inventory = await inspectImportedProject(workspacePath);
+    final sourceFiles = inventory['sourceFiles'] as Map<String, String>;
+    if (sourceFiles.isEmpty) {
+      return {
+        'status': 'no_editable_source_files',
+        'workspacePath': inventory['workspacePath'],
+        'excludedEntryCount': inventory['excludedEntryCount'],
+      };
+    }
+    final proposal = await proposeRepair(
+      task: task,
+      sourceFiles: sourceFiles,
+      checkpointId: checkpointId,
+    );
+    return {
+      ...proposal,
+      'workspacePath': inventory['workspacePath'],
+      'sourceSnapshotHash': inventory['snapshotHash'],
+      'status': (proposal['changes'] as Map).isEmpty
+          ? 'no_changes_proposed'
+          : 'proposal_ready',
+    };
+  }
+
+  /// Applies a proposal only if the imported source snapshot is unchanged.
+  /// All output files are staged before replacement; on an I/O failure, files
+  /// already replaced are rolled back from same-directory backups.
+  Future<Map<String, Object?>> applyImportedProjectChanges({
+    required String workspacePath,
+    required String expectedSnapshotHash,
+    required Map<String, String> changes,
+  }) async {
+    if (!KingAiOwnerAuth.instance.hasActiveSession) {
+      throw StateError('Owner authentication is required to apply imported project changes.');
+    }
+    if (changes.isEmpty) throw ArgumentError('No imported project changes supplied.');
+    final inventory = await inspectImportedProject(workspacePath);
+    if (inventory['snapshotHash'] != expectedSnapshotHash) {
+      throw const StateError('Imported project changed after proposal generation; create a fresh proposal.');
+    }
+    final root = inventory['workspacePath'] as String;
+    final originals = inventory['sourceFiles'] as Map<String, String>;
+    final staged = <String, File>{};
+    final backups = <String, File>{};
+    final replaced = <String>[];
+    final stamp = DateTime.now().microsecondsSinceEpoch;
+    try {
+      var index = 0;
+      for (final entry in changes.entries) {
+        _validatePath(entry.key);
+        if (!originals.containsKey(entry.key)) {
+          throw FormatException('Change target is not an existing editable source file: \${entry.key}');
+        }
+        _rejectSecrets(entry.value);
+        final targetPath = '\${root}\${Platform.pathSeparator}'
+            '\${entry.key.replaceAll('/', Platform.pathSeparator)}';
+        final targetType = await FileSystemEntity.type(targetPath, followLinks: false);
+        if (targetType != FileSystemEntityType.file) {
+          throw FormatException('Imported target is missing or is not a regular file: \${entry.key}');
+        }
+        final target = File(targetPath);
+        final canonicalParent = await target.parent.resolveSymbolicLinks();
+        if (canonicalParent != root &&
+            !canonicalParent.startsWith('\${root}\${Platform.pathSeparator}')) {
+          throw FormatException('Imported target escaped its workspace: \${entry.key}');
+        }
+        final temporary = File('\${targetPath}.king-ai-stage-\${stamp}-\${index}');
+        final backup = File('\${targetPath}.king-ai-backup-\${stamp}-\${index}');
+        if (await temporary.exists() || await backup.exists()) {
+          throw StateError('Temporary import-edit path collision.');
+        }
+        await temporary.writeAsString(entry.value, flush: true);
+        staged[entry.key] = temporary;
+        backups[entry.key] = backup;
+        index++;
+      }
+
+      for (final entry in changes.entries) {
+        final targetPath = '\${root}\${Platform.pathSeparator}'
+            '\${entry.key.replaceAll('/', Platform.pathSeparator)}';
+        final target = File(targetPath);
+        await target.rename(backups[entry.key]!.path);
+        try {
+          await staged[entry.key]!.rename(targetPath);
+          replaced.add(entry.key);
+        } catch (_) {
+          await backups[entry.key]!.rename(targetPath);
+          rethrow;
+        }
+      }
+      for (final backup in backups.values) {
+        if (await backup.exists()) await backup.delete();
+      }
+      return {
+        'status': 'applied',
+        'changedFiles': changes.keys.toList()..sort(),
+        'changedFileCount': changes.length,
+        'newSnapshotHash': _importedSnapshotHash({
+          ...originals,
+          ...changes,
+        }),
+      };
+    } catch (error) {
+      var rollbackFailure = false;
+      for (final path in replaced.reversed) {
+        final targetPath = '\${root}\${Platform.pathSeparator}'
+            '\${path.replaceAll('/', Platform.pathSeparator)}';
+        try {
+          final target = File(targetPath);
+          if (await target.exists()) await target.delete();
+          final backup = backups[path]!;
+          if (await backup.exists()) await backup.rename(targetPath);
+        } catch (_) {
+          rollbackFailure = true;
+        }
+      }
+      for (final temporary in staged.values) {
+        try {
+          if (await temporary.exists()) await temporary.delete();
+        } catch (_) {
+          rollbackFailure = true;
+        }
+      }
+      if (rollbackFailure) {
+        throw StateError('Imported project edit failed and rollback was incomplete; inspect preserved .king-ai-backup files. Original error: $error');
+      }
+      rethrow;
+    }
+  }
+
   /// Lists resumable owner-only repair checkpoints without exposing source content.
   Future<List<String>> listRepairCheckpoints() async {
     if (!KingAiOwnerAuth.instance.hasActiveSession) {

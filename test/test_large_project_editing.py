@@ -143,6 +143,19 @@ class LargeProjectEditingGuards(unittest.TestCase):
         self.assertIn("!['success', 'neutral', 'skipped'].contains(item['conclusion'])", inspector)
         self.assertNotIn(".take(", inspector)
 
+    def test_imported_zip_has_a_complete_owner_repair_and_apply_workflow(self):
+        self.assertIn("Future<Map<String, Object?>> inspectImportedProject(", self.source)
+        self.assertIn("Future<Map<String, Object?>> proposeImportedProjectRepair(", self.source)
+        self.assertIn("Future<Map<String, Object?>> applyImportedProjectChanges(", self.source)
+        self.assertIn("_resolveImportedWorkspace(workspacePath)", self.source)
+        self.assertIn("_importedSnapshotHash(sourceFiles)", self.source)
+        self.assertIn("Imported project changed after proposal generation", self.source)
+        self.assertIn("FileSystemEntity.type(targetPath, followLinks: false)", self.source)
+        self.assertIn("king-ai-stage-", self.source)
+        self.assertIn("king-ai-backup-", self.source)
+        self.assertIn("rollback was incomplete", self.source)
+        self.assertIn("Owner authentication is required to apply imported project changes", self.source)
+
     def test_owner_task_descriptions_have_no_fixed_character_ceiling(self):
         self.assertNotIn("request.length > 2000", self.source)
         self.assertIn("final request = task.trim();", self.source)
