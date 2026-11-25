@@ -86,8 +86,6 @@ const String _autoScanCdnCursorKey = 'auto_scan_cdn_cursors_v1';
 const String _autoScanDomainCursorKey = 'auto_scan_domain_cursor_v1';
 const String _autoScanPortCursorKey = 'auto_scan_port_cursor_v1';
 const int _autoScanCdnBatchSize = 8;
-const int _autoScanDomainBatchSize = 18;
-const int _autoScanPortBatchSize = 24; // full SNI/port/TLS pass fits the shared four-minute budget
 
 // SNI discovery checks endpoint-level HTTPS reachability. It does NOT prove
 // that the Android VPN tunnel carries this traffic; only the core/TUN validation
@@ -332,7 +330,7 @@ Future<void> autoScanRun(void Function(String) say,
         ? 0
         : (previousDomainIndex + 1) % domainInventory.length;
     final domainBatch = <String>[
-      for (var i = 0; i < min(_autoScanDomainBatchSize, domainInventory.length); i++)
+      for (var i = 0; i < domainInventory.length; i++)
         domainInventory[(domainStart + i) % domainInventory.length],
     ];
     final stagedDomainCursor = domainBatch.isEmpty ? savedDomainCursor : domainBatch.last;
@@ -350,7 +348,7 @@ Future<void> autoScanRun(void Function(String) say,
         ? 0
         : (previousPortIndex + 1) % portInventory.length;
     final portBatch = <int>[
-      for (var i = 0; i < min(_autoScanPortBatchSize, portInventory.length); i++)
+      for (var i = 0; i < portInventory.length; i++)
         portInventory[(portStart + i) % portInventory.length],
     ];
     final stagedPortCursor = portBatch.isEmpty ? savedPortCursor : portBatch.last;
