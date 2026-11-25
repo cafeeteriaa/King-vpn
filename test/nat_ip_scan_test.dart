@@ -40,7 +40,7 @@ void main() {
           (endpoint: 'trojan-tls-config', addresses: ['192.0.2.10'], port: 443),
           (endpoint: 'different-port-config', addresses: ['192.0.2.10'], port: 8443),
           (endpoint: 'outside-active-scope', addresses: ['192.0.2.99'], port: 443),
-          (endpoint: 'duplicate-source', addresses: ['192.0.2.10'], port: 443),
+          (endpoint: 'vless-ws-config', addresses: ['192.0.2.10'], port: 443),
           (endpoint: 'invalid-port', addresses: ['192.0.2.10'], port: 65536),
         ],
         keyOf: (endpoint) => endpoint,
