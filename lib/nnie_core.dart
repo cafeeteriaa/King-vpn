@@ -16,6 +16,33 @@ enum NatNetworkClass {
 
 enum NatAttemptStage { quick, alternate, expensive }
 
+/// Validates Android VPN evidence for the selected service path.
+/// The default Flutter plugin path has no KingVpnService descriptor. It uses
+/// Android's active VPN owner UID on API 30+, or the active VPN transport plus
+/// this package's current VpnService grant on API 24–29. The optional custom
+/// service path requires its live TUN plus an active VPN transport.
+bool? androidVpnTunnelEvidence({
+  required bool? serviceTunnelActive,
+  required bool? activeVpnTransport,
+  required bool? activeVpnOwnedByApp,
+  required bool requireServiceTunnel,
+}) {
+  if (activeVpnTransport == false || activeVpnOwnedByApp == false) {
+    return false;
+  }
+  if (requireServiceTunnel) {
+    if (serviceTunnelActive == false) return false;
+    if (serviceTunnelActive == true && activeVpnTransport == true) {
+      return true;
+    }
+    return null;
+  }
+  if (activeVpnTransport == true && activeVpnOwnedByApp == true) {
+    return true;
+  }
+  return null;
+}
+
 /// Coalesces concurrent requests for the same asynchronous operation.
 /// Every caller receives the same result/error; a later call can retry after
 /// completion. This prevents overlapping network diagnosis from returning a
@@ -112,11 +139,20 @@ class NatDnsWireProbe {
       0x00, 0x01, // QDCOUNT=1
       0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
     ];
+    var wireNameLength = 1;
+    final encodedLabels = <List<int>>[];
     for (final label in labels) {
       final bytes = ascii.encode(label);
       if (bytes.isEmpty || bytes.length > 63) {
         throw FormatException('Invalid DNS label');
       }
+      wireNameLength += bytes.length + 1;
+      if (wireNameLength > 255) {
+        throw const FormatException('DNS name exceeds 255 wire octets');
+      }
+      encodedLabels.add(bytes);
+    }
+    for (final bytes in encodedLabels) {
       out..add(bytes.length)..addAll(bytes);
     }
     out.addAll(<int>[0, (recordType >> 8) & 255, recordType & 255, 0, 1]); // root, QTYPE, IN
@@ -188,6 +224,10 @@ class NatDnsWireProbe {
       if ((n & 0xc0) == 0xc0) {
         if (p + 1 >= b.length) throw const FormatException('Bad pointer');
         final ptr = ((n & 0x3f) << 8) | b[p + 1];
+        // DNS compression pointers must refer to a prior name in this packet.
+        if (ptr < 12 || ptr >= p || ptr >= b.length) {
+          throw const FormatException('Invalid DNS compression pointer target');
+        }
         if (resume < 0) resume = p + 2;
         p = ptr;
         continue;
@@ -268,6 +308,18 @@ class NatDnsWireProbe {
     return ips;
   }
 
+  static Future<T> _waitForProbe<T>(
+    Future<T> operation,
+    Duration timeout,
+    Future<void>? cancellation,
+  ) {
+    final futures = <Future<T>>[operation];
+    if (cancellation != null) {
+      futures.add(cancellation.then<T>((_) => throw const _NatDnsProbeCancelled()));
+    }
+    return Future.any<T>(futures).timeout(timeout);
+  }
+
   static Future<NatDnsProbeResult> probe(String server, String domain,
       {Duration timeout = const Duration(seconds: 2),
       bool Function()? cancelled,
@@ -275,10 +327,27 @@ class NatDnsWireProbe {
     RawDatagramSocket? socket;
     StreamSubscription<RawSocketEvent>? subscription;
     Timer? cancelWatcher;
-    try {
-      if (cancelled?.call() ?? false) {
-        return NatDnsProbeResult(server, domain, null, error: 'cancelled');
+    Completer<void>? cancellationSignal;
+    var cancellationCallbackFailed = false;
+
+    bool cancellationRequested() {
+      if (cancellationCallbackFailed) return true;
+      try {
+        final requested = cancelled?.call() ?? false;
+        if (requested && cancellationSignal != null && !cancellationSignal!.isCompleted) {
+          cancellationSignal!.complete();
+        }
+        return requested;
+      } catch (_) {
+        cancellationCallbackFailed = true;
+        if (cancellationSignal != null && !cancellationSignal!.isCompleted) {
+          cancellationSignal!.complete();
+        }
+        return true;
       }
+    }
+
+    try {
       final target = InternetAddress.tryParse(server);
       if (target == null || (target.type != InternetAddressType.IPv4 &&
           target.type != InternetAddressType.IPv6)) {
@@ -287,17 +356,39 @@ class NatDnsWireProbe {
       if (recordType != 1 && recordType != 28) {
         throw ArgumentError.value(recordType, 'recordType');
       }
-      final bindAddress = target.type == InternetAddressType.IPv6
-          ? InternetAddress.anyIPv6 : InternetAddress.anyIPv4;
-      final s = await RawDatagramSocket.bind(bindAddress, 0).timeout(timeout);
-      socket = s;
       final id = Random.secure().nextInt(0x10000);
       final packet = buildQuery(domain, id, recordType: recordType);
+      if (cancelled != null) {
+        cancellationSignal = Completer<void>();
+        if (cancellationRequested()) {
+          return NatDnsProbeResult(server, domain, null,
+              error: cancellationCallbackFailed ? 'cancellation callback failed' : 'cancelled');
+        }
+        cancelWatcher = Timer.periodic(const Duration(milliseconds: 100), (timer) {
+          if (cancellationRequested()) timer.cancel();
+        });
+      }
+      final bindAddress = target.type == InternetAddressType.IPv6
+          ? InternetAddress.anyIPv6 : InternetAddress.anyIPv4;
+      final bindFuture = RawDatagramSocket.bind(bindAddress, 0);
+      late final RawDatagramSocket activeSocket;
+      try {
+        activeSocket = await _waitForProbe(bindFuture, timeout, cancellationSignal?.future);
+        socket = activeSocket;
+      } catch (_) {
+        // The underlying bind cannot be cancelled by Future.timeout/Future.any.
+        // Close a socket that the OS may deliver after timeout or cancellation.
+        unawaited(bindFuture.then<void>(
+          (lateSocket) => lateSocket.close(),
+          onError: (Object _) {},
+        ));
+        rethrow;
+      }
       final sw = Stopwatch()..start();
       final completer = Completer<List<String>>();
-      subscription = s.listen((event) {
+      subscription = activeSocket.listen((event) {
         if (event != RawSocketEvent.read || completer.isCompleted) return;
-        final dg = s.receive();
+        final dg = activeSocket.receive();
         if (dg == null) return;
         // RFC 5452: a matching ID alone is insufficient; verify source tuple.
         if (dg.port != 53 || dg.address.address != target.address) return;
@@ -307,18 +398,10 @@ class NatDnsWireProbe {
           // Ignore unrelated/malformed datagrams until timeout.
         }
       });
-      if (cancelled != null) {
-        cancelWatcher = Timer.periodic(const Duration(milliseconds: 100), (timer) {
-          if (cancelled()) {
-            timer.cancel();
-            if (!completer.isCompleted) {
-              completer.completeError(const _NatDnsProbeCancelled());
-            }
-          }
-        });
+      if (activeSocket.send(packet, target, 53) <= 0) {
+        throw const SocketException('DNS send failed');
       }
-      if (s.send(packet, target, 53) <= 0) throw const SocketException('DNS send failed');
-      final ips = await completer.future.timeout(timeout);
+      final ips = await _waitForProbe(completer.future, timeout, cancellationSignal?.future);
       sw.stop();
       return NatDnsProbeResult(server, domain, sw.elapsedMilliseconds, addresses: ips);
     } catch (e) {
@@ -326,7 +409,9 @@ class NatDnsWireProbe {
         server,
         domain,
         null,
-        error: e is _NatDnsProbeCancelled ? 'cancelled' : e.toString(),
+        error: cancellationCallbackFailed
+            ? 'cancellation callback failed'
+            : (e is _NatDnsProbeCancelled ? 'cancelled' : e.toString()),
       );
     } finally {
       cancelWatcher?.cancel();

@@ -43,9 +43,9 @@ const List<String> kDnsxNationalProbeDomains = <String>[
   'www.digikala.com',
 ];
 
-/// دامنه‌های اسکن خودکار پس‌زمینه (کوچک، تا نت ملی بی‌جهت بار نشود)
-List<String> dnsxAutoDomains() =>
-    nationalMode ? kDnsxNationalProbeDomains : const ['google.com'];
+/// اسکن خودکار و دستی DNS هر دو از تمام دامنه‌های موجود در منابع پروژه استفاده می‌کنند.
+/// شکست موقت یک دامنه باعث حذف آن از موجودی نمی‌شود؛ چرخه‌های بعدی دوباره آن را می‌آزمایند.
+List<String> dnsxAutoDomains() => dnsxFullDomains();
 
 /// تبدیل فهرست‌های پروژه (مثل `domain:divar.ir`) به نام میزبان ساده
 List<String> _dnsxHostsFrom(Iterable<String> src) {
@@ -120,13 +120,63 @@ List<String> dnsxFullDomains() {
   final all = <String>{
     ...kDnsxNationalProbeDomains,
     ...kDnsxGlobalDomains,
+    ...kAutoNationalSniDomains,
+    ...kAutoSniDomains,
     ...natIrDomains,
     ..._dnsxHostsFrom(iranDomains),
     ..._dnsxHostsFrom(_iranMoreDomains),
+    ..._dnsxHostsFrom(natRelayHosts),
   };
   final domains = all.where((value) => value.trim().isNotEmpty).toList()
     ..sort();
   return domains;
+}
+
+/// Full project domain inventory with domestic candidates first during national
+/// network conditions. The global remainder is retained as a fallback; it is
+/// never discarded merely because the current network is domestic-only.
+/// [extra] merges scanner discoveries and user-configured hostnames without
+/// imposing a fixed inventory ceiling.
+List<String> dnsxNationalFirstDomains({
+  Iterable<String> extra = const <String>[],
+}) {
+  final extraHosts = _dnsxHostsFrom(extra);
+  final all = <String>{
+    ...dnsxFullDomains(),
+    ...extraHosts,
+  };
+  final domestic = <String>{
+    ...kDnsxNationalProbeDomains,
+    ...natIrDomains,
+    ..._dnsxHostsFrom(iranDomains),
+    ..._dnsxHostsFrom(_iranMoreDomains),
+    ...kAutoNationalSniDomains,
+    ...extraHosts.where((host) =>
+        host.endsWith('.ir') ||
+        host.endsWith('.ac.ir') ||
+        host.endsWith('.gov.ir') ||
+        host.endsWith('.co.ir') ||
+        host.endsWith('.org.ir')),
+  };
+  final domesticQueue = all.where(domestic.contains).toList()..sort();
+  final globalQueue = all.where((host) => !domestic.contains(host)).toList()..sort();
+
+  // National discovery uses a stable 70/30 domestic/global schedule.
+  // Both queues are exhausted: the ratio is a priority, never an inventory cap.
+  final scheduled = <String>[];
+  var domesticOffset = 0;
+  var globalOffset = 0;
+  while (domesticOffset < domesticQueue.length ||
+      globalOffset < globalQueue.length) {
+    for (var slot = 0; slot < 7 && domesticOffset < domesticQueue.length; slot++) {
+      scheduled.add(domesticQueue[domesticOffset++]);
+    }
+    for (var slot = 0; slot < 3 && globalOffset < globalQueue.length; slot++) {
+      scheduled.add(globalQueue[globalOffset++]);
+    }
+    // If one queue is exhausted, the next cycle drains the remaining queue.
+  }
+  return scheduled;
 }
 
 /// متن نمایشی دامنه‌ها در شیت
@@ -361,7 +411,7 @@ Future<void> dnsxAutoPick({bool Function()? stop}) async {
       final saved = await goldAddDns(r, shouldAbort: shouldAbort);
       if (!saved || shouldAbort()) return;
     }
-    final best = [for (final e in r.take(4)) e.ip];
+    final best = [for (final e in r) e.ip];
     await p.setStringList('dnsx_best_v1_$sfx', best);
     if (shouldAbort()) return;
     await p.setInt('dnsx_at_v1_$sfx', now);

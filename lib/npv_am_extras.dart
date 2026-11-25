@@ -1016,7 +1016,7 @@ Future<void> _doRefreshClean() async {
     final workers = min(20, candidates.length);
     await Future.wait(List.generate(workers, (_) => worker()));
     results.sort((a, b) => a.ms.compareTo(b.ms));
-    cleanIps = results.take(20).toList();
+    cleanIps = results.toList();
     cleanIpsAt = DateTime.now();
     final complete = done >= candidates.length;
     cleanIpStatus = complete
@@ -1564,10 +1564,7 @@ extension NpvAmExtras on _HomePageState {
   }
 }
 
-const int kGoldIpCap = 100000;
-const int kGoldSrvCap = 20000;
-const int kGoldDailyProbes = 250000;
-const int kGoldRetestBatch = 500;
+const int kGoldRetestBatch = 500; // resumable work slice; not a daily inventory quota
 const int kGoldEveryMin = 5;
 const int kGoldRetestHours = 24;
 
@@ -1599,14 +1596,6 @@ String _goldToday() {
   return '${n.year}-${n.month}-${n.day}';
 }
 
-int _goldBudgetLeft() {
-  final d = _goldToday();
-  if (_goldDay != d) {
-    _goldDay = d;
-    _goldCnt = 0;
-  }
-  return kGoldDailyProbes - _goldCnt;
-}
 
 Future<void>? _goldLoadF;
 
@@ -1674,38 +1663,14 @@ Future<void> goldSave() async {
   }
 }
 
-void _goldTrimIps() {
-  if (_goldIps.length <= kGoldIpCap) return;
-  final keep = kGoldIpCap * 95 ~/ 100;
-  final l = _goldIps.values.toList()..sort((a, b) => a.ms.compareTo(b.ms));
-  for (final v in l.skip(keep)) {
-    _goldIps.remove(v.ip);
-  }
-}
-
-void _goldTrimSrv() {
-  if (_goldSrv.length <= kGoldSrvCap) return;
-  final l = _goldSrv.values.toList()..sort((a, b) => a.ping.compareTo(b.ping));
-  for (final v in l.skip(kGoldSrvCap)) {
-    _goldSrv.remove(v.link);
-  }
-}
-
 List<CleanIp>? _goldTop;
 List<CleanIp> goldIpList() {
   if (_goldTop != null) return _goldTop!;
-  final best = <_GoldIp>[];
-  for (final v in _goldIps.values) {
-    if (best.length < 20) {
-      best.add(v);
-      best.sort((a, b) => a.ms.compareTo(b.ms));
-    } else if (v.ms < best.last.ms) {
-      best.removeLast();
-      best.add(v);
-      best.sort((a, b) => a.ms.compareTo(b.ms));
-    }
-  }
-  return _goldTop = [for (final v in best) CleanIp(v.ip, v.ms, v.port)];
+  // Return the complete saved inventory in quality order. Ranking determines
+  // order only; it must never truncate the global pool to a fixed top-N slice.
+  final all = _goldIps.values.toList()
+    ..sort((a, b) => a.ms.compareTo(b.ms));
+  return _goldTop = [for (final v in all) CleanIp(v.ip, v.ms, v.port)];
 }
 
 // NATHELP: نت ملی از IPهای تمیز پوشه‌ی جهانی کمک می‌گیرد (فقط خواندن). اسکنر دستی در نت ملی اجرا نمی‌شود، پس چیزی را خراب نمی‌کند.
@@ -1807,7 +1772,6 @@ Future<void> goldMergeIps(
   for (final c in res) {
     _goldIps[c.ip] = _GoldIp(c.ip, c.ms, c.port, now, now);
   }
-  _goldTrimIps();
   _goldTop = null;
   await _goldWrite(p);
 }
@@ -1825,20 +1789,24 @@ Future<Map<String, int?>> _goldProbe(List<String> ips) async {
 Future<void> _goldIpStep() async {
   if (nationalMode) return;
   final nowMs = DateTime.now().millisecondsSinceEpoch;
-  var left = _goldBudgetLeft();
-  if (left <= 0) return;
+  final day = _goldToday();
+  if (_goldDay != day) {
+    _goldDay = day;
+    _goldCnt = 0;
+  }
   final retestMs = kGoldRetestHours * 3600 * 1000;
 
   final due = _goldIps.values
       .where((v) => nowMs - v.testAt >= retestMs)
-      .take(left < kGoldRetestBatch ? left : kGoldRetestBatch)
+      .take(kGoldRetestBatch)
       .map((v) => v.ip)
       .toList();
   if (due.isNotEmpty) {
     final r = await _goldProbe(due);
     for (final ip in due) {
       final v = _goldIps[ip];
-      if (v == null) continue;
+      if (v == null || !r.containsKey(ip)) continue;
+      // A probe omitted by a timed-out partial batch is untested, not dead.
       final ms = r[ip];
       if (ms == null) {
         _goldIps.remove(ip);
@@ -1849,15 +1817,13 @@ Future<void> _goldIpStep() async {
       }
     }
     _goldCnt += due.length;
-    left -= due.length;
     _goldTop = null;
   }
 
-  if (left <= 0) return;
   final cands = await _cleanCandidates();
   final batch = cands
       .where((ip) => !_goldIps.containsKey(ip))
-      .take(left < 240 ? left : 240)
+      .take(240)
       .toList();
   if (batch.isEmpty) return;
   final r = await _goldProbe(batch);
@@ -1870,7 +1836,6 @@ Future<void> _goldIpStep() async {
     }
   }
   _goldCnt += batch.length;
-  _goldTrimIps();
   _goldTop = null;
   // _cleanCandidates stages a resumable dual-stack cursor. Gold background
   // discovery must commit it too, but only after every candidate in this slice
@@ -1882,7 +1847,7 @@ Future<void> _goldIpStep() async {
       jsonEncode(_cleanStagedRangeCursors),
     );
   }
-  dbg('گلد: IP تازه $found از ${batch.length} • پوشه ${_goldIps.length} • امروز $_goldCnt/$kGoldDailyProbes');
+  dbg('گلد: IP تازه $found از ${batch.length} • پوشه ${_goldIps.length} • امروز $_goldCnt');
 }
 
 Future<void> _goldSrvStep(_HomePageState h) async {
@@ -1903,13 +1868,11 @@ Future<void> _goldSrvStep(_HomePageState h) async {
     }
     changed = true;
   }
-  _goldTrimSrv();
 
   if (!nationalMode) {
     final retestMs = kGoldRetestHours * 3600 * 1000;
     final due = _goldSrv.values
         .where((v) => nowMs - v.testAt >= retestMs)
-        .take(20)
         .toList();
     // GATEMAX: سقف گیت تست قبل از حلقه‌ی due
     // DSGETTER: از مقدار مؤثر
@@ -2031,11 +1994,16 @@ Future<void> goldShowList(BuildContext context) async {
                 for (final e in dnsL.take(200))
                   Text('${e.value} ms  •  ${e.key}',
                       style: const TextStyle(fontSize: 12, fontFamily: 'monospace')),
-                for (final k in const ['sni', 'port', 'tls']) ...[
+                for (final k in const ['sni_candidates', 'ip_candidates', 'sni', 'port', 'tls']) ...[
                   const Divider(),
                   Text(
-                      {'sni': 'SNI سالم', 'port': 'پورت سالم', 'tls': 'پروتکل TLS سالم'}[k]! +
-                          ' (${(_goldScan[k] ?? const []).length}):',
+                      {
+                        'sni_candidates': 'دامنه‌های SNI کشف‌شده (تأییدنشده)',
+                        'ip_candidates': 'IPهای کشف‌شده (تأییدنشده)',
+                        'sni': 'SNI دارای پاسخ HTTPS در محدودهٔ تنظیم‌شده',
+                        'port': 'پورت دارای پاسخ TCP در محدودهٔ تنظیم‌شده',
+                        'tls': 'پروتکل TLS مشاهده‌شده',
+                      }[k]! + ' (${(_goldScan[k] ?? const []).length}):',
                       style: const TextStyle(fontWeight: FontWeight.bold)),
                   for (final x in (_goldScan[k] ?? const <String>[]).take(200))
                     Text(x, style: const TextStyle(fontSize: 12, fontFamily: 'monospace')),
@@ -2108,6 +2076,24 @@ Future<void> goldShowList(BuildContext context) async {
             ),
             TextButton(
               onPressed: () async {
+                await Clipboard.setData(ClipboardData(text: (_goldScan['sni_candidates'] ?? const <String>[]).join('\n')));
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('دامنه‌های کاندیدای SNI کپی شد')));
+                }
+              },
+              child: const Text('کپی دامنه‌های کاندیدا'),
+            ),
+            TextButton(
+              onPressed: () async {
+                await Clipboard.setData(ClipboardData(text: (_goldScan['ip_candidates'] ?? const <String>[]).join('\n')));
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('IPهای کاندیدا کپی شد')));
+                }
+              },
+              child: const Text('کپی IPهای کاندیدا'),
+            ),
+            TextButton(
+              onPressed: () async {
                 await Clipboard.setData(ClipboardData(text: (_goldScan['sni'] ?? const <String>[]).join('\n')));
                 if (context.mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('SNI کپی شد')));
@@ -2151,7 +2137,6 @@ void goldNoteServer(Server srv) {
     ex.okAt = now;
     ex.testAt = now;
   }
-  _goldTrimSrv();
   _goldSaveT ??= Timer(const Duration(seconds: 20), () {
     _goldSaveT = null;
     unawaited(goldSave());

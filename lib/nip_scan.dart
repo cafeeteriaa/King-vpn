@@ -49,7 +49,7 @@ Future<List<NipHit>> nipScan(
   List<String> ips, {
   int port = 443,
   int concurrency = 16,
-  int want = 12,
+  int? want,
   Duration budget = const Duration(minutes: 2),
   Duration timeout = const Duration(milliseconds: 1500),
   bool Function()? cancelled,
@@ -62,14 +62,14 @@ Future<List<NipHit>> nipScan(
 
   Future<void> worker() async {
     while (true) {
-      if (hits.length >= want) return;
+      if (want != null && hits.length >= want) return;
       if (cancelled != null && cancelled()) return;
       if (clock.elapsed >= budget) return;
       if (next >= ips.length) return;
       final ip = ips[next++];
       final ms = await nipTcpProbe(ip, port, timeout);
       if (cancelled != null && cancelled()) return;
-      if (ms != null && hits.length < want) hits.add(NipHit(ip, ms));
+      if (ms != null && (want == null || hits.length < want)) hits.add(NipHit(ip, ms));
       done++;
       onProgress?.call(done, ips.length);
     }
@@ -356,7 +356,10 @@ Future<List<String>> nipAsnPrefixes(String ip) async {
 // خودت می‌توانی دامنه‌های بیشتری به این لیست اضافه کنی.
 // Seed domains are only starting points; the full project domain inventory
 // is rotated through by nipFindFrontSni on subsequent calls.
+// Front-SNI candidates include the expanded seed catalog. The scanner
+// separately adds only SNI names that returned a real HTTPS response.
 const natFrontSnis = <String>[
+  // Preserve the original seven indices: saved variants refer to these slots.
   'cdnjs.cloudflare.com',
   'www.cloudflare.com',
   'speed.cloudflare.com',
@@ -364,11 +367,12 @@ const natFrontSnis = <String>[
   'www.aparat.com',
   'www.digikala.com',
   'divar.ir',
+  ...kAutoSniDomains,
 ];
-const int _nipFrontSniBatchSize = 8;
 const String _nipFrontSniCursorKey = 'nip_front_sni_cursor_v1';
 int _nipFrontSniCursor = 0;
 Future<void>? _nipFrontSniCursorLoadFuture;
+Future<void> _nipFrontSniScanQueue = Future<void>.value();
 Future<void> _nipEnsureFrontSniCursorLoaded() {
   return _nipFrontSniCursorLoadFuture ??= () async {
     try {
@@ -392,14 +396,34 @@ void _nipPersistFrontSniCursor(int value) {
   });
 }
 
-/// روی IP:port یک TLS با SNI داده‌شده کامل شود؟ برمی‌گرداند همان SNI یا null.
+/// Accept an SNI only when an HTTPS request receives a real successful response.
 Future<String?> nipFrontProbe(String ip, int port, String sni) async {
   Socket? raw;
   SecureSocket? sec;
   try {
-    raw = await Socket.connect(ip, port, timeout: const Duration(milliseconds: 2000));
-    sec = await SecureSocket.secure(raw, host: sni, onBadCertificate: (_) => true)
-        .timeout(const Duration(seconds: 3));
+    raw = await Socket.connect(ip, port, timeout: const Duration(milliseconds: 2500));
+    sec = await SecureSocket.secure(
+      raw,
+      host: sni,
+      supportedProtocols: const ['http/1.1'],
+      onBadCertificate: (_) => true,
+    ).timeout(const Duration(seconds: 4));
+    sec.write(
+      'GET / HTTP/1.1\r\n'
+      'Host: $sni\r\n'
+      'User-Agent: KING-VPN-Front-SNI-Probe/1.0\r\n'
+      'Accept: */*\r\n'
+      'Connection: close\r\n\r\n',
+    );
+    await sec.flush().timeout(const Duration(seconds: 3));
+    final statusLine = await utf8.decoder
+        .bind(sec)
+        .transform(const LineSplitter())
+        .first
+        .timeout(const Duration(seconds: 4));
+    final match = RegExp(r'^HTTP/1\.[01]\s+(\d{3})').firstMatch(statusLine);
+    final status = int.tryParse(match?.group(1) ?? '');
+    if (status == null || status < 100 || status > 599) return null;
     return sni;
   } catch (_) {
     return null;
@@ -411,24 +435,45 @@ Future<String?> nipFrontProbe(String ip, int port, String sni) async {
 
 Future<String?> nipFindFrontSni(String ip, int port, {bool Function()? cancelled}) async {
   await _nipEnsureFrontSniCursorLoaded();
-  final inventory = <String>{
-    ...natFrontSnis,
-    ...dnsxFullDomains(),
-  }.toList()..sort();
-  if (inventory.isEmpty) return null;
-  final start = _nipFrontSniCursor % inventory.length;
-  final count = min(_nipFrontSniBatchSize, inventory.length);
-  // Advance synchronously before the first await so concurrent IP probes do
-  // not all repeat the same domain slice.
-  _nipFrontSniCursor = (start + count) % inventory.length;
-  _nipPersistFrontSniCursor(_nipFrontSniCursor);
-  for (var offset = 0; offset < count; offset++) {
-    if (cancelled?.call() ?? false) return null;
-    final sni = inventory[(start + offset) % inventory.length];
-    final ok = await nipFrontProbe(ip, port, sni);
-    if (ok != null) return ok;
+
+  // Serialize cursor ownership. A cancelled probe must never reserve and skip
+  // domains that were not actually tested by this invocation.
+  final previous = _nipFrontSniScanQueue;
+  final release = Completer<void>();
+  _nipFrontSniScanQueue = release.future;
+  await previous;
+  try {
+    final inventory = <String>{
+      ...natFrontSnis,
+      ...dnsxFullDomains(),
+      ...(_goldScan['sni'] ?? const <String>[]),
+    }.toList()..sort();
+    if (inventory.isEmpty) return null;
+
+    final start = _nipFrontSniCursor % inventory.length;
+    final count = inventory.length;
+    var completed = 0;
+    for (var offset = 0; offset < count; offset++) {
+      if (cancelled?.call() ?? false) break;
+      final sni = inventory[(start + offset) % inventory.length];
+      final ok = await nipFrontProbe(ip, port, sni);
+      completed++;
+      if (ok != null) {
+        _nipFrontSniCursor = (start + completed) % inventory.length;
+        _nipPersistFrontSniCursor(_nipFrontSniCursor);
+        return ok;
+      }
+    }
+    // Commit only probes that actually completed. Unvisited names remain
+    // queued after cancellation or interruption.
+    if (completed > 0) {
+      _nipFrontSniCursor = (start + completed) % inventory.length;
+      _nipPersistFrontSniCursor(_nipFrontSniCursor);
+    }
+    return null;
+  } finally {
+    release.complete();
   }
-  return null;
 }
 
 /// همان کانفیگ را با IP و SNI جدید می‌سازد؛ Host اصلی سرور حفظ می‌شود.
@@ -501,198 +546,125 @@ extension NipHunt on _HomePageState {
     final templateStart = previousTemplateIndex < 0
         ? 0
         : (previousTemplateIndex + 1) % templateInventory.length;
-    const templateBatchSize = 40;
+    final templateBatchSize = templateInventory.length;
     final templates = <Server>[
       for (var i = 0; i < min(templateBatchSize, templateInventory.length); i++)
         templateInventory[(templateStart + i) % templateInventory.length],
     ];
-    Future<void> saveTemplateCursor() async {
-      if (!abort && templates.isNotEmpty) {
-        await templatePrefs.setString(templateCursorKey, templates.last.link);
-      }
-    }
-    final cdnT = templates.where((server) => server.cdn).toList();
-    final direct = templates.where((server) => !server.cdn).toList();
-    final huntCursors = await _nipLoadHuntCursors();
-    if (abort) return false;
-
-    // مرحله ۱: همه‌ی prefixهای زنده‌ی CDN، هر دو خانواده، با Cursor مستقل.
-    // هر اجرا فقط یک دسته‌ی قابل‌اتمام را می‌سنجد و بعد از تکمیل آن ادامه می‌دهد.
-    if (cdnT.isNotEmpty) {
-      final cdnRanges = <String>{
-        ..._liveCdnRanges,
-        ..._cfRanges,
-        ..._cfRangesV6,
-      }.toList()..sort();
-      final cdnBatch = _nipRangeBatch(
-        cdnRanges,
-        huntCursors,
-        namespace: 'cdn',
-        batchSize: 1000,
-      );
-      if (cdnBatch.addresses.isNotEmpty) {
-        if (await _natTryScan(
-          cdnT,
-          cdnBatch.addresses,
-          port: cdnT.first.port,
-          label: 'لبه‌ی CDN',
-          front: true,
-          onComplete: () => _nipSaveHuntCursors(cdnBatch.cursors),
-        )) {
-          await saveTemplateCursor();
-          return true;
-        }
-        if (abort) return false;
-      }
-    }
-    if (direct.isEmpty) {
-      await saveTemplateCursor();
-      return false;
-    }
-
-    // مرحله ۲: واسط‌های تعریف‌شده (natRelayHosts) — مستقیم امتحان می‌شوند
-    if (natRelayHosts.isNotEmpty) {
-      final cands = <Server>[];
-      for (final ip in natRelayHosts) {
-        final link = nipSwapLink(direct[cands.length % direct.length], ip);
-        if (link == null) continue;
-        final c = Server.parse(link);
-        if (c != null) cands.add(c);
-        if (cands.length >= 8) break;
-      }
-      if (cands.isNotEmpty) {
-        _set('نت ملی: امتحان ${cands.length} واسط…');
-        if (await _connectLoop(cands, trust: false)) {
-          final w = current;
-          if (w != null) _natAdd(w);
-          await saveTemplateCursor();
-          return true;
-        }
-        if (abort) return false;
+    // Only the exact host:port endpoints present in saved server configurations
+    // are actively probed. CDN/ASN prefix catalogs and relay-name catalogs remain
+    // discovery metadata; they do not grant permission to probe unrelated hosts.
+    Future<void> saveTemplateCursor(Server completed) async {
+      if (!abort) {
+        await templatePrefs.setString(templateCursorKey, completed.link);
       }
     }
 
-    // مرحله ۳: A/AAAA همه‌ی templateهای مستقیم و prefixهای ASN هرکدام.
-    final hostResults = await Future.wait(direct.map((server) async {
-      if (server.isIp) return <String>[server.host];
-      return nipResolveAll(server.host);
-    }));
-    if (abort) return false;
-    final hostIps = <String>{
-      for (final result in hostResults) ...result,
-    };
-    if (hostIps.isNotEmpty) {
-      final prefixes = <String>{};
-      final allHostIps = hostIps.toList(growable: false);
-      for (var offset = 0; offset < allHostIps.length; offset += 4) {
-        if (abort) return false;
-        final batch = allHostIps.skip(offset).take(4);
-        await Future.wait(batch.map((hostIp) async {
-          if (abort) return;
-          prefixes.addAll(await nipAsnPrefixes(hostIp));
-        }));
+    for (final template in templates) {
+      if (abort) return false;
+      final port = template.port;
+      if (port < 1 || port > 65535) {
+        await saveTemplateCursor(template);
+        continue;
+      }
+      final resolved = template.isIp
+          ? <String>[template.host]
+          : await nipResolveAll(template.host);
+      if (abort) return false;
+      final ips = resolved
+          .map(InternetAddress.tryParse)
+          .whereType<InternetAddress>()
+          .where((address) =>
+              address.type == InternetAddressType.IPv4 ||
+              address.type == InternetAddressType.IPv6)
+          .map((address) => address.address)
+          .toSet()
+          .toList()
+        ..sort();
+      if (ips.isNotEmpty &&
+          await _natTryScan(
+            [template],
+            ips,
+            port: port,
+            label: 'endpoint دقیقِ کانفیگ ذخیره‌شده',
+          )) {
+        await saveTemplateCursor(template);
+        return true;
       }
       if (abort) return false;
-      if (prefixes.isNotEmpty) {
-        final asnRanges = prefixes.toList()..sort();
-        final asnBatch = _nipRangeBatch(
-          asnRanges,
-          huntCursors,
-          namespace: 'asn',
-          batchSize: 1000,
-        );
-        if (asnBatch.addresses.isNotEmpty &&
-            await _natTryScan(
-              direct,
-              asnBatch.addresses,
-              port: direct.first.port,
-              label: 'IP هم‌شرکت سرور',
-              onComplete: () => _nipSaveHuntCursors(asnBatch.cursors),
-            )) {
-          await saveTemplateCursor();
-          return true;
-        }
-        if (abort) return false;
-      }
+      // Each template is a complete, bounded unit. Re-resolution on the next
+      // run retries transient DNS/TCP failures without discarding the host.
+      await saveTemplateCursor(template);
     }
 
-    // مرحله ۴ (IP های باز ایران) حذف شد: یک IP باز ایران فوروارد نمی‌کند،
-    // پس برای REALITY/TCP وقت تلف می‌کرد و هیچ‌وقت وصل نمی‌شد.
-    await saveTemplateCursor();
-    _set('نت ملی: واسط یا IP هم‌شرکت سالم پیدا نشد');
+    _set('نت ملی: endpoint قابل‌استفاده‌ای از کانفیگ‌های ذخیره‌شده پیدا نشد');
     return false;
   }
 
-  /// اسکن IP ها و امتحان نتیجه‌ها با همان کانفیگ‌ها (فقط IP عوض می‌شود).
-  /// front = true (CDN): برای IP های باز، SNI دامنه‌ی باز هم امتحان می‌شود.
-  Future<bool> _natTryScan(List<Server> tpls, List<String> ips,
-      {required int port,
-      required String label,
-      bool front = false,
-      Future<void> Function()? onComplete}) async {
-    if (ips.isEmpty) return false;
-    _set('نت ملی: جستجوی $label (${ips.length} آدرس)…');
-    var completed = 0;
-    final hits = await nipScan(
-      ips,
-      port: port,
-      want: ips.length,
-      budget: const Duration(minutes: 2),
-      cancelled: () => abort,
-      onProgress: (done, total) => completed = done,
-    );
-    if (abort) return false;
-    // Do not advance the range cursor until the full scan AND all resulting
-    // connection trials finish. A timeout/cancel retries this slice safely.
-    if (hits.isEmpty) {
-      if (completed >= ips.length) await onComplete?.call();
-      _set('نت ملی: هیچ $label بازی پیدا نشد');
+  /// TCP reachability is a prefilter for exact configured endpoints only.
+  /// A candidate is promoted only by _connectLoop's real TUN/core HTTP gate.
+  Future<bool> _natTryScan(
+    List<Server> templates,
+    List<String> ips, {
+    required int port,
+    required String label,
+  }) async {
+    if (ips.isEmpty || templates.isEmpty || port < 1 || port > 65535) {
       return false;
     }
+    // A DNS hostname can resolve to more endpoints than one two-minute
+    // probe window can cover. Process every resolved address in resumable-size
+    // slices; do not advance the template cursor after only the first slice.
+    const ipBatchSize = 256;
+    final totalBatches = (ips.length + ipBatchSize - 1) ~/ ipBatchSize;
+    for (var ipOffset = 0; ipOffset < ips.length; ipOffset += ipBatchSize) {
+      if (abort) return false;
+      final scanBatch = ips.skip(ipOffset).take(ipBatchSize).toList();
+      final batchNumber = ipOffset ~/ ipBatchSize + 1;
+      _set('نت ملی: بررسی $label • دسته $batchNumber/$totalBatches • ${ips.length} آدرس…');
 
-    // Try every open address in small groups; the former top-8 truncation
-    // could permanently ignore working endpoints later in the same batch.
-    for (var offset = 0; offset < hits.length; offset += 8) {
-      if (abort) return false;
-      final top = hits.skip(offset).take(8).toList();
-      final snis = <String?>[];
-      if (front) {
-        for (var i = 0; i < top.length; i += 4) {
-          if (abort) return false;
-          final batch = top.skip(i).take(4).toList();
-          snis.addAll(await Future.wait(
-            batch.map((hit) => nipFindFrontSni(hit.ip, port, cancelled: () => abort)),
-          ));
-        }
+      var completed = 0;
+      var hits = <NipHit>[];
+      // The slice is deliberately small enough to fit comfortably inside the
+      // per-batch budget. If the OS still interrupts it, retry this exact slice
+      // rather than committing the template cursor and skipping its tail.
+      while (completed < scanBatch.length) {
+        completed = 0;
+        hits = await nipScan(
+          scanBatch,
+          port: port,
+          want: scanBatch.length,
+          budget: const Duration(minutes: 2),
+          cancelled: () => abort,
+          onProgress: (done, total) {
+            completed = done;
+          },
+        );
+        if (abort) return false;
       }
-      if (abort) return false;
-      final candidates = <Server>[];
-      for (var i = 0; i < top.length; i++) {
-        final template = tpls[(offset + i) % tpls.length];
-        final link = nipSwapLink(template, top[i].ip);
-        if (link != null) {
+
+      for (var offset = 0; offset < hits.length; offset += 8) {
+        if (abort) return false;
+        final batch = hits.skip(offset).take(8).toList(growable: false);
+        final candidates = <Server>[];
+        for (var i = 0; i < batch.length; i++) {
+          final hit = batch[i];
+          final template = templates[(offset + i) % templates.length];
+          final link = nipSwapLink(template, hit.ip);
+          if (link == null) continue;
           final candidate = Server.parse(link);
           if (candidate != null) candidates.add(candidate);
         }
-        final sni = i < snis.length ? snis[i] : null;
-        if (sni != null) {
-          final frontLink = nipSwapSni(template, top[i].ip, sni);
-          if (frontLink != null) {
-            final candidate = Server.parse(frontLink);
-            if (candidate != null) candidates.add(candidate);
-          }
+        if (candidates.isEmpty) continue;
+        _set('نت ملی: اعتبارسنجی تونلی ' + candidates.length.toString() + ' کاندیدا…');
+        if (await _connectLoop(candidates, trust: false)) {
+          final winner = current;
+          if (winner != null) _natAdd(winner);
+          return true;
         }
-      }
-      if (candidates.isEmpty) continue;
-      _set('نت ملی: امتحان ${candidates.length} آدرس ($label)…');
-      if (await _connectLoop(candidates, trust: false)) {
-        final winner = current;
-        if (winner != null) _natAdd(winner);
-        if (completed >= ips.length) await onComplete?.call();
-        return true;
+        if (abort) return false;
       }
     }
-    if (completed >= ips.length) await onComplete?.call();
     return false;
   }
 }

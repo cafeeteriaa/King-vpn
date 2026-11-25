@@ -36,6 +36,77 @@ List<int> _response({
 }
 
 void main() {
+  group('androidVpnTunnelEvidence', () {
+    test('plugin-managed path accepts an active VPN owned by this app', () {
+      expect(
+        androidVpnTunnelEvidence(
+          serviceTunnelActive: null,
+          activeVpnTransport: true,
+          activeVpnOwnedByApp: true,
+          requireServiceTunnel: false,
+        ),
+        isTrue,
+      );
+    });
+
+    test('plugin-managed path stays unknown when owner UID is unavailable', () {
+      expect(
+        androidVpnTunnelEvidence(
+          serviceTunnelActive: null,
+          activeVpnTransport: true,
+          activeVpnOwnedByApp: null,
+          requireServiceTunnel: false,
+        ),
+        isNull,
+      );
+    });
+
+    test('another VPN owner is rejected even when VPN transport is active', () {
+      expect(
+        androidVpnTunnelEvidence(
+          serviceTunnelActive: true,
+          activeVpnTransport: true,
+          activeVpnOwnedByApp: false,
+          requireServiceTunnel: true,
+        ),
+        isFalse,
+      );
+    });
+
+    test('custom service path accepts its live TUN and active VPN transport', () {
+      expect(
+        androidVpnTunnelEvidence(
+          serviceTunnelActive: true,
+          activeVpnTransport: true,
+          activeVpnOwnedByApp: null,
+          requireServiceTunnel: true,
+        ),
+        isTrue,
+      );
+    });
+
+    test('custom service path rejects a missing TUN or VPN transport', () {
+      expect(
+        androidVpnTunnelEvidence(
+          serviceTunnelActive: false,
+          activeVpnTransport: true,
+          activeVpnOwnedByApp: null,
+          requireServiceTunnel: true,
+        ),
+        isFalse,
+      );
+      expect(
+        androidVpnTunnelEvidence(
+          serviceTunnelActive: true,
+          activeVpnTransport: false,
+          activeVpnOwnedByApp: null,
+          requireServiceTunnel: true,
+        ),
+        isFalse,
+      );
+    });
+  });
+
   stableSortTests();
   group('NatSingleFlight', () {
     test('concurrent callers share one result and later calls can run again', () async {
@@ -156,6 +227,12 @@ void main() {
       expect(q.length, 12 + 7 + 4 + 1 + 4); // header + labels + root + type/class
     });
 
+    test('buildQuery rejects DNS names exceeding the 255-octet wire limit', () {
+      final labels = List<String>.filled(4, 'a' * 63);
+      expect(() => NatDnsWireProbe.buildQuery(labels.join('.'), 0x1234),
+          throwsA(isA<FormatException>()));
+    });
+
     test('buildQuery can request AAAA records', () {
       final q = NatDnsWireProbe.buildQuery('google.com', 0x1234, recordType: 28);
       expect(q.sublist(q.length - 4), [0, 28, 0, 1]);
@@ -220,6 +297,15 @@ void main() {
           throwsA(isA<FormatException>()));
     });
 
+    test('rejects compression pointers into the DNS header', () {
+      final bytes = _response(id: 0x1234, rdata: [8, 8, 8, 8]);
+      final answerOwner = bytes.length - 16;
+      bytes[answerOwner] = 0xc0;
+      bytes[answerOwner + 1] = 0;
+      expect(() => NatDnsWireProbe.parseResponse(bytes, 0x1234, 'google.com'),
+          throwsA(isA<FormatException>()));
+    });
+
     test('rejects a truncated packet instead of crashing', () {
       expect(() => NatDnsWireProbe.parseResponse([0, 1, 2], 1, 'google.com'),
           throwsA(isA<FormatException>()));
@@ -233,6 +319,16 @@ void main() {
       );
       expect(result.ok, isFalse);
       expect(result.error, 'cancelled');
+    });
+
+    test('cancellation callback exceptions fail closed before socket allocation', () async {
+      final result = await NatDnsWireProbe.probe(
+        '127.0.0.1',
+        'example.com',
+        cancelled: () => throw StateError('cancel state disposed'),
+      );
+      expect(result.ok, isFalse);
+      expect(result.error, 'cancellation callback failed');
     });
 
     test('publicV4 rejects special-use ranges and accepts public addresses', () {

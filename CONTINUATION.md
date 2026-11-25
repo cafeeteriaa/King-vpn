@@ -1,0 +1,276 @@
+# King VPN — continuation checkpoint
+
+## Source of truth
+- Latest checkpoint recorded below supersedes older status summaries; historical checkpoints are retained for traceability.
+- Repository: `cafeeteriaa/King-vpn`
+- Active VPN feature branch: `fix/dns-auto-full-domain-inventory-20261124`
+- Historical checkpoint below: `647eea8feac0b34d3b66f24cfd399ed14f55e11e`. For the latest authoritative state, see the newest dated CI checkpoint at the end of this file.
+- PR #48 remains open Draft against `audit/unlimit-known-scanner-candidates-20261123`; no merge to `main`.
+- No active GitHub Actions at repair preparation. No workflow was cancelled.
+
+## Changes in this checkpoint
+- Restored the complete default TCP-connect inventory test: 65,535 ports (1..65535), with port 0 still available through explicit `firstPort: 0`.
+- Restored the matching `natBuildFullPortInventory` documentation.
+- Added `android.permission.ACCESS_NETWORK_STATE` to the generated Android manifest permissions. The new `ConnectivityManager.getNetworkCapabilities` ownership check requires this permission.
+- Added a source guard ensuring the permission is declared.
+- The previous Android native tunnel ownership code remains unchanged: service-owned live TUN descriptor + active VPN transport owner UID on Android 11+; Dart requires both signals and fails closed on Android if native proof is unavailable.
+- No IP Clean sources, ranges, ports, UDP inventory, or scan capabilities were removed or narrowed.
+
+## Validation evidence
+- Parent native-ownership commit `d6b901bd96b67d69ab164151cfbf0ff42ef6ba64`, CI run 2554: source-guard step failed due two assertions expecting a one-line `if` while the code used a braced block; Flutter tests/analyze/build were skipped: https://github.com/cafeeteriaa/King-vpn/actions/runs/45356296860
+- Source-guard-only repair commit `647eea8feac0b34d3b66f24cfd399ed14f55e11e`, CI run 2555: source guards passed; Flutter tests reported 150 passed / 1 failed. The sole failure was the stale default port inventory assertion (expected 65,536 including port 0); analyze/build were skipped: https://github.com/cafeeteriaa/King-vpn/actions/runs/45356528430
+- The stale test/doc regression occurred because the prior documentation-only tree was created from an older base tree and unintentionally restored those two files. This checkpoint is based on the actual current HEAD tree and repairs both files; no production port-scan logic is changed.
+- The ACCESS_NETWORK_STATE declaration is supported by Android's ConnectivityManager API reference, which documents that `getNetworkCapabilities` requires this permission: https://developer.android.com/reference/android/net/ConnectivityManager
+- Exact-head CI for this checkpoint is pending; do not claim the Android ownership change or this repair validated until source guards, Flutter tests, analyze, and ARM64 build pass.
+
+## Open limitations
+- Android 11+ owner UID is checked. Android 10 and older use the custom service's live TUN descriptor plus active VPN transport.
+- Native evidence proves service/TUN ownership, not end-to-end traffic. HTTP response verification remains a separate gate.
+- No physical-device, competing-VPN, Android 10/11+, Iranian carrier, DNS packet-capture, or live IPv4/IPv6 data-plane test has been performed.
+- DNS route/leak, native stop/start ordering, failover races, IPv6 data-plane, and CPU/battery profiling remain open.
+- Branches `fix/dns-auto-full-domain-inventory-20261124` and `audit/final-master` remain heavily diverged; do not merge wholesale.
+
+## First next action
+1. Run exact-head CI for this checkpoint; require source guards, all Flutter tests, `flutter analyze`, and ARM64 release build to pass.
+2. If successful, inspect the exact-head artifact and checksum.
+3. Then perform physical-device tests for competing VPN takeover, stop/revoke, Android 10 compatibility, Android 11+ owner UID, network handover, and DNS routing through TUN/core.
+
+
+## Chat-submitted scanner review checkpoint — 2026-11-24
+
+- User supplied a standalone Dart snippet named `KingUltimateScanner` (`part of 'main.dart';`) for review.
+- The snippet has **not** been integrated into `lib/main.dart` or committed as executable scanner code. It is an intake/review checkpoint only, so the submitted implementation must not be mistaken for an existing project module.
+- Static review recorded the following issues to avoid repeating the same audit:
+  - Part-file structure/import placement must be reconciled with the owning Dart library.
+  - `X509Certificate.subjectAltNames` is not part of the standard Dart `X509Certificate` API.
+  - Start/stop lifecycle can race because `isRunning` is cleared before active work has fully exited.
+  - UDP probe does not consume the received datagram and does not reliably close its socket on all paths.
+  - DNS response parsing validates only a weak length/count condition and does not validate transaction ID, flags, question, or answer records.
+  - IPv6 targets are not consistently supported by the IPv4-bound UDP socket.
+  - SNI extraction does not explicitly supply the intended TLS hostname.
+  - CDN request construction does not correctly bracket IPv6 literals and does not preserve the parsed endpoint port.
+  - HTTP client/socket cleanup is incomplete on exceptional paths.
+  - Manual text controllers are not disposed; counters omit some probe categories.
+- No scanner algorithm, inventory, range, port list, or user-selected scan behavior has been changed by this checkpoint.
+- Next step when explicitly requested: reconcile the snippet with the actual project symbols and Dart/Flutter APIs, fix compile/runtime defects, add focused tests, then commit the reviewed integration to this PR branch. Keep PR #48 open and Draft; do not merge or modify `main`.
+
+
+## Automatic scanner candidate-inventory checkpoint — 2026-11-24
+
+- Commit `12444d24572ca91c54dc7b25a650b301dc1a30db` adds independent persistent SNI/IP candidate inventories to `lib/auto_scanners.dart`.
+- Domain candidates are assembled from `kAutoSniDomains`, `dnsxFullDomains()`, `natFrontSnis` and `natRelayHosts`; saved-server hostnames are optional additional inputs, not the only source.
+- IP candidates combine existing global-folder IP observations, dual-stack DNS A/AAAA answers and the current bounded CDN-range inventory batch.
+- Candidates are stored separately as `sni_candidates` and `ip_candidates`, shown in both automatic scanner and global-folder UI, and can be copied without being mislabeled as healthy endpoints.
+- Active SNI/TLS/TCP checks remain restricted to exact saved KING VPN endpoint scope. Discovery and active validation are deliberately separate.
+- Added a source guard for independent candidate persistence and display.
+- CI run 2562 passed all source guards, Flutter tests, Dart analysis and ARM64 release build. Exact-head CI for the candidate inventory changes was queued as run 2565 at checkpoint time; do not claim it passed until it completes.
+- PR #48 remains open Draft, not merged; `main` is unchanged. No physical-device tunnel verification is claimed.
+
+## 2026-11-24 — Independent IP scanner inventory follow-up
+
+- Extended `lib/ip_auto_scan.dart` so passive IPv4/IPv6 candidate discovery no longer depends on saved or fetched VPN server configurations.
+- Candidate sources are the complete project SNI/domain catalogs (dual-stack DNS A/AAAA answers), global-folder IP observations, and the rotating CDN range inventory; candidates merge into the existing persistent `ip_candidates` inventory.
+- Reuses resumable domain/CDN cursors; per-run batching is resumable and does not cap the accumulated inventory.
+- The IP scanner UI now loads, displays, and copies the full persisted candidate inventory when opened.
+- Active TCP and two-pass VPN-core checks remain separate and restricted to exact endpoint IP:port pairs derived from VPN server records. Passive candidates are not promoted to endpoint hits, healthy servers, or verified tunnel routes.
+- If no endpoint configuration exists, independent candidate discovery still completes and persists; active validation is skipped rather than blocking discovery.
+- Added source guard `test_ip_auto_scanner_discovers_dual_stack_candidates_without_saved_servers`.
+- CI run 2566 passed for the preceding source state. CI for this follow-up code/test commit is pending; do not claim it passed until the exact final HEAD completes.
+- Device-level VPN/TUN verification remains outstanding.
+
+PR #48 remains open and Draft; do not merge or modify `main`.
+
+
+## 2026-11-24 — Exact-head validation and next engineering gate
+
+- Current validated branch head at this checkpoint: `e5e0f9fa7df4553dc7990cbb960bb4d2f37693e0`.
+- PR #48 is still open and Draft, targeting `audit/unlimit-known-scanner-candidates-20261123`; keep it unmerged and do not modify `main`.
+- Exact-head GitHub Actions run 2576 (`45420351690`) completed successfully. The source-repair guard, Flutter dependency resolution, unit tests, Dart analysis, ARM64 Release APK build, source ZIP packaging and artifact uploads all completed successfully. Diagnostic-only steps were skipped as expected.
+- ARM64 APK artifact: `king-vpn-arm64-release-2576`, 49,061,061 bytes; SHA-256 `c02cb2c2c876e03ebca3034664be4369900bbc2ed2e457cf352505b5ef40dafb`. Artifact expires 2026-12-08.
+- Full source artifact: `king-vpn-full-source-2576`, 1,510,830 bytes; SHA-256 `48861bf52ee6d391a62fdee5db9159cc883d605495bc05578f4ff48defb8d726`.
+- Static follow-up reviewed the exact-head Android tunnel evidence path: the optional custom service requires its live TUN descriptor plus an active VPN transport; on Android 11+ an available owner UID must also match this app. The default plugin path requires an active VPN transport owned by this app. Missing native evidence fails closed on Android.
+- Static follow-up also confirmed that `_tunnelTrafficOk()` rejects proxy-only mode, requires positive Android tunnel evidence, and then performs an HTTP request through the core proxy to a mode-appropriate destination. Endpoint discovery records remain separate from healthy-route acceptance.
+- These checks are code/CI evidence only. They do not establish physical-device connectivity, end-to-end data-plane correctness, DNS leak freedom, IPv6 traffic, failover stability, competing-VPN takeover, or CPU/battery behavior.
+- Next actions: obtain device test evidence for Android 10 and Android 11+, competing VPN ownership, stop/revoke and network handover; capture DNS and IPv4/IPv6 traffic through the TUN; test real tunnel responses and failover; profile CPU, memory and battery. Do not mark these as TESTED until evidence is recorded.
+
+
+## 2026-11-24 — Front-SNI evidence and UDP scope clarification
+
+- Front-SNI probe in `lib/nip_scan.dart` now accepts every syntactically valid HTTP status (100..599) as evidence that the TLS/SNI request reached an HTTP peer. HTTP 4xx/5xx responses are not treated as proof of a usable VPN route; central core/TUN traffic acceptance remains authoritative.
+- Added source guard `test_front_sni_probe_accepts_all_valid_http_statuses`.
+- Follow-up review found that `natBuildFullUdpPortInventory` generates the complete UDP port-number inventory only. It does not send datagrams, consume UDP responses, or validate UDP reachability; no caller of this helper was found in the reviewed `lib/nat_ultra.dart` path. UDP protocol probing is therefore NOT_IMPLEMENTED / NOT_TESTED and must not be represented as UDP-tested.
+- Clarified the UDP inventory contract in `lib/nat_ip_scan.dart`, renamed the broad inventory test to avoid implying reachability, and added a source guard that protects the distinction.
+- Commits: front-SNI source fix `553ce7e6650fb70228243fa6cedfd6fb7966ea12`; front-SNI guard `f874ce6fb34b14dac0356af035f8912bf54a65ac`; UDP inventory clarification `931795d76f3f9def8773179c6720ead4a77994ca`; UDP scope guard `c883fe52a1f55e1c4678f1ccf9c251013a10585a`.
+- CI run 2577 (`45435575873`) for the earlier documentation checkpoint `65b2306b16200b51c9b8b12b017f8b7fa7ac28c8` completed successfully: source guard, Flutter unit tests, Dart analysis, ARM64 release APK, source package and artifact uploads passed. This result does not validate later code commits.
+- CI run 2578 (`45436621353`) was triggered for the front-SNI fix commit and reached ARM64 release APK build after source guards, Flutter unit tests and Dart analysis passed. At this checkpoint it remained in progress; its final result and artifacts are not yet confirmed. It does not include the subsequent UDP documentation/guard commits.
+- Current branch head at checkpoint: `c883fe52a1f55e1c4678f1ccf9c251013a10585a`. Exact-head CI has not yet appeared for this commit.
+- PR #48 remains open Draft, base `audit/unlimit-known-scanner-candidates-20261123`; do not merge or modify `main`.
+- Physical-device tests, end-to-end UDP, DNS leak, IPv4/IPv6 data-plane, competing VPN, failover and CPU/battery profiling remain outstanding.
+
+
+## 2026-11-24 — Exact HEAD CI 2580 and engineering continuation
+
+### Repository and release gate
+- Repository: `cafeeteriaa/King-vpn`.
+- Active branch: `fix/dns-auto-full-domain-inventory-20261124`.
+- PR #48 remains open and Draft, base `audit/unlimit-known-scanner-candidates-20261123`; current PR HEAD at this checkpoint was `b6266f6008bd7edcffc9ef75ed6df51c0fce345e`. Do not merge, close, or modify `main`.
+- Exact-HEAD CI run 2580 (`45437235722`) completed with conclusion SUCCESS on `b6266f6008bd7edcffc9ef75ed6df51c0fce345e`.
+- All source-repair guard, Flutter unit tests, Dart analysis, ARM64 Release APK build, source packaging, APK/source/symbol uploads, and all Post-Job steps passed. Diagnostic-only steps were skipped as expected.
+- ARM64 artifact: `king-vpn-arm64-release-2580`, 49,061,198 bytes; archive SHA-256 `1911ec3523da7891ee85717536a4809df6e25b1ed4289286bf2b8a864e3b952e`.
+- Full source artifact: `king-vpn-full-source-2580`, 1,513,083 bytes; archive SHA-256 `1f9587e29ff2c593e4acbeca9475f5aeacabb4d0be1b56c05e1636cc456a07f5`.
+- Symbols artifact: `king-vpn-symbols-2580`, 1,331,925 bytes; archive SHA-256 `8dcc36152cc59bfbdc81492e440c4418c2b3a59da14b91285182245277554df4`.
+- CI run 2578 (`45436621353`) also completed SUCCESS, but it validates only its own earlier SNI commit `f874ce6fb34b14dac0356af035f8912bf54a65ac`; run 2580 is the exact-HEAD evidence.
+- Artifact links and workflow logs: https://github.com/cafeeteriaa/King-vpn/actions/runs/45437235722
+- CI evidence validates source/test/analyze/build only. It does not prove physical-device connectivity or live tunnel data-plane correctness.
+
+### Static lifecycle and scanner audit carried out on exact HEAD
+- `natScanIps`: bounded worker count, monotonic Stopwatch budget, per-socket timeout, finally-based socket destruction, cancellation checks before dispatch and after in-flight connect, and hit-count enforcement at insertion. In-flight TCP connects cannot be forcibly cancelled by Dart's Socket.connect; they are bounded by the configured timeout.
+- `dnsxProbe` / `NatDnsWireProbe.probe`: A and AAAA probes use UDP DNS requests; source address/port 53, transaction ID, QR/opcode, truncation, RCODE, question name/type/class, answer owner/CNAME chain, RDATA length and public-address validation are checked. Cancellation watcher, subscription cancellation, and RawDatagramSocket.close() are present.
+- `dnsxScan`: bounded batches and cancellation propagation are present; manual UI does not persist partial results after cancellation.
+- `_natRangeScanStepBody`: serial busy lock, mode snapshot, staged per-port/range cursors, and persistence-before-cursor-advance are present. Full TCP port inventory is used for explicitly configured IP Clean ranges; outside those ranges, configured endpoints are tested only on their declared ports.
+- `autoScanRun`: scanner lock and stop flag, mode/VPN cancellation, batched domain and CDN cursors, exact configured endpoint targets, and commit-after-complete-batch behavior are present. Candidate inventories remain distinct from active endpoint observations and verified tunnel routes.
+- `_ipAutoRunOnce`: passive IP candidate inventory is independent of saved servers and persists independently; active TCP and core tests are limited to exact IP:port pairs derived from current VPN server records. Generated active-scan cursors are committed only after the full endpoint TCP batch completes; core-verification backlog is stored separately.
+- Android `KingVpnService`: serialized worker submission, attempt sequence fencing, coreLock/tunLock separation, bounded stop waits, deferred TUN close while native stop is unverified, foreground promotion on normal start/recovery, and stop/revoke cleanup paths are present in source. Static inspection is not a substitute for Android runtime tests.
+- Generic UDP port reachability probing remains NOT_IMPLEMENTED / NOT_TESTED. The complete UDP port-number inventory helper only creates port numbers; the DNS resolver's UDP A/AAAA request is a separate, implemented protocol-specific UDP exchange.
+
+### Open findings / constraints
+- `CONTINUATION.md` had stale top-level checkpoint metadata. This section supersedes the older historical checkpoint statements for current status.
+- Automatic SNI/TLS/port checks in `auto_scanners.dart` are currently restricted to saved VPN endpoint IP:port targets; automatic IP scanner active checks are likewise restricted to exact configured endpoint pairs. Passive candidate discovery still aggregates the project domain catalogs, dual-stack DNS answers, global-folder observations, and rotating CDN inventory. Explicit IP Clean ranges retain their own full TCP-port path. Do not silently expand or narrow these scopes; preserve user-defined scan behavior and obtain explicit target scope when active probing would reach unrelated third-party networks.
+- No physical Android device test is recorded. Still outstanding: Android 10 and Android 11+ runtime ownership, VPN consent/revoke, competing VPN, TUN lifecycle under start/stop races, real end-to-end traffic, DNS leak capture, IPv4/IPv6 data-plane, failover, network handover, UDP protocol tests, and CPU/memory/battery profiling.
+- No claims of DEPLOYED, device-tested, UDP-reachable, leak-free, or stable real-world connection are justified by CI alone.
+
+### Next actions
+1. Recheck PR HEAD and ensure any documentation update is committed only to the active feature branch; do not alter `main` or merge PR #48.
+2. Run exact-HEAD CI after any new commit and retain artifact hashes.
+3. Perform three independent reviews of scanner scope/cursor semantics, native TUN lifecycle/ownership, and tunnel traffic acceptance.
+4. Execute physical-device test matrix and record each outcome separately as IMPLEMENTED / CI-TESTED / DEVICE-TESTED / DEPLOYED.
+5. Design generic UDP probing only with explicit, user-authorized target scopes and protocol-aware response semantics; never label port inventory as reachability.
+
+
+## 2026-11-24 — Exact HEAD CI 2581 and three-pass static review
+
+### Exact-head CI evidence
+- Exact HEAD: `df33e0a0ce8d96cfe3d4111dc6e82c4182ba8cbf` on `fix/dns-auto-full-domain-inventory-20261124`.
+- GitHub Actions run 2581 (`45438946875`) completed with conclusion SUCCESS on this exact commit.
+- Source-repair guard, Flutter dependency resolution, unit tests, Dart analysis, optimized ARM64 Release APK build, APK size reporting, source packaging, all three artifact uploads, and Post-Job cleanup completed successfully. Diagnostic-only steps were skipped as expected.
+- ARM64 APK artifact: `king-vpn-arm64-release-2581`, 49,061,202 bytes; GitHub artifact archive digest `sha256:7c3363c67187837aaa5f390ec990b10ec620d4195c041fd706487d6bafc463bd`.
+- Full source artifact: `king-vpn-full-source-2581`, 1,515,238 bytes; GitHub artifact archive digest `sha256:47533df239bc0d20d07b20efc7ad28111bde59c69759755650ab9084e82fffe8`.
+- Symbols artifact: `king-vpn-symbols-2581`, 1,331,925 bytes; GitHub artifact archive digest `sha256:86b5ab33dbda5342776661e781b5f63b93db5d4358f481eba2881d2306c87060`.
+- Artifacts expire 2026-12-08 (APK/source) and 2026-12-24 (symbols). Workflow: https://github.com/cafeeteriaa/King-vpn/actions/runs/45438946875
+- CI validates this source tree, automated tests, analysis and packaging. It is not evidence of device-level connectivity, DNS leak freedom, IPv6 data-plane correctness or deployed status.
+
+### Three focused static review passes on exact HEAD
+These are three distinct technical review passes by the same assistant, not three independent external reviewers:
+1. **Scanner scope and cursor semantics:** reviewed `autoScanRun`, `_ipAutoRunOnce`, `natScanIps`, and the TCP/UDP inventory helpers. Confirmed bounded TCP workers/timeouts, socket cleanup, cancellation checks, independent passive candidate persistence, full 1..65535 TCP port-number inventory, and active endpoint tests restricted to exact configured VPN endpoint pairs (with explicit IP Clean ranges handled separately). Candidate inventory remains distinct from endpoint reachability and verified tunnel status. No static blocker found in the inspected paths.
+2. **Android native TUN lifecycle and ownership:** reviewed `KingVpnService` start/stop/revoke/destroy paths, attempt sequence fencing, `coreLock` / `tunLock`, native-stop verification, deferred TUN close, plus MainActivity's VPN transport and owner-UID probes. No static blocker found in the inspected paths; native timing, API-level behavior and races still require physical-device tests.
+3. **Central tunnel traffic acceptance:** reviewed `tunUp()`, `androidVpnTunnelEvidence`, `_tunnelTrafficOk()`, `_siteOpens()`, and all `_onConnected` acceptance call sites/source guards. Proxy-only mode is rejected; Android tunnel evidence is required before HTTP acceptance; proxy requests are forced to fail rather than silently falling back to DIRECT when the core inbound is unavailable; HTTP success is separately required before a route is marked verified. No static blocker found in the inspected paths.
+
+### Review and release status
+- PR #48 remains open, Draft, and unmerged; base remains `audit/unlimit-known-scanner-candidates-20261123`. `main` remains untouched.
+- GitHub currently reports no submitted PR reviews or inline review threads. Do not describe the three passes above as independent reviewer approvals.
+- No code was changed during these review passes; this checkpoint records evidence only.
+- Device tests remain NOT TESTED: Android 10 and 11+, VPN consent/revoke, competing VPN, TUN start/stop races, real end-to-end traffic, DNS capture/leaks, IPv4/IPv6 data-plane, failover, network handover, generic UDP protocol probes, and CPU/memory/battery profiling.
+- Generic UDP port reachability remains NOT_IMPLEMENTED / NOT_TESTED. UDP port inventory is not UDP probing.
+
+### Next gate
+1. Keep PR #48 Draft and do not merge or modify `main`.
+2. Run exact-HEAD CI after this documentation-only checkpoint commit and retain the resulting artifacts/digests.
+3. Obtain real Android device and network-matrix evidence before marking any device-level behavior TESTED or DEPLOYED.
+4. Preserve existing scanner behavior and user-selected ranges; any active probe beyond exact configured endpoints or explicit user-authorized ranges requires an explicit target scope.
+
+
+## 2026-11-24 — Exact HEAD CI 2582 completion
+
+### CI result
+- Exact source commit: `ac6435c286e17bfc6c4df7156be68e9435a0ed3b` on `fix/dns-auto-full-domain-inventory-20261124`.
+- GitHub Actions run 2582 (`45440202559`) completed with conclusion SUCCESS at 2026-11-24 16:47:29 UTC. Workflow: https://github.com/cafeeteriaa/King-vpn/actions/runs/45440202559
+- Source-repair guard, dependency resolution, Flutter unit tests, Dart analysis, optimized ARM64 release APK build, APK size reporting, symbols packaging/upload, complete source packaging/upload, APK upload, and post-job cleanup all succeeded. Repair diagnostics were skipped because the build succeeded.
+- Build log reports the APK as 123.0 MB. Artifact archive `king-vpn-arm64-release-2582`: 49,061,209 bytes; GitHub archive digest `sha256:eb068b57723052eeb1c7c1a9232bdc57066bb9af43f73dcc9c018f5c743e6ac8`.
+- Full source artifact `king-vpn-full-source-2582`: 1,516,389 bytes; archive digest `sha256:7b271ecf66804b331f1eccf84bcd0054b0b43f5575ff99f5eb978d93a9bc1900`.
+- Symbols artifact `king-vpn-symbols-2582`: 1,331,925 bytes; archive digest `sha256:6eec144e0f4f0a17fea04dec4f4831da8f071741271191fb85d9ae24dba31f70`.
+- APK and source artifacts expire 2026-12-08; symbols expire 2026-12-24. All artifacts were present and unexpired at verification.
+- Workflow explicitly reports signing with generated Flutter debug key; this is not production-signed. CI success does not establish device-level connectivity, leak freedom, or deployment.
+
+### Build-log observations (not build blockers)
+- Flutter analysis emitted informational deprecation notices for `package:flutter/material.dart` migration and `withOpacity`; analyze still passed under configured no-fatal-infos policy.
+- Java compiler warned that source/target 8 are obsolete; several plugins reported deprecated APIs; workflow actions setup-java@v4 / upload-artifact@v4 / checkout@v4 / setup-gradle@v4 emitted Node.js 20 deprecation notices.
+- Build log noted generated ELF libraries contain unobfuscated DWARF debugging information. This requires a deliberate symbols/packaging review before production release; do not silently strip or alter build flags in this continuation.
+- APK reported size is 123.0 MB while the uploaded ZIP artifact is 49,061,209 bytes; these are different measurements (uncompressed APK vs compressed artifact archive), not contradictory sizes.
+
+### Repository and release gate
+- PR #48 remains open, Draft, and unmerged; base `audit/unlimit-known-scanner-candidates-20261123`.
+- Feature branch HEAD remains `ac6435c286e17bfc6c4df7156be68e9435a0ed3b`; main remains `c43d325f9803d4f6306415e511f6790deff9d87e` and was not modified.
+- No code changes were made in this continuation; this entry records the exact-head CI evidence only.
+- Device runtime verification remains NOT TESTED: Android 10/11+, VPN consent/revoke, competing VPN, TUN lifecycle races, end-to-end traffic, DNS leak capture, IPv4/IPv6 data plane, failover, network handover, generic UDP reachability, and CPU/memory/battery profiling.
+- Production signing and production deployment remain NOT DONE.
+
+### Next actions
+1. Continue with device/runtime test matrix when a physical Android device and controlled test networks are available.
+2. Review 123 MB APK size, ELF DWARF/debug-symbol handling, Java 8 compatibility and deprecated workflow actions as separate evidence-led maintenance tasks; avoid changing release semantics without validation.
+3. Keep PR #48 Draft and do not merge to main until required review, device validation, and release signing gates are complete.
+
+
+### 2582 APK archive integrity spot-check
+- Downloaded the exact GitHub artifact ZIP `king-vpn-arm64-release-2582` (artifact ID `14943536256`) and independently recomputed its SHA-256: `eb068b57723052eeb1c7c1a9232bdc57066bb9af43f73dcc9c018f5c743e6ac8`, matching GitHub's artifact digest.
+- Inspected the ZIP: it contains exactly `app-arm64-v8a-release.apk`, uncompressed size 122,951,294 bytes. Independently computed APK SHA-256: `d49b6380c973850eec803e971e52017cc1157606e6897c952fef94d9da4ca9cb`.
+- This verifies archive integrity and the expected APK payload, not Android installation, signature trust, or runtime VPN behavior. The workflow log states the APK was signed with the generated Flutter debug key, not a production key.
+
+
+## 2026-11-24 — Exact HEAD CI 2583 and APK artifact verification
+
+### Exact-head CI
+- Source commit tested: `6b1859b8144285e158d661d6d74b70c781bd9430` on `fix/dns-auto-full-domain-inventory-20261124`.
+- GitHub Actions run 2583 (`45441336928`) completed SUCCESS at 2026-11-24 16:53:01 UTC: https://github.com/cafeeteriaa/King-vpn/actions/runs/45441336928
+- Source Guard, Flutter dependency resolution, unit tests, Dart analysis, optimized ARM64 release build, APK size report, symbols/source/APK artifact uploads, and all post-job cleanup passed. Diagnostic-only repair steps were skipped as expected.
+- ARM64 artifact `king-vpn-arm64-release-2583` (artifact ID `14943194110`): 49,061,200 bytes; GitHub archive digest `sha256:35b3bfca454c24f86342f303d156cd1c776e0d83a665a511be18cfe489a5e87e`.
+- Full source artifact `king-vpn-full-source-2583` (artifact ID `14943707072`): 1,517,566 bytes; archive digest `sha256:7d436c6d87c2185f6277470991885dca1116777c45e16d1a5ce72cb959c50b14`.
+- Symbols artifact `king-vpn-symbols-2583` (artifact ID `14943841865`): 1,331,925 bytes; archive digest `sha256:9a03d6f4dc171b08977328d5bcfb3837d2ac29649c40608221e5b82f0ff39dc2`.
+- Downloaded the ARM64 ZIP and independently verified its SHA-256 against GitHub's digest. The ZIP contains exactly `app-arm64-v8a-release.apk` (122,951,294 bytes); independently computed APK SHA-256: `69f4b809d1b63c94959bb6447417e812dd243f981dce1adecb312969530fdf51`.
+- Workflow log reports APK size 123.0 MB. The compressed artifact archive size and uncompressed APK size are different measures.
+
+### Build observations
+- Non-blocking notices remain: Flutter Material API and `withOpacity` deprecations, Java source/target 8 obsolescence, deprecated plugin APIs, Node.js 20 action deprecation notices, and generated ELF DWARF debug information. No build flags or runtime dependencies were changed in response.
+- The APK is generated with the workflow's Flutter debug key; it is not production-signed. Archive integrity and CI success do not prove installation, live tunnel operation, or leak freedom.
+
+### Repository state and exact-head follow-up
+- At the time of this checkpoint, PR #48 is open, Draft, and unmerged; base remains `audit/unlimit-known-scanner-candidates-20261123`.
+- Feature branch HEAD after the prior documentation checkpoint was `079db875fb51c7cd900f39fef7b0c28df09aa580`; `main` remains `c43d325f9803d4f6306415e511f6790deff9d87e` and was not modified.
+- Run 2583 validates its exact source commit `6b1859b...`, not the later documentation-only HEAD. Run 2584 (`45441562865`) was triggered for `079db875...` and was in progress at checkpoint time. After this documentation edit, require a new exact-HEAD CI run for the new HEAD as well.
+- No executable code or scanner scope changed in this checkpoint. Keep PR #48 Draft and do not merge to `main`.
+- Physical-device runtime checks, production signing, and production deployment remain NOT TESTED / NOT DONE.
+
+
+## 2026-11-24 — Android 7–10 VPN ownership fallback
+
+- Static audit found that the default plugin path could never satisfy the ownership gate on API 24–29: `NetworkCapabilities.ownerUid` is only available from API 30, while `minSdk` is 24.
+- Repaired `kingVpnTransportOwnedByApp` on API 24–29 by requiring both an active `TRANSPORT_VPN` network and `VpnService.prepare(this) == null`. Android grants VPN preparation to one application at a time and revokes the previous grant when another VPN app is selected. Android 11+ continues to use `ownerUid` directly.
+- The result remains fail-closed: no active VPN transport means false; a missing VPN grant means false. The existing Dart acceptance policy still requires both transport and ownership evidence, and the separate core-proxy traffic check remains in place.
+- Added an isolated source-guard test for API 24–29 fallback, API 30+ owner UID, minimum SDK preservation and the existing competing-VPN rejection tests.
+- Validation is source-only until exact-head CI and physical Android tests complete. VPN revoke/takeover, API 24–29 device tests, end-to-end traffic and DNS leak checks remain NOT TESTED.
+
+
+## 2026-11-24 — Live TCP probe cancellation and monotonic pre-scan budget
+
+- Replaced `Socket.connect` in the shared NAT TCP probe with `Socket.startConnect` and `ConnectionTask.cancel()`. In-flight probes now stop within the cancellation watcher interval instead of waiting for the full socket timeout.
+- The main NAT scanner passes a combined cancellation predicate for user stop, elapsed budget and already-reached hit target, so sibling workers do not continue unnecessary connects. The existing post-probe stale-result guard remains.
+- The national pre-scan now resolves hostnames in bounded concurrent batches (all candidates in the current 400-item round are attempted unless aborted), then preserves the original independent monotonic 90-second TCP budget. Unresolved candidates remain queued for later rounds.
+- Added deterministic `IOOverrides` tests for cancellation during socket connection, cancellation while `startConnect` is still resolving, and timeout cancellation; source guards cover both scanner call paths.
+- This is source/CI validation only; physical Android network handover and real-world socket cancellation behavior remain untested on devices.
+
+
+## 2026-11-24 — Lossless NAT candidate queue overflow
+
+- Added a pure, deduplicating queue-split helper: active queue limits now move overflow into `natRestPending` instead of deleting the tail. Applied to the national source merge (1,200 active entries) and range-generated candidates (3,000 active entries).
+- Duplicate detection now includes both active and overflow queues.
+- Range scanning and source merging pause when the combined queue reaches its backpressure threshold; the range cursor is not advanced while paused. The existing range/domain/IP/IPv4/IPv6/port search scope is unchanged.
+- Range scans also defer before advancing the cursor when no configuration template is available.
+- Added unit and source-guard tests proving that bounded active queues preserve all unique overflow entries.
+
+
+## 2026-11-24 — National-mode source isolation repair
+
+- Added a dedicated Iranian-service domain seed list for automatic discovery while national mode is active.
+- National-mode candidate discovery no longer mixes in the global domain catalog, global front-SNI/relay seeds, Cloudflare/CDN CIDR ranges, hard-coded global fallback IPs, or the mixed global-folder IP cache.
+- Global mode retains its prior global catalog/CDN/cache sources. National mode still includes exact saved VPN endpoint hosts/configurations for endpoint validation; no active scan scope was broadened.
+- This is a candidate-source relevance fix only. It does not prove that any discovered address is reachable from an Iranian carrier during an international outage.
+- Exact-head CI and Iranian-network/device tests have not yet been observed for this repair. Do not mark it TESTED until those runs/evidence exist.

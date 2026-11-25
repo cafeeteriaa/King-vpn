@@ -122,7 +122,7 @@ class _NatSpec {
   final int? cleanIdx;
   final int? keep;
   final int? mss;
-  final int? sniSwap; // V13: swap SNI to natFrontSnis[idx] (CDN-only)
+  final String? sniSwap; // exact hostname; stable across later inventory growth
   const _NatSpec(this.name,
       {this.other = false,
       this.fp,
@@ -201,10 +201,10 @@ const List<_NatSpec> _natBase = [
   _NatSpec('آدرس دیگر + fp=chrome', other: true, fp: 'chrome'),
   _NatSpec('آدرس دیگر + Fragment خیلی ریز', other: true, frag: 3),
   // V13: SNI swap variants (CDN bypass by masking SNI, keeping Host header).
-  _NatSpec('SNI>cdnjs', sniSwap: 0),
-  _NatSpec('SNI>cloudflare', sniSwap: 2),
-  _NatSpec('SNI>speed', sniSwap: 3),
-  _NatSpec('SNI>divar.ir', sniSwap: 7),
+  _NatSpec('SNI>cdnjs', sniSwap: 'cdnjs.cloudflare.com'),
+  _NatSpec('SNI>cloudflare', sniSwap: 'www.cloudflare.com'),
+  _NatSpec('SNI>speed', sniSwap: 'speed.cloudflare.com'),
+  _NatSpec('SNI>divar.ir', sniSwap: 'divar.ir'),
 ];
 
 final List<_NatSpec> _natSpecs = [..._natBase, ..._natGenerate(), ..._natExtra];
@@ -254,7 +254,7 @@ _NatSpec _natMk(
     String? doh,
     String? mode,
     int? keep,
-    int? sniSwap}) {
+    String? sniSwap}) {
   final n = <String>[];
   if (other) n.add('آدرس دیگر');
   if (fp != null) n.add('fp=$fp');
@@ -285,7 +285,7 @@ _NatSpec _natMk(
     n.add('DNS $dn');
   }
   if (mode != null) n.add(mode);
-  if (sniSwap != null) n.add('SNI>CF#${sniSwap + 1}');
+  if (sniSwap != null) n.add('SNI>$sniSwap');
   return _NatSpec(n.isEmpty ? 'عادی+' : n.join(' + '),
       other: other,
       fp: fp,
@@ -341,11 +341,17 @@ List<_NatSpec> _natGenerate() {
       if (!topSet.contains(i)) i
   ];
 
-  // V13: SNI-swap x fragment combos (bypass SNI + DPI in one shot).
-  for (var sniIdx = 0; sniIdx < 4; sniIdx++) {
-    final realIdx = const [0, 2, 3, 10][sniIdx];
+  // SNI-swap x fragment combos use stable hostname values, not mutable
+  // offsets into a list that can grow after a later scan.
+  const sniNames = <String>[
+    'cdnjs.cloudflare.com',
+    'www.cloudflare.com',
+    'speed.cloudflare.com',
+    'divar.ir',
+  ];
+  for (final sni in sniNames) {
     for (var fi = 0; fi < _natFragBase.length; fi++) {
-      add(_natMk(frag: fi, sniSwap: realIdx));
+      add(_natMk(frag: fi, sniSwap: sni));
     }
   }
 
@@ -359,7 +365,7 @@ List<_NatSpec> _natGenerate() {
     add(_natMk(frag: g));
   }
   for (final g in top) {
-    for (final p in fps.take(7)) {
+    for (final p in fps) {
       add(_natMk(frag: g, fp: p));
     }
   }
@@ -396,7 +402,7 @@ List<_NatSpec> _natGenerate() {
     add(m(null, null));
   }
   for (final m in mods) {
-    for (final g in top.take(12)) {
+    for (final g in top) {
       add(m(g, null));
     }
   }
@@ -406,14 +412,14 @@ List<_NatSpec> _natGenerate() {
     }
   }
   for (final m in mods) {
-    for (final g in top.take(6)) {
+    for (final g in top) {
       for (final p in const ['chrome', 'firefox', 'randomized']) {
         add(m(g, p));
       }
     }
   }
-  for (final g in top.take(20)) {
-    for (final p in fps.take(5)) {
+  for (final g in top) {
+    for (final p in fps) {
       for (final a in alpns) {
         add(_natMk(frag: g, fp: p, alpn: a));
       }
@@ -432,12 +438,68 @@ List<_NatSpec> _natGenerate() {
 }
 
 int _natGrowCounter = 0;
+
+// Keep the static front-SNI prefix stable for persisted variant indices,
+// then append the complete project domain inventory and discovered names.
+String? _natNormalizeSniHostname(String raw) {
+  final name = raw.trim().toLowerCase().replaceFirst(RegExp(r'\.$'), '');
+  if (name.isEmpty || name.length > 253 || InternetAddress.tryParse(name) != null) {
+    return null;
+  }
+  final labels = name.split('.');
+  if (labels.length < 2) return null;
+  final labelPattern = RegExp(r'^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$');
+  if (!labels.every((label) => labelPattern.hasMatch(label))) return null;
+  return name;
+}
+
+List<String>? _natSniCatalogCache;
+
+List<String> _natSniCatalog() {
+  final cached = _natSniCatalogCache;
+  if (cached != null) return cached;
+  final out = <String>{};
+  void addNames(Iterable<String> names) {
+    for (final raw in names) {
+      final name = _natNormalizeSniHostname(raw);
+      if (name != null) out.add(name);
+    }
+  }
+
+  // Static project catalogs are built once; preserve historical front-SNI
+  // ordering so previously persisted variant indices remain stable.
+  addNames(natFrontSnis);
+  addNames(kAutoSniDomains);
+  addNames(dnsxFullDomains());
+  final built = out.toList(growable: false);
+  _natSniCatalogCache = built;
+  return built;
+}
+
+List<String> _natSniPool() {
+  final out = <String>{..._natSniCatalog()};
+  void addNames(Iterable<String> names) {
+    for (final raw in names) {
+      final name = _natNormalizeSniHostname(raw);
+      if (name != null) out.add(name);
+    }
+  }
+
+  // Append user relays and every persisted SNI discovery observation.
+  addNames(natRelayHosts);
+  addNames(_goldScan['sni'] ?? const <String>[]);
+  addNames(_goldScan['sni_candidates'] ?? const <String>[]);
+  return out.toList(growable: false);
+}
+
 int natGrow(int n) {
-  if (_natSpecs.length > 500000) return 0;
+  // No fixed inventory ceiling: every distinct generated variant is retained.
   final rnd = Random(DateTime.now().millisecondsSinceEpoch + _natGrowCounter++);
   var added = 0;
   const fps = ['chrome', 'firefox', 'randomized', 'ios', 'android', 'safari', 'edge', 'random', 'qq', '360', 'hellogolang', 'hellochrome', 'hellofirefox', 'hellosafari', 'helloios', 'helloandroid', 'helloedge', 'hello360', 'helloqq', 'hellorandomized', 'hellorandomizedalpn', 'hellorandomizednoalpn'];
   const alpns = <String?>[null, 'h2', 'http/1.1', 'h2,http/1.1'];
+  // Build the potentially large SNI inventory once per growth batch.
+  final sniPool = _natSniPool();
   for (var i = 0; i < n; i++) {
     final fp = fps[rnd.nextInt(fps.length)];
     final alpn = alpns[rnd.nextInt(alpns.length)];
@@ -453,7 +515,8 @@ int natGrow(int n) {
     final v4 = rnd.nextBool();
     final tfo = rnd.nextBool();
     final keep = rnd.nextBool() ? rnd.nextInt(30) + 1 : null;
-    final sniSwap = rnd.nextBool() ? rnd.nextInt(natFrontSnis.length) : null;
+    final sniSwap =
+        sniPool.isNotEmpty && rnd.nextBool() ? sniPool[rnd.nextInt(sniPool.length)] : null;
     _natSpecs.add(_natMk(
       fp: fp, alpn: alpn, frag: frag, port: port, portIdx: portIdx,
       clean: clean, cleanIdx: cleanIdx, v4: v4, tfo: tfo, keep: keep, doh: doh,
@@ -529,7 +592,6 @@ String _natPickOf(String k, bool reuse, String Function() gen) {
     if (old != null) return old;
   }
   final v = gen();
-  if (_natPick.length > 3000) _natPick.remove(_natPick.keys.first);
   _natPick[k] = v;
   return v;
 }
@@ -650,8 +712,9 @@ bool _natAppliesF(_NatFacts f, int v) {
   if (x.noise) return false;
   if (x.mode != null && (!x.mode!.startsWith('kcp:') || f.reality)) return false;
   if (x.doh != null && f.isIp) return false;
-  // V13: SNI swap only makes sense for CDN configs with TLS (not reality).
-  if (x.sniSwap != null && !(f.sec && f.cdnLike && !f.reality)) return false;
+  // SNI replacement is valid for any TLS transport supported by the core;
+  // CDN classification is not a protocol requirement. Reality/ECH remain excluded.
+  if (x.sniSwap != null && !(f.sec && !f.reality)) return false;
   return true;
 }
 
@@ -748,7 +811,7 @@ List<int> _natTopWinners(int n) {
       if (v != null && v > 0 && v < _natSpecs.length) rows.add(MapEntry(v, c));
     });
     rows.sort((a, b) => b.value.compareTo(a.value));
-    _topWinCache = [for (final r in rows.take(30)) r.key];
+    _topWinCache = [for (final r in rows) r.key];
     _topWinKey = key;
   }
   return _topWinCache!.take(n).toList();
@@ -760,7 +823,6 @@ String _natCk(Server s) => '$natOpKey#${s.key}';
 void natCursorAdvance(Server s, int n) {
   if (n <= 0) return;
   final k = _natCk(s);
-  if (_natCursor.length > 4000) _natCursor.remove(_natCursor.keys.first);
   _natCursor[k] = (_natCursor[k] ?? 0) + n;
 }
 
@@ -781,10 +843,7 @@ Duration natBudget({bool full = false}) {
   return const Duration(seconds: 240);
 }
 
-// فیکس ۱۷: سقف‌ها کاهش یافت (قبلاً: 0, 0, 200, 1200, 6000, 15000, 30000, 60000, 100000, 150000, 200000)
-const List<int> _natGenCap = [
-  0, 0, 100, 500, 1500, 4000, 8000, 15000, 20000, 30000, 40000
-];
+// Variant generation is cursor-driven and has no fixed per-level inventory ceiling.
 
 // فقط mKCP (UDP) «سنگین و کند» حساب می‌شود؛ Fragment و بقیه در اتصال عادی مجازند
 bool _natIsSlowHeavy(int v) {
@@ -886,8 +945,7 @@ List<int> _natOrder(Server s, {bool full = false}) {
   }
 
   final gens = <int>[];
-  final cap = _natGenCap[lvl];
-  if (cap > 0) {
+  {
     final app = <int>[];
     for (final v in _natGenRanked()) {
       if (_natAppliesF(f, v)) app.add(v);
@@ -909,7 +967,7 @@ List<int> _natOrder(Server s, {bool full = false}) {
       ).index;
       return sa.compareTo(sb);
     });
-    if (cursor >= app.length && lvl >= 2) {
+    if (cursor >= app.length) {
       natGrow(1000);
       app.clear();
       for (final v in _natGenRanked()) {
@@ -917,7 +975,9 @@ List<int> _natOrder(Server s, {bool full = false}) {
       }
     }
     if (app.isNotEmpty && cursor < app.length) {
-      final end = min(app.length, cursor + cap);
+      // Process every remaining compatible variant; the persistent per-server
+      // cursor and the outer retry loop provide continuation without truncation.
+      final end = app.length;
       for (var k = cursor; k < end; k++) {
         final gv = app[k];
         if (skipHeavy && _natIsSlowHeavy(gv)) continue;
@@ -1189,23 +1249,21 @@ Map? _natProxyOut(Map<String, dynamic> j) {
 // V7-FRAG: Fragment on the TLS Hello with deterministic jitter seeded by
 // (server key, variant). Same (server, variant) pair always gets the SAME
 // jitter, so the test and the real connection use identical byte counts.
-String _natApplySniSwap(String cfg, int sniIdx) {
+String _natApplySniSwap(String cfg, String rawSni) {
   try {
-    if (sniIdx < 0 || sniIdx >= natFrontSnis.length) return cfg;
-    final sni = natFrontSnis[sniIdx];
+    final sni = _natNormalizeSniHostname(rawSni);
+    if (sni == null) return cfg;
     final j = jsonDecode(cfg);
     if (j is! Map<String, dynamic>) return cfg;
-    final outs = (j['outbounds'] as List?) ?? <dynamic>[];
-    for (final o in outs) {
-      if (o is! Map) continue;
-      final st = o['streamSettings'];
-      if (st is! Map) continue;
-      if (st['security'] != 'tls') continue;
-      final tls = st['tlsSettings'];
-      if (tls is! Map) continue;
-      if (tlsHasEch(tls)) continue; // ECH: SNI را عوض نکن
-      tls['serverName'] = sni; // keep certificate validation enabled
-    }
+    // Change only the actual proxy outbound; unrelated TLS outbounds retain
+    // their own server names and routing semantics.
+    final proxy = _natProxyOut(j);
+    if (proxy == null) return cfg;
+    final st = proxy['streamSettings'];
+    if (st is! Map || st['security'] != 'tls') return cfg;
+    final tls = st['tlsSettings'];
+    if (tls is! Map || tlsHasEch(tls)) return cfg;
+    tls['serverName'] = sni; // certificate validation remains enabled
     return jsonEncode(j);
   } catch (_) {
     return cfg;
@@ -1601,10 +1659,7 @@ void natVarSet(Server s, int v) {
     _natLearnVer++;
   }
   _natCursor.remove(_natCk(s));
-  if (natDimWins.length > 6000) natDimWins.remove(natDimWins.keys.first);
-  while (natVar.length > 4000) {
-    natVar.remove(natVar.keys.first);
-  }
+  // Learned variant and dimension inventories are not truncated to top-N caps.
   _natSaveT ??= Timer(const Duration(seconds: 5), () {
     _natSaveT = null;
     natSavePersisted();
@@ -1674,9 +1729,6 @@ Future<void> natLoadPersisted() async {
           }
         }
       });
-      while (natVarNormal.length > 3000) {
-        natVarNormal.remove(natVarNormal.keys.first);
-      }
     }
     if (((j['g'] ?? 0) as num).toInt() != _natGenVer) {
       natVar.removeWhere((k, v) => v >= _natBaseCount);
@@ -1694,7 +1746,6 @@ Future<void> natLoadPersisted() async {
 
 const String _ipMemKey = 'natIpMem';
 const String _rangeKey = 'natRanges';
-const int _ipMemMax = 200;
 
 final List<Map<String, dynamic>> natIpMem = [];
 final Set<String> natIpDeadRun = {};
@@ -1714,10 +1765,6 @@ Future<void> natIpMemLoad() async {
       natIpMem
         ..clear()
         ..addAll((jsonDecode(s) as List).cast<Map<String, dynamic>>());
-      final cutoff = DateTime.now()
-          .subtract(const Duration(days: 14))
-          .millisecondsSinceEpoch;
-      natIpMem.removeWhere((e) => ((e['t'] as num?)?.toInt() ?? 0) < cutoff);
     }
     natRanges = (p.getString(_rangeKey) ?? '')
         .split(RegExp(r'[\r\n,; ]+'))
@@ -1753,7 +1800,6 @@ Future<void> natIpMemLoad() async {
 }
 
 const String _domMemKey = 'natDomMem';
-const int _domMemMax = 200;
 const int natDelaySecs = 14;
 final List<Map<String, dynamic>> natDomMem = [];
 
@@ -1767,10 +1813,6 @@ Future<void> natDomMemLoad() async {
       natDomMem
         ..clear()
         ..addAll((jsonDecode(s) as List).cast<Map<String, dynamic>>());
-      final cutoff = DateTime.now()
-          .subtract(const Duration(days: 14))
-          .millisecondsSinceEpoch;
-      natDomMem.removeWhere((e) => ((e['t'] as num?)?.toInt() ?? 0) < cutoff);
     }
   } catch (e, stk) {
     logError(e, stk);
@@ -1780,9 +1822,6 @@ Future<void> natDomMemLoad() async {
 Future<void> natDomMemSave(String host, int port) async {
   natDomMem.removeWhere((e) => e['h'] == host && e['port'] == port);
   natDomMem.insert(0, {'h': host, 'port': port, 't': DateTime.now().millisecondsSinceEpoch});
-  if (natDomMem.length > _domMemMax) {
-    natDomMem.removeRange(_domMemMax, natDomMem.length);
-  }
   try {
     final p = await SharedPreferences.getInstance();
     await p.setString(_domMemKey, jsonEncode(natDomMem));
@@ -1799,9 +1838,6 @@ Future<bool> natIpMemSaveMany(Iterable<String> ips, int port) async {
     natIpMem.removeWhere((entry) => entry['ip'] == ip && entry['port'] == port);
     natIpMem.insert(0, {'ip': ip, 'port': port, 't': timestamp});
   }
-  if (natIpMem.length > _ipMemMax) {
-    natIpMem.removeRange(_ipMemMax, natIpMem.length);
-  }
   try {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_ipMemKey, jsonEncode(natIpMem));
@@ -1815,9 +1851,6 @@ Future<bool> natIpMemSaveMany(Iterable<String> ips, int port) async {
 Future<void> natIpMemSave(String ip, int port) async {
   natIpMem.removeWhere((e) => e['ip'] == ip && e['port'] == port);
   natIpMem.insert(0, {'ip': ip, 'port': port, 't': DateTime.now().millisecondsSinceEpoch});
-  if (natIpMem.length > _ipMemMax) {
-    natIpMem.removeRange(_ipMemMax, natIpMem.length);
-  }
   try {
     final p = await SharedPreferences.getInstance();
     await p.setString(_ipMemKey, jsonEncode(natIpMem));
@@ -1947,7 +1980,11 @@ List<int> natFullPortInventory(List<Server> known) {
     counts.keys,
     (a, b) => counts[b]! - counts[a]!,
   );
-  return natBuildFullPortInventory([...observed, ...natCommonPorts]);
+  return natBuildFullPortInventory(
+    [...observed, ...natCommonPorts],
+    firstPort: 1, // TCP connect() cannot target port zero.
+    lastPort: 65535,
+  );
 }
 
 List<int>? _ipTriple(String host) {
@@ -1956,48 +1993,30 @@ List<int>? _ipTriple(String host) {
   return [for (final x in p.take(3)) int.parse(x)];
 }
 
+/// Candidate inventory only: retain exact observed/configured IPs.
+/// A remembered public address does not authorize probing its neighbouring /24.
+/// Wider prefixes must come from an explicitly supplied range or an authorized
+/// range source, not be inferred from a single endpoint.
 List<String> natAutoBlocks(List<Server> known) {
-  String blk(int a, int b, int c) => '$a.$b.$c.0/24';
-  final ipv6Blocks = <String>{};
-  final hitBlocks = <String>[];
-  final near = <String>[];
-  final rest = <String>[];
-  final hitTriples = <List<int>>[];
-  for (final e in natIpMem) {
-    final remembered = InternetAddress.tryParse('${e['ip']}');
-    if (remembered?.type == InternetAddressType.IPv6) {
-      ipv6Blocks.add('${remembered!.address}/128');
-      continue;
-    }
-    final t = _ipTriple('${e['ip']}');
-    if (t != null) {
-      hitTriples.add(t);
-      final b = blk(t[0], t[1], t[2]);
-      if (!hitBlocks.contains(b)) hitBlocks.add(b);
+  // A neighboring prefix must not be inferred from a single endpoint.
+  final out = <String>{};
+  for (final entry in natIpMem) {
+    final parsed = InternetAddress.tryParse('${entry['ip']}');
+    if (parsed == null) continue;
+    if (parsed.type == InternetAddressType.IPv4 ||
+        parsed.type == InternetAddressType.IPv6) {
+      out.add('${parsed.address}/${parsed.type == InternetAddressType.IPv6 ? 128 : 32}');
     }
   }
-  for (final t in hitTriples) {
-    for (final d in const [-1, 1]) {
-      final c = t[2] + d;
-      if (c < 0 || c > 255) continue;
-      final b = blk(t[0], t[1], c);
-      if (!hitBlocks.contains(b) && !near.contains(b)) near.add(b);
+  for (final server in known) {
+    final parsed = InternetAddress.tryParse(server.host.trim());
+    if (parsed == null) continue;
+    if (parsed.type == InternetAddressType.IPv4 ||
+        parsed.type == InternetAddressType.IPv6) {
+      out.add('${parsed.address}/${parsed.type == InternetAddressType.IPv6 ? 128 : 32}');
     }
   }
-  for (final s in known) {
-    final parsed = InternetAddress.tryParse(s.host);
-    if (parsed?.type == InternetAddressType.IPv6) {
-      ipv6Blocks.add('${parsed!.address}/128');
-      continue;
-    }
-    final t = _ipTriple(s.host);
-    if (t == null) continue;
-    final b = blk(t[0], t[1], t[2]);
-    if (!hitBlocks.contains(b) && !near.contains(b) && !rest.contains(b)) {
-      rest.add(b);
-    }
-  }
-  return [...ipv6Blocks, ...hitBlocks, ...near, ...rest];
+  return out.toList()..sort();
 }
 
 BigInt _natIpv6ToBigInt(InternetAddress address) {
@@ -2404,29 +2423,31 @@ Future<List<String>> _natRangeScanStepBody({
   await _natLoadRangeCursors();
   if (shouldAbort()) return const <String>[];
 
-  var seeds = known;
-  if (seeds.length < 50) {
-    try {
-      final hotSeeds = await natHotNext(800, fetch: false);
-      if (shouldAbort()) return const <String>[];
-      seeds = [...known, ...hotSeeds];
-    } catch (e, stk) {
-      logError(e, stk);
-      if (shouldAbort()) return const <String>[];
-    }
-  }
+  // Active probes are scoped to endpoints supplied in the current saved
+  // server configurations and explicitly configured address ranges. Historical
+  // natIpMem observations and fetched hot-list entries are discovery evidence,
+  // not authorization to scan those hosts or their other ports.
+  final seeds = known;
   if (shouldAbort()) return const <String>[];
-
-  // Keep the existing scan scope: exact previously successful endpoints,
-  // current config IPs, and user-entered ranges. Both families use the same
-  // cursor engine; no address-prefix floor is applied.
   final hosts = <String>{
-    ...natIpMemHosts(),
-    for (final server in seeds) if (server.isIp) server.host,
+    for (final server in seeds)
+      if (server.isIp) server.host,
   }.toList(growable: false);
   final blocks = natSeedBlocks(hosts);
 
-  final portList = natFullPortInventory(seeds);
+  // Explicitly saved IP Clean ranges are an intentional scan scope: rotate
+  // through the complete valid TCP port inventory. Exact server IPs outside
+  // those ranges are still probed only on their declared endpoint ports.
+  final configuredPorts = seeds
+      .map((server) => server.port)
+      .where((port) => port >= 1 && port <= 65535)
+      .toSet();
+  final hasExplicitRanges = natRanges.isNotEmpty;
+  final portList = natPortsForActiveScan(
+    fullInventory: natFullPortInventory(seeds),
+    configuredEndpointPorts: configuredPorts,
+    hasExplicitRanges: hasExplicitRanges,
+  );
   if (portList.isEmpty) return const <String>[];
   final modeKey = modeSnapshot ? 'nat' : 'global';
   final lastPort = _natRangePortCursors[modeKey] ?? 0;
@@ -2477,7 +2498,15 @@ Future<List<String>> _natRangeScanStepBody({
     'liveRanges': <String>[],
     'cursors': localCursors,
   };
-  final generated = await compute(_genAddrsIso, args);
+  Map<String, dynamic> generated = {
+    'addrs': const <String>[],
+    'cursors': localCursors,
+  };
+  // The generated block inventory contains exact configured server IPs;
+  // never test their undeclared ports merely because a separate range exists.
+  if (configuredPorts.contains(port)) {
+    generated = await compute(_genAddrsIso, args);
+  }
   if (shouldAbort()) return const <String>[];
   final generatedCursors =
       Map<String, dynamic>.from(generated['cursors'] as Map);
@@ -2529,7 +2558,7 @@ Future<List<String>> _natRangeScanStepBody({
   }
   _natRangePortCursors[modeKey] = port;
 
-  natTemplateSeeds = seeds.take(2).toList();
+  natTemplateSeeds = seeds.toList();
   natRandomLast = 0;
   natIpScanned += slice.length;
 
@@ -2910,7 +2939,7 @@ Future<_HotIdx?> _hotLoad() async {
   }
 }
 
-Future<List<Server>> natHotNext(int n,
+Future<List<Server>> natHotNext(int? n,
     {bool fetch = true, bool retried = false}) async {
   try {
     if (fetch) unawaited(natHotEnsure());
@@ -2929,10 +2958,12 @@ Future<List<Server>> natHotNext(int n,
         return natHotNext(n, fetch: false, retried: true);
       }
       var read = 0;
-      while (out.length < n && read < lines) {
+      while ((n == null || out.length < n) && read < lines) {
         var start = _hotCursor;
         if (start >= lines) start = 0;
-        final take = min(min(n - out.length, lines - start), lines - read);
+        final take = n == null
+            ? min(lines - start, lines - read)
+            : min(min(n - out.length, lines - start), lines - read);
         final from = h.offs[start];
         final to = h.offs[start + take];
         await raf.setPosition(from);

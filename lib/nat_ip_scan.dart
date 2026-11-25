@@ -8,8 +8,8 @@
 //     device-safe range. Never too small, never CPU-crushing.
 //   • Guaranteed socket cleanup: every Socket is destroyed in a finally block,
 //     so slow/timed-out probes never leak file descriptors.
-//   • Live cancellation: in-flight workers exit as soon as cancelled() returns
-//     true — no waiting for individual timeouts.
+//   • Live cancellation: pending Socket.startConnect tasks are cancelled when
+//     the caller stops, the scan budget expires, or enough hits are collected.
 //   • Progress callbacks: optional onProgress(done, total, hits) for live UI.
 //   • Optional randomize: shuffle the candidate list to avoid hitting the same
 //     subnet first every run.
@@ -22,9 +22,48 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 import 'dart:math';
-
 import 'errjournal.dart';
 import 'nnie_core.dart'; // natStableSort
+
+
+/// A bounded active queue plus a lossless overflow queue.
+/// The caller can keep the hot portion small without discarding candidates.
+class NatQueueSplit<T> {
+  final List<T> active;
+  final List<T> overflow;
+  const NatQueueSplit({required this.active, required this.overflow});
+}
+
+NatQueueSplit<T> natQueueSplit<T>({
+  required Iterable<T> incoming,
+  required Iterable<T> active,
+  required Iterable<T> overflow,
+  required String Function(T) keyOf,
+  required int activeLimit,
+}) {
+  if (activeLimit < 0) {
+    throw ArgumentError.value(activeLimit, 'activeLimit', 'Must not be negative');
+  }
+  final seen = <String>{};
+  final nextActive = <T>[];
+  final nextOverflow = <T>[];
+  void add(Iterable<T> values) {
+    for (final value in values) {
+      if (!seen.add(keyOf(value))) continue;
+      if (nextActive.length < activeLimit) {
+        nextActive.add(value);
+      } else {
+        nextOverflow.add(value);
+      }
+    }
+  }
+
+  add(incoming);
+  add(active);
+  add(overflow);
+  return NatQueueSplit<T>(active: nextActive, overflow: nextOverflow);
+}
+
 
 /// Normalize persisted list/range cursors before using them as indexes.
 /// Corrupt, negative, or non-numeric state restarts at the first item.
@@ -35,15 +74,15 @@ int natCursorIndex(Object? value, int length) {
   return parsed % length;
 }
 
-/// Build a complete TCP port inventory, placing preferred ports first.
-/// Preferred ports affect order only; every valid port in the requested range
-/// is included exactly once.
+/// Build a complete port-number inventory (default: 1..65535).
+/// Set [firstPort] to zero only when a caller explicitly needs reserved port 0.
+/// Preferred values affect order only; they never exclude another port.
 List<int> natBuildFullPortInventory(
   Iterable<int> preferredPorts, {
   int firstPort = 1,
   int lastPort = 65535,
 }) {
-  if (firstPort < 1 || lastPort > 65535 || firstPort > lastPort) {
+  if (firstPort < 0 || lastPort > 65535 || firstPort > lastPort) {
     return const <int>[];
   }
   final seen = <int>{};
@@ -57,6 +96,37 @@ List<int> natBuildFullPortInventory(
   }
   return out;
 }
+
+/// Select active TCP ports by the configured scan scope.
+///
+/// Explicitly saved user ranges retain the complete 1..65535 inventory.
+/// Exact configured server addresses remain limited to their declared ports.
+/// This keeps broad scanning intentional and resumable without silently
+/// narrowing a user-supplied IP Clean range to ports already seen in configs.
+List<int> natPortsForActiveScan({
+  required Iterable<int> fullInventory,
+  required Iterable<int> configuredEndpointPorts,
+  required bool hasExplicitRanges,
+}) {
+  final configured = configuredEndpointPorts
+      .where((port) => port >= 1 && port <= 65535)
+      .toSet();
+  final seen = <int>{};
+  final out = <int>[];
+  for (final port in fullInventory) {
+    if (port < 1 || port > 65535) continue;
+    if (!hasExplicitRanges && !configured.contains(port)) continue;
+    if (seen.add(port)) out.add(port);
+  }
+  return out;
+}
+
+/// Builds UDP port numbers only. This is inventory generation, not a UDP
+/// reachability probe: no datagram is sent and no UDP service is validated.
+/// Keep UDP cursors independent from TCP; add an explicit protocol probe before
+/// describing any result as UDP-tested or UDP-reachable.
+List<int> natBuildFullUdpPortInventory(Iterable<int> preferredPorts) =>
+    natBuildFullPortInventory(preferredPorts, firstPort: 1, lastPort: 65535);
 
 class NatIpHit {
   final String ip;
@@ -322,20 +392,116 @@ List<String> natExpandDash(String range, {int maxCount = 65536}) {
 
 /// اتصال TCP به ip:port. اگر جواب داد زمان پاسخ را برمی‌گرداند، وگرنه null.
 /// تضمین: سوکت در هر حالتی (موفق، خطا، تایم‌اوت) بسته می‌شود.
-Future<int?> natTcpProbe(String ip, int port, Duration timeout) async {
+Future<int?> natTcpProbe(
+  String ip,
+  int port,
+  Duration timeout, {
+  bool Function()? cancelled,
+}) async {
   final sw = Stopwatch()..start();
   Socket? s;
+  ConnectionTask<Socket>? task;
+  Timer? cancelWatcher;
+  Completer<void>? cancelSignal;
+  var taskCancelIssued = false;
+
+  bool shouldCancel() {
+    try {
+      return cancelled?.call() ?? false;
+    } catch (_) {
+      // A broken cancellation callback must fail closed, not leave a socket running.
+      return true;
+    }
+  }
+
+  void cancelPendingTask() {
+    final current = task;
+    if (current == null || taskCancelIssued) return;
+    taskCancelIssued = true;
+    try {
+      current.cancel();
+    } catch (e) {
+      errJournalAdd(e, kind: 'SILENT-NATIP-CANCEL');
+    }
+  }
+
+  void cancelLateTask(Future<ConnectionTask<Socket>> pendingTask) {
+    unawaited(pendingTask.then<void>(
+      (lateTask) {
+        try {
+          lateTask.cancel();
+        } catch (_) {
+          // The late task may already have failed or completed.
+        }
+      },
+      onError: (Object _, StackTrace __) {},
+    ));
+  }
+
   try {
-    s = await Socket.connect(ip, port, timeout: timeout);
+    if (shouldCancel()) return null;
+    if (cancelled != null) {
+      cancelSignal = Completer<void>();
+      cancelWatcher = Timer.periodic(const Duration(milliseconds: 100), (timer) {
+        if (shouldCancel()) {
+          timer.cancel();
+          if (!cancelSignal!.isCompleted) cancelSignal!.complete();
+          cancelPendingTask();
+        }
+      });
+    }
+
+    final startTask = Socket.startConnect(ip, port);
+    late final ConnectionTask<Socket> connectTask;
+    try {
+      if (cancelSignal != null) {
+        final cancelledBeforeTask = Object();
+        final started = await Future.any<Object>([
+          startTask.then<Object>((value) => value),
+          cancelSignal!.future.then<Object>((_) => cancelledBeforeTask),
+        ]).timeout(timeout);
+        if (identical(started, cancelledBeforeTask)) {
+          cancelLateTask(startTask);
+          return null;
+        }
+        connectTask = started as ConnectionTask<Socket>;
+      } else {
+        connectTask = await startTask.timeout(timeout);
+      }
+      task = connectTask;
+    } on TimeoutException {
+      // Socket.startConnect may still resolve after Future.timeout. Cancel any
+      // late ConnectionTask so it cannot establish an abandoned socket.
+      cancelLateTask(startTask);
+      rethrow;
+    }
+    if (shouldCancel()) {
+      cancelPendingTask();
+      return null;
+    }
+
+    final remaining = timeout - sw.elapsed;
+    if (remaining <= Duration.zero) {
+      cancelPendingTask();
+      throw TimeoutException('TCP connect timed out', timeout);
+    }
+    s = await connectTask.socket.timeout(remaining, onTimeout: () {
+      cancelPendingTask();
+      throw TimeoutException('TCP connect timed out', timeout);
+    });
+    // Stop polling as soon as the connection resolves. The final synchronous
+    // check below handles cancellation racing with successful completion.
+    cancelWatcher?.cancel();
+    cancelWatcher = null;
+    if (shouldCancel()) return null;
     sw.stop();
     return sw.elapsedMilliseconds;
   } catch (e) {
-    // خطای شبکه عادی است. با پیشوند SILENT- سقف ۳۰۰ بار در ژورنال اعمال می‌شود
-    // (قبلاً هر تایم‌اوت یک ورودی کامل با stack می‌ساخت و در یک اسکن هزاران بار).
-    errJournalAdd(e, kind: 'SILENT-NATIP');
+    // Ordinary network failures are journaled; expected cancellation is silent.
+    if (!shouldCancel()) errJournalAdd(e, kind: 'SILENT-NATIP');
     return null;
   } finally {
-    // Belt-and-braces: destroy even if the catch path was bypassed
+    cancelWatcher?.cancel();
     try {
       s?.destroy();
     } catch (e) {
@@ -377,14 +543,14 @@ Future<List<NatIpHit>> natScanIps(
   List<String> ips, {
   int port = 443,
   int concurrency = 16,
-  int want = 20,
+  int? want,
   Duration budget = const Duration(seconds: 90),
   Duration timeout = const Duration(milliseconds: 1500),
   bool Function()? cancelled,
   void Function(int done, int total, int hits)? onProgress,
   bool randomize = false,
 }) async {
-  if (ips.isEmpty || want <= 0) return <NatIpHit>[];
+  if (ips.isEmpty || (want != null && want <= 0)) return <NatIpHit>[];
 
   if (budget <= Duration.zero || timeout <= Duration.zero ||
       port < 1 || port > 65535) {
@@ -403,11 +569,36 @@ Future<List<NatIpHit>> natScanIps(
   var done = 0;
   final total = source.length;
 
-  bool aborted() => cancelled?.call() ?? false;
+  // A broken cancellation callback must stop the scan rather than strand workers.
+  // Latch the first failure so concurrent workers do not flood the error journal.
+  var cancellationFaulted = false;
+  bool aborted() {
+    if (cancellationFaulted) return true;
+    try {
+      return cancelled?.call() ?? false;
+    } catch (e) {
+      cancellationFaulted = true;
+      errJournalAdd(e, kind: 'SILENT-NATIP-CANCEL-CALLBACK');
+      return true;
+    }
+  }
+
+  // Progress is observational only: a UI/reporting callback must never abort
+  // network work or discard valid hits. Disable it after its first exception.
+  var progressFaulted = false;
+  void reportProgress() {
+    if (progressFaulted || onProgress == null) return;
+    try {
+      onProgress(done, total, hits.length);
+    } catch (e) {
+      progressFaulted = true;
+      errJournalAdd(e, kind: 'SILENT-NATIP-PROGRESS-CALLBACK');
+    }
+  }
 
   Future<void> worker() async {
     while (true) {
-      if (hits.length >= want) return;
+      if (want != null && hits.length >= want) return;
       if (aborted()) return;
       if (elapsed.elapsed >= budget) return;
 
@@ -415,26 +606,31 @@ Future<List<NatIpHit>> natScanIps(
       if (idx >= source.length) return;
       final ip = source[idx];
 
-      final ms = await natTcpProbe(ip, port, timeout);
+      final ms = await natTcpProbe(
+        ip,
+        port,
+        timeout,
+        cancelled: () =>
+            aborted() || elapsed.elapsed >= budget ||
+            (want != null && hits.length >= want),
+      );
       // Do not publish a probe that completed after cancellation or the time budget.
-      // In-flight socket connects are bounded by [timeout], then discarded if stale.
+      // In-flight socket connects are cancelled on stop; late results are discarded.
       if (aborted() || elapsed.elapsed >= budget) {
         done++;
-        if (onProgress != null) onProgress(done, total, hits.length);
+        reportProgress();
         return;
       }
       // Several workers may finish successful probes in the same event-loop turn.
       // Enforce [want] at insertion time so concurrent completions cannot exceed it.
-      if (ms != null && hits.length < want) {
+      if (ms != null && (want == null || hits.length < want)) {
         hits.add(NatIpHit(ip, ms));
       }
 
       done++;
       // Report every 5 completions (or immediately on a hit) — keeps UI fresh
       // without spamming the callback for thousands of failures.
-      if (onProgress != null && (done % 5 == 0 || ms != null)) {
-        onProgress(done, total, hits.length);
-      }
+      if (done % 5 == 0 || ms != null) reportProgress();
     }
   }
 
@@ -445,6 +641,6 @@ Future<List<NatIpHit>> natScanIps(
   await Future.wait(workers);
 
   natStableSort(hits, (a, b) => a.ms.compareTo(b.ms));
-  if (onProgress != null) onProgress(done, total, hits.length);
+  reportProgress();
   return hits;
 }

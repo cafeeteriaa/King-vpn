@@ -124,6 +124,51 @@ class MainActivity : FlutterActivity() {
                         "alive" -> result.success(
                             engineAttached && !isFinishing && !isDestroyed
                         )
+                        "kingVpnTunnelActive" -> {
+                            result.success(KingVpnService.isKingVpnTunnelActive())
+                        }
+                        "kingVpnTransportActive" -> {
+                            val connectivity =
+                                getSystemService(android.net.ConnectivityManager::class.java)
+                            val network = connectivity?.activeNetwork
+                            val capabilities = if (network == null) {
+                                null
+                            } else {
+                                connectivity.getNetworkCapabilities(network)
+                            }
+                            result.success(
+                                capabilities?.hasTransport(
+                                    android.net.NetworkCapabilities.TRANSPORT_VPN
+                                ) == true
+                            )
+                        }
+                        "kingVpnTransportOwnedByApp" -> {
+                            val connectivity =
+                                getSystemService(android.net.ConnectivityManager::class.java)
+                            val network = connectivity?.activeNetwork
+                            val capabilities = if (network == null) {
+                                null
+                            } else {
+                                connectivity.getNetworkCapabilities(network)
+                            }
+                            val isVpnTransport = capabilities?.hasTransport(
+                                android.net.NetworkCapabilities.TRANSPORT_VPN
+                            ) == true
+                            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
+                                // ownerUid is unavailable before API 30. Android grants
+                                // VpnService preparation to only one app at a time and
+                                // revokes the previous app's grant when another is selected.
+                                // Requiring both the active VPN transport and our current
+                                // grant therefore identifies this package's VPN on API 24–29.
+                                val vpnPermissionGranted =
+                                    android.net.VpnService.prepare(this) == null
+                                result.success(isVpnTransport && vpnPermissionGranted)
+                            } else {
+                                val ownerMatches =
+                                    capabilities?.ownerUid == applicationInfo.uid
+                                result.success(isVpnTransport && ownerMatches)
+                            }
+                        }
                         "back" -> {
                             moveTaskToBack(true)
                             result.success(true)

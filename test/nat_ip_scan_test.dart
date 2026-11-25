@@ -1,9 +1,37 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:king_vpn/nat_ip_scan.dart';
 
 void main() {
+  group('natQueueSplit', () {
+    test('preserves all unique overflow candidates when active queue is bounded', () {
+      final split = natQueueSplit<int>(
+        incoming: [1, 2, 3, 2],
+        active: [3, 4],
+        overflow: [4, 5, 6],
+        keyOf: (value) => '$value',
+        activeLimit: 3,
+      );
+      expect(split.active, [1, 2, 3]);
+      expect(split.overflow, [4, 5, 6]);
+      expect([...split.active, ...split.overflow].toSet(), {1, 2, 3, 4, 5, 6});
+    });
+
+    test('zero active capacity keeps every unique candidate in overflow', () {
+      final split = natQueueSplit<String>(
+        incoming: ['a', 'b'],
+        active: ['b', 'c'],
+        overflow: ['d'],
+        keyOf: (value) => value,
+        activeLimit: 0,
+      );
+      expect(split.active, isEmpty);
+      expect(split.overflow, ['a', 'b', 'c', 'd']);
+    });
+  });
+
   group('IP range expansion limits', () {
     test('full port inventory includes every valid port once after priority seeds', () {
       expect(
@@ -14,10 +42,37 @@ void main() {
       expect(allPorts, hasLength(65535));
       expect(allPorts.toSet(), hasLength(65535));
       expect(allPorts.take(2), [443, 65535]);
+      expect(allPorts, isNot(contains(0)));
       expect(allPorts, contains(1));
       expect(allPorts, contains(65535));
-      expect(natBuildFullPortInventory([443], firstPort: 0), isEmpty);
+      final zeroBased = natBuildFullPortInventory([443], firstPort: 0);
+      expect(zeroBased, hasLength(65536));
+      expect(zeroBased, contains(0));
       expect(natBuildFullPortInventory([443], firstPort: 5, lastPort: 4), isEmpty);
+    });
+
+    test('explicit IP Clean ranges keep the complete TCP port inventory', () {
+      final fullTcp = natBuildFullPortInventory(
+        [443, 2053, 443],
+        firstPort: 1,
+        lastPort: 65535,
+      );
+      final rangePorts = natPortsForActiveScan(
+        fullInventory: fullTcp,
+        configuredEndpointPorts: [443],
+        hasExplicitRanges: true,
+      );
+      expect(rangePorts, hasLength(65535));
+      expect(rangePorts.toSet(), hasLength(65535));
+      expect(rangePorts.take(2), [443, 2053]);
+      expect(rangePorts.last, 65535);
+
+      final exactEndpointPorts = natPortsForActiveScan(
+        fullInventory: fullTcp,
+        configuredEndpointPorts: [443, 0, 65536, 443],
+        hasExplicitRanges: false,
+      );
+      expect(exactEndpointPorts, [443]);
     });
 
     test('persisted outer cursor indexes recover from negative and malformed values', () {
@@ -201,6 +256,82 @@ void main() {
       expect(natExpandDash('10.0.0.1-10.0.0.3', maxCount: -1), isEmpty);
     });
 
+    test('TCP probe cancels an in-flight connection when the caller stops', () async {
+      var stop = false;
+      var cancelCalls = 0;
+      final pending = Completer<Socket>();
+      final task = ConnectionTask.fromSocket<Socket>(pending.future, () {
+        cancelCalls++;
+        if (!pending.isCompleted) {
+          pending.completeError(const SocketException('cancelled'));
+        }
+      });
+      final probe = IOOverrides.runZoned(
+        () => natTcpProbe(
+          '192.0.2.1',
+          443,
+          const Duration(seconds: 5),
+          cancelled: () => stop,
+        ),
+        socketStartConnect: (host, port, {sourceAddress, sourcePort = 0}) async => task,
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+      stop = true;
+      expect(await probe.timeout(const Duration(milliseconds: 300)), isNull);
+      expect(cancelCalls, 1);
+    });
+
+    test('TCP probe stops waiting for startConnect when the caller cancels', () async {
+      var stop = false;
+      var cancelCalls = 0;
+      final startPending = Completer<ConnectionTask<Socket>>();
+      final pendingSocket = Completer<Socket>();
+      final lateTask = ConnectionTask.fromSocket<Socket>(pendingSocket.future, () {
+        cancelCalls++;
+        if (!pendingSocket.isCompleted) {
+          pendingSocket.completeError(const SocketException('cancelled before connect'));
+        }
+      });
+      lateTask.socket.then<void>((_) {}, onError: (Object _, StackTrace __) {});
+      final probe = IOOverrides.runZoned(
+        () => natTcpProbe(
+          '192.0.2.1',
+          443,
+          const Duration(seconds: 5),
+          cancelled: () => stop,
+        ),
+        socketStartConnect: (host, port, {sourceAddress, sourcePort = 0}) =>
+            startPending.future,
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+      stop = true;
+      expect(await probe.timeout(const Duration(milliseconds: 300)), isNull);
+      startPending.complete(lateTask);
+      await Future<void>.delayed(Duration.zero);
+      expect(cancelCalls, 1);
+    });
+
+    test('TCP probe cancels its pending task when the connect timeout expires', () async {
+      var cancelCalls = 0;
+      final pending = Completer<Socket>();
+      final task = ConnectionTask.fromSocket<Socket>(pending.future, () {
+        cancelCalls++;
+        if (!pending.isCompleted) {
+          pending.completeError(const SocketException('timed out'));
+        }
+      });
+      final result = await IOOverrides.runZoned(
+        () => natTcpProbe(
+          '192.0.2.1',
+          443,
+          const Duration(milliseconds: 40),
+        ),
+        socketStartConnect: (host, port, {sourceAddress, sourcePort = 0}) async => task,
+      );
+      expect(result, isNull);
+      expect(cancelCalls, 1);
+    });
+
     test('TCP probe reaches a local IPv4 listener', () async {
       final server = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
       try {
@@ -256,6 +387,42 @@ void main() {
         cancelled: () => true,
       );
       expect(result, isEmpty);
+    });
+
+    test('throwing cancellation callback fails closed without opening sockets', () async {
+      var attempts = 0;
+      final result = await IOOverrides.runZoned(
+        () => natScanIps(
+          ['127.0.0.1'],
+          cancelled: () => throw StateError('cancellation state unavailable'),
+        ),
+        socketStartConnect: (host, port, {sourceAddress, sourcePort = 0}) async {
+          attempts++;
+          throw const SocketException('must not be reached');
+        },
+      );
+      expect(result, isEmpty);
+      expect(attempts, 0);
+    });
+
+    test('throwing progress callback cannot discard a successful hit', () async {
+      final server = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
+      try {
+        final result = await natScanIps(
+          [InternetAddress.loopbackIPv4.address],
+          port: server.port,
+          concurrency: 1,
+          want: 1,
+          budget: const Duration(seconds: 2),
+          timeout: const Duration(seconds: 1),
+          onProgress: (done, total, hits) =>
+              throw StateError('progress consumer disposed'),
+        );
+        expect(result, hasLength(1));
+        expect(result.single.ip, InternetAddress.loopbackIPv4.address);
+      } finally {
+        await server.close();
+      }
     });
 
     test('valid limits preserve expected expansion', () {

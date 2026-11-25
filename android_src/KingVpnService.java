@@ -208,6 +208,16 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
     /** جدید: the running instance, so the app can stop it directly (no background startService). */
     public static volatile KingVpnService instance = null;
 
+    /** True only while this service owns a live TUN fd after a successful core start. */
+    public static boolean isKingVpnTunnelActive() {
+        KingVpnService service = instance;
+        if (service == null || !service.active || service.stopping) return false;
+        synchronized (service.tunLock) {
+            ParcelFileDescriptor currentTun = service.tun;
+            return currentTun != null && currentTun.getFileDescriptor().valid();
+        }
+    }
+
     /** جدید: sends a status to Dart if a sink is registered. Never throws. */
     private void emit(String state, String error, int attempt) {
         StatusSink s = statusSink;
@@ -416,6 +426,8 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
 
     /** Try each server starting at [first]; the first one that comes up wins. */
     private boolean connectFrom(int first) {
+        // Do not expose the previous server as active while failover is replacing its TUN.
+        active = false;
         int n = servers.size();
         for (int k = 0; k < n; k++) {
             if (stopping) return false; // جدید: a Stop stops the list walk at once; no next server starts
@@ -917,9 +929,10 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
             c.setUseCaches(false);
             c.setInstanceFollowRedirects(false);
             c.setRequestProperty("User-Agent", "Mozilla/5.0");
-            // Any real HTTP answer (2xx, 3xx, even 403) proves the request went through the tunnel.
+            // Any valid HTTP status proves the request reached an HTTP peer through the proxy.
+            // A 5xx is an application/server failure, not evidence that the VPN tunnel is down.
             int code = c.getResponseCode();
-            return (code >= 200 && code < 500) ? ProbeResult.OK : ProbeResult.SOFT_FAIL;
+            return (code >= 100 && code <= 599) ? ProbeResult.OK : ProbeResult.SOFT_FAIL;
         } catch (ConnectException | NoRouteToHostException e) {
             // جدید: the core is running (checked before probing), so a refused connection to the
             // local port means only that this config has no HTTP inbound. That must not switch

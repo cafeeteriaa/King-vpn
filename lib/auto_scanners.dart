@@ -1,13 +1,77 @@
 part of 'main.dart';
 
-// AUTOSCAN: اسکنر خودکار SNI و پورت. بدون ورودی دستی؛ IPهای تمیز پوشه‌ی جهانی را تست می‌کند
-// و نتیجه را همان‌جا ذخیره می‌کند (کلیدهای 'sni' و 'port').
+// AUTOSCAN: inventories for SNI/IP candidates are generated independently of saved servers.
+// Active SNI/TLS/port validation remains limited to configured KING VPN endpoint scope.
+// Candidate inventory is never presented as a verified endpoint or healthy tunnel.
+// Broad seed catalog. This is only one source: the scanner also merges the
+// full project DNS inventory, front-SNI/relay catalogs and saved server hosts.
 const List<String> kAutoSniDomains = [
-  'www.google.com', 'www.youtube.com', 'www.instagram.com', 'www.microsoft.com',
-  'www.apple.com', 'www.cloudflare.com', 'speed.cloudflare.com', 'www.digikala.com',
-  'www.aparat.com', 'www.snapp.ir', 'www.divar.ir', 'www.wikipedia.org',
-  'www.amazon.com', 'dl.google.com', 'www.whatsapp.com', 'www.telegram.org',
-  'www.spotify.com', 'www.github.com',
+  // Global infrastructure, software and content delivery.
+  'www.google.com', 'www.youtube.com', 'www.gstatic.com', 'fonts.googleapis.com',
+  'fonts.gstatic.com', 'dl.google.com', 'accounts.google.com', 'drive.google.com',
+  'www.googleusercontent.com', 'www.googleapis.com', 'android.com',
+  'www.microsoft.com', 'login.microsoftonline.com', 'www.office.com',
+  'www.live.com', 'www.bing.com', 'edge.microsoft.com', 'www.azure.com',
+  'www.apple.com', 'icloud.com', 'www.icloud.com', 'apps.apple.com',
+  'developer.apple.com', 'www.cloudflare.com', 'cloudflare.com',
+  'www.cloudflarestatus.com', 'speed.cloudflare.com', 'one.one.one.one',
+  'www.amazon.com', 'aws.amazon.com', 'www.amazontrust.com',
+  'www.github.com', 'github.com', 'raw.githubusercontent.com',
+  'objects.githubusercontent.com', 'githubusercontent.com',
+  'www.fastly.com', 'www.akamai.com', 'www.akamaized.net',
+  'www.jsdelivr.com', 'cdn.jsdelivr.net', 'unpkg.com', 'cdnjs.cloudflare.com',
+  'www.digitalocean.com', 'www.oracle.com', 'www.ibm.com', 'www.intel.com',
+  'www.nvidia.com', 'www.docker.com', 'hub.docker.com',
+  // Communication, social, media and collaboration.
+  'www.instagram.com', 'instagram.com', 'www.facebook.com', 'www.meta.com',
+  'www.whatsapp.com', 'web.whatsapp.com', 'www.messenger.com',
+  'www.telegram.org', 'telegram.org', 'web.telegram.org',
+  'www.reddit.com', 'reddit.com', 'www.x.com', 'x.com', 'twitter.com',
+  'www.linkedin.com', 'linkedin.com', 'www.discord.com', 'discord.com',
+  'www.slack.com', 'slack.com', 'www.zoom.us', 'zoom.us',
+  'www.spotify.com', 'open.spotify.com', 'www.soundcloud.com',
+  'www.netflix.com', 'www.twitch.tv', 'www.primevideo.com',
+  'www.disneyplus.com', 'www.pinterest.com', 'www.tiktok.com',
+  'www.snapchat.com', 'www.dropbox.com', 'www.notion.so',
+  // Search, documentation, package and developer services.
+  'wikipedia.org', 'www.wikimedia.org',
+  'www.stackoverflow.com', 'stackoverflow.com', 'serverfault.com',
+  'www.python.org', 'pypi.org', 'www.npmjs.com', 'registry.npmjs.org',
+  'pub.dev', 'dart.dev', 'flutter.dev', 'www.rust-lang.org',
+  'go.dev', 'pkg.go.dev', 'www.gnu.org', 'www.kernel.org',
+  'www.mozilla.org', 'developer.mozilla.org', 'www.chromium.org',
+  // Iranian public services and high-availability content sites.
+  'www.digikala.com', 'digikala.com', 'www.aparat.com', 'aparat.com',
+  'www.snapp.ir', 'snapp.ir', 'www.divar.ir', 'divar.ir',
+  'www.telewebion.com', 'www.tasnimnews.com', 'www.isna.ir',
+  'www.irna.ir', 'www.mehrnews.com', 'www.khabaronline.ir',
+  'www.varzesh3.com', 'www.zoomit.ir', 'www.zdnet.com',
+  'www.sheypoor.com', 'www.bale.ai', 'web.eitaa.com',
+  'www.namasha.com', 'www.filimo.com', 'www.namava.ir',
+  'www.torob.com', 'www.basalam.com', 'www.alibaba.ir',
+  'www.irancell.ir', 'www.mci.ir', 'www.rightel.ir',
+  // Additional globally distributed sites.
+  'www.yandex.com', 'yandex.com', 'www.baidu.com', 'www.qq.com',
+  'www.wikipedia.org', 'www.nytimes.com', 'www.bbc.com', 'www.cnn.com',
+  'www.reuters.com', 'www.theguardian.com', 'www.weather.com',
+  'www.booking.com', 'www.airbnb.com', 'www.ebay.com', 'www.paypal.com',
+  'www.shopify.com', 'www.salesforce.com', 'www.atlassian.com',
+  'www.canva.com', 'www.figma.com', 'www.openai.com',
+];
+// Domestic-mode discovery seeds. Do not mix global CDN/front-SNI catalogs into
+// the national-network candidate inventory; those addresses are commonly
+// unreachable during international isolation. Saved server hosts are added
+// separately because they are actual user/project endpoint candidates.
+const List<String> kAutoNationalSniDomains = [
+  'digikala.com', 'www.digikala.com', 'aparat.com', 'www.aparat.com',
+  'snapp.ir', 'www.snapp.ir', 'divar.ir', 'www.divar.ir',
+  'telewebion.com', 'www.telewebion.com', 'tasnimnews.com', 'www.tasnimnews.com',
+  'isna.ir', 'www.isna.ir', 'irna.ir', 'www.irna.ir',
+  'mehrnews.com', 'www.mehrnews.com', 'khabaronline.com',
+  'varzesh3.com', 'zoomit.ir', 'sheypoor.com', 'torob.com',
+  'basalam.com', 'filimo.com', 'namava.ir',
+  'irancell.ir', 'mci.ir', 'rightel.ir',
+  'bale.ai', 'web.eitaa.com',
 ];
 const List<int> kAutoPorts = [443, 8443, 2053, 2083, 2087, 2096];
 // AUTOFALLBACK: IPهای داخلی برای وقتی پوشه‌ی جهانی هنوز IP تمیز ندارد
@@ -22,19 +86,40 @@ const String _autoScanCdnCursorKey = 'auto_scan_cdn_cursors_v1';
 const String _autoScanDomainCursorKey = 'auto_scan_domain_cursor_v1';
 const String _autoScanPortCursorKey = 'auto_scan_port_cursor_v1';
 const int _autoScanCdnBatchSize = 8;
-const int _autoScanDomainBatchSize = 18;
-const int _autoScanPortBatchSize = 24; // full SNI/port/TLS pass fits the shared four-minute budget
 
-// TLS با SNI مشخص: اگر هندشیک کامل شود، SNI برای آن IP قابل استفاده است
+// SNI discovery checks endpoint-level HTTPS reachability. It does NOT prove
+// that the Android VPN tunnel carries this traffic; only the core/TUN validation
+// in the connection path can promote a server to a usable route.
 Future<int?> _autoSniOk(String ip, int port, String sni) async {
   final sw = Stopwatch()..start();
   Socket? raw;
   SecureSocket? secure;
   try {
     raw = await Socket.connect(ip, port, timeout: const Duration(seconds: 4));
-    secure = await SecureSocket.secure(raw,
-        host: sni, onBadCertificate: (_) => true)
+    secure = await SecureSocket.secure(
+      raw,
+      host: sni,
+      supportedProtocols: const ['http/1.1'],
+      onBadCertificate: (_) => true,
+    ).timeout(const Duration(seconds: 4));
+    secure.write(
+      'GET / HTTP/1.1\r\n'
+      'Host: $sni\r\n'
+      'User-Agent: KING-VPN-Connectivity-Probe/1.0\r\n'
+      'Accept: */*\r\n'
+      'Connection: close\r\n\r\n',
+    );
+    await secure.flush().timeout(const Duration(seconds: 3));
+    final statusLine = await utf8.decoder
+        .bind(secure)
+        .transform(const LineSplitter())
+        .first
         .timeout(const Duration(seconds: 4));
+    final match = RegExp(r'^HTTP/1\.[01]\s+(\d{3})').firstMatch(statusLine);
+    final status = int.tryParse(match?.group(1) ?? '');
+    // Any syntactically valid HTTP status proves the TLS/SNI request reached
+    // an HTTP-speaking peer. 4xx/5xx are application outcomes, not SNI failure.
+    if (status == null || status < 100 || status > 599) return null;
     return sw.elapsedMilliseconds;
   } catch (_) {
     return null;
@@ -45,11 +130,11 @@ Future<int?> _autoSniOk(String ip, int port, String sni) async {
 }
 
 // ALPN (پروتکل لایه‌ی TLS): خروجی خود نام پروتکل است، مثل h2 یا http/1.1
-Future<String?> _autoAlpnOk(String ip, String sni, String alpn) async {
+Future<String?> _autoAlpnOk(String ip, int port, String sni, String alpn) async {
   Socket? raw;
   SecureSocket? secure;
   try {
-    raw = await Socket.connect(ip, 443, timeout: const Duration(seconds: 4));
+    raw = await Socket.connect(ip, port, timeout: const Duration(seconds: 4));
     secure = await SecureSocket.secure(raw,
         host: sni,
         supportedProtocols: [alpn],
@@ -66,12 +151,46 @@ Future<String?> _autoAlpnOk(String ip, String sni, String alpn) async {
 
 Future<bool> _autoPortOk(String ip, int port) async {
   try {
-    final s = await Socket.connect(ip, port, timeout: const Duration(milliseconds: 1500));
-    s.destroy();
+    final socket = await Socket.connect(
+      ip,
+      port,
+      timeout: const Duration(milliseconds: 1500),
+    );
+    socket.destroy();
     return true;
   } catch (_) {
     return false;
   }
+}
+
+/// Collect only the exact IP addresses of saved VPN server endpoints.
+/// The full TCP port inventory is tested against these configured VPN hosts;
+/// discovered public DNS/CDN ranges are never converted into port-scan targets.
+Future<List<String>> _autoConfiguredServerIps({
+  Iterable<Server>? servers,
+  bool Function()? cancelled,
+}) async {
+  final addresses = <String>{};
+  final configured = servers ??
+      _goldSrv.values
+          .map((entry) => Server.parse(entry.link))
+          .whereType<Server>();
+  for (final server in configured) {
+    if (cancelled?.call() ?? false) break;
+    final resolved = server.isIp
+        ? <String>[server.host]
+        : await nipResolveAll(server.host);
+    if (cancelled?.call() ?? false) break;
+    for (final value in resolved) {
+      final parsed = InternetAddress.tryParse(value);
+      if (parsed != null &&
+          (parsed.type == InternetAddressType.IPv4 ||
+              parsed.type == InternetAddressType.IPv6)) {
+        addresses.add(parsed.address);
+      }
+    }
+  }
+  return addresses.toList()..sort();
 }
 
 /// Resolve the project's SNI names to both IPv4 and IPv6 endpoints in small cancellable batches.
@@ -95,9 +214,11 @@ Future<List<String>> _autoResolveDualStackTargets({required List<String> domains
     if (cancelled?.call() ?? false) break;
     for (final addresses in resolved) {
       for (final address in addresses) {
-        if ((address.type == InternetAddressType.IPv4 ||
-                address.type == InternetAddressType.IPv6) &&
-            !_privateIp(address)) {
+        // Passive DNS inventory retains every valid A/AAAA observation,
+        // including private, link-local and ULA addresses. Address scope is
+        // evidence, not a discovery filter; active probes remain separately gated.
+        if (address.type == InternetAddressType.IPv4 ||
+            address.type == InternetAddressType.IPv6) {
           out.add(address.address);
         }
       }
@@ -107,7 +228,10 @@ Future<List<String>> _autoResolveDualStackTargets({required List<String> domains
 }
 
 Future<void> autoScanRun(void Function(String) say,
-    {bool Function()? isVpnActive, bool Function()? isVpnWanted}) async {
+    {required Iterable<Server> goodServers,
+    required Iterable<Server> pendingServers,
+    bool Function()? isVpnActive,
+    bool Function()? isVpnWanted}) async {
   bool vpnActive() => isVpnActive?.call() ?? false;
   bool vpnWanted() => isVpnWanted?.call() ?? false;
   // Scanning through an active VPN tunnel can produce misleading direct-IP results
@@ -142,6 +266,8 @@ Future<void> autoScanRun(void Function(String) say,
     // Keep the discovered pool and CDN inventory independent, then rotate
     // through every configured CDN range with persisted per-range cursors.
     // Each run handles a memory-safe slice; later runs resume at the next IP.
+    // Keep every previously discovered IP in both modes. National mode changes
+    // ordering only; it never removes global observations from the inventory.
     final base = [for (final entry in _goldIps.values) entry.ip];
     final prefs = await SharedPreferences.getInstance();
     final savedCursorJson = prefs.getString(_autoScanCdnCursorKey);
@@ -163,10 +289,39 @@ Future<void> autoScanRun(void Function(String) say,
     final stagedCdnCursors = Map<String, dynamic>.of(cdnCursors);
     // Use the entire project domain inventory, not only the small seed list.
     // A persisted last-domain cursor rotates through it across completed runs.
-    final domainInventory = <String>{
+    // SNI inventory is federated from independent project sources: dedicated
+    // SNI seeds, the complete DNS/domain catalog, front-SNI candidates, relay
+    // hosts, and hostnames already present in the saved working server pool.
+    // A failed handshake never removes a name; the persisted cursor rotates
+    // through the complete merged inventory on subsequent completed runs.
+    final domainSources = <String>{
+      ...kAutoNationalSniDomains,
       ...kAutoSniDomains,
       ...dnsxFullDomains(),
-    }.where((domain) => domain.trim().isNotEmpty).toList()..sort();
+      ...natFrontSnis,
+      ...natRelayHosts,
+    };
+    final nationalEndpointServers = <Server>{
+      ...natTemplateSeeds,
+      ...goodServers,
+      ...pendingServers,
+    };
+    if (scanNationalMode) {
+      for (final server in nationalEndpointServers) {
+        if (!server.isIp) domainSources.add(server.host);
+      }
+    } else {
+      for (final entry in _goldSrv.values) {
+        final server = Server.parse(entry.link);
+        if (server != null && !server.isIp) domainSources.add(server.host);
+      }
+    }
+    final domainInventory = scanNationalMode
+        ? dnsxNationalFirstDomains(extra: domainSources)
+        : (domainSources
+            .map((domain) => domain.trim().toLowerCase())
+            .where((domain) => domain.isNotEmpty && domain.contains('.'))
+            .toList()..sort());
     final savedDomainCursor = prefs.getString(_autoScanDomainCursorKey);
     final previousDomainIndex = savedDomainCursor == null
         ? -1
@@ -175,32 +330,35 @@ Future<void> autoScanRun(void Function(String) say,
         ? 0
         : (previousDomainIndex + 1) % domainInventory.length;
     final domainBatch = <String>[
-      for (var i = 0; i < min(_autoScanDomainBatchSize, domainInventory.length); i++)
+      for (var i = 0; i < domainInventory.length; i++)
         domainInventory[(domainStart + i) % domainInventory.length],
     ];
     final stagedDomainCursor = domainBatch.isEmpty ? savedDomainCursor : domainBatch.last;
-    // The familiar ports are priority seeds, not an allowlist. The full valid
-    // TCP port space follows them in resumable slices.
-    final priorityPorts = <int>{
-      ...kAutoPorts,
-    }..removeWhere((port) => port < 1 || port > 65535);
-    final portInventory = <int>[
-      ...priorityPorts,
-      for (var port = 1; port <= 65535; port++)
-        if (!priorityPorts.contains(port)) port,
-    ];
+    // Keep the full TCP port-number inventory (1..65535), independently
+    // of the smaller set of ports already present in saved configs. Active
+    // TCP checks use only exact IPs of saved VPN server endpoints.
+    final portTargetIps = await _autoConfiguredServerIps(
+      servers: scanNationalMode ? nationalEndpointServers : null,
+      cancelled: cancelled,
+    );
+    final portInventory = natBuildFullPortInventory(kAutoPorts);
     final savedPortCursor = prefs.getInt(_autoScanPortCursorKey) ?? 0;
     final previousPortIndex = portInventory.indexOf(savedPortCursor);
     final portStart = previousPortIndex < 0
         ? 0
         : (previousPortIndex + 1) % portInventory.length;
     final portBatch = <int>[
-      for (var i = 0; i < min(_autoScanPortBatchSize, portInventory.length); i++)
+      for (var i = 0; i < portInventory.length; i++)
         portInventory[(portStart + i) % portInventory.length],
     ];
     final stagedPortCursor = portBatch.isEmpty ? savedPortCursor : portBatch.last;
-    final cdnRanges = _liveCdnRanges.isNotEmpty ? _liveCdnRanges : [..._cfRanges, ..._cfRangesV6];
+    // Refresh and retain CDN ranges in both modes. National-first ordering is
+    // applied to domains and DNS observations; it does not discard global IP
+    // or CDN inventory when the selected network is domestic.
     unawaited(refreshCdnRanges());
+    final cdnRanges = _liveCdnRanges.isNotEmpty
+        ? _liveCdnRanges
+        : [..._cfRanges, ..._cfRangesV6];
     // Add AAAA answers from the same project SNI inventory. Combine exact
     // A/AAAA endpoints and CDN CIDRs in one fair cursor iterator so no source
     // is permanently starved by the order of a concatenated list.
@@ -212,22 +370,33 @@ Future<void> autoScanRun(void Function(String) say,
       say(cancellationMessage());
       return;
     }
+    // Preserve source order: national-first DNS answers, then the complete
+    // saved IP pool, then CDN ranges. Set insertion order deduplicates without
+    // sorting away the domestic-first priority.
     final targetRanges = <String>{
-      ...base,
       ...dnsResolvedIps,
+      ...base,
       ...cdnRanges,
       if (base.isEmpty && dnsResolvedIps.isEmpty && cdnRanges.isEmpty)
         ...kAutoFallbackIps,
-    }.toList()..sort();
+    }.toList();
     final ips = _getCfIps(
       batchSize: _autoScanCdnBatchSize,
       liveRanges: targetRanges,
       cursors: stagedCdnCursors,
     );
-    say('تست با ${ips.length} IP از IPv4 و IPv6 (پوشه جهانی / CDN مستقل از نت ملی)');
+    final discoveredIpCandidates = <String>{
+      ...base,
+      ...dnsResolvedIps,
+      ...ips,
+    }.toList()..sort();
+    say('موجودی مستقل کشف شد: ${domainInventory.length} دامنه و ${discoveredIpCandidates.length} IP کاندیدا (بدون تأیید اتصال)');
 
-    // SNI: خروجی خود دامنه‌هاست. هر دامنه یک بار؛ به محض یک IP سالم، همان دامنه ثبت می‌شود
+    // Probe each domain only at its own DNS-resolved A/AAAA addresses.
+    // This no longer depends on saved VPN configurations; DNS observations
+    // are used for ordinary HTTPS/SNI reachability on TCP/443, not port sweeps.
     final sniHits = <String>[];
+    final sniTargets = <String, List<String>>{};
     var n = 0;
     sniLoop:
     for (final d in domainBatch) {
@@ -236,12 +405,15 @@ Future<void> autoScanRun(void Function(String) say,
         await natManualYield(shouldAbort: () => cancelled());
         if (cancelled()) break sniLoop;
       }
+      final resolved = await _autoResolveDualStackTargets(
+        domains: [d],
+        cancelled: cancelled,
+      );
+      sniTargets[d] = resolved;
       var ok = false;
-      // Bounded parallel probes reduce worst-case scan time without creating
-      // an unbounded socket burst on low-memory/mobile networks.
-      for (var offset = 0; offset < ips.length; offset += 8) {
+      for (var offset = 0; offset < resolved.length; offset += 4) {
         if (cancelled()) break sniLoop;
-        final batch = ips.skip(offset).take(8);
+        final batch = resolved.skip(offset).take(4);
         final checks = await Future.wait(
           batch.map((ip) => _autoSniOk(ip, 443, d)),
         );
@@ -251,7 +423,7 @@ Future<void> autoScanRun(void Function(String) say,
         }
       }
       if (ok) sniHits.add(d);
-      say('SNI $n/${domainBatch.length} • سالم: ${sniHits.length}');
+      say('SNI $n/${domainBatch.length} • پاسخ HTTPS (کاندیدا): ${sniHits.length}');
     }
 
     if (cancelled()) {
@@ -270,10 +442,12 @@ Future<void> autoScanRun(void Function(String) say,
         if (cancelled()) break portLoop;
       }
       var ok = false;
-      // Keep concurrency bounded; stop scheduling new batches after a hit.
-      for (var offset = 0; offset < ips.length; offset += 8) {
+      final portIps = portTargetIps;
+      // Probe each TCP port only on exact saved VPN server IPs, never on
+      // arbitrary discovered CDN/DNS/public address ranges.
+      for (var offset = 0; offset < portIps.length; offset += 8) {
         if (cancelled()) break portLoop;
-        final batch = ips.skip(offset).take(8);
+        final batch = portIps.skip(offset).take(8);
         final checks = await Future.wait(
           batch.map((ip) => _autoPortOk(ip, p)),
         );
@@ -283,7 +457,7 @@ Future<void> autoScanRun(void Function(String) say,
         }
       }
       if (ok) portHits.add('$p');
-      say('پورت $m/${portBatch.length} • سالم: ${portHits.length}');
+      say('پورت TCP $m/${portBatch.length} از موجودی کامل ۱..۶۵۵۳۵ • کاندیدا: ${portHits.length}');
     }
 
     if (cancelled()) {
@@ -291,29 +465,31 @@ Future<void> autoScanRun(void Function(String) say,
       return;
     }
 
-    // TLS/ALPN: خروجی نام پروتکل‌های TLS است؛ روی اولین دامنه‌ی سالم (یا پیش‌فرض) تست می‌شود
+    // ALPN is checked against the DNS-resolved addresses for the same SNI.
+    // No saved server record is required for this independent TLS inventory.
     final tlsHits = <String>[];
-    final tlsSni = sniHits.isNotEmpty
-        ? sniHits.first
-        : (domainBatch.isNotEmpty ? domainBatch.first : 'www.google.com');
     for (final alpn in const ['h2', 'http/1.1']) {
       if (cancelled()) break;
       var ok = false;
-      for (var offset = 0; offset < ips.length; offset += 8) {
-        if (cancelled()) break;
-        final batch = ips.skip(offset).take(8);
-        final selected = await Future.wait(
-          batch.map((ip) => _autoAlpnOk(ip, tlsSni, alpn)),
-        );
-        for (final protocol in selected.whereType<String>()) {
-          if (protocol.isNotEmpty && !tlsHits.contains(protocol)) {
-            tlsHits.add(protocol);
-            ok = true;
+      for (final d in domainBatch) {
+        final targetIps = sniTargets[d] ?? const <String>[];
+        for (var offset = 0; offset < targetIps.length; offset += 4) {
+          if (cancelled()) break;
+          final batch = targetIps.skip(offset).take(4);
+          final selected = await Future.wait(
+            batch.map((ip) => _autoAlpnOk(ip, 443, d, alpn)),
+          );
+          for (final protocol in selected.whereType<String>()) {
+            if (protocol.isNotEmpty && !tlsHits.contains(protocol)) {
+              tlsHits.add(protocol);
+              ok = true;
+            }
           }
+          if (ok) break;
         }
         if (ok) break;
       }
-      if (ok) say('TLS: $alpn ✓');
+      if (ok) say('TLS/ALPN مشاهده شد: $alpn (کاندیدا)');
     }
 
     if (cancelled()) {
@@ -322,7 +498,15 @@ Future<void> autoScanRun(void Function(String) say,
     }
     // Commit the three result groups together only after every scan phase completes.
     final saved = await goldAddScans(
-      {'tls': tlsHits, 'sni': sniHits, 'port': portHits},
+      {
+        'tls': tlsHits,
+        'sni': sniHits,
+        'port': portHits,
+        // Passive discovery candidates are persisted even when no saved VPN
+        // server exists; they are separate from actively verified SNI/IP data.
+        'sni_candidates': domainInventory,
+        'ip_candidates': discoveredIpCandidates,
+      },
       shouldAbort: () => cancelled(),
     );
     if (!saved) {
@@ -337,7 +521,7 @@ Future<void> autoScanRun(void Function(String) say,
     if (stagedPortCursor != null) {
       await prefs.setInt(_autoScanPortCursorKey, stagedPortCursor);
     }
-    say('تمام شد: ${sniHits.length} SNI و ${portHits.length} پورت در پوشه‌ی جهانی ذخیره شد؛ دامنه‌ها و کل فضای پورت در نوبت‌های بعدی ادامه می‌یابند');
+    say('تمام شد: ${domainInventory.length} دامنه و ${discoveredIpCandidates.length} IP کاندیدا مستقل ذخیره شد؛ ${sniHits.length} SNI و ${portHits.length} پورت نیز در محدودهٔ سرورهای تنظیم‌شده بررسی شدند. کاندیداها تأیید اتصال یا تونل نیستند.');
   } catch (e, stk) {
     logError(e, stk);
     say('خطا در اسکن خودکار');
@@ -348,7 +532,10 @@ Future<void> autoScanRun(void Function(String) say,
 }
 
 Future<void> autoScanSheet(BuildContext context,
-    {bool Function()? isVpnActive, bool Function()? isVpnWanted}) async {
+    {required Iterable<Server> goodServers,
+    required Iterable<Server> pendingServers,
+    bool Function()? isVpnActive,
+    bool Function()? isVpnWanted}) async {
   var status = _autoScanRunning ? 'در حال اجرا...' : 'آماده';
   var open = true;
   StateSetter? setS;
@@ -368,16 +555,23 @@ Future<void> autoScanSheet(BuildContext context,
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text('بدون ورودی دستی: IPهای تمیز پوشه‌ی جهانی تست می‌شوند و نتیجه همان‌جا ذخیره می‌شود.'),
+              const Text('کشف منابع SNI و بررسی چرخشی تمام پورت‌های TCP (۱ تا ۶۵۵۳۵) فقط روی IP میزبان‌های VPN ذخیره‌شده؛ موجودی UDP نیز جداگانه نگهداری می‌شود و تست آن باید پروتکل‌محور باشد. تأیید نهایی مسیر فقط با عبور واقعی ترافیک از تونل انجام می‌شود.'),
               const SizedBox(height: 8),
               Text(status),
               const SizedBox(height: 8),
-              Text('SNI: ${(_goldScan['sni'] ?? const []).length} • پورت: ${(_goldScan['port'] ?? const []).length} • TLS: ${(_goldScan['tls'] ?? const []).length}'),
+              Text('کاندیدای SNI: ${(_goldScan['sni_candidates'] ?? const []).length} • کاندیدای IP: ${(_goldScan['ip_candidates'] ?? const []).length}'),
+              Text('SNI پاسخ‌داده: ${(_goldScan['sni'] ?? const []).length} • پورت TCP پاسخ‌داده: ${(_goldScan['port'] ?? const []).length} • ALPN: ${(_goldScan['tls'] ?? const []).length}'),
               // SCANSHOW: نتایج همین‌جا روی صفحه با دکمه‌ی کپی
-              for (final k in const ['sni', 'port', 'tls'])
+              for (final k in const ['sni_candidates', 'ip_candidates', 'sni', 'port', 'tls'])
                 if ((_goldScan[k] ?? const <String>[]).isNotEmpty) ...[
                   const SizedBox(height: 6),
-                  Text(k == 'sni' ? 'SNIهای سالم:' : (k == 'port' ? 'پورت‌های سالم:' : 'TLSهای سالم:')),
+                  Text({
+                    'sni_candidates': 'دامنه‌های SNI کشف‌شده (تأییدنشده):',
+                    'ip_candidates': 'IPهای کشف‌شده (تأییدنشده):',
+                    'sni': 'SNIهای دارای پاسخ HTTPS روی سرورهای تنظیم‌شده:',
+                    'port': 'پورت‌های دارای پاسخ TCP روی IPهای تنظیم‌شده:',
+                    'tls': 'پروتکل‌های TLS مشاهده‌شده:',
+                  }[k]!),
                   SelectableText((_goldScan[k] ?? const <String>[]).join('\n')),
                   TextButton.icon(
                     onPressed: () => Clipboard.setData(ClipboardData(
@@ -394,6 +588,8 @@ Future<void> autoScanSheet(BuildContext context,
             onPressed: _autoScanRunning
                 ? null
                 : () => autoScanRun(say,
+                    goodServers: goodServers,
+                    pendingServers: pendingServers,
                     isVpnActive: isVpnActive, isVpnWanted: isVpnWanted),
             child: const Text('شروع'),
           ),

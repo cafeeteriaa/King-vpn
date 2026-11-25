@@ -189,9 +189,7 @@ int standbyGoal() => kStandbyPause; // ۵ سالم، همیشه
 const int kStandbyResume = 5; // RESUME5: وقتی سالم‌ها زیر ۵ آمد جستجو دوباره روشن می‌شود
 // FG-TARGET: جستجوی اصلی (غیر ملی) تا این تعداد سرور سالم تست می‌کند
 const int kFgSearchTarget = 1; // V13: connect immediately on first healthy // FG5: تست سریع با ۵ سالم تمام می‌شود و وصل می‌شود
-// FASTONE: تست سریع (جستجوی اصلی) فقط یک دسته را کامل تست می‌کند. اگر آن دسته
-// حداقل یک سرور سالم داد، همان‌جا می‌ایستد. اگر نداد، دسته‌ی بعدی تا سقف «حداکثر
-// تعداد دسته در هر جستجو» (maxBatches) می‌آید. برای برگشت به رفتار قبلی عدد را بزرگ کن.
+// FASTONE: تست سریع با یافتن سرور سالم به اتصال می‌رود؛ چرخه‌ی پس‌زمینه جستجو را ادامه می‌دهد.
 const int kFastBatchesPerSearch = 1;
 bool standbyPaused = false;
 // FAST SEARCH: parallel ping tests (core delay test, no VPN toggling) used
@@ -549,8 +547,6 @@ bool speedTestBusy = false;
 int listRefreshMin = 180;
 int failMin = 90; // minutes a failed server is not tested again
 int recheckMin = 20; // minutes before a healthy server is pinged again
-int maxBatches = 8; // safety limit per search
-const standbyBatches = 12; // batches per standby search cycle
 const bgSearchOff = false; // RETRYPATCH // SPEEDSWITCHPATCH: no search while connected
 // while connected the tunnel is shared with the tests, so the batch is bigger
 // and the timeout longer (fewer false "dead" results). The healthy servers
@@ -561,7 +557,6 @@ int firstBatchSize = 100; // FAST100: دسته اول هم ۱۰۰تایی
 int fetchWorkers = 16;
 Duration fetchDeadline = const Duration(seconds: 60);
 int tcpWorkers = 20;
-int maxPerSource = 120;
 Duration tcpTimeout = const Duration(milliseconds: 3500);
 // TLS handshakes in the prefilter leaked sockets (crash, instant failures)
 const probeTls = false;
@@ -3943,19 +3938,12 @@ class _AsyncMutex {
 }
 
 final _AsyncMutex _coreStartMutex = _AsyncMutex();
-// LOOPCAP: شمارنده‌ی هر بار دکمه‌ی اتصال. سروری که دو بار بدون ترافیک شد کنار می‌رود و
-// سقف کل تلاش‌های هسته برای هر بار اتصال دیده می‌شود (جلوی حلقه‌ی بی‌پایان را می‌گیرد).
+// Per-endpoint retry memory prevents hammering the same repeatedly silent server.
+// It does not cap the number of distinct candidates attempted in a connection run.
 final Map<String, int> zeroTrafficRun = {};
-int realStartsRun = 0;
-const int kMaxRealStartsPerTap = 40;
 bool lastFindGoodRejected = false; // د-۲: جستجوی قبلی آزاد نشد؛ فراخواننده باید بداند
 int _personalPingGen = 0; // مشکل ۷: نسل پینگ شخصی؛ نسل قدیمی لغو می‌شود
 // مشکل ۱۲: migration های DEFSYNC حذف شدند؛ دیگر تنظیمات کاربر بازنویسی نمی‌شوند.
-// د-۱: بودجه‌ی تأیید تونل (NATVERIFY) برای هر تپ. عدد پیش‌فرض است و قابل تغییر.
-const Duration kNatVerifyBudget = Duration(minutes: 6);
-// NATPINGCAP: سقف کل مرحله‌ی تأیید پینگ از تونل در نت ملی (قبلاً بی‌سقف بود)
-const int kNatPingDeadlineSec = 45;
-final Stopwatch natVerifyClock = Stopwatch();
 const int kMaxZeroTrafficPerServer = 2;
 
 Future<void> pool<T>(
@@ -4081,18 +4069,31 @@ String lastPingErr = '';
 // SPEEDSWITCHPATCH: does a real site answer through the tunnel?
 // (only the headers are read, then the connection is closed)
 Future<bool> _siteOpens(String url, {bool viaCore = true}) async {
-  // Default viaCore=true: verify through the core proxy (real tunnel path)
+  // Default viaCore=true: verify through the core proxy (real tunnel path).
   final useProxy = await _useCoreProxy(viaCore);
   final c = HttpClient()
     ..findProxy = ((_) =>
         useProxy ? 'PROXY 127.0.0.1:$httpProxyPort' : 'DIRECT')
     ..connectionTimeout = const Duration(seconds: 6);
+  final clock = Stopwatch()..start();
   try {
     final req =
         await c.getUrl(Uri.parse(url)).timeout(const Duration(seconds: 7));
     final res = await req.close().timeout(const Duration(seconds: 7));
-    // STATUSFIX: DPI ایرانی 403 برمی‌گرداند؛ هر status>0 را قبول نکن
-    return res.statusCode >= 200 && res.statusCode < 400;
+    // Read a bounded amount of the response body. HTTP 204 is also valid:
+    // its successful status headers are the complete application response.
+    var responseBytes = 0;
+    await for (final chunk in res.timeout(const Duration(seconds: 7))) {
+      responseBytes += chunk.length;
+      if (responseBytes >= 65536) break;
+    }
+    // STATUSFIX: DPI ایرانی 403 برمی‌گرداند؛ هر status>0 را قبول نکن.
+    final accepted = res.statusCode >= 200 && res.statusCode < 400;
+    if (accepted) {
+      dbg('TUNNEL-EVIDENCE status=${res.statusCode} bodyBytes=$responseBytes '
+          'elapsedMs=${clock.elapsedMilliseconds} viaCore=$useProxy url=$url');
+    }
+    return accepted;
   } catch (_swE) { _swl('_siteOpens#1', _swE);
     return false;
   } finally {
@@ -4157,28 +4158,71 @@ bool lastStartNoTunnel = false; // last _start failed because Android built no t
 String kVpnLastStateTop = ''; // TUNSTATE-FIX: آینه‌ی سراسری lastState برای tunUp()
 String tunNames = ''; // interface names seen by the last tunUp() (diagnostics)
 Future<bool?> tunUp() async {
+  if (Platform.isAndroid) {
+    try {
+      // The default Flutter plugin path does not start the optional
+      // KingVpnService, so its dormant TUN descriptor must not be required.
+      // Plugin mode is accepted only when Android proves this app owns the
+      // active VPN (API 30+); custom-service mode also requires its live TUN.
+      for (var attempt = 0; attempt < 5; attempt++) {
+        final serviceActive = kOwnVpnService
+            ? await bgChannel.invokeMethod<bool>('kingVpnTunnelActive')
+            : null;
+        final vpnTransportActive =
+            await bgChannel.invokeMethod<bool>('kingVpnTransportActive');
+        final vpnOwned =
+            await bgChannel.invokeMethod<bool>('kingVpnTransportOwnedByApp');
+        final evidence = androidVpnTunnelEvidence(
+          serviceTunnelActive: serviceActive,
+          activeVpnTransport: vpnTransportActive,
+          activeVpnOwnedByApp: vpnOwned,
+          requireServiceTunnel: kOwnVpnService,
+        );
+        if (evidence == true) {
+          tunNames = kOwnVpnService
+              ? 'android:KINGVPN_TUN_AND_OWNED_TRANSPORT'
+              : 'android:PLUGIN_OWNED_VPN_TRANSPORT';
+          return true;
+        }
+        tunNames =
+            'android:KINGVPN_TUN_UNVERIFIED(service=$serviceActive, transport=$vpnTransportActive, owned=$vpnOwned, custom=$kOwnVpnService)';
+        if (attempt < 4) {
+          await Future.delayed(const Duration(milliseconds: 800));
+        }
+      }
+      return false;
+    } catch (_nativeTunError) {
+      // Do not fall back to generic interface names on Android: that can
+      // mistake a competing VPN's interface for King VPN's own tunnel.
+      _swl('tunUp#native', _nativeTunError);
+      tunNames = 'android:KINGVPN_NATIVE_EVIDENCE_UNAVAILABLE';
+      return false;
+    }
+  }
+
+  // Non-Android compatibility path. Android always uses the native ownership proof above.
   try {
     for (var attempt = 0; attempt < 5; attempt++) {
-      final l = await NetworkInterface.list(includeLoopback: false);
-      tunNames = l.map((i) => i.name).join(',');
-      final hasTunnel = l.any((i) {
-        final n = i.name.toLowerCase();
-        return n.startsWith('tun') ||
-            n.startsWith('ppp') ||
-            n.startsWith('vpn') ||
-            n.startsWith('utun') ||
-            n.contains('xray') ||
-            n.contains('v2ray');
+      final interfaces = await NetworkInterface.list(includeLoopback: false);
+      tunNames = interfaces.map((i) => i.name).join(',');
+      final hasTunnel = interfaces.any((i) {
+        final name = i.name.toLowerCase();
+        return name.startsWith('tun') ||
+            name.startsWith('ppp') ||
+            name.startsWith('vpn') ||
+            name.startsWith('utun') ||
+            name.contains('xray') ||
+            name.contains('v2ray');
       });
       if (hasTunnel) return true;
-      if (attempt < 4) await Future.delayed(const Duration(milliseconds: 800));
+      if (attempt < 4) {
+        await Future.delayed(const Duration(milliseconds: 800));
+      }
     }
-    // kVpnLastStateTop آینه‌ی lastState است (tunUp سراسری است و به فیلد کلاس دسترسی ندارد)
-    if (kVpnLastStateTop == 'CONNECTED') return true;
     return false;
-  } catch (_swE) {
-    _swl('tunUp#1', _swE);
-    return kVpnLastStateTop == 'CONNECTED' ? true : null;
+  } catch (_interfaceError) {
+    _swl('tunUp#interfaces', _interfaceError);
+    return null;
   }
 }
 
@@ -4721,22 +4765,23 @@ bool _looksBase64(String body) {
 }
 
 Future<List<Server>> fetchServers({bool Function()? stop, int? quickCap}) async {
-  // QUICKLIST: quickCap = دریافت سریع؛ به ~۲۰۰ سرور که رسید بقیه‌ی منابع رها می‌شوند
-  // و بعد از اتصال، لیست کامل در پس‌زمینه دریافت می‌شود
+  // QUICKLIST is an explicitly short first-pass path. Full discovery has no
+  // total-source deadline or per-source result ceiling; every configured
+  // source gets a turn, and a slow source is retried on the next refresh.
   srcFetchState.clear();
   srcFetchCount.clear();
   final all = <String, Server>{};
-  final sw = Stopwatch()..start();
-  final dl = quickCap != null ? const Duration(seconds: 12) : fetchDeadline;
+  final sourceTimeout = quickCap != null
+      ? const Duration(seconds: 12)
+      : fetchDeadline;
   // لینک‌های اضافه‌ی کاربر اول دریافت می‌شوند
   await pool<String>([...userListUrls, ...listUrls], fetchWorkers, (u) async {
-    if ((stop?.call() ?? false) || sw.elapsed > dl || (quickCap != null && all.length >= quickCap)) {
+    if ((stop?.call() ?? false) || (quickCap != null && all.length >= quickCap)) {
       srcFetchState[u] = 'skip';
       return;
     }
     try {
-      final r =
-          await getListMirror(u);
+      final r = await getListMirror(u).timeout(sourceTimeout);
       if (r.statusCode != 200) {
         srcFetchState[u] = 'fail';
         return;
@@ -4775,7 +4820,7 @@ Future<List<Server>> fetchServers({bool Function()? stop, int? quickCap}) async 
         ..shuffle();
       var pn = 0;
       var okN = 0;
-      for (final l in lines.take(quickCap != null ? 30 : maxPerSource)) {
+      for (final l in quickCap != null ? lines.take(30) : lines) {
         final s = Server.parse(l);
         if (s != null) {
           s.src = u;
@@ -5247,7 +5292,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   // native VPN service so it can switch servers while this app is closed.
   String _backupsJson(Server cur) {
     final out = <Map<String, String>>[];
-    for (final x in _usable()) {
+    // Native failover receives only routes verified through real TUN traffic
+    // in this app session; ping-only candidates must never be advertised as backups.
+    for (final x in _usable().where((candidate) =>
+        _verifiedRouteKeys.contains(candidate.key))) {
       if (identical(x, cur) || out.length >= 8) continue;
       try {
         out.add({
@@ -5689,18 +5737,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     _capMap(natWinCount, 2000);
     _capMap(slowStrikes, 500);
     _capMap(_cfgDumpAt, 3000);
-    while (natScanHits.length > 20000) {
-      natScanHits.remove(natScanHits.first);
-    }
-    while (natGood.length > 50000) {
-      natGood.remove(natGood.first);
-    }
-    while (natSubstSearched.length > 5000) {
-      natSubstSearched.remove(natSubstSearched.first);
-    }
-    while (natIpDeadRun.length > 10000) {
-      natIpDeadRun.remove(natIpDeadRun.first);
-    }
+    // Scan observations, good endpoints, substitution history and failed-run
+    // markers are complete inventories; do not evict their tails by fixed count.
     if (_dohCache.length > 5000) {
       final keys = _dohCache.keys.take(1000).toList();
       for (final k in keys) {
@@ -6187,6 +6225,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         failWindow = Duration(minutes: failMin);
         recheckAfter = Duration(minutes: recheckMin);
       }
+      // Full discovery is always cyclic: reaching the end of one source snapshot
+      // triggers another fetch instead of silently ending the scanner.
+      autoCycle = true;
       // LOWDATA: lowest internet usage, applied ONCE (fastWorkers stays 50,
       // batch stays 500). After that the user's own changes are kept.
       if (p.getBool('lowdata_v1') != true) {
@@ -6200,12 +6241,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         failMin = 120;
         recheckMin = 30;
         tcpWorkers = 50;
-        maxPerSource = 100;
         fetchWorkers = 4;
         fetchDeadline = const Duration(seconds: 20);
         firstBatchSize = 100;
         standbyBatchSize = 30;
-        maxBatches = 5;
         watchFailLimit = 3;
         badPingLimit = 3;
         missLimit = 3;
@@ -6213,7 +6252,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         autoSpeed = false;
         autoUpgrade = false;
         badPingSwitch = false;
-        autoCycle = false;
         ipMode = false;
         cleanIpMode = false;
         secureDns = false;
@@ -6313,8 +6351,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           s.miss = (j['m'] as num?)?.toInt() ?? 0;
           s.restored = true; // RESTORE: همان سرورهای سالم قبلی؛ حذف نمی‌شوند
           warmKeys.add(s.key);
-          // checkedAt stays null: these are tested FIRST at the next connect
-          _resAdd(s); // SCREENGOOD: بعد از باز شدن برنامه روی صفحه نمی‌آید؛ فقط در پوشه‌ی سالم می‌ماند
+          // Restored cache entries are candidates until the current session
+          // verifies real TUN traffic; do not promote legacy ping-only cache data.
         }
       }
       // servers that failed recently are not tested again (kept on disk)
@@ -6882,8 +6920,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         // QUICKLIST: اولین دریافت (و نه بعد از اتصال) فقط ~۲۰۰ سرور؛ لیست کامل بعد از اتصال می‌آید
         // FASTLIST: اتصال عادی هم مثل خلبان با ~۲۰۰ سرور اول شروع می‌کند و سقف ۲۵ ثانیه‌ای دارد
         final quick = !bg && !connected && !nationalMode && !offlineOnly;
-        final f = await fetchServers(stop: () => abort, quickCap: quick ? 200 : null)
-            .timeout(const Duration(seconds: 25), onTimeout: () => <Server>[]);
+        final f = quick
+            ? await fetchServers(stop: () => abort, quickCap: 200)
+                .timeout(const Duration(seconds: 25), onTimeout: () => <Server>[])
+            : await fetchServers(stop: () => abort);
         _listPartial = quick && f.isNotEmpty;
         if (f.isNotEmpty) {
           // lists that were "dead" get a new chance with the new content
@@ -7073,7 +7113,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             // FASTONE: یک دسته کامل، و اگر سرور سالم داد همین‌جا تمام
             if (rdyFg >= 1 && fgBatchesDone >= kFastBatchesPerSearch) return true;
             // سقف ایمنی: «حداکثر تعداد دسته در هر جستجو» واقعاً اعمال شود
-            if (fgBatchesDone >= maxBatches) return true;
           }
           return rdyFg >= 1 && pending.isEmpty;
         }
@@ -7143,16 +7182,12 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       var batches = 0;
       var reloaded = false;
       var stallBatches = 0; // FREEZEFIX
-      final bgStart = DateTime.now(); // BGCAP: هر دور جستجوی پس‌زمینه حداکثر ۲۰ دقیقه
       // standby search: bigger batches (the tunnel is shared), the healthy
       // servers are re-checked every 25 tests and after every batch
-      final maxB = bg ? standbyBatches : 1000000; // RETRYPATCH
       while (!abort &&
           !(bg && (!connected || appGone)) &&
           !(bg && _bgYield) &&
-          !enough() &&
-          !(bg && DateTime.now().difference(bgStart) > const Duration(minutes: 20)) &&
-          batches < maxB) {
+          !enough()) {
         // the whole list was tested: download a new one and go on (endless)
         if (pending.isEmpty && folderQ.isEmpty) {
           // V12: in national mode, two-pass search. When the queue empties,
@@ -7175,8 +7210,20 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               }
               continue;
             }
-            dbg('V12: pass 2 exhausted, stopping');
-            break;
+            // Keep the national scanner alive: after both passes, reload the
+            // complete source inventory and begin a fresh domestic-first cycle.
+            dbg('V12: pass 2 exhausted → restarting full national discovery');
+            natRound = 1;
+            failed.clear();
+            for (final s in good) { s.badAt = null; s.miss = 0; }
+            if (!offlineOnly) {
+              listTime = null;
+              lastFetchTry = DateTime(2000);
+            }
+            reloaded = false;
+            await _loadPending(bg: bg, exhausted: true);
+            if (pending.isEmpty) break;
+            continue;
           }
           if (!bg && !folderFallback && !noFolderFallback && !offlineOnly &&
               !nationalMode && !indestructibleMode && _ready(row) == 0) {
@@ -7423,10 +7470,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         good.add(s);
         _saveSoon();
       }
-      // FOLDER-ALL: every server that passes a test goes into the healthy folder now,
-      // not only the one that ends up connected (_resAdd ignores personal servers and
-      // only refreshes an entry that is already saved)
-      _resAdd(s);
+      // A delay/core ping is discovery evidence only. Do not write it to the
+      // verified-resource folder; _onConnected() persists only after the
+      // real TUN + core HTTP-response acceptance gate has passed.
     } else {
       // The timestamp belongs to the failed check, not to the previous ping.
       // Clear that ping so freshness gates cannot promote stale latency evidence.
@@ -7797,24 +7843,24 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       // SPEEDKEEP: فقط نت ملی همان اولین سرور را نگه می‌دارد. سایر مسیرها باید
       // بعد از جمع شدن ۱۵ سرور، تست سرعت ۵ برتر را اجرا کنند؛ قبلاً همین‌جا
       // اولین سرور سالم وصل می‌شد و تست سرعت هیچ‌وقت اجرا نمی‌شد.
-      if (d != null &&
-          tunnelMode &&
+      if (tunnelMode &&
           keepUp &&
-          nationalMode &&
           (row != 'r:ai' || s.ai == true)) {
-        // NATVERIFY: سرور قبل از «سالم» شدن باید ترافیک واقعی تونل بدهد. اگر حالت فعلی نداد،
-        // نردبان حالت‌ها و جایگزین‌ها همین‌جا (قبل از اعلام سلامت) روی همین سرور امتحان می‌شود.
+        // Golden rule: do not require a preliminary ping to pass. DPI-blocked
+        // candidates often fail that probe before a working variant is tried.
+        // A server is healthy only after a real request crosses the tunnel.
+        final trafficCheck = Stopwatch()..start();
         var natOk = await _tunnelTrafficOk();
-        final natOverBudget = natVerifyClock.elapsed > kNatVerifyBudget;
-        if (!natOk && natOverBudget && wantVpn) {
-          dbg('NATVERIFY: سقف زمان تأیید تونل (${kNatVerifyBudget.inMinutes} دقیقه) در این تپ تمام شد؛ نردبان برای ${s.name} اجرا نشد');
-        } else if (!natOk && wantVpn && !abort) {
+        if (!natOk && wantVpn && !abort) {
           await _stopCore();
           natOk = await _natLadder(s, socialGate: _tunnelTrafficOk, maxTries: 6);
         } else if (!natOk && !wantVpn) {
           natOk = true; // جستجوی بی‌اتصال: رفتار قبلی (فقط پینگ) حفظ شود
         }
         if (natOk) {
+          // If the preliminary core ping failed but the end-to-end tunnel
+          // request succeeded, retain a measured verification latency.
+          d ??= max(1, trafficCheck.elapsedMilliseconds);
           _record(s, d);
           realTested++;
           upServer = s;
@@ -8308,13 +8354,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         lastStartNoTunnel = false;
         return false;
       }
-      if (realStartsRun >= kMaxRealStartsPerTap) {
-        lastFail = 'توقف امن: تلاش‌های این اتصال به سقف رسید';
-        lastStartNoTunnel = false;
-        wantVpn = false;
-        return false;
-      }
-      realStartsRun++;
     }
     // QUIETSTART: برای اتصال واقعی VPN، تا پایان شروع هسته و بررسی تونل هیچ تست هسته‌ی
     // جدیدی (Xray اضافه داخل همین پروسه) شروع نمی‌شود و تست‌های در حال اجرا تا ۴ ثانیه
@@ -8797,7 +8836,25 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     }
   }
 
-  void _onConnected(Server s) {
+  Future<bool> _onConnected(Server s) async {
+    // CENTRAL ACCEPTANCE LOCK: every caller, including personal/manual/social
+    // reconnect paths, must prove real HTTP traffic through the Android TUN.
+    // Never let a caller's ping, proxy-only check, or social-site result bypass it.
+    if (proxyMode || !await _tunnelTrafficOk()) {
+      final failedElapsedMs = _nnieFinishAttempt(s) ?? 0;
+      unawaited(NationalNetworkIntelligence.record(
+        endpointKey: NationalNetworkIntelligence.keyOfServer(s),
+        success: false,
+        elapsedMs: failedElapsedMs,
+        stableForFiveMinutes: false,
+      ));
+      _verifiedRouteKeys.remove(s.key);
+      current = null;
+      connected = false;
+      dbg('ROUTE-REJECTED: ${s.name} did not pass the central real-TUN traffic gate');
+      await _stopV2();
+      return false;
+    }
     // NNIE: measure only this server's own start-to-data-plane verification time.
     final nnieElapsedMs = _nnieFinishAttempt(s);
     if (_listPartial) unawaited(_fetchFullListBg());
@@ -8817,6 +8874,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     betterRun = 0;
     aiGen++; // FASTPATCH-AI: analyse+apply after ANY connection
     _aiLoop(aiGen);
+    // Mark the route only after _connectLoop/_verifyPendingConnect has
+    // accepted real application traffic through the Android TUN and core.
+    _verifiedRouteKeys.add(s.key);
     // the personal server has its own row, it never joins the healthy list
     if (!s.personal && !good.contains(s)) good.add(s);
     if (nationalMode && !s.personal) unawaited(_natAdd(s));
@@ -8884,6 +8944,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         }
       });
     }
+    return true;
   }
 
   String _short(String t, [int n = 90]) => t.length > n ? t.substring(0, n) : t;
@@ -8893,8 +8954,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   // server that almost works is not discarded after one failed traffic check.
   Future<bool> _natLadder(Server s,
       {Future<bool> Function()? socialGate, int? maxTries}) async {
-    // NATONLYLADDER: نردبان حالت‌ها فقط در نت ملی اجرا می‌شود
-    if (!nationalMode) return false;
+    // DPI ladder is used in both global and national modes. Every candidate
+    // is accepted only after the caller's real tunnel-traffic gate succeeds.
     if (abort || !wantVpn) return false; // FIXLADDERABORT: قبل از هر کار سنگین
     final first = natVarFor(s);
     // CACHEGUARD: نسخه‌ی کش‌شده همین الان fail شد (فقط بعد از fail به
@@ -8962,10 +9023,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           natVarSet(s, v);
         } else {
           // NORMALCACHE: برای اتصال بعدی هم به خاطر بسپار
-          if (natVarNormal.length > 3000) {
-            natVarNormal.remove(natVarNormal.keys.first);
-          }
-          // NORMALKEY: keyed by s.key only so the cache survives operator
+                    // NORMALKEY: keyed by s.key only so the cache survives operator
           // changes and restarts (natOpKey is 'x' at startup).
           natVarNormal[s.key] = v;
           natSaveSoon(); // NORMALCACHE: پایدار کن
@@ -9033,8 +9091,16 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   // FIX #12: national mode tests domestic destinations (international traffic is cut there);
   // global mode tests only international ones, so a domestic site cannot pass a dead tunnel.
   Future<bool> _tunnelTrafficOk() async {
-    if (proxyMode) return true;
+    // A local proxy is not an Android VPN tunnel. Never report proxy-only
+    // connectivity as verified VPN tunnel traffic.
+    if (proxyMode) return false;
     await Future.delayed(const Duration(seconds: 2));
+    // Require the Android VPN interface/state before accepting any successful
+    // HTTP response; otherwise the phone's ordinary Internet could false-pass.
+    if (await tunUp() != true) {
+      dbg('TUNNEL-EVIDENCE rejected: Android VPN/TUN is not confirmed active');
+      return false;
+    }
     // TUNFIX: viaCore true = the core's outbound, which is what must be measured. The app is NOT
     // excluded from its own tunnel (FIX #49, KingVpnService.java), so DIRECT requests also pass
     // the TUN; viaCore is therefore the explicit choice for the server check.
@@ -9051,6 +9117,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   // This also covers proxy mode: the core's local proxy is the measured data path.
   Future<bool> _stableTunnelTrafficOk(Server server) async {
     if (!connected || !identical(current, server)) return false;
+    if (await tunUp() != true) return false;
     final urls = nationalMode ? _tunnelTestUrlsNational : _tunnelTestUrlsGlobal;
     if (urls.length < 2) return false;
     final results = await Future.wait(urls.map((url) =>
@@ -9195,8 +9262,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         }
       }
       coreUpCount++; // CORE-SYSTEMIC: the core started for this config
-      // PERSPING: سرور شخصی: اگر پینگ از داخل تونل جواب داد، ترافیک هم OK حساب می‌شود (تست google/youtube جدا رد می‌کرد)
-      var personalPingPassed = false;
+      // A ping is diagnostic only; every candidate still needs real HTTP traffic through the core.
       // مشکل ۸: در proxyMode هیچ تأیید outbound دیگری نیست؛ trusted/pinned هم سنجیده شوند
       if ((!trust && !pin) || proxyMode) {
         int? p;
@@ -9206,13 +9272,14 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         // derived from the remaining shared verification deadline.
         final pingTries = nationalMode || indestructibleMode ? 3 : 2;
         var pingUsed = 0;
-        // VERIFYCAP: فقط اتصال عادی/خلبان: کل مرحله‌ی تأیید تونل حداکثر ۲۵ ثانیه. نت ملی بدون محدودیت (دست نخورده)
-        final verifyBudget = Duration(
-            seconds: nationalMode
-                ? kNatPingDeadlineSec // NATPINGCAP: نت ملی هم سقف دارد
-                : (s.personal ? 1 : 25)); // PERS1S: سرور شخصی ۱ ثانیه، بقیه ۲۵ ثانیه
+        // Regular mode retains its short per-server verification window.
+        // National mode has no aggregate deadline: each individual ping probe
+        // still has a finite timeout, and the loop remains cancellable by user intent.
+        final verifyBudget = Duration(seconds: s.personal ? 1 : 25);
         final verifyClock = Stopwatch()..start();
-        Duration verifyRemaining() => verifyBudget - verifyClock.elapsed;
+        Duration verifyRemaining() => nationalMode
+            ? const Duration(seconds: 30)
+            : verifyBudget - verifyClock.elapsed;
         for (var i = 0;
             i < pingTries &&
                 p == null &&
@@ -9246,7 +9313,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           _nnieClearAttempt(s);
           return false;
         }
-        personalPingPassed = p != null && s.personal;
         dbg(p == null
             ? 'اتصال: ${s.name} هسته CONNECTED ولی پینگ از تونل رد نشد '
                 '(${DateTime.now().difference(pingT0).inSeconds}s) • خطا: '
@@ -9275,7 +9341,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               return false;
             }
             if (ladderOk) {
-              _onConnected(s);
+              if (!await _onConnected(s)) return false;
               return true;
             }
           }
@@ -9346,7 +9412,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       // TUNCHK: همه‌ی مسیرها: اگر ترافیک واقعی از تونل رد شد، سرور رد می‌شود
       var tunChecked = false;
       if (!abort && wantVpn) {
-        final tunOk = personalPingPassed || await _tunnelTrafficOk();
+        final tunOk = await _tunnelTrafficOk();
         if (abort) return false;
         if (!tunOk) {
           // CACHEINVALID-TUN: variantی که از natVarNormal اومد، ترافیک تونل رد نکرد.
@@ -9466,7 +9532,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               if (socialOk) {
                 s.svc = (tg ? 1 : 0) | (yt ? 2 : 0) | (ig ? 4 : 0);
                 if (s.svc == 0) s.svc = 1;
-                _onConnected(s);
+                if (!await _onConnected(s)) return false;
                 return true;
               }
               await _stopV2();
@@ -9504,7 +9570,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         }
       }
       if (abort || !wantVpn) return false; // V8: abort guard
-      _onConnected(s);
+      if (!await _onConnected(s)) return false;
       return true;
     }
     return false;
@@ -9739,6 +9805,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
   // NATRESPATCH ---- folder of healthy servers (key 'natres2') ----
   final Map<String, _NatResItem> _resMap = {};
+  // Session-scoped proof set: legacy natres2 entries may predate the tunnel
+  // acceptance gate, so they are not trusted as native failover routes.
+  final Set<String> _verifiedRouteKeys = <String>{};
   Timer? _resT, _resSaveT;
   bool _resBusy = false, _resDirty = false, _resNext = false;
   DateTime? _resHold, _resLast, _resUi;
@@ -10245,14 +10314,12 @@ ListTile( // KINGEXTRAS row
     _natKeepOn = true;
     var seen = false; // was connected at least once
     var idle = 0;
-    final startedAt = DateTime.now(); // NATKEEP-CAP: سقف کلی ۸ ساعت
     try {
       while (mounted &&
           nationalMode &&
           localPilotOn &&
           !appGone &&
-          !abort &&
-          DateTime.now().difference(startedAt) < const Duration(hours: 8)) {
+          !abort) {
         await Future.delayed(const Duration(seconds: 2));
         if (connected) {
           seen = true;
@@ -10260,11 +10327,14 @@ ListTile( // KINGEXTRAS row
           autoUpgrade = true;
           autoCycle = true;
           // NATRANGE: پس‌زمینه، هر ۵ دقیقه، بخشی کم از بازه‌های IP با سرعت کم
-          // NATPENDCAP: اگر pending از سقف گذشته، اسکن بازه‌ی جدید اضافه نکن
-          if (localPilotOn && cpuHot == 0 &&
+          // NATPENDCAP: وقتی صف فعال و سرریز با هم پرند، اسکن بازه‌ی تازه را موقتاً مکث کن
+          final hasRangeTemplate = pending.isNotEmpty ||
+              natRestPending.isNotEmpty || natTemplateSeeds.isNotEmpty || good.isNotEmpty;
+          if (localPilotOn && cpuHot == 0 && hasRangeTemplate &&
               DateTime.now().difference(natRangeLast) >
                   const Duration(minutes: 5) &&
-              pending.length < max(3000, natAdaptiveWorkers() * 1500)) {
+              pending.length + natRestPending.length <
+                  max(3000, natAdaptiveWorkers() * 1500)) {
             natRangeLast = DateTime.now();
             unawaited(() async {
               final ips = await natRangeScanStep(
@@ -10541,6 +10611,8 @@ ListTile( // KINGEXTRAS row
     // سرورهای سالم (_resMap) با نسبت ثابت به صف اضافه می‌شوند
     // (منابع تازه ۴۰۰، پوشه ۳۰۰ با چرخش _resMergeCursor).
     if (!nationalMode || !kNatMergeCache) return;
+    final queueLimit = max(3000, natAdaptiveWorkers() * 1500);
+    if (pending.length + natRestPending.length >= queueLimit) return;
     // FOLDERS: سهم ثابت در هر دور. منابع تازه ۴۰۰ کانفیگ، سرورهای سالم ۳۰۰ تا
     // (با چرخش، تا همه‌ی پوشه نوبت بگیرد). سرورهایی که همین الان در صف یا در
     // لیست سالم هستند دوباره اضافه نمی‌شوند.
@@ -10565,11 +10637,17 @@ ListTile( // KINGEXTRAS row
     if (c.isEmpty) return;
     final add = [for (final s in c) if (queued.add(s.link)) s];
     if (add.isEmpty) return;
-    // فیکس ۱۶: درج درجا و حذف انتهای لیست (بدون ساخت دو لیست تازه)
-    pending.insertAll(0, add);
-    if (pending.length > 1200) {
-      pending.removeRange(1200, pending.length); // بدون allocation
-    }
+    // Keep the active queue bounded, but retain every overflow candidate for
+    // later rounds instead of advancing source cursors and silently dropping it.
+    final split = natQueueSplit<Server>(
+      incoming: add,
+      active: pending,
+      overflow: natRestPending,
+      keyOf: (server) => server.link,
+      activeLimit: 1200,
+    );
+    pending = split.active;
+    natRestPending = split.overflow;
     _set('نت ملی: ${add.length} کانفیگ از پوشه‌ها به صف اضافه شد');
   }
 
@@ -10593,26 +10671,52 @@ ListTile( // KINGEXTRAS row
       const checkCap = 400; // فیکس ۱۹: قبلاً ۳۰۰۰؛ بقیه در overflow می‌روند و دور بعد بررسی می‌شوند
       final overflow = cands.length > checkCap ? cands.sublist(checkCap) : <Server>[];
       if (cands.length > checkCap) cands.removeRange(checkCap, cands.length);
+      const scanBudget = Duration(seconds: 90);
+      const dnsTimeout = Duration(seconds: 3);
+      const dnsBatch = 16;
       final ipOf = <String, String>{};
-      for (final h in {for (final s in cands) if (s.host.isNotEmpty) s.host}) {
-        if (InternetAddress.tryParse(h) != null) {
-          ipOf[h] = h;
-          continue;
+      final hosts = {
+        for (final s in cands)
+          if (s.host.isNotEmpty) s.host,
+      }.toList(growable: false);
+      // Resolve every current-round hostname in bounded batches. The independent
+      // monotonic TCP budget starts only after DNS resolution; unresolved candidates remain queued.
+      for (var i = 0; i < hosts.length && !abort; i += dnsBatch) {
+        final chunk = <String>[];
+        for (var j = i; j < min(i + dnsBatch, hosts.length); j++) {
+          final host = hosts[j];
+          if (InternetAddress.tryParse(host) != null) {
+            ipOf[host] = host;
+          } else {
+            chunk.add(host);
+          }
         }
-        final r = await safeLookup(h);
-        if (r.isNotEmpty) ipOf[h] = r.first.address;
+        if (chunk.isEmpty) continue;
+        final resolved = await Future.wait(
+          chunk.map((host) => safeLookup(host, timeout: dnsTimeout)),
+        );
+        for (var j = 0; j < chunk.length; j++) {
+          if (abort) break;
+          if (resolved[j].isNotEmpty) ipOf[chunk[j]] = resolved[j].first.address;
+        }
       }
       final targets = [for (final s in cands) if (ipOf.containsKey(s.host)) s];
       final ok = <Server>[];
       const batch = 20;
-      final deadline = DateTime.now().add(const Duration(seconds: 90));
+      // Preserve the original 90-second TCP budget independently of DNS time.
+      final deadline = Stopwatch()..start();
       for (var i = 0;
-          i < targets.length && !abort && DateTime.now().isBefore(deadline);
+          i < targets.length && !abort && deadline.elapsed < scanBudget;
           i += batch) {
         final chunk = targets.sublist(i, min(i + batch, targets.length));
         _set('نت ملی: بررسی IP ${i + chunk.length}/${targets.length}...');
         final res = await Future.wait(chunk.map((s) => natTcpProbe(
-            ipOf[s.host]!, s.port, const Duration(milliseconds: 1500))));
+              ipOf[s.host]!,
+              s.port,
+              const Duration(milliseconds: 1500),
+              cancelled: () =>
+                  abort || deadline.elapsed >= scanBudget,
+            )));
         natIpScanned += chunk.length;
         // DEADSKIP: IPهایی که در همین نشست رد شده‌اند دوباره تست نمی‌شوند
         for (var k = 0; k < chunk.length; k++) {
@@ -10665,7 +10769,7 @@ ListTile( // KINGEXTRAS row
         for (final s in [...pending, ...natRestPending]) '${s.host}|${s.port}'
       };
       final items = <String>[];
-      for (final e in natIpMem.take(40)) {
+      for (final e in natIpMem) {
         final ip = '${e['ip']}';
         final port = (e['port'] as num?)?.toInt() ?? 0;
         if (InternetAddress.tryParse(ip) == null || port <= 0) continue;
@@ -10675,7 +10779,7 @@ ListTile( // KINGEXTRAS row
       }
       if (items.isEmpty) return;
       if (natTemplateSeeds.isEmpty) {
-        natTemplateSeeds = await natHotNext(2, fetch: false);
+        natTemplateSeeds = await natHotNext(null, fetch: false);
       }
       final before = pending.length;
       await _natRangeAdd(items, count: false);
@@ -10692,14 +10796,14 @@ ListTile( // KINGEXTRAS row
     for (final it in items) {
       natScanHits.add(it.split('|')[0]);
     }
-    final tpl = [...pending, ...natRestPending, ...natTemplateSeeds, ...good].take(2).toList();
+    final tpl = [...pending, ...natRestPending, ...natTemplateSeeds, ...good];
     if (tpl.isEmpty) {
       dbg('V8: no template - skipping');
       return;
     }
     final made = <Server>[];
     final seenMade = <String>{}; // DEDUPE: IP تکراری در همین دسته حذف شود
-    final existingKeys = {for (final s in pending) s.key};
+    final existingKeys = {for (final s in [...pending, ...natRestPending]) s.key};
     for (final item in items) {
       final parts = item.split('|');
       if (parts.length < 2) continue;
@@ -10718,9 +10822,15 @@ ListTile( // KINGEXTRAS row
     }
     if (made.isEmpty) return;
     if (count) natIpFound += items.length;
-    pending = [...made, ...pending];
-    // NATPENDCAP: pending بیش از ۳۰۰۰ نشود (حافظه و زمان دسته‌بندی)؛ انتهای صف حذف می‌شود
-    if (pending.length > 3000) pending.removeRange(3000, pending.length);
+    final split = natQueueSplit<Server>(
+      incoming: made,
+      active: pending,
+      overflow: natRestPending,
+      keyOf: (server) => server.key,
+      activeLimit: 3000,
+    );
+    pending = split.active;
+    natRestPending = split.overflow;
     natRangeCursor = 0;
   }
 
@@ -11419,7 +11529,11 @@ ListTile( // KINGEXTRAS row
           ((command.contains('ip') || command.contains('آی پی')) && command.contains('اسکن'))) {
         ipAutoSheet(context);
       } else if (!negatesScan && (command.contains('اسکن sni') || command.contains('اسکن پورت'))) {
-        autoScanSheet(context, isVpnActive: () => connected, isVpnWanted: () => wantVpn);
+        autoScanSheet(context,
+            goodServers: good,
+            pendingServers: pending,
+            isVpnActive: () => connected,
+            isVpnWanted: () => wantVpn);
       } else if (command.contains('ip تمیز') || command.contains('آی پی تمیز')) {
         cleanIpDialog();
       } else if (command.contains('پروکسی تلگرام')) {
@@ -11560,6 +11674,17 @@ ListTile( // KINGEXTRAS row
     final runNationalMode = nationalMode;
     try {
       if (!runNationalMode || abort) return;
+      final hasRangeTemplate = pending.isNotEmpty ||
+          natRestPending.isNotEmpty || natTemplateSeeds.isNotEmpty || good.isNotEmpty;
+      if (!hasRangeTemplate) {
+        dbg('NAT range scan deferred: no config template is available');
+        return;
+      }
+      final queueLimit = max(3000, natAdaptiveWorkers() * 1500);
+      if (pending.length + natRestPending.length >= queueLimit) {
+        dbg('NAT range scan deferred: candidate queue is draining');
+        return;
+      }
       final ips = await natRangeScanStep(
           known: [...pending, ...natRestPending],
           maxAddrs: 30000, // SCANCAP: قبلاً ۱۰۰ هزار با بودجه ۱۲ دقیقه
@@ -11724,10 +11849,10 @@ ListTile( // KINGEXTRAS row
           if (pending.isEmpty) {
             try {
               final goldIps = goldIpList();
-              final tpl = [...good, ...natTemplateSeeds].take(2).toList();
+              final tpl = [...good, ...natTemplateSeeds];
               if (goldIps.isNotEmpty && tpl.isNotEmpty) {
                 final made = <Server>[];
-                for (final gip in goldIps.take(20)) {
+                for (final gip in goldIps) {
                   for (final t in tpl) {
                     try {
                       made.add(Server(
@@ -11791,7 +11916,7 @@ ListTile( // KINGEXTRAS row
         if (abort) return false; // ABORT-STUCK: stop right after a long step
         final up = upServer;
         if (up != null) {
-          _onConnected(up);
+          if (!await _onConnected(up)) return false;
           return true;
         }
         list = pickRow();
@@ -12103,9 +12228,12 @@ ListTile( // KINGEXTRAS row
                 ? 'PERSFAST ترافیک نداشت: ${ms()}ms'
                 : 'PERSFAST هسته بالا نیامد: ${ms()}ms'));
         if (ok) {
-          unawaited(setPersonalLastGood(s.link));
-          _startWatch();
-          _onConnected(s);
+          if (await _onConnected(s)) {
+            unawaited(setPersonalLastGood(s.link));
+            _startWatch();
+          } else {
+            _set('اتصال سرور شخصی از آزمون واقعی ترافیک تونل عبور نکرد');
+          }
         } else {
           if (!abort) _checkPersonal(force: true);
           _set(abort ? 'لغو شد' : 'سرور شخصی وصل نشد: ${lastFail.isEmpty ? 'دوباره بزن' : lastFail}');
@@ -12462,16 +12590,11 @@ ListTile( // KINGEXTRAS row
     );
   }
 
-  // TAPRESET: سقف‌های هر-اتصال و کش DoH فقط در نقاط ورود کاربر ریست می‌شوند
-  // (_doConnect، personalFolderConnect، و شروع personalConnectAt(0)). failover و
-  // retryها این را صدا نمی‌زنند، پس سقف‌ها در یک تپ معنا دارند.
+  // TAPRESET: وضعیت مسیرهای تطبیقی و کش DoH در نقاط ورود کاربر تازه می‌شوند.
+  // این reset هیچ سقف تعداد/زمانی برای کشف یا تلاش روی کاندیداها تعیین نمی‌کند.
   void _resetTapCounters() {
-    realStartsRun = 0; // مشکل ۱: قبلاً هیچ‌وقت reset نمی‌شد
     _ladderUsedThisConnect = 0; // مشکل ۶: مسیرهای مستقیم _connectLoop از _acquire رد نمی‌شوند
     natDohCacheClear(); // ج-۲: کش DoH قبل از اولین probe این تپ تازه شود
-    natVerifyClock
-      ..reset()
-      ..start(); // د-۱: بودجه‌ی تأیید تونل هم هر-تپ است (در _doConnect بعد از تبلیغ دوباره شروع می‌شود)
     // PERSCANCEL: دیگر اینجا نسل پینگ شخصی را زیاد نمی‌کنیم. این کار پینگ‌هایی را
     // که همان لحظه‌ی تپ شخصی شروع شده‌اند (قبل از تبلیغ) لغو می‌کرد و نتیجه «سالم ۰» می‌داد.
   }
@@ -12500,10 +12623,8 @@ ListTile( // KINGEXTRAS row
       if (_automationRunning) wantVpn = false;
       return;
     }
-    // NATVERIFY-AD: بودجه‌ی تأیید تونل از پایان تبلیغ شروع می‌شود، نه از لحظه‌ی تپ
-    natVerifyClock
-      ..reset()
-      ..start();
+    // Tunnel verification continues until success, explicit cancellation, or
+    // the candidate queue is exhausted; no per-tap wall-clock ceiling is applied.
     // سرور شخصی و پوشه: بعد از تبلیغ، با نتیجه‌ی پینگ آماده، مستقیم به بهترین وصل می‌شود
     if ((only != null && only.personal) || (row == 'f:pfolder' && only == null)) {
       await personalFolderConnect();
@@ -12814,11 +12935,10 @@ ListTile( // KINGEXTRAS row
     }
     current = null;
     upServer = null;
-    // قطع اتصال: سرورهای صفحه همان لحظه حذف می‌شوند و همه‌ی سرورهای سالم به پوشه‌ی سالم می‌روند.
-    // ذخیره‌ی صفحه فقط وقتی برنامه روشن است انجام می‌شود، تا بستن برنامه لیست ذخیره‌شده را خالی نکند.
-    for (final g in good) {
-      _resAdd(g);
-    }
+    // The in-memory 'good' list is a discovery/candidate queue, not a
+    // verified-route store. Verified routes were persisted by _onConnected()
+    // only after real tunnel traffic passed; never promote ping-only entries
+    // during disconnect cleanup.
     good.clear();
     _personalShown = <Server>[]; // مشکل ۱۳: قبلاً شرط !switching همیشه false بود و لیست پاک نمی‌شد
     unawaited(_persistScreenLists());
@@ -13828,13 +13948,13 @@ ListTile( // KINGEXTRAS row
                 '${oldSp.toStringAsFixed(1)} MB/s)';
           }
           if (live != null && identical(live, best)) {
-            _onConnected(best); // already running
+            await _onConnected(best); // revalidate even an already-running route
           } else {
             if (live != null) await _stopCore();
             if (await _start(best)) {
-              _onConnected(best);
+              await _onConnected(best);
             } else if (!identical(best, old) && await _start(old)) {
-              _onConnected(old);
+              await _onConnected(old);
             } else {
               current = null;
               await _acquire();
@@ -13865,7 +13985,11 @@ ListTile( // KINGEXTRAS row
         await _stopCore();
         if (mounted) setState(() => connected = false);
         if (await _start(s)) {
-          _onConnected(s);
+          if (!await _onConnected(s)) {
+            s.badAt = DateTime.now();
+            current = null;
+            await _acquire();
+          }
         } else {
           s.badAt = DateTime.now();
           current = null;

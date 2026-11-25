@@ -5,11 +5,51 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class KingVpnSourceGuardTests(unittest.TestCase):
-    def test_auto_scan_sheet_forwards_live_vpn_guards(self):
+    def test_ping_alone_never_accepts_a_vpn_route(self):
+        main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        start = main.index('Future<bool> _connectLoop(')
+        end = main.index('Future<bool> ', start + 20)
+        connect = main[start:end]
+        self.assertIn('final tunOk = await _tunnelTrafficOk();', connect)
+        self.assertNotIn('personalPingPassed ||', connect)
+        self.assertNotIn('personalPingPassed =', connect)
+
+    def test_ip_auto_keeps_transient_core_failures_retryable(self):
+        source = (ROOT / 'lib' / 'ip_auto_scan.dart').read_text(encoding='utf-8')
+        start = source.index('final firstOk = await _ipAutoCoreOk(s, url);')
+        end = source.index('ipAutoHits.insert(0, c);', start)
+        verification = source[start:end]
+        first_failure = verification.split('if (!firstOk) {', 1)[1].split('final secondOk', 1)[0]
+        second_failure = verification.split('if (!secondOk) {', 1)[1].split('ipAutoPendingCore.remove(c);', 1)[0]
+        self.assertIn('RETRY-FAILED-ENDPOINT', first_failure)
+        self.assertIn('ناموفق موقت؛ برای نوبت بعد حفظ شد', first_failure)
+        self.assertIn('تأیید دوم ناموفق؛ برای نوبت بعد حفظ شد', second_failure)
+        self.assertNotIn('ipAutoPendingCore.remove(c)', first_failure)
+        self.assertNotIn('ipAutoPendingCore.remove(c)', second_failure)
+
+    def test_auto_scan_sheet_forwards_live_vpn_guards_and_server_snapshots(self):
         source = (ROOT / 'lib' / 'auto_scanners.dart').read_text(encoding='utf-8')
         start = source.index('Future<void> autoScanSheet(')
         body = source[start:]
-        self.assertIn('isVpnActive: isVpnActive, isVpnWanted: isVpnWanted', body)
+        self.assertIn('required Iterable<Server> goodServers', body)
+        self.assertIn('required Iterable<Server> pendingServers', body)
+        self.assertIn('goodServers: goodServers', body)
+        self.assertIn('pendingServers: pendingServers', body)
+        self.assertIn('isVpnActive: isVpnActive', body)
+        self.assertIn('isVpnWanted: isVpnWanted', body)
+
+    def test_auto_scan_run_uses_explicit_server_snapshots_not_state_scoped_globals(self):
+        source = (ROOT / 'lib' / 'auto_scanners.dart').read_text(encoding='utf-8')
+        start = source.index('Future<void> autoScanRun(')
+        end = source.index('Future<void> autoScanSheet(', start)
+        body = source[start:end]
+        self.assertIn('...goodServers', body)
+        self.assertIn('...pendingServers', body)
+        self.assertNotIn('...good,', body)
+        self.assertNotIn('...pending,', body)
+        main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        self.assertIn('goodServers: good', main)
+        self.assertIn('pendingServers: pending', main)
 
     def test_auto_sni_scan_refuses_to_compete_with_live_vpn(self):
         auto = (ROOT / 'lib' / 'auto_scanners.dart').read_text(encoding='utf-8')
@@ -729,9 +769,30 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('Report optimized APK size', workflow)
         self.assertIn('king-vpn-arm64-release-${{ github.run_number }}', workflow)
         self.assertIn('king-vpn-full-source-${{ github.run_number }}.zip', workflow)
-        self.assertIn('build_app/android/local.properties', workflow)
+        packager = (ROOT / 'tools' / 'package_source_archive.py').read_text(encoding='utf-8')
+        self.assertIn('local.properties', packager)
         self.assertIn('Upload complete project ZIP', workflow)
-        self.assertIn('${{ runner.temp }}', workflow)
+        self.assertIn('build-evidence/king-vpn-full-source-${{ github.run_number }}.zip', workflow)
+        self.assertNotIn('${{ runner.temp }}', workflow)
+
+    def test_source_archive_uses_secret_filtered_deterministic_packager(self):
+        workflow = (ROOT / '.github' / 'workflows' / 'build.yml').read_text(encoding='utf-8')
+        packager = (ROOT / 'tools' / 'package_source_archive.py').read_text(encoding='utf-8')
+        self.assertIn('python3 tools/package_source_archive.py', workflow)
+        self.assertIn('--output "build-evidence/king-vpn-full-source-', workflow)
+        self.assertNotIn('zip -qr', workflow)
+        for marker in (
+            'key.properties', 'google-services.json', '.netrc', '.npmrc',
+            '.pypirc', '.ssh', '.aws', '.docker', '.terraform', '.env.*',
+            '.jks', '.keystore', '.p12', '.pfx', '.pem', '.key', '.p8',
+        ):
+            self.assertIn(marker, packager)
+        self.assertIn('entry.is_symlink()', packager)
+        self.assertIn('archive.testzip()', packager)
+        self.assertIn('_contains_secret_content', packager)
+        self.assertIn('PRIVATE_KEY_HEADERS', packager)
+        self.assertIn('REQUIRED_FILES', packager)
+        self.assertIn('os.replace(temporary, output)', packager)
 
     def test_android_toolchain_matches_flutter_350_and_kotlin_2420(self):
         prepare = (ROOT / 'prepare_android.py').read_text(encoding='utf-8')
@@ -1425,6 +1486,15 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertLess(watchdog.index('catch (Throwable stateError)'),
                         watchdog.index('ProbeResult pr = coreUp ? probeResult()'))
 
+    def test_vpn_health_probe_accepts_all_valid_http_statuses(self):
+        service = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
+        start = service.index('private ProbeResult probeOne(String url)')
+        end = service.index('private ParcelFileDescriptor establish(', start)
+        probe = service[start:end]
+        self.assertIn('Any valid HTTP status proves the request reached an HTTP peer', probe)
+        self.assertIn('code >= 100 && code <= 599', probe)
+        self.assertNotIn('code < 500', probe)
+
     def test_vpn_service_defers_tun_close_until_native_stop_is_verified(self):
         service = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
         start = service.index('private boolean stopCoreNow()')
@@ -1551,7 +1621,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('maxAddrs: max(8192, min(16384, natAdaptiveWorkers() * 2048))', keep)
         self.assertIn('conc: min(4, natAdaptiveWorkers())', keep)
         self.assertIn('budget: const Duration(minutes: 3)', keep)
-        self.assertIn('pending.length < max(3000, natAdaptiveWorkers() * 1500)', keep)
+        self.assertIn('pending.length + natRestPending.length <', keep)
         self.assertIn('int maxAddrs = 8192,', (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8'))
         for condition in ('!mounted', '!connected', '!wantVpn', '!nationalMode',
                           '!localPilotOn', 'appGone', 'abort'):
@@ -1632,7 +1702,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         stop_guard = body.index('if (abort || !wantVpn) {', stop)
         ladder = body.index('final ladderOk = await _natLadder', null_branch)
         ladder_guard = body.index('if (abort || !wantVpn) {', ladder)
-        connected = body.index('_onConnected(s);', ladder)
+        connected = body.index('if (!await _onConnected(s)) return false;', ladder)
         self.assertLess(stop, stop_guard)
         self.assertLess(stop_guard, ladder)
         self.assertLess(ladder, ladder_guard)
@@ -2188,6 +2258,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
     def test_ip_range_expanders_reject_non_positive_limits(self):
         scan = (ROOT / 'lib' / 'nat_ip_scan.dart').read_text(encoding='utf-8')
         ultra = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
+        nip = (ROOT / 'lib' / 'nip_scan.dart').read_text(encoding='utf-8')
         self.assertIn('if (maxPerBlock <= 0) return const [];', scan)
         self.assertIn('if (maxCount <= 0) return const [];', scan)
         start = ultra.index('List<String> natExpandAny(')
@@ -2209,7 +2280,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         tls_end = source.index("await goldAddScans(", tls_start)
         tls = source[tls_start:tls_end]
         self.assertIn("for (final alpn in const ['h2', 'http/1.1'])", tls)
-        self.assertIn('batch.map((ip) => _autoAlpnOk(ip, tlsSni, alpn))', tls)
+        self.assertIn('batch.map((ip) => _autoAlpnOk(ip, 443, d, alpn))', tls)
         self.assertIn('if (cancelled()) break;', tls)
 
     def test_ip_auto_storage_load_and_save_are_mode_isolated_across_awaits(self):
@@ -2302,13 +2373,103 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('if (elapsed.elapsed >= budget) return;', source)
         self.assertNotIn('DateTime.now().add(budget)', source)
 
+    def test_nat_ip_scan_imports_precede_top_level_declarations(self):
+        source = (ROOT / 'lib' / 'nat_ip_scan.dart').read_text(encoding='utf-8')
+        imports_end = max(
+            source.index("import 'dart:math';"),
+            source.index("import 'errjournal.dart';"),
+            source.index("import 'nnie_core.dart';"),
+        )
+        declaration = source.index('class NatQueueSplit<T>')
+        self.assertLess(imports_end, declaration)
+
+    def test_nat_queue_split_preserves_overflow_without_dropping_candidates(self):
+        source = (ROOT / 'lib' / 'nat_ip_scan.dart').read_text(encoding='utf-8')
+        start = source.index('NatQueueSplit<T> natQueueSplit<T>(')
+        end = source.index('Future<int?> natTcpProbe(', start)
+        helper = source[start:end]
+        self.assertIn('incoming', helper)
+        self.assertIn('active', helper)
+        self.assertIn('overflow', helper)
+        self.assertIn('nextOverflow.add(value);', helper)
+        self.assertIn('keyOf(value)', helper)
+
+    def test_nat_queue_caps_preserve_overflow_and_pause_new_ranges(self):
+        source = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        merge_start = source.index('Future<void> _natMergeCache() async {')
+        merge_end = source.index('Future<void> _natPrescan()', merge_start)
+        merge = source[merge_start:merge_end]
+        self.assertIn('pending.length + natRestPending.length >= queueLimit', merge)
+        self.assertIn('activeLimit: 1200', merge)
+        self.assertNotIn('pending.removeRange(1200', merge)
+        range_start = source.index('Future<void> _natRangeAdd(')
+        range_end = source.index('void _userListsDialog', range_start)
+        range_add = source[range_start:range_end]
+        self.assertIn('activeLimit: 3000', range_add)
+        self.assertIn('overflow: natRestPending', range_add)
+        self.assertIn('[...pending, ...natRestPending]', range_add)
+        self.assertNotIn('pending.removeRange(3000', range_add)
+        scan_start = source.index('Future<void> _natScanOnly() async {')
+        scan_end = source.index('Future<void> _natQuickStart()', scan_start)
+        scan_only = source[scan_start:scan_end]
+        self.assertIn('pending.length + natRestPending.length >= queueLimit', scan_only)
+        self.assertIn('no config template is available', scan_only)
+        keep_start = source.index('Future<void> _natKeep() async {')
+        keep_end = source.index('Future<void> _natScanOnly() async {', keep_start)
+        keep = source[keep_start:keep_end]
+        self.assertIn('pending.length + natRestPending.length <', keep)
+        self.assertIn('hasRangeTemplate', keep)
+
+    def test_nat_tcp_probe_uses_cancelable_connection_tasks_and_bounded_polling(self):
+        source = (ROOT / 'lib' / 'nat_ip_scan.dart').read_text(encoding='utf-8')
+        start = source.index('Future<int?> natTcpProbe(')
+        end = source.index('/// Clamp a user-supplied concurrency', start)
+        probe = source[start:end]
+        self.assertIn('Socket.startConnect(ip, port)', probe)
+        self.assertIn('Timer.periodic(const Duration(milliseconds: 100)', probe)
+        self.assertIn('Future.any<Object>', probe)
+        self.assertIn('cancelLateTask(startTask)', probe)
+        self.assertIn('current.cancel();', probe)
+        self.assertIn('connectTask.socket.timeout(remaining', probe)
+        self.assertIn('cancelWatcher?.cancel();', probe)
+
+    def test_nat_prescan_uses_monotonic_deadline_and_cancellable_tcp_probes(self):
+        source = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        start = source.index('Future<void> _natPrescan() async {')
+        end = source.index('Future<void> _natMemoryReuse()', start)
+        body = source[start:end]
+        self.assertIn('const scanBudget = Duration(seconds: 90);', body)
+        self.assertIn('const dnsBatch = 16;', body)
+        self.assertIn('final deadline = Stopwatch()..start();', body)
+        self.assertEqual(body.count('final deadline = Stopwatch()..start();'), 1)
+        self.assertIn('Future.wait(', body)
+        self.assertIn('safeLookup(host, timeout: dnsTimeout)', body)
+        self.assertIn('Preserve the original 90-second TCP budget independently of DNS time.', body)
+        self.assertIn('deadline.elapsed < scanBudget', body)
+        self.assertIn('cancelled: () =>', body)
+        self.assertIn('deadline.elapsed >= scanBudget', body)
+
+    def test_nat_ip_scan_callbacks_fail_closed_and_progress_isolated(self):
+        source = (ROOT / 'lib' / 'nat_ip_scan.dart').read_text(encoding='utf-8')
+        start = source.index('Future<List<NatIpHit>> natScanIps(')
+        scan = source[start:]
+        self.assertIn('var cancellationFaulted = false;', scan)
+        self.assertIn('SILENT-NATIP-CANCEL-CALLBACK', scan)
+        self.assertIn('if (cancellationFaulted) return true;', scan)
+        self.assertIn('var progressFaulted = false;', scan)
+        self.assertIn('SILENT-NATIP-PROGRESS-CALLBACK', scan)
+        self.assertIn('if (progressFaulted || onProgress == null) return;', scan)
+        self.assertEqual(scan.count('onProgress(done, total, hits.length)'), 1)
+
     def test_nat_ip_scan_discards_in_flight_results_after_cancellation(self):
         source = (ROOT / 'lib' / 'nat_ip_scan.dart').read_text(encoding='utf-8')
         start = source.index('Future<void> worker() async {')
         end = source.index('\n  }', start)
         worker = source[start:end]
-        probe = worker.index('final ms = await natTcpProbe(ip, port, timeout);')
-        stale_guard = worker.index('if (aborted() || elapsed.elapsed >= budget)', probe)
+        probe = worker.index('final ms = await natTcpProbe(')
+        call_end = worker.index(');', probe)
+        self.assertIn('cancelled: () =>', worker[probe:call_end])
+        stale_guard = worker.index('if (aborted() || elapsed.elapsed >= budget)', call_end)
         insert = worker.index('if (ms != null && hits.length < want)', stale_guard)
         self.assertLess(probe, stale_guard)
         self.assertLess(stale_guard, insert)
@@ -2336,7 +2497,8 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         connect_end = main.index('Future<bool> ', connect_start + 20)
         connect = main[connect_start:connect_end]
         self.assertIn('final verifyClock = Stopwatch()..start();', connect)
-        self.assertIn('Duration verifyRemaining() => verifyBudget - verifyClock.elapsed;', connect)
+        self.assertIn('Duration verifyRemaining() => nationalMode', connect)
+        self.assertIn('verifyBudget - verifyClock.elapsed', connect)
         self.assertIn('microseconds: max(1, remaining.inMicroseconds ~/ 2).toInt()', connect)
         self.assertIn('cancelled: () => abort || !wantVpn,', connect)
         self.assertIn('bool Function()? cancelled', ping)
@@ -2358,7 +2520,14 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('final estimatedCapacity = max(', body)
         self.assertIn('final scanLimit = min(maxAddrs, estimatedCapacity).toInt();', body)
         self.assertIn('final previousPortIndex = portList.indexOf(lastPort);', body)
-        self.assertIn('final portList = natFullPortInventory(seeds);', body)
+        self.assertIn('final configuredPorts = seeds', body)
+        self.assertIn('natPortsForActiveScan(', body)
+        self.assertIn('fullInventory: natFullPortInventory(seeds)', body)
+        self.assertIn('hasExplicitRanges: hasExplicitRanges', body)
+        self.assertIn('if (configuredPorts.contains(port))', body)
+        self.assertNotIn('natIpMemHosts()', body)
+        self.assertNotIn('natHotNext(', body)
+        self.assertIn('for (final server in seeds)', body)
         self.assertIn('final portPrefix = \'$modeKey:port:$port:\';', body)
         scan = body.index('final hits = await natScanIps(')
         self.assertIn('budget: budget,', body[scan:scan + 500])
@@ -2377,13 +2546,30 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         end = core.index('\n  }\n}', start)
         probe = core[start:end]
         self.assertIn('bool Function()? cancelled', probe)
-        self.assertIn('Timer.periodic(const Duration(milliseconds: 100)', probe)
-        self.assertIn('completer.completeError(const _NatDnsProbeCancelled())', probe)
+        self.assertIn('cancellationRequested()', probe)
+        self.assertIn('cancellationCallbackFailed = true;', probe)
+        self.assertIn('Timer.periodic(', probe)
+        self.assertIn('cancellationSignal?.future', probe)
         self.assertIn('await subscription?.cancel();', probe)
-        self.assertIn('finally {\n        socket?.close();', probe)
+        self.assertIn('socket?.close();', probe)
+        self.assertIn('bindFuture.then<void>(', probe)
+        self.assertIn('lateSocket.close()', probe)
+        wait_helper = core[core.index('static Future<T> _waitForProbe'):start]
+        self.assertIn('Future.any<T>(futures).timeout(timeout)', wait_helper)
         dns = (ROOT / 'lib' / 'dns_scanner.dart').read_text(encoding='utf-8')
         self.assertIn('cancelled: stop,', dns)
         self.assertIn('if (stop != null && stop()) return null;', dns)
+
+    def test_dns_wire_names_obey_wire_limit_and_pointer_order(self):
+        core = (ROOT / 'lib' / 'nnie_core.dart').read_text(encoding='utf-8')
+        start = core.index('static List<int> buildQuery(')
+        end = core.index('static bool publicV4(', start)
+        query = core[start:end]
+        self.assertIn('wireNameLength > 255', query)
+        start = core.index('static String _readName(')
+        end = core.index('static List<String> parseResponse(', start)
+        name_reader = core[start:end]
+        self.assertIn('ptr < 12 || ptr >= p || ptr >= b.length', name_reader)
 
     def test_nat_domain_first_discards_partial_results_after_cancel_or_deadline(self):
         source = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
@@ -2508,6 +2694,38 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn('ipAutoCursors\\n    ..clear()', body)
 
 
+    def test_auto_discovery_candidates_persist_without_saved_server_prerequisite(self):
+        auto = (ROOT / 'lib' / 'auto_scanners.dart').read_text(encoding='utf-8')
+        extras = (ROOT / 'lib' / 'npv_am_extras.dart').read_text(encoding='utf-8')
+        start = auto.index('Future<void> autoScanRun(')
+        end = auto.index('Future<void> autoScanSheet(', start)
+        body = auto[start:end]
+
+        sources_start = body.index('final domainSources = <String>{')
+        inventory_start = body.index('final domainInventory = scanNationalMode')
+        sources = body[sources_start:inventory_start]
+        for independent_source in (
+            '...kAutoNationalSniDomains,',
+            '...kAutoSniDomains,',
+            '...dnsxFullDomains(),',
+            '...natFrontSnis,',
+            '...natRelayHosts,',
+        ):
+            self.assertIn(independent_source, sources)
+
+        # Candidate inventory is committed independently of whether a saved
+        # server exists for active protocol-specific validation.
+        self.assertIn('final discoveredIpCandidates = <String>{', body)
+        self.assertIn('...dnsResolvedIps,', body)
+        self.assertIn('...ips,', body)
+        self.assertIn("'sni_candidates': domainInventory", body)
+        self.assertIn("'ip_candidates': discoveredIpCandidates", body)
+        self.assertIn("for (final k in const ['sni_candidates', 'ip_candidates', 'sni', 'port', 'tls'])", auto)
+        self.assertIn("for (final k in const ['sni_candidates', 'ip_candidates', 'sni', 'port', 'tls'])", extras)
+        self.assertIn("_goldScan['sni_candidates']", extras)
+        self.assertIn("_goldScan['ip_candidates']", extras)
+
+
     def test_auto_scan_dialog_close_requests_cancellation(self):
         auto = (ROOT / 'lib' / 'auto_scanners.dart').read_text(encoding='utf-8')
         start = auto.index('Future<void> autoScanSheet(')
@@ -2603,7 +2821,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
     def test_gold_write_serializes_shared_state_once_and_reuses_preferences(self):
         extras = (ROOT / 'lib' / 'npv_am_extras.dart').read_text(encoding='utf-8')
         start = extras.index('String _goldEncode()')
-        end = extras.index('void _goldTrimIps()', start)
+        end = extras.index('List<CleanIp>? _goldTop;', start)
         persistence = extras[start:end]
         self.assertIn('Future<bool> _goldWrite(SharedPreferences p)', persistence)
         self.assertIn("p.setString('gold_v1', _goldEncode())", persistence)
@@ -2611,6 +2829,23 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('final p = await SharedPreferences.getInstance();', save)
         self.assertIn('await _goldWrite(p);', save)
         self.assertNotIn("await p.setString(", save)
+
+
+    def test_gold_saved_ip_and_server_inventories_have_no_fixed_trim_caps(self):
+        extras = (ROOT / 'lib' / 'npv_am_extras.dart').read_text(encoding='utf-8')
+        self.assertNotIn('kGoldIpCap', extras)
+        self.assertNotIn('kGoldSrvCap', extras)
+        self.assertNotIn('_goldTrimIps', extras)
+        self.assertNotIn('_goldTrimSrv', extras)
+        self.assertIn('final Map<String, _GoldIp> _goldIps = {};', extras)
+        self.assertIn('final Map<String, _GoldSrv> _goldSrv = {};', extras)
+        self.assertIn("p.setString('gold_v1', _goldEncode())", extras)
+        start = extras.index('List<CleanIp> goldIpList()')
+        end = extras.index('// NATHELP:', start)
+        ranked_inventory = extras[start:end]
+        self.assertIn('final all = _goldIps.values.toList()', ranked_inventory)
+        self.assertNotIn('best.length < 20', ranked_inventory)
+        self.assertNotIn('take(20)', ranked_inventory)
 
 
     def test_national_yield_wait_is_cancellable_for_manual_scans(self):
@@ -2736,11 +2971,14 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         start = source.index('Future<void> autoScanRun(')
         end = source.index('Future<void> autoScanSheet(', start)
         body = source[start:end]
-        self.assertGreaterEqual(body.count('offset += 8'), 2)
-        self.assertGreaterEqual(body.count('await Future.wait('), 2)
+        self.assertGreaterEqual(body.count('await Future.wait('), 3)
         self.assertIn('batch.map((ip) => _autoSniOk(ip, 443, d))', body)
         self.assertIn('batch.map((ip) => _autoPortOk(ip, p))', body)
         self.assertIn('checks.any((latency) => latency != null)', body)
+        sni_loop = body[body.index('sniLoop:'):body.index('if (cancelled()) {', body.index('sniLoop:'))]
+        self.assertIn('_autoResolveDualStackTargets(', sni_loop)
+        self.assertNotIn('_goldSrv', sni_loop)
+        self.assertNotIn('ips.skip(offset)', sni_loop)
         self.assertIn('checks.any((reachable) => reachable)', body)
 
 
@@ -2782,7 +3020,9 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         full_ports_start = nat.index('List<int> natFullPortInventory(')
         full_ports_end = nat.index('List<int>? _ipTriple', full_ports_start)
         full_ports = nat[full_ports_start:full_ports_end]
-        self.assertIn('natBuildFullPortInventory([...observed, ...natCommonPorts])', full_ports)
+        self.assertIn('natBuildFullPortInventory(', full_ports)
+        self.assertIn('firstPort: 1', full_ports)
+        self.assertIn('lastPort: 65535', full_ports)
         self.assertIn('for (var port = firstPort; port <= lastPort; port++)', (ROOT / 'lib' / 'nat_ip_scan.dart').read_text(encoding='utf-8'))
         domain_start = nat.index('Future<List<String>> _natDomainFirst(')
         domain_end = nat.index('Future<List<String>> natDeviceHosts()', domain_start)
@@ -2829,55 +3069,82 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn('_ipAutoCoreMax', source)
         self.assertNotIn('_ipAutoMaxHits', source)
         self.assertNotIn('ipAutoHits.removeRange(', source)
-        self.assertIn('final ports = natAutoPorts(pool);', source)
-        self.assertIn('final hasRangeInventory = runNationalMode', source)
+        self.assertIn('final ports = endpointTargets.keys.toList()..sort();', source)
+        self.assertIn('if (pool.isEmpty)', source)
         self.assertIn('if (tpl.isEmpty)', source)
-        self.assertIn('Keep its candidates', source)
-        self.assertIn('want: addrs.length,', source)
+        self.assertIn('want: endpointIps.length,', source)
         self.assertIn('const Duration _ipAutoCoreBudget = Duration(minutes: 4);', source)
-        self.assertIn('while (ipAutoPendingCore.isNotEmpty &&', source)
-        self.assertIn('ipAutoPendingCore.removeAt(0);', source)
+        self.assertIn('while (activeQueue.isNotEmpty &&', source)
+        self.assertIn('activeQueue.removeAt(0)', source)
+        self.assertIn('ipAutoPendingCore.remove(c);', source)
         self.assertIn('final savedPending = p.getString(pendingKey) ??', source)
         self.assertIn('..addAll(savedPending.split', source)
         self.assertIn('await p.setString(pendingKey, pending.join', source)
         self.assertIn('for (final candidate in candidates)', source)
 
 
-    def test_ip_auto_scans_configured_ranges_and_rotating_global_cdn_inventory(self):
+    def test_ip_auto_scans_only_exact_configured_dual_stack_endpoints(self):
         source = (ROOT / 'lib' / 'ip_auto_scan.dart').read_text(encoding='utf-8')
-        start = source.index('List<String> _ipAutoBlocks(')
+        start = source.index('Future<List<String>> _ipAutoBlocks(')
         end = source.index('Future<({List<String> addresses, Map<String, dynamic> cursors})> _ipAutoNextAddrs(', start)
         inventory = source[start:end]
-        self.assertIn('blocks.addAll(natRanges);', inventory)
-        self.assertIn('blocks.addAll(natAutoBlocks(const <Server>[]));', inventory)
-        self.assertIn("blocks.add('${octets[0]}.${octets[1]}.${octets[2]}.0/24');", inventory)
-        self.assertNotIn('exact known endpoints only', source)
-        self.assertNotIn("'cfIpsBatch': 0, // exact known endpoints only", source)
-        self.assertIn("'cfIpsBatch': modeSnapshot ? 0 : batchSize,", source)
-        self.assertIn("List<String>.of(_liveCdnRanges)", source)
-        self.assertIn("'cursors': cursorSnapshot,", source)
+        self.assertIn('return await nipResolveAll(server.host);', inventory)
+        self.assertIn("'\u0024ip/128'", inventory)
+        self.assertIn("'\u0024ip/32'", inventory)
+        self.assertNotIn('natRanges', inventory)
+        self.assertNotIn('natAutoBlocks', inventory)
+        self.assertNotIn('/24', inventory)
         next_start = source.index('Future<({List<String> addresses, Map<String, dynamic> cursors})> _ipAutoNextAddrs(')
         next_end = source.index('extension IpAutoExt', next_start)
         next_batch = source[next_start:next_end]
+        self.assertIn("'cfIpsBatch': 0,", next_batch)
+        self.assertIn("'liveRanges': <String>[]", next_batch)
+        self.assertIn("'cursors': cursorSnapshot,", next_batch)
         self.assertIn('final slice = all.toList(growable: false);', next_batch)
         self.assertIn('return (addresses: slice, cursors: generatedCursors);', next_batch)
-        self.assertNotIn('ipAutoCursors\n    ..clear()', next_batch)
+        self.assertNotIn('ipAutoCursors\\n    ..clear()', next_batch)
+        run_start = source.index('Future<bool> _ipAutoRunOnce(')
+        run_end = source.index('Future<void> ipAutoSheet(', run_start)
+        run = source[run_start:run_end]
+        self.assertIn('endpointTargets[server.port]', run)
+        self.assertIn('endpointIps', run)
+        self.assertIn('allowedEndpointPairs.contains', run)
+        self.assertIn('activeQueue', run)
+        self.assertIn('out-of-scope historical items stay queued', run)
+        self.assertIn('server.port == port', run)
+        self.assertIn('Core outbound delay is not proof', run)
+        self.assertIn('promotion requires a real user tunnel test', run)
 
 
     def test_auto_sni_scan_uses_a_fair_resumable_dual_stack_batch(self):
         auto = (ROOT / 'lib' / 'auto_scanners.dart').read_text(encoding='utf-8')
         self.assertIn('const int _autoScanCdnBatchSize = 8;', auto)
         self.assertIn("const String _autoScanPortCursorKey = 'auto_scan_port_cursor_v1';", auto)
-        self.assertIn('const int _autoScanPortBatchSize = 24;', auto)
-        self.assertIn('final priorityPorts = <int>{', auto)
+        self.assertNotIn('_autoScanPortBatchSize', auto)
+        self.assertIn('sniTargets[d] = resolved;', auto)
+        self.assertIn('_autoSniOk(ip, 443, d)', auto)
+        self.assertIn('_autoAlpnOk(ip, 443, d, alpn)', auto)
+        self.assertIn('final portInventory = natBuildFullPortInventory(kAutoPorts);', auto)
         self.assertNotIn('natAutoPorts([...good, ...pending, ...fetchedAll])', auto)
-        self.assertIn('for (var port = 1; port <= 65535; port++)', auto)
+        self.assertNotIn('_autoConfiguredPortTargets(', auto)
+        self.assertIn('final portIps = portTargetIps;', auto)
+        self.assertIn('_autoConfiguredServerIps(', auto)
+        self.assertIn('servers: scanNationalMode ? nationalEndpointServers : null', auto)
+        self.assertIn('if (scanNationalMode) {', auto)
+        self.assertNotIn('for (var port = 1; port <= 65535; port++)', auto)
         self.assertIn('final portBatch = <int>[', auto)
         self.assertIn('for (final p in portBatch)', auto)
         self.assertIn('prefs.setInt(_autoScanPortCursorKey, stagedPortCursor)', auto)
         self.assertNotIn('for (final p in kAutoPorts)', auto)
         self.assertIn("const String _autoScanDomainCursorKey = 'auto_scan_domain_cursor_v1';", auto)
+        self.assertIn('...kAutoNationalSniDomains,', auto)
+        self.assertIn('...kAutoSniDomains,', auto)
         self.assertIn('...dnsxFullDomains(),', auto)
+        self.assertIn('final base = [for (final entry in _goldIps.values) entry.ip];', auto)
+        self.assertIn('...natFrontSnis,', auto)
+        self.assertIn('...natRelayHosts,', auto)
+        self.assertIn('unawaited(refreshCdnRanges());', auto)
+        self.assertIn('if (base.isEmpty && dnsResolvedIps.isEmpty && cdnRanges.isEmpty)', auto)
         self.assertNotIn('good.where', auto)
         self.assertNotIn('pending.where', auto)
         self.assertNotIn('fetchedAll.where', auto)
@@ -2886,9 +3153,11 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('for (final d in domainBatch)', auto)
         self.assertIn('prefs.setString(_autoScanDomainCursorKey, stagedDomainCursor)', auto)
         self.assertIn('final targetRanges = <String>{', auto)
-        self.assertIn('...base,', auto)
         self.assertIn('...dnsResolvedIps,', auto)
+        self.assertIn('...base,', auto)
         self.assertIn('...cdnRanges,', auto)
+        self.assertIn('final cdnRanges = _liveCdnRanges.isNotEmpty', auto)
+        self.assertNotIn('scanNationalMode ? const <String>[]', auto)
         self.assertIn('liveRanges: targetRanges,', auto)
         self.assertIn('cursors: stagedCdnCursors,', auto)
         self.assertLess(
@@ -2898,8 +3167,9 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('type: InternetAddressType.any', auto)
         self.assertIn('address.type == InternetAddressType.IPv4 ||', auto)
         self.assertIn('_autoSniOk(ip, 443, d)', auto)
-        self.assertIn('_autoPortOk(ip, p)', auto)
-        self.assertIn('_autoAlpnOk(ip, tlsSni, alpn)', auto)
+        self.assertIn('batch.map((ip) => _autoPortOk(ip, p))', auto)
+        self.assertIn('portIps.skip(offset)', auto)
+        self.assertIn('_autoAlpnOk(ip, 443, d, alpn)', auto)
 
     def test_clean_ip_scan_uses_resumable_dual_stack_range_batches(self):
         extras = (ROOT / 'lib' / 'npv_am_extras.dart').read_text(encoding='utf-8')
@@ -2934,32 +3204,41 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertLess(step.index('if (r.length >= batch.length)'),
                         step.index('_cleanRangeCursorKey,'))
 
-    def test_nip_hunt_resumes_every_dual_stack_range_and_scans_all_open_hits(self):
+    def test_nip_hunt_rotates_configured_dual_stack_endpoints_and_validates_all_hits(self):
         nip = (ROOT / 'lib' / 'nip_scan.dart').read_text(encoding='utf-8')
-        self.assertIn("const String _nipHuntCursorKey = 'nip_hunt_range_cursors_v1';", nip)
-        self.assertIn("const templateCursorKey = 'nip_hunt_template_cursor_v1';", nip)
-        self.assertIn('final templateInventory = uniqueTemplates.values.toList()', nip)
-        self.assertIn('const templateBatchSize = 40;', nip)
-        self.assertIn('await templatePrefs.setString(templateCursorKey, templates.last.link);', nip)
-        self.assertNotIn('templates.length >= 40', nip)
-        self.assertIn("required String namespace,", nip)
-        self.assertIn("'__nip_${namespace}_range_cursor'", nip)
-        self.assertIn("cursors['$namespace:$range']", nip)
-        self.assertIn('natExpandIpRangeCursor(', nip)
-        self.assertIn("namespace: 'cdn'", nip)
-        self.assertIn("namespace: 'asn'", nip)
-        self.assertIn('batchSize: 1000', nip)
-        self.assertIn('want: ips.length,', nip)
-        self.assertIn('onProgress: (done, total) => completed = done,', nip)
-        self.assertIn('if (completed >= ips.length)', nip)
-        self.assertIn('await onComplete?.call();', nip)
-        self.assertIn('for (var offset = 0; offset < hits.length; offset += 8)', nip)
-        self.assertNotIn('hits.take(8)', nip)
-        self.assertIn('...dnsxFullDomains()', nip)
-        self.assertIn('_nipFrontSniCursor', nip)
-        self.assertIn('Future<String?> nipFindFrontSni(String ip, int port, {bool Function()? cancelled})', nip)
-        self.assertIn('cancelled?.call()', nip)
-        self.assertNotIn('prefixes.take(80)', nip)
+        hunt_start = nip.index('Future<bool> _natIpHunt() async {')
+        hunt_end = nip.index('Future<bool> _natTryScan(', hunt_start)
+        hunt = nip[hunt_start:hunt_end]
+        self.assertIn('final sourceServers = <Server>[...good, ...pending];', hunt)
+        self.assertIn('for (final entry in _resMap.values)', hunt)
+        self.assertIn("const templateCursorKey = 'nip_hunt_template_cursor_v1';", hunt)
+        self.assertIn('final templateBatchSize = templateInventory.length;', hunt)
+        self.assertIn('saveTemplateCursor(template)', hunt)
+        self.assertIn('await templatePrefs.setString(templateCursorKey, completed.link);', hunt)
+        self.assertIn('Only the exact host:port endpoints present in saved server configurations', hunt)
+        self.assertIn('await nipResolveAll(template.host)', hunt)
+        self.assertIn('address.type == InternetAddressType.IPv4', hunt)
+        self.assertIn('address.type == InternetAddressType.IPv6', hunt)
+        self.assertNotIn('..._cfRangesV6', hunt)
+
+        scan_start = nip.index('Future<bool> _natTryScan(')
+        scan = nip[scan_start:]
+        self.assertIn('const ipBatchSize = 256;', scan)
+        self.assertIn('want: scanBatch.length,', scan)
+        self.assertIn('while (completed < scanBatch.length)', scan)
+        self.assertIn('onProgress: (done, total) {', scan)
+        self.assertIn('completed = done;', scan)
+        self.assertIn('for (var offset = 0; offset < hits.length; offset += 8)', scan)
+        self.assertIn('_connectLoop(candidates, trust: false)', scan)
+        self.assertIn('final winner = current;', scan)
+        self.assertIn('if (winner != null) _natAdd(winner);', scan)
+
+        # Discovery supports both families, but ASN/CDN metadata does not
+        # authorize active probes against unrelated third-party address ranges.
+        self.assertIn("if (address?.type == InternetAddressType.IPv6)", nip)
+        self.assertIn('natExpandIpv6Cidr(cidr, maxPerBlock: maxPerBlock)', nip)
+        self.assertIn("if (ipv6 is List) ...ipv6.map((value) => '$value').where((value) => value.contains('/'))", nip)
+        self.assertIn("if (prefix.contains('/')) out.add(prefix);", nip)
 
     def test_nip_hunt_and_ripe_asn_scanning_accept_both_address_families(self):
         nip = (ROOT / 'lib' / 'nip_scan.dart').read_text(encoding='utf-8')
@@ -2968,7 +3247,12 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('Future<List<String>> nipResolveAll(', nip)
         self.assertIn('return nipResolveAll(server.host);', nip)
         self.assertIn("if (prefix.contains('/')) out.add(prefix);", nip)
-        self.assertIn('..._cfRangesV6', nip)
+        self.assertIn("if (ipv6 is List) ...ipv6.map((value) => '$value').where((value) => value.contains('/'))", nip)
+        self.assertIn("if (address?.type == InternetAddressType.IPv6)", nip)
+        self.assertIn('natExpandIpv6Cidr(cidr, maxPerBlock: maxPerBlock)', nip)
+        self.assertIn('prefix.contains(\'/\')', nip)
+        self.assertIn('Only the exact host:port endpoints present in saved server configurations', nip)
+        self.assertNotIn('..._cfRangesV6', nip)
         self.assertNotIn('!pr.contains(\':\')', nip)
         self.assertNotIn('prefixes.take(80)', nip)
         self.assertIn('natExpandIpRangeCursor(', nip)
@@ -3010,7 +3294,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn("final expanded = _natExpandAnyCursorWide(", nat)
         self.assertIn("return _natExpandAnyCursorWide(item, '0', maxPerBlock).$1;", nat)
         ip_auto = (ROOT / 'lib' / 'ip_auto_scan.dart').read_text(encoding='utf-8')
-        self.assertIn("blocks.add('${parsed.address}/128');", ip_auto)
+        self.assertIn("return parsed?.type == InternetAddressType.IPv6 ? '$ip/128' : '$ip/32';", ip_auto)
         core = (ROOT / 'lib' / 'nnie_core.dart').read_text(encoding='utf-8')
         self.assertIn('int recordType = 1', core)
         self.assertIn('recordType == 28', core)
@@ -3036,7 +3320,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('...dnsResolvedIps', auto)
         self.assertIn('_autoSniOk(ip, 443, d)', auto)
         self.assertIn('_autoPortOk(ip, p)', auto)
-        self.assertIn('_autoAlpnOk(ip, tlsSni, alpn)', auto)
+        self.assertIn('_autoAlpnOk(ip, 443, d, alpn)', auto)
 
         diag = (ROOT / 'lib' / 'net_diag.dart').read_text(encoding='utf-8')
         self.assertIn("'2606:4700:4700::1111'", diag)
@@ -3085,10 +3369,16 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('_liveCdnRanges = merged.toList()..sort();', extras)
 
         ip_auto = (ROOT / 'lib' / 'ip_auto_scan.dart').read_text(encoding='utf-8')
-        self.assertIn('return blocks.toList()..sort();', ip_auto)
+        inventory_start = ip_auto.index('Future<List<String>> _ipAutoBlocks(')
+        inventory_end = ip_auto.index('Future<({List<String> addresses, Map<String, dynamic> cursors})> _ipAutoNextAddrs(', inventory_start)
+        inventory = ip_auto[inventory_start:inventory_end]
+        self.assertIn('}).toList()..sort();', inventory)
+        self.assertIn('return blocks;', inventory)
 
         auto = (ROOT / 'lib' / 'auto_scanners.dart').read_text(encoding='utf-8')
-        self.assertIn('}.toList()..sort();\n    final ips = _getCfIps(', auto)
+        self.assertIn('}.toList()..sort();', auto)
+        self.assertIn('final ips = _getCfIps(', auto)
+
 
     def test_persisted_dual_stack_scan_indexes_are_normalized_before_list_access(self):
         nat_scan = (ROOT / 'lib' / 'nat_ip_scan.dart').read_text(encoding='utf-8')
@@ -3100,7 +3390,10 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn("natCursorIndex(cursorMap['__cdn_range_cursor'], ranges.length)", nat)
         self.assertIn("natCursorIndex(cursors['__block_cursor'], blocks.length)", nat)
         self.assertIn('final previousPortIndex = portList.indexOf(lastPort);', nat)
-        self.assertIn('final portList = natFullPortInventory(seeds);', nat)
+        self.assertIn('natPortsForActiveScan(', nat)
+        self.assertIn('hasExplicitRanges: hasExplicitRanges', nat)
+        self.assertIn('if (configuredPorts.contains(port))', nat)
+        self.assertNotIn('.where(configuredPorts.contains)', nat)
         self.assertIn("natRangePortCursorsV3", nat)
 
         extras = (ROOT / 'lib' / 'npv_am_extras.dart').read_text(encoding='utf-8')
@@ -3109,6 +3402,554 @@ class KingVpnSourceGuardTests(unittest.TestCase):
 
         nip = (ROOT / 'lib' / 'nip_scan.dart').read_text(encoding='utf-8')
         self.assertIn("natCursorIndex(cursors['__nip_${namespace}_range_cursor'], ranges.length)", nip)
+
+
+    def test_nat_range_scan_uses_full_ports_only_for_explicit_user_ranges(self):
+        nat = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
+        start = nat.index('Future<List<String>> _natRangeScanStepBody(')
+        end = nat.index('List<String> userListUrls =', start)
+        body = nat[start:end]
+        self.assertIn('final hasExplicitRanges = natRanges.isNotEmpty;', body)
+        self.assertIn('fullInventory: natFullPortInventory(seeds)', body)
+        self.assertIn('configuredEndpointPorts: configuredPorts', body)
+        self.assertIn('if (configuredPorts.contains(port))', body)
+        self.assertIn('...configuredRanges', body)
+
+    def test_full_tcp_port_inventory_runs_only_on_saved_vpn_server_ips(self):
+        source = (ROOT / 'lib' / 'auto_scanners.dart').read_text(encoding='utf-8')
+        self.assertNotIn('_autoConfiguredPortTargets(', source)
+        self.assertIn('_autoConfiguredServerIps(', source)
+        self.assertIn('final portInventory = natBuildFullPortInventory(kAutoPorts);', source)
+        self.assertIn('final portIps = portTargetIps;', source)
+        self.assertIn('Server.parse(entry.link)', source)
+        self.assertNotIn('for (var port = 1; port <= 65535; port++)', source)
+        port_loop = source[source.index('portLoop:'):source.index('if (cancelled()) {', source.index('portLoop:'))]
+        self.assertIn('portIps.skip(offset)', port_loop)
+        self.assertNotIn('ips.skip(offset)', port_loop)
+        self.assertNotIn('final portIps = ips;', port_loop)
+
+    def test_sni_discovery_is_not_mislabeled_as_tunnel_verification(self):
+        source = (ROOT / 'lib' / 'auto_scanners.dart').read_text(encoding='utf-8')
+        self.assertIn('does NOT prove', source)
+        self.assertIn('only the core/TUN validation', source)
+        self.assertIn('usable route', source)
+
+    def test_sni_probe_accepts_http_error_status_as_valid_tls_sni_evidence(self):
+        source = (ROOT / 'lib' / 'auto_scanners.dart').read_text(encoding='utf-8')
+        start = source.index('Future<int?> _autoSniOk(')
+        end = source.index('// ALPN', start)
+        probe = source[start:end]
+        self.assertIn('Any syntactically valid HTTP status', probe)
+        self.assertIn('status < 100 || status > 599', probe)
+        self.assertNotIn('status >= 400', probe)
+
+    def test_front_sni_probe_accepts_all_valid_http_statuses(self):
+        source = (ROOT / 'lib' / 'nip_scan.dart').read_text(encoding='utf-8')
+        start = source.index('Future<String?> nipFrontProbe(')
+        end = source.index('Future<String?> nipFindFrontSni(', start)
+        probe = source[start:end]
+        self.assertIn('status < 100 || status > 599', probe)
+        self.assertNotIn('status >= 400', probe)
+
+    def test_proxy_only_mode_cannot_pass_the_vpn_tunnel_acceptance_gate(self):
+        main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        start = main.index('Future<bool> _tunnelTrafficOk() async {')
+        end = main.index('Future<bool> _stableTunnelTrafficOk', start)
+        gate = main[start:end]
+        self.assertIn('if (proxyMode) return false;', gate)
+        self.assertNotIn('if (proxyMode) return true;', gate)
+        self.assertIn('_siteOpens(u, viaCore: true)', gate)
+
+    def test_tunnel_acceptance_requires_android_tun_and_records_http_evidence(self):
+        main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        site_start = main.index('Future<bool> _siteOpens(')
+        site_end = main.index('Future<int> _sitesOpen()', site_start)
+        site = main[site_start:site_end]
+        self.assertIn('responseBytes += chunk.length', site)
+        self.assertIn('TUNNEL-EVIDENCE status=', site)
+        self.assertIn('res.statusCode >= 200 && res.statusCode < 400', site)
+        tunnel_start = main.index('Future<bool> _tunnelTrafficOk() async {')
+        stable_start = main.index('Future<bool> _stableTunnelTrafficOk', tunnel_start)
+        tunnel = main[tunnel_start:stable_start]
+        self.assertIn('if (await tunUp() != true)', tunnel)
+        stable_end = main.index('Future<void> _verifyPendingConnect', stable_start)
+        stable = main[stable_start:stable_end]
+        self.assertIn('if (await tunUp() != true) return false;', stable)
+        tun_start = main.index('Future<bool?> tunUp()')
+        tun_end = main.index('// real ping: HTTP request to gstatic', tun_start)
+        tun_check = main[tun_start:tun_end]
+        self.assertIn('if (Platform.isAndroid) {', tun_check)
+        self.assertIn("invokeMethod<bool>('kingVpnTunnelActive')", tun_check)
+        self.assertIn("invokeMethod<bool>('kingVpnTransportActive')", tun_check)
+        self.assertIn('androidVpnTunnelEvidence(', tun_check)
+        self.assertIn('if (evidence == true) {', tun_check)
+        self.assertIn('return true;', tun_check)
+        self.assertNotIn("if (kVpnLastStateTop == 'CONNECTED') return true;", tun_check)
+        self.assertNotIn("kVpnLastStateTop == 'CONNECTED' ? true : null", tun_check)
+        android_start = tun_check.index('if (Platform.isAndroid) {')
+        interface_start = tun_check.index('NetworkInterface.list')
+        self.assertLess(android_start, interface_start)
+        self.assertIn('return false;', tun_check[android_start:interface_start])
+
+
+    def test_king_vpn_tunnel_status_requires_its_live_tun_descriptor(self):
+        native = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
+        start = native.index('public static boolean isKingVpnTunnelActive()')
+        end = native.index('private static class Srv', start)
+        body = native[start:end]
+        self.assertIn('KingVpnService service = instance;', body)
+        self.assertIn('!service.active || service.stopping', body)
+        self.assertIn('synchronized (service.tunLock)', body)
+        self.assertIn('currentTun.getFileDescriptor().valid()', body)
+
+    def test_android_network_owner_probe_declares_access_network_state_permission(self):
+        prepare = (ROOT / 'prepare_android.py').read_text(encoding='utf-8')
+        self.assertIn("'android.permission.ACCESS_NETWORK_STATE'", prepare)
+
+    def test_android_vpn_transport_and_owner_proofs_are_separate(self):
+        native = (ROOT / 'android_src' / 'MainActivity.kt').read_text(encoding='utf-8')
+        transport_start = native.index('"kingVpnTransportActive" -> {')
+        owner_start = native.index('"kingVpnTransportOwnedByApp" -> {', transport_start)
+        end = native.index('"back" -> {', owner_start)
+        transport_body = native[transport_start:owner_start]
+        owner_body = native[owner_start:end]
+        self.assertIn('TRANSPORT_VPN', transport_body)
+        self.assertIn('result.success(', transport_body)
+        self.assertIn('Build.VERSION.SDK_INT < Build.VERSION_CODES.R', owner_body)
+        self.assertIn('android.net.VpnService.prepare(this) == null', owner_body)
+        self.assertIn('result.success(isVpnTransport && vpnPermissionGranted)', owner_body)
+        self.assertIn('capabilities?.ownerUid == applicationInfo.uid', owner_body)
+        self.assertIn('result.success(isVpnTransport && ownerMatches)', owner_body)
+
+    def test_default_plugin_tunnel_check_does_not_require_dormant_custom_service(self):
+        main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        start = main.index('Future<bool?> tunUp()')
+        end = main.index('// Non-Android compatibility path', start)
+        body = main[start:end]
+        self.assertIn('final serviceActive = kOwnVpnService', body)
+        self.assertIn("kingVpnTransportOwnedByApp", body)
+        self.assertIn('requireServiceTunnel: kOwnVpnService', body)
+
+    def test_failover_clears_stale_active_state_before_trying_another_server(self):
+        native = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
+        start = native.index('private boolean connectFrom(int first)')
+        end = native.index('private boolean bringUpWithTimeout', start)
+        body = native[start:end]
+        self.assertIn('active = false;', body)
+        self.assertLess(body.index('active = false;'), body.index('for (int k = 0; k < n; k++)'))
+
+    def test_android_tun_acceptance_requires_both_native_signals(self):
+        main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        start = main.index('Future<bool?> tunUp()')
+        end = main.index('// real ping: HTTP request to gstatic', start)
+        body = main[start:end]
+        self.assertIn("invokeMethod<bool>('kingVpnTunnelActive')", body)
+        self.assertIn("invokeMethod<bool>('kingVpnTransportActive')", body)
+        self.assertIn('androidVpnTunnelEvidence(', body)
+        self.assertIn('if (evidence == true) {', body)
+        self.assertIn('return true;', body)
+        self.assertIn('return false;', body)
+
+    def test_nat_candidate_blocks_never_expand_a_single_public_ip_to_neighbouring_ranges(self):
+        source = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
+        start = source.index('List<String> natAutoBlocks(List<Server> known)')
+        end = source.index('BigInt _natIpv6ToBigInt', start)
+        inventory = source[start:end]
+        self.assertIn("parsed.type == InternetAddressType.IPv4", inventory)
+        self.assertIn("parsed.type == InternetAddressType.IPv6", inventory)
+        self.assertIn("? 128 : 32", inventory)
+        self.assertNotIn("t[2] + d", inventory)
+        self.assertNotIn("0/24", inventory)
+        self.assertIn("not be inferred from a single endpoint", inventory)
+
+
+    def test_tcp_and_udp_port_number_inventories_cover_ports_1_through_65535(self):
+        source = (ROOT / 'lib' / 'nat_ip_scan.dart').read_text(encoding='utf-8')
+        start = source.index('List<int> natBuildFullPortInventory(')
+        end = source.index('class NatIpHit', start)
+        inventory = source[start:end]
+        self.assertIn('int firstPort = 1', inventory)
+        self.assertIn('int lastPort = 65535', inventory)
+        self.assertIn('natBuildFullUdpPortInventory', inventory)
+        self.assertIn('firstPort: 1, lastPort: 65535', inventory)
+        nat = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
+        self.assertIn('firstPort: 1, // TCP connect() cannot target port zero.', nat)
+
+
+    def test_udp_port_inventory_is_not_mislabeled_as_a_udp_probe(self):
+        source = (ROOT / 'lib' / 'nat_ip_scan.dart').read_text(encoding='utf-8')
+        start = source.index('/// Builds UDP port numbers only.')
+        end = source.index('class NatIpHit', start)
+        inventory = source[start:end]
+        self.assertIn('no datagram is sent', inventory)
+        self.assertIn('natBuildFullUdpPortInventory', inventory)
+        self.assertNotIn('RawDatagramSocket', inventory)
+
+    def test_ping_only_candidates_never_enter_verified_resource_store(self):
+        main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        record_start = main.index('void _record(Server s, int? d) {')
+        record_end = main.index('// TCP prefilter', record_start)
+        record = main[record_start:record_end]
+        self.assertIn('good.add(s)', record)
+        self.assertNotIn('_resAdd(s)', record)
+        connected_start = main.index('Future<bool> _onConnected(Server s) async {')
+        connected_end = main.index('Future<bool> _tunnelTrafficOk()', connected_start)
+        connected = main[connected_start:connected_end]
+        self.assertIn('if (!s.personal) _resAdd(s);', connected)
+        self.assertIn('_verifiedRouteKeys.add(s.key);', connected)
+        backup_start = main.index('String _backupsJson(Server cur) {')
+        backup_end = main.index('List<Server> _usable()', backup_start)
+        backups = main[backup_start:backup_end]
+        self.assertIn('_verifiedRouteKeys.contains(candidate.key)', backups)
+        disconnect_start = main.index('current = null;', main.index('Future<void> disconnect('))
+        disconnect_end = main.index('good.clear();', disconnect_start)
+        disconnect = main[disconnect_start:disconnect_end]
+        self.assertNotIn('_resAdd(', disconnect)
+        restore_start = main.index('// Restored cache entries are candidates until the current session')
+        restore_end = main.index('// servers that failed recently', restore_start)
+        self.assertNotIn('_resAdd(', main[restore_start:restore_end])
+
+
+    def test_every_connection_acceptance_uses_the_central_real_tun_gate(self):
+        main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        start = main.index('Future<bool> _onConnected(Server s) async {')
+        end = main.index('String _short', start)
+        acceptance = main[start:end]
+        self.assertIn('if (proxyMode || !await _tunnelTrafficOk())', acceptance)
+        self.assertIn('_verifiedRouteKeys.remove(s.key)', acceptance)
+        self.assertIn('NationalNetworkIntelligence.record(', acceptance)
+        self.assertIn('current = null;', acceptance)
+        self.assertIn('connected = false;', acceptance)
+        self.assertIn("${s.name} did not pass the central real-TUN traffic gate", acceptance)
+        self.assertIn('return false;', acceptance)
+        self.assertIn('_verifiedRouteKeys.add(s.key);', acceptance)
+        self.assertIn('if (!s.personal) _resAdd(s);', acceptance)
+        # Every real call site must await the boolean gate result. This catches
+        # personal, social-only, manual-upgrade and restart bypass regressions.
+        call_lines = [
+            line.strip() for line in main.splitlines()
+            if '_onConnected(' in line
+            and not line.lstrip().startswith('//')
+            and not line.strip().startswith('Future<bool> _onConnected')
+        ]
+        self.assertTrue(call_lines)
+        for line in call_lines:
+            self.assertIn('await _onConnected(', line, line)
+
+
+    def test_scanner_data_is_exclusively_for_king_vpn_and_port_inventory_is_complete(self):
+        policy = (ROOT / 'docs' / 'MASTER_GOLDEN_LAW_KING_VPN.md').read_text(encoding='utf-8')
+        self.assertIn('solely to establish, maintain, recover or verify connectivity for the KING VPN application', policy)
+        self.assertIn('must not be exposed as a general-purpose port scanner', policy)
+        self.assertIn('1..65535', policy)
+        self.assertIn('inventory generation separate from active probing', policy)
+
+        ports = (ROOT / 'lib' / 'nat_ip_scan.dart').read_text(encoding='utf-8')
+        start = ports.index('List<int> natBuildFullPortInventory(')
+        end = ports.index('class NatIpHit', start)
+        inventory = ports[start:end]
+        self.assertIn('int firstPort = 1', inventory)
+        self.assertIn('int lastPort = 65535', inventory)
+        self.assertIn('natBuildFullUdpPortInventory', inventory)
+
+        main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        self.assertIn('Future<bool> _tunnelTrafficOk() async {', main)
+        self.assertIn('if (proxyMode || !await _tunnelTrafficOk())', main)
+
+
+    def test_ip_auto_scanner_discovers_dual_stack_candidates_without_saved_servers(self):
+        source = (ROOT / 'lib' / 'ip_auto_scan.dart').read_text(encoding='utf-8')
+        start = source.index('Passive candidate discovery is independent')
+        end = source.index('// A national scan uses the national hot-source/template pipeline', start)
+        inventory = source[start:end]
+        self.assertIn('...kAutoNationalSniDomains,', inventory)
+        self.assertIn('...kAutoSniDomains,', inventory)
+        self.assertIn('...dnsxFullDomains(),', inventory)
+        self.assertIn('...natFrontSnis,', inventory)
+        self.assertIn('...natRelayHosts,', inventory)
+        self.assertIn('for (final entry in _goldIps.values) entry.ip', inventory)
+        self.assertIn('if (runNationalMode) {', inventory)
+        self.assertIn('...natTemplateSeeds,', inventory)
+        self.assertIn('await refreshCdnRanges();', inventory)
+        self.assertIn('if (baseCandidates.isEmpty &&', inventory)
+        self.assertIn('...kAutoFallbackIps,', inventory)
+        self.assertIn('final cdnRanges = _liveCdnRanges.isNotEmpty', inventory)
+        self.assertNotIn('runNationalMode\n        ? const <String>[]', inventory)
+        self.assertIn('_autoResolveDualStackTargets(', inventory)
+        self.assertIn('_getCfIps(', inventory)
+        self.assertIn('goldAddScans(', inventory)
+        self.assertIn("'ip_candidates': independentIpCandidates", inventory)
+        self.assertIn('_autoScanDomainCursorKey', inventory)
+        self.assertIn('_autoScanCdnCursorKey', inventory)
+
+        run_start = source.index('Future<bool> _ipAutoRunOnce(')
+        run_end = source.index('Future<void> ipAutoSheet(', run_start)
+        run = source[run_start:run_end]
+        self.assertNotIn('if (pool.isEmpty) {\n      return false;', run)
+        self.assertIn('if (knownEndpoints.isEmpty)', run)
+        self.assertIn('final endpointIps = (endpointTargets[port] ?? <String>{}).toList();', run)
+        self.assertIn('natScanIps(\n        endpointIps,', run)
+        self.assertNotIn('natScanIps(\n        independentIpCandidates,', run)
+        self.assertIn("_goldScan['ip_candidates']", source)
+
+
+    def test_passive_dual_stack_dns_inventory_retains_private_and_special_scope_addresses(self):
+        source = (ROOT / 'lib' / 'auto_scanners.dart').read_text(encoding='utf-8')
+        start = source.index('Future<List<String>> _autoResolveDualStackTargets(')
+        end = source.index('Future<void> autoScanRun(', start)
+        resolver = source[start:end]
+        self.assertIn('address.type == InternetAddressType.IPv4', resolver)
+        self.assertIn('address.type == InternetAddressType.IPv6', resolver)
+        self.assertIn('out.add(address.address)', resolver)
+        self.assertNotIn('_privateIp(address)', resolver)
+
+
+    def test_auto_sni_and_alpn_probes_do_not_require_saved_vpn_configs(self):
+        source = (ROOT / 'lib' / 'auto_scanners.dart').read_text(encoding='utf-8')
+        start = source.index('// Probe each domain only at its own DNS-resolved A/AAAA addresses.')
+        end = source.index('// پورت: خروجی خود شماره‌ی پورت است.', start)
+        sni = source[start:end]
+        self.assertIn('_autoResolveDualStackTargets(', sni)
+        self.assertIn('_autoSniOk(ip, 443, d)', sni)
+        self.assertNotIn('_goldSrv', sni)
+        alpn_start = source.index('// ALPN is checked against the DNS-resolved addresses')
+        alpn_end = source.index('if (cancelled()) {', alpn_start)
+        alpn = source[alpn_start:alpn_end]
+        self.assertIn('_autoAlpnOk(ip, 443, d, alpn)', alpn)
+        self.assertNotIn('configuredSniTargets', source)
+
+
+    def test_sni_swap_variants_are_not_artificially_restricted_to_cdn_hosts(self):
+        source = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
+        start = source.index('bool _natAppliesF(')
+        end = source.index('bool _natChangesAddr(', start)
+        eligibility = source[start:end]
+        self.assertIn('x.sniSwap != null && !(f.sec && !f.reality)', eligibility)
+        self.assertNotIn('x.sniSwap != null && !(f.sec && f.cdnLike', eligibility)
+        apply_start = source.index('String _natApplySniSwap(')
+        apply_end = source.index('String _natFrag(', apply_start)
+        apply = source[apply_start:apply_end]
+        self.assertIn('String _natApplySniSwap(String cfg, String rawSni)', apply)
+        self.assertIn('final proxy = _natProxyOut(j);', apply)
+        self.assertIn("tls['serverName'] = sni", apply)
+        self.assertIn('tlsHasEch(tls)', apply)
+
+        pool_start = source.index('String? _natNormalizeSniHostname(')
+        pool_end = source.index('int natGrow(', pool_start)
+        pool = source[pool_start:pool_end]
+        for source_name in ('natFrontSnis', 'kAutoSniDomains', 'dnsxFullDomains()', 'natRelayHosts',
+                            "_goldScan['sni']", "_goldScan['sni_candidates']"):
+            self.assertIn(source_name, pool)
+        self.assertIn('List<String>? _natSniCatalogCache', pool)
+        self.assertIn('if (cached != null) return cached;', pool)
+        self.assertIn('_natNormalizeSniHostname(raw)', pool)
+        self.assertIn("sniSwap: 'divar.ir'", source)
+        self.assertNotIn('sniSwap: 7', source)
+        grow_start = source.index('int natGrow(')
+        grow_end = source.index('List<String>? _natNamesC', grow_start)
+        grow = source[grow_start:grow_end]
+        pool_at = grow.index('final sniPool = _natSniPool();')
+        loop_at = grow.index('for (var i = 0; i < n; i++)')
+        self.assertLess(pool_at, loop_at)
+        self.assertIn('sniPool[rnd.nextInt(sniPool.length)]', grow)
+
+
+    def test_full_subscription_discovery_has_no_fixed_source_or_per_list_cap(self):
+        main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        start = main.index('Future<List<Server>> fetchServers(')
+        end = main.index('// ---------- rows (categories) ----------', start)
+        fetch = main[start:end]
+        self.assertIn('final sourceTimeout = quickCap != null', fetch)
+        self.assertIn('await getListMirror(u).timeout(sourceTimeout)', fetch)
+        self.assertIn('if ((stop?.call() ?? false) || (quickCap != null && all.length >= quickCap))', fetch)
+        self.assertIn('for (final l in quickCap != null ? lines.take(30) : lines)', fetch)
+        self.assertNotIn('maxPerSource', main)
+        self.assertNotIn('sw.elapsed > dl', fetch)
+
+        ip_scan = (ROOT / 'lib' / 'ip_auto_scan.dart').read_text(encoding='utf-8')
+        self.assertIn('pool = await fetchServers(stop: () => halted());', ip_scan)
+        self.assertNotIn('quickCap: 200', ip_scan)
+
+
+    def test_connection_search_has_no_arbitrary_per_tap_or_national_deadline_caps(self):
+        main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        for forbidden in (
+            'kMaxRealStartsPerTap',
+            'kNatPingDeadlineSec',
+            'kNatVerifyBudget',
+            'natVerifyClock',
+            'realStartsRun',
+        ):
+            self.assertNotIn(forbidden, main)
+        start = main.index('final verifyBudget = Duration(seconds: s.personal ? 1 : 25);')
+        end = main.index('// A cancelled connection is not evidence', start)
+        verify = main[start:end]
+        self.assertIn('Duration verifyRemaining() => nationalMode', verify)
+        self.assertIn('const Duration(seconds: 30)', verify)
+        self.assertIn('i < pingTries', verify)
+
+        start = main.index('Future<bool> _startLocked(')
+        end = main.index('Future<bool> _startImpl(', start)
+        start_gate = main[start:end]
+        self.assertNotIn('realStartsRun', start_gate)
+        self.assertNotIn('kMaxRealStartsPerTap', start_gate)
+
+
+    def test_national_mode_prioritizes_domestic_inventory_without_dropping_global_sources(self):
+        dns = (ROOT / 'lib' / 'dns_scanner.dart').read_text(encoding='utf-8')
+        full_start = dns.index('List<String> dnsxFullDomains()')
+        full_end = dns.index('/// Full project domain inventory', full_start)
+        full = dns[full_start:full_end]
+        for source in (
+            '...kDnsxNationalProbeDomains,',
+            '...kDnsxGlobalDomains,',
+            '...kAutoNationalSniDomains,',
+            '...kAutoSniDomains,',
+            '..._dnsxHostsFrom(natFrontSnis),',
+            '..._dnsxHostsFrom(natRelayHosts),',
+        ):
+            self.assertIn(source, full)
+        self.assertNotIn('.take(', full)
+
+        start = dns.index('List<String> dnsxNationalFirstDomains(')
+        end = dns.index('/// متن نمایشی دامنه‌ها', start)
+        ordered = dns[start:end]
+        self.assertIn('...dnsxFullDomains(),', ordered)
+        self.assertIn('...extraHosts,', ordered)
+        self.assertIn('final first = domestic.intersection(all).toList()..sort();', ordered)
+        self.assertIn('final remaining = all.difference(domestic).toList()..sort();', ordered)
+        self.assertIn('return <String>[...first, ...remaining];', ordered)
+
+        for path in ('lib/auto_scanners.dart', 'lib/ip_auto_scan.dart'):
+            source = (ROOT / path).read_text(encoding='utf-8')
+            self.assertIn('...kAutoNationalSniDomains,', source)
+            self.assertIn('...kAutoSniDomains,', source)
+            self.assertIn('...dnsxFullDomains(),', source)
+            self.assertIn('...natFrontSnis,', source)
+            self.assertIn('...natRelayHosts,', source)
+            self.assertNotIn('if (!scanNationalMode) ...dnsxFullDomains()', source)
+            self.assertNotIn('if (!runNationalMode) ...dnsxFullDomains()', source)
+
+
+    def test_scanner_cycles_and_saved_inventories_have_no_daily_or_round_ceiling(self):
+        main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        extras = (ROOT / 'lib' / 'npv_am_extras.dart').read_text(encoding='utf-8')
+        ultra = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
+        nip = (ROOT / 'lib' / 'nip_scan.dart').read_text(encoding='utf-8')
+        pilot = (ROOT / 'lib' / 'iran_ai_extras.dart').read_text(encoding='utf-8')
+
+        self.assertNotIn('realStartsRun', pilot)
+        self.assertNotIn('maxBatches', pilot)
+        self.assertNotIn('maxPerSource', pilot)
+        self.assertNotIn('int maxBatches = 8;', main)
+        self.assertNotIn('batches < maxB', main)
+        self.assertNotIn('difference(startedAt) < const Duration(hours: 8)', main)
+        self.assertIn('pass 2 exhausted → restarting full national discovery', main)
+        self.assertNotIn('kGoldDailyProbes', extras)
+        self.assertNotIn('_goldBudgetLeft', extras)
+        self.assertIn('.take(kGoldRetestBatch)', extras)
+        self.assertIn('.take(240)', extras)
+        self.assertIn('cleanIps = results.toList();', extras)
+        self.assertNotIn('.take(20)', extras[extras.index('Future<void> _goldSrvStep'):extras.index('Future<void> _goldMergeGood')])
+        self.assertNotIn('_natPick.length > 3000', ultra)
+        self.assertNotIn('_natCursor.length > 4000', ultra)
+        self.assertIn('_topWinCache = [for (final r in rows) r.key];', ultra)
+        front = nip[nip.index('Future<String?> nipFindFrontSni('):nip.index('/// همان کانفیگ', nip.index('Future<String?> nipFindFrontSni('))]
+        self.assertIn('Serialize cursor ownership', front)
+        self.assertIn('var completed = 0;', front)
+        self.assertIn('_nipFrontSniCursor = (start + completed) % inventory.length;', front)
+        self.assertIn('Commit only probes that actually completed', front)
+
+        hunt_start = nip.index('Future<bool> _natTryScan(')
+        hunt_end = nip.index('\n  }\n}', hunt_start)
+        hunt = nip[hunt_start:hunt_end]
+        self.assertIn('const ipBatchSize = 256;', hunt)
+        self.assertIn('while (completed < scanBatch.length)', hunt)
+        self.assertIn('onProgress: (done, total) {', hunt)
+        self.assertIn('completed = done;', hunt)
+        self.assertNotIn('if (abort || hits.isEmpty) return false;', hunt)
+
+
+    def test_scanner_inventories_have_no_fixed_top_n_or_growth_ceiling(self):
+        dns = (ROOT / 'lib' / 'dns_scanner.dart').read_text(encoding='utf-8')
+        auto = (ROOT / 'lib' / 'auto_scanners.dart').read_text(encoding='utf-8')
+        ultra = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
+        nip = (ROOT / 'lib' / 'nip_scan.dart').read_text(encoding='utf-8')
+        ip_auto = (ROOT / 'lib' / 'ip_auto_scan.dart').read_text(encoding='utf-8')
+        self.assertIn('final best = [for (final e in r) e.ip];', dns)
+        self.assertIn('for (var i = 0; i < domainInventory.length; i++)', auto)
+        self.assertIn('for (var i = 0; i < portInventory.length; i++)', auto)
+        self.assertNotIn('if (_natSpecs.length > 500000)', ultra)
+        self.assertNotIn('natDimWins.length > 6000', ultra)
+        self.assertNotIn('natVar.length > 4000', ultra)
+        self.assertNotIn('natVarNormal.length > 3000', ultra)
+        self.assertNotIn('fps.take(7)', ultra)
+        self.assertNotIn('top.take(12)', ultra)
+        self.assertNotIn('top.take(20)', ultra)
+        self.assertNotIn('_natGenCap', ultra)
+        self.assertIn('final end = app.length;', ultra)
+        self.assertIn('final count = inventory.length;', nip)
+        self.assertIn('final templateBatchSize = templateInventory.length;', nip)
+        self.assertIn('natTemplateSeeds = nationalSeeds.toList();', ip_auto)
+        self.assertIn('final tpl = pool.toList();', ip_auto)
+        nat_ip = (ROOT / 'lib' / 'nat_ip_scan.dart').read_text(encoding='utf-8')
+        self.assertIn('int? want,', nat_ip)
+        self.assertNotIn('int want = 20,', nat_ip)
+        self.assertIn('want == null || hits.length < want', nat_ip)
+        self.assertIn('int? want,', nip)
+        self.assertNotIn('int want = 12,', nip)
+
+
+    def test_national_scanner_schedule_is_70_domestic_30_global_without_truncation(self):
+        dns = (ROOT / 'lib' / 'dns_scanner.dart').read_text(encoding='utf-8')
+        start = dns.index('List<String> dnsxNationalFirstDomains(')
+        end = dns.index('/// متن نمایشی دامنه‌ها', start)
+        schedule = dns[start:end]
+        self.assertIn('for (var slot = 0; slot < 7', schedule)
+        self.assertIn('for (var slot = 0; slot < 3', schedule)
+        self.assertIn('domesticQueue.length', schedule)
+        self.assertIn('globalQueue.length', schedule)
+        self.assertIn('final scheduled = <String>[];', schedule)
+        self.assertNotIn('take(', schedule)
+        self.assertNotIn('_dnsxHostsFrom(natFrontSnis)', schedule)
+
+
+    def test_national_memory_and_subscription_inputs_keep_complete_candidate_sets(self):
+        main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        ultra = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
+        ai = (ROOT / 'lib' / 'iran_ai_extras.dart').read_text(encoding='utf-8')
+        gc_start = main.index('void _gcCaches()')
+        gc_end = main.index('Future<void> _init()', gc_start)
+        gc = main[gc_start:gc_end]
+        self.assertNotIn('natScanHits.remove', gc)
+        self.assertNotIn('natGood.remove', gc)
+        self.assertNotIn('natSubstSearched.remove', gc)
+        self.assertNotIn('natIpDeadRun.remove', gc)
+        memory_start = main.index('Future<void> _natMemoryReuse()')
+        memory_end = main.index('Future<void> _natRangeAdd(', memory_start)
+        memory = main[memory_start:memory_end]
+        self.assertIn('for (final e in natIpMem)', memory)
+        self.assertIn('natHotNext(null, fetch: false)', memory)
+        range_start = main.index('Future<void> _natRangeAdd(')
+        range_end = main.index('Future<void> _nat', range_start + 30)
+        self.assertIn('final tpl = [...pending, ...natRestPending, ...natTemplateSeeds, ...good];',
+                      main[range_start:range_end])
+        self.assertNotIn('goldIps.take(20)', main)
+        self.assertIn('Future<List<Server>> natHotNext(int? n,', ultra)
+        self.assertIn('n == null || out.length < n', ultra)
+        self.assertIn('final list = await fetchSubscription(url);', ai)
+
+
+    def test_nat_success_memory_is_not_count_or_age_truncated(self):
+        ultra = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
+        self.assertNotIn('_ipMemMax', ultra)
+        self.assertNotIn('_domMemMax', ultra)
+        self.assertNotIn('natIpMem.length >', ultra)
+        self.assertNotIn('natDomMem.length >', ultra)
+        self.assertNotIn('natIpMem.removeWhere((e) => ((e[\'t\'] as num?)?.toInt() ?? 0) < cutoff)', ultra)
+        self.assertNotIn('natDomMem.removeWhere((e) => ((e[\'t\'] as num?)?.toInt() ?? 0) < cutoff)', ultra)
+        self.assertIn('await prefs.setString(_ipMemKey, jsonEncode(natIpMem));', ultra)
+        self.assertIn('await p.setString(_domMemKey, jsonEncode(natDomMem));', ultra)
 
 
 if __name__ == '__main__':
