@@ -49,7 +49,7 @@ Future<List<NipHit>> nipScan(
   List<String> ips, {
   int port = 443,
   int concurrency = 16,
-  int want = 12,
+  int? want,
   Duration budget = const Duration(minutes: 2),
   Duration timeout = const Duration(milliseconds: 1500),
   bool Function()? cancelled,
@@ -62,14 +62,14 @@ Future<List<NipHit>> nipScan(
 
   Future<void> worker() async {
     while (true) {
-      if (hits.length >= want) return;
+      if (want != null && hits.length >= want) return;
       if (cancelled != null && cancelled()) return;
       if (clock.elapsed >= budget) return;
       if (next >= ips.length) return;
       final ip = ips[next++];
       final ms = await nipTcpProbe(ip, port, timeout);
       if (cancelled != null && cancelled()) return;
-      if (ms != null && hits.length < want) hits.add(NipHit(ip, ms));
+      if (ms != null && (want == null || hits.length < want)) hits.add(NipHit(ip, ms));
       done++;
       onProgress?.call(done, ips.length);
     }
