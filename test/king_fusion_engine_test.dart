@@ -1282,5 +1282,35 @@ void main() {
       expect(engine.state, KingFusionState.idle);
       expect(engine.isBusy, isFalse);
     });
+
+    test('validation observer cannot reenter and start a second plan', () async {
+      final events = <String>[];
+      final adapter = _FakeAdapter('first', events);
+      late final KingFusionEngine engine;
+      Future<KingFusionResult>? nested;
+      engine = KingFusionEngine(
+        [adapter],
+        onEvent: (event) {
+          if (event.type == KingFusionEventType.validationRejected) {
+            nested = engine.connect(KingFusionPlan([
+              const KingFusionHop(engineId: 'first', configuration: 'valid-cfg'),
+            ]));
+          }
+        },
+      );
+
+      final rejected = await engine.connect(KingFusionPlan([
+        const KingFusionHop(engineId: 'missing', configuration: 'invalid-cfg'),
+      ]));
+      final reentrant = await nested!;
+
+      expect(rejected.connected, isFalse);
+      expect(rejected.failureCode, 'E-FUSION-ADAPTER-MISSING');
+      expect(reentrant.connected, isFalse);
+      expect(reentrant.failureCode, 'E-FUSION-BUSY');
+      expect(events.where((event) => event.startsWith('start:first:')), isEmpty);
+      expect(engine.state, KingFusionState.failed);
+      expect(engine.isBusy, isFalse);
+    });
   });
 }
