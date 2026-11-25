@@ -321,3 +321,14 @@ These are three distinct technical review passes by the same assistant, not thre
 - This change does not widen active probing to unrelated public/CDN ranges. Active checks remain limited to exact addresses resolved from configured VPN endpoint records; passive inventory and active endpoint verification remain separate.
 - Latest exact-head CI is pending after the scanner/test/source-guard changes. Previous exact-head run 2942 completed successfully for the prior Fusion-only snapshot (unit tests, Dart analysis and ARM64 build); do not transfer that success to the new scanner commits.
 - PR #53 remains open Draft and unmerged. Main remains at `c43d325f9803d4f6306415e511f6790deff9d87e`.
+
+
+## 2026-11-25 — DNS hostname inventory normalization
+
+- Extracted shared hostname normalization into `lib/king_domain_inventory.dart` so scanner input parsing is independently unit-testable.
+- DNS inventory normalization now accepts project `domain:` and `full:` rules, case-folds names, removes a terminal DNS root dot, deduplicates, and validates total name length and each label.
+- IPv4 and IPv6 literals are no longer misclassified as hostnames. This matters because user-configured relay IPs share source collections with hostname catalogs; they remain valid endpoint data but do not enter DNS/SNI hostname queues.
+- Added standalone tests for project rule prefixes, mixed case, root dots, duplicate names, IPv4/IPv6 exclusion, malformed labels, overlong labels/names, single-character labels and punycode names.
+- Added a source guard that ensures the shared normalizer remains wired into DNS scanner inventory construction.
+- This is normalization only: no domain source is removed by a fixed list, no inventory count ceiling is introduced, and DNS/endpoint resources remain separate.
+- Exact-head CI is pending for the domain-normalization additions as well as the preceding exact endpoint/template changes. Physical device and network-path tests remain outstanding.
