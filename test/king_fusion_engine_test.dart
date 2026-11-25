@@ -15,6 +15,7 @@ class _FakeAdapter implements KingEngineAdapter {
   final Completer<void>? startEntered;
   int stopFailuresRemaining;
   final bool stopNeverCompletes;
+  final bool throwOnChainCheck;
   final Completer<void>? stopGate;
   final Completer<void>? stopEntered;
 
@@ -29,6 +30,7 @@ class _FakeAdapter implements KingEngineAdapter {
     this.startEntered,
     this.stopFailuresRemaining = 0,
     this.stopNeverCompletes = false,
+    this.throwOnChainCheck = false,
     this.stopGate,
     this.stopEntered,
     bool supportsMultiHop = true,
@@ -41,8 +43,10 @@ class _FakeAdapter implements KingEngineAdapter {
         );
 
   @override
-  bool canChainTo(KingEngineAdapter next) =>
-      chainTargets.contains(next.descriptor.id);
+  bool canChainTo(KingEngineAdapter next) {
+    if (throwOnChainCheck) throw StateError('simulated preflight failure');
+    return chainTargets.contains(next.descriptor.id);
+  }
 
   @override
   Future<KingEngineStartResult> start({
@@ -296,6 +300,29 @@ void main() {
       ]));
       expect(duplicate.failureCode, 'E-FUSION-DUPLICATE-HOP');
       expect(events, isEmpty);
+    });
+
+    test('contains adapter compatibility-check exceptions during preflight', () async {
+      final events = <String>[];
+      final first = _FakeAdapter(
+        'first',
+        events,
+        chainTargets: const {'second'},
+        throwOnChainCheck: true,
+      );
+      final second = _FakeAdapter('second', events);
+      final engine = KingFusionEngine([first, second]);
+
+      final result = await engine.connect(KingFusionPlan([
+        const KingFusionHop(engineId: 'first', configuration: 'cfg-1'),
+        const KingFusionHop(engineId: 'second', configuration: 'cfg-2'),
+      ]));
+
+      expect(result.connected, isFalse);
+      expect(result.failureCode, 'E-FUSION-VALIDATION-EXCEPTION');
+      expect(result.startedHops, 0);
+      expect(events, isEmpty);
+      expect(engine.state, KingFusionState.failed);
     });
 
     test('does not execute descriptors that still require a native adapter', () async {
