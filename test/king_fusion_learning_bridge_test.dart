@@ -41,6 +41,14 @@ void main() {
         )),
         isFalse,
       );
+      expect(
+        bridge.observe(_event(
+          0,
+          KingFusionEventType.cleanupFailed,
+          failureCode: 'E-OUT-OF-ORDER',
+        )),
+        isFalse,
+      );
 
       final snapshot = bridge.snapshot;
       expect(snapshot.totalEvents, 1);
@@ -76,11 +84,12 @@ void main() {
       bridge.observe(_event(
         1,
         KingFusionEventType.verificationFailed,
-        engineId: null,
+        engineId: 'v2ray',
         failureCode: 'E-FUSION-TRAFFIC-UNVERIFIED',
       ));
       expect(bridge.snapshot.recoveryHint, KingFusionRecoveryHint.verifyTraffic);
       expect(bridge.snapshot.failureEvents, 1);
+      expect(bridge.snapshot.consecutiveFailuresByEngine, {'v2ray': 1});
 
       bridge.observe(_event(
         2,
