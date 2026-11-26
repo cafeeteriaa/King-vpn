@@ -39,7 +39,9 @@ class KingAutoSwitchResult {
 /// Android must not have two competing full-device VPN services.
 class KingAutoSwitchCoordinator {
   KingAutoSwitchCoordinator({required List<KingConnectionAdapter> adapters})
-      : _adapters = List.unmodifiable(adapters) {
+      : _adapters = List.unmodifiable(
+          adapters.toList()..sort((a, b) => a.id.index.compareTo(b.id.index)),
+        ) {
     final ids = _adapters.map((a) => a.id).toList();
     if (ids.toSet().length != ids.length) {
       throw ArgumentError('Each engine must have exactly one adapter');
@@ -154,13 +156,17 @@ class KingAutoSwitchCoordinator {
         detail: 'Active engine remains healthy',
       );
     }
-    final index = _adapters.indexOf(active);
     _active = null;
     try {
       await active.disconnect();
     } catch (_) {}
     final generation = ++_generation;
-    return _connectInOrder(generation, _adapters.skip(index + 1).toList());
+    // Give every other adapter one chance, including the primary engine when
+    // the active fallback has failed and Xray may have recovered meanwhile.
+    return _connectInOrder(
+      generation,
+      _adapters.where((adapter) => !identical(adapter, active)).toList(),
+    );
   }
 
   Future<void> disconnect() async {
