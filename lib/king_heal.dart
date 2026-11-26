@@ -430,7 +430,7 @@ extension KingHealEngine on _HomePageState {
       return ('connect_now', 'اتصال یتیم — اتصال فوری', params);
     }
     if (ids.contains('empty_queue') || ids.contains('no_healthy')) {
-      if (ids.contains('blacklist') || failed.length > 50) {
+      if (ids.contains('blacklist')) {
         return (
           'soft_clear_and_search',
           'سیاه‌لیست بزرگ + بدون سالم — پاک‌سازی نرم و جستجو',
@@ -543,14 +543,8 @@ extension KingHealEngine on _HomePageState {
           final cut =
               DateTime.now().subtract(const Duration(minutes: 10));
           failed.removeWhere((_, t) => t.isBefore(cut));
-          // اگر هنوز شلوغ است، ۷۰٪ قدیمی‌ها را آزاد کن
-          if (failed.length > 60) {
-            final keys = failed.keys.toList();
-            final removeCount = (keys.length * 0.7).round();
-            for (var i = 0; i < removeCount && i < keys.length; i++) {
-              failed.remove(keys[i]);
-            }
-          }
+          // Never mass-delete recent failures to force a search. Only
+          // entries whose recorded cooldown has actually expired are released.
           dbg('خودترمیمی تهاجمی: سیاه‌لیست → ${failed.length}');
           if (action == 'soft_clear_and_search') {
             abort = false;
@@ -642,7 +636,7 @@ extension KingHealEngine on _HomePageState {
   /// وضعیت انسانی برای UI
   String kingHealStatusLine() {
     final mem = 'برد ${_healMem.wins.values.fold<int>(0, (a, b) => a + b)} / '
-        'باخت ${_healMem.fails.values.fold<int>(0, (a, b) => a + b)';
+        'باخت ${_healMem.fails.values.fold<int>(0, (a, b) => a + b)}';
     final st = _netStateNow(
       connected: connected,
       tunBadNow: tunBad,
