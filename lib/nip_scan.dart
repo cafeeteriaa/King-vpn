@@ -220,6 +220,25 @@ Future<String?> nipResolve(String host) async {
   }
 }
 
+/// Resolve every address family/record for an exact configured hostname.
+Future<List<String>> nipResolveAll(String host) async {
+  final literal = InternetAddress.tryParse(host.trim());
+  if (literal != null) return <String>[literal.address];
+  final out = <String>{};
+  if (!NatNetworkDiagnosis.preferDomestic) {
+    final doh = await dohResolve(host);
+    if (doh != null) out.add(doh);
+  }
+  try {
+    final addresses = await InternetAddress.lookup(host)
+        .timeout(const Duration(seconds: 5));
+    out.addAll(addresses.map((address) => address.address));
+  } catch (_) {
+    // Keep any independently verified DoH result; otherwise report no result.
+  }
+  return out.toList(growable: false);
+}
+
 /// بلوک‌های هاست یک IP را برای نت ملی ذخیره می‌کند (کلید: IP).
 Future<void> natPrefetchAsn(List<Server> list) async {
   var n = 0;
@@ -405,13 +424,14 @@ extension NipHunt on _HomePageState {
         for (final entry in _goldIps.values) entry.ip,
         ...natRelayHosts,
       };
+      await goldLoad();
+      savedIps.addAll(<String>{for (final entry in _goldIps.values) entry.ip});
       for (final server in templates) {
         if (abort) return false;
         if (server.isIp) {
           savedIps.add(server.host);
         } else {
-          final resolved = await nipResolve(server.host);
-          if (resolved != null) savedIps.add(resolved);
+          savedIps.addAll(await nipResolveAll(server.host));
         }
       }
       if (savedIps.isEmpty) {
