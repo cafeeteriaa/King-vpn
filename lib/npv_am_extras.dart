@@ -958,6 +958,31 @@ const _iranMoreDomains = <String>[
   'domain:tgju.org',
 ];
 
+String _stripKingFragmentOutbound(String cfg) {
+  try {
+    final decoded = jsonDecode(cfg);
+    if (decoded is! Map<String, dynamic>) return cfg;
+    final outs = (decoded['outbounds'] as List?) ?? <dynamic>[];
+    for (final outbound in outs) {
+      if (outbound is! Map) continue;
+      final stream = outbound['streamSettings'];
+      if (stream is! Map) continue;
+      final sockopt = stream['sockopt'];
+      if (sockopt is! Map || sockopt['dialerProxy'] != 'frag-out') continue;
+      sockopt.remove('dialerProxy');
+      if (sockopt.isEmpty) {
+        stream.remove('sockopt');
+      } else {
+        stream['sockopt'] = sockopt;
+      }
+    }
+    outs.removeWhere((entry) => entry is Map && entry['tag'] == 'frag-out');
+    return jsonEncode(decoded);
+  } catch (_) {
+    return cfg;
+  }
+}
+
 String withNpvAmCore(String cfg) {
   final moreIr = iranRoute && iranMore;
   if (!fragEnabled &&
@@ -967,7 +992,7 @@ String withNpvAmCore(String cfg) {
       !blockQuic &&
       !lanDirect &&
       !routeOnly) {
-    return cfg;
+    return _stripKingFragmentOutbound(cfg);
   }
   try {
     final j = jsonDecode(cfg);
@@ -1037,6 +1062,63 @@ String withNpvAmCore(String cfg) {
       }
     }
 
+    // Apply one valid app-owned fragment outbound to every TLS/REALITY
+    // proxy outbound, not just the first one in a multi-outbound profile.
+    if (fragEnabled) {
+      final fragmentTargets = <Map>[];
+      for (final outbound in outs) {
+        if (outbound is! Map ||
+            !const {'vmess', 'vless', 'trojan', 'shadowsocks'}
+                .contains(outbound['protocol'])) {
+          continue;
+        }
+        final stream = outbound['streamSettings'];
+        if (stream is! Map) continue;
+        final security = (stream['security'] ?? 'none').toString();
+        if (security == 'tls' || security == 'reality') {
+          fragmentTargets.add(outbound);
+        }
+      }
+      if (fragmentTargets.isNotEmpty) {
+        outs.removeWhere((entry) => entry is Map && entry['tag'] == 'frag-out');
+        outs.add({
+          'tag': 'frag-out',
+          'protocol': 'freedom',
+          'settings': {
+            'fragment': {
+              'packets': 'tlshello',
+              'length': fragLen,
+              'interval': fragInt,
+            }
+          },
+        });
+        for (final outbound in fragmentTargets) {
+          final stream = outbound['streamSettings'] as Map;
+          final sockopt = stream['sockopt'] is Map
+              ? stream['sockopt'] as Map
+              : <String, dynamic>{};
+          sockopt['dialerProxy'] = 'frag-out';
+          stream['sockopt'] = sockopt;
+        }
+      }
+    } else {
+      // Turning the setting off also removes stale app-owned references.
+      for (final outbound in outs) {
+        if (outbound is! Map) continue;
+        final stream = outbound['streamSettings'];
+        if (stream is! Map) continue;
+        final sockopt = stream['sockopt'];
+        if (sockopt is! Map || sockopt['dialerProxy'] != 'frag-out') continue;
+        sockopt.remove('dialerProxy');
+        if (sockopt.isEmpty) {
+          stream.remove('sockopt');
+        } else {
+          stream['sockopt'] = sockopt;
+        }
+      }
+      outs.removeWhere((entry) => entry is Map && entry['tag'] == 'frag-out');
+    }
+
     dynamic proxy;
     for (final o in outs) {
       if (o is Map &&
@@ -1050,25 +1132,6 @@ String withNpvAmCore(String cfg) {
       final st = proxy['streamSettings'];
       final sec = st is Map ? (st['security'] ?? 'none').toString() : 'none';
       final net = st is Map ? (st['network'] ?? 'tcp').toString() : 'tcp';
-      if (fragEnabled && st is Map && (sec == 'tls' || sec == 'reality')) {
-        // frag-out is an app-owned tag: replace stale/duplicate definitions so
-        // the proxy always references one valid freedom fragmentation outbound.
-        outs.removeWhere((entry) => entry is Map && entry['tag'] == 'frag-out');
-        outs.add({
-          'tag': 'frag-out',
-          'protocol': 'freedom',
-          'settings': {
-            'fragment': {
-              'packets': 'tlshello',
-              'length': fragLen,
-              'interval': fragInt,
-            }
-          },
-        });
-        final so = st['sockopt'] is Map ? st['sockopt'] as Map : <String, dynamic>{};
-        so['dialerProxy'] = 'frag-out';
-        st['sockopt'] = so;
-      }
       // MUXWORKER: کلودفلر (workers.dev) mux را نمی‌پذیرد؛ برای آن mux خاموش است
       if (muxEnabled && (net == 'tcp' || net == 'ws') && !_isWorkerOutbound(proxy)) {
         var flow = '';
