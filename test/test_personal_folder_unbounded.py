@@ -10,15 +10,17 @@ class PersonalFolderUnboundedInventoryTests(unittest.TestCase):
         self.assertNotIn("kPersonalFolderCap", source)
         self.assertNotIn("kPersonalShowCap", source)
         self.assertNotIn("length >=", source)
-        self.assertIn("append-only", source)
-        self.assertIn("personal_folder.jsonl", source)
+        self.assertIn("personal_servers.jsonl", source)
+        self.assertIn("capacity", source)
 
     def test_journal_supports_incremental_add_remove_and_legacy_migration(self):
         source = (ROOT / "lib" / "personal_folder.dart").read_text(encoding="utf-8")
-        self.assertIn("FileMode.append", source)
-        self.assertIn("row['op'] == 'add'", source)
-        self.assertIn("row['op'] == 'remove'", source)
-        self.assertIn("prefs.remove(_kPersonalFolderPref)", source)
+        self.assertIn("file.open(mode: FileMode.append)", source)
+        self.assertIn("FileLock.exclusive", source)
+        self.assertIn("decoded['op']", source)
+        self.assertIn("op == 'add'", source)
+        self.assertIn("op == 'remove'", source)
+        self.assertIn("p.remove(_kPersonalFolderPref)", source)
         self.assertIn("LineSplitter()", source)
 
     def test_main_path_uses_entire_personal_folder(self):
