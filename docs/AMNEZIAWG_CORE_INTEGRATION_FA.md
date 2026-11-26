@@ -2,10 +2,17 @@
 
 وضعیت: ممیزی upstream و طراحی adapter؛ **هنوز هسته در KING VPN ادغام یا روی دستگاه آزمایش نشده است.**
 
+## آخرین نسخهٔ پایدار upstream بررسی‌شده (ممیزی 2026-11-26)
+
+- آخرین release رسمی Android: `v3.1.20260814`؛ وضعیت GitHub: Latest stable.
+- commit دقیق این tag: `5c16489e2cd9ed3a0a7a27c7445bba5238132f86`.
+- API JNI در همین release با wrapper فعلی `AmneziaWgNative.java` تطبیق داده شد.
+- Go module در این release روی `amneziawg-go/v3 v3.1.20260814` و Go `1.25.0` است؛ Makefile upstream هنوز Go `1.24.2` pin کرده و این ناسازگاری باید پیش از ساخت native رفع و checksum ابزار ثبت شود.
+
 ## منابع upstream بررسی‌شده
 
 - مخزن Android رسمی: [amnezia-vpn/amneziawg-android](https://github.com/amnezia-vpn/amneziawg-android)، مجوز مخزن Apache-2.0.
-- commit بررسی‌شدهٔ مخزن: `ff15093bf3856fea0947923474870b86efb682f0`.
+- commit بررسی‌شدهٔ مخزن: `5c16489e2cd9ed3a0a7a27c7445bba5238132f86`.
 - API JNI در `tunnel/src/main/java/org/amnezia/awg/GoBackend.java`:
   - `awgTurnOn(ifName, tunFd, settings)`
   - `awgTurnOff(handle)`
@@ -70,7 +77,7 @@
 
 ### سه برخورد نام باینری، نه فقط یکی
 
-در upstream commit `ff15093bf3856fea0947923474870b86efb682f0`، فایل `tunnel/tools/CMakeLists.txt` سه خروجی native تعریف می‌کند:
+در upstream commit `5c16489e2cd9ed3a0a7a27c7445bba5238132f86`، فایل `tunnel/tools/CMakeLists.txt` سه خروجی native تعریف می‌کند:
 
 - `libwg-go.so`
 - `libwg.so`
