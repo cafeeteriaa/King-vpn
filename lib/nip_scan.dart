@@ -445,47 +445,50 @@ extension NipHunt on _HomePageState {
       {required int port, required String label, bool front = false}) async {
     if (ips.isEmpty || tpls.isEmpty) return false;
     _set('نت ملی: جستجوی $label روی ${ips.length} آدرس، پورت $port…');
-    final hits = await nipScan(
-      ips,
-      port: port,
-      concurrency: natAdaptiveConcurrency(0),
-      timeout: const Duration(milliseconds: 1500),
-      cancelled: () => abort,
-    );
-    if (abort) return false;
-    if (hits.isEmpty) {
-      _set('نت ملی: هیچ endpoint پاسخ‌گوی TCP برای $label پیدا نشد');
-      return false;
-    }
-
-    for (var i = 0; i < hits.length; i++) {
+    const batchSize = 256;
+    var totalHits = 0;
+    var checkedHits = 0;
+    for (var offset = 0; offset < ips.length; offset += batchSize) {
       if (abort) return false;
-      final hit = hits[i];
-      final template = tpls[i % tpls.length];
-      final links = <String?>[
-        nipSwapLink(template, hit.ip, port: port),
-      ];
-      if (front) {
-        final sni = await nipFindFrontSni(hit.ip, port);
+      final batch = ips.skip(offset).take(batchSize).toList(growable: false);
+      final hits = await nipScan(
+        batch,
+        port: port,
+        concurrency: natAdaptiveConcurrency(0),
+        timeout: const Duration(milliseconds: 1500),
+        cancelled: () => abort,
+      );
+      if (abort) return false;
+      totalHits += hits.length;
+      for (final hit in hits) {
         if (abort) return false;
-        if (sni != null) {
-          links.add(nipSwapSni(template, hit.ip, sni, port: port));
+        checkedHits++;
+        final template = tpls[(offset + checkedHits) % tpls.length];
+        final links = <String?>[
+          nipSwapLink(template, hit.ip, port: port),
+        ];
+        if (front) {
+          final sni = await nipFindFrontSni(hit.ip, port);
+          if (abort) return false;
+          if (sni != null) {
+            links.add(nipSwapSni(template, hit.ip, sni, port: port));
+          }
         }
-      }
-      for (final link in links) {
-        if (abort) return false;
-        if (link == null) continue;
-        final parsed = Server.parse(link);
-        if (parsed == null) continue;
-        _set('نت ملی: آزمون Core/TUN برای IP ${i + 1}/${hits.length} • ${hit.ip}:$port');
-        if (await _connectLoop(<Server>[parsed], trust: false)) {
-          final winner = current;
-          if (winner != null) _natAdd(winner);
-          return true;
+        for (final link in links) {
+          if (abort) return false;
+          if (link == null) continue;
+          final parsed = Server.parse(link);
+          if (parsed == null) continue;
+          _set('نت ملی: آزمون Core/TUN برای endpoint $checkedHits • ${hit.ip}:$port');
+          if (await _connectLoop(<Server>[parsed], trust: false)) {
+            final winner = current;
+            if (winner != null) _natAdd(winner);
+            return true;
+          }
         }
       }
     }
-    _set('نت ملی: تمام ${hits.length} پاسخ TCP بررسی شد؛ هیچ اتصال واقعی تأیید نشد');
+    _set('نت ملی: تمام $checkedHits پاسخ TCP بررسی شد؛ هیچ اتصال واقعی تأیید نشد');
     return false;
   }
 }
