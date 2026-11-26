@@ -4078,9 +4078,9 @@ Future<double?> measure(
     int maxBytes = 0,
     bool direct = false,
     bool viaCore = false}) async {
-  // viaCore / default when VPN is up: always hit the core's local HTTP proxy
-  // so we test the REAL outbound. DIRECT from the VPN app often bypasses the
-  // tunnel on Android and gives false "OK" while Telegram/apps still hang.
+  // Xray uses its local HTTP inbound for outbound verification. Engines that
+  // own a system TUN without that inbound (WireGuard/libbox) must use DIRECT,
+  // which the Android VPN routes through their active TUN.
   final useProxy = await _useCoreProxy((viaCore || !direct) && !_kingWireGuardActive && !_kingSingBoxActive);
   final c = HttpClient()
     ..findProxy = ((_) =>
@@ -4113,7 +4113,7 @@ String lastPingErr = '';
 // SPEEDSWITCHPATCH: does a real site answer through the tunnel?
 // (only the headers are read, then the connection is closed)
 Future<bool> _siteOpens(String url, {bool viaCore = true}) async {
-  // Default viaCore=true: verify through the core proxy (real tunnel path)
+  // Xray uses its local proxy; WireGuard/libbox use the active system TUN.
   final useProxy = await _useCoreProxy(viaCore && !_kingWireGuardActive && !_kingSingBoxActive);
   final c = HttpClient()
     ..findProxy = ((_) =>
