@@ -5933,11 +5933,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     _lastOwnStop = DateTime.now();
     _dropDeferred = false;
     try {
-      if (Platform.isAndroid) {
-        try { await _kingWireGuardCore.disconnect().timeout(const Duration(seconds: 8)); }
-        catch (wgError, wgStack) { logError(wgError, wgStack); }
+      if (Platform.isAndroid && _kingWireGuardActive) {
+        await _kingWireGuardCore.disconnect().timeout(const Duration(seconds: 8));
+        _kingWireGuardActive = false;
       }
-      _kingWireGuardActive = false;
       if (kOwnVpnService) await ownVpnStop(); // KINGVPN
       await v2ray.stopV2Ray().timeout(const Duration(seconds: 8), onTimeout: () {});
     } catch (_swE) { _swl('_stopV2#1', _swE);}
