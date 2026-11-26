@@ -348,13 +348,13 @@ class KingVpnGateCsvParser {
     final rows = _decodeCsv(payload);
     if (rows.isEmpty) return const [];
     final headerIndex = rows.indexWhere((row) => row.any(
-      (cell) => cell.replaceFirst(RegExp(r'^\\uFEFF'), '')
+      (cell) => cell.replaceFirst(RegExp(r'^\uFEFF'), '')
           .replaceFirst(RegExp(r'^#'), '').trim().toLowerCase() == 'hostname',
     ));
     if (headerIndex < 0) return const [];
 
     final headers = rows[headerIndex].map((cell) => cell
-        .replaceFirst(RegExp(r'^\\uFEFF'), '')
+        .replaceFirst(RegExp(r'^\uFEFF'), '')
         .replaceFirst(RegExp(r'^#'), '')
         .trim()).toList(growable: false);
     final indexes = <String, int>{
@@ -410,7 +410,7 @@ class KingVpnGateCsvParser {
     var row = <String>[];
     final cell = StringBuffer();
     var quoted = false;
-    final text = input.replaceFirst(RegExp(r'^\\uFEFF'), '');
+    final text = input.replaceFirst(RegExp(r'^\uFEFF'), '');
     for (var i = 0; i < text.length; i++) {
       final char = text[i];
       if (quoted) {
@@ -431,8 +431,8 @@ class KingVpnGateCsvParser {
       } else if (char == ',') {
         row.add(cell.toString());
         cell.clear();
-      } else if (char == '\\n' || char == '\\r') {
-        if (char == '\\r' && i + 1 < text.length && text[i + 1] == '\\n') i++;
+      } else if (char == '\n' || char == '\r') {
+        if (char == '\r' && i + 1 < text.length && text[i + 1] == '\n') i++;
         row.add(cell.toString());
         cell.clear();
         rows.add(row);
