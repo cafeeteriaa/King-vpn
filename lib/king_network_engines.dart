@@ -150,6 +150,7 @@ class KingNetworkEngineCatalog {
       priority: 70,
       summary: 'کلاینت رسمی Android وجود دارد، اما API عمومی برای جاسازی WARP در کلاینت ثالث تأیید نشده است.',
       sourceUrl: 'https://developers.cloudflare.com/warp-client/',
+      requiresSeparateVpnOwner: true,
     ),
     KingEngineDescriptor(
       id: 'avira_phantom',
@@ -159,6 +160,7 @@ class KingNetworkEngineCatalog {
       priority: 80,
       summary: 'سرویس تجاری با کلاینت اختصاصی؛ SDK عمومی قابل‌ادغام در این بررسی تأیید نشد.',
       sourceUrl: 'https://www.avira.com/',
+      requiresSeparateVpnOwner: true,
     ),
     KingEngineDescriptor(
       id: 'shroudly',
