@@ -287,7 +287,7 @@ class KingServerPayloadParser {
     for (final item in allowedIps) {
       final parts = item.trim().split('/');
       if (parts.length != 2) return false;
-      final address = InternetAddress.tryParse(parts[0].trim());
+      final address = InternetAddress.tryParse(parts[0]);
       final prefix = int.tryParse(parts[1].trim());
       if (address == null || prefix == null) return false;
       final maxPrefix = address.type == InternetAddressType.IPv4 ? 32 : 128;
