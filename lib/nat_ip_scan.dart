@@ -21,6 +21,7 @@
 import 'dart:async';
 import 'dart:io';
 import 'dart:math';
+import 'dart:typed_data';
 
 import 'errjournal.dart';
 import 'nnie_core.dart'; // natStableSort
@@ -116,7 +117,7 @@ List<int> _natBigIntToAddress(BigInt value, int length) {
       start + offset + BigInt.from(i),
       bytes,
     );
-    addresses.add(InternetAddress.fromRawAddress(address).address);
+    addresses.add(InternetAddress.fromRawAddress(Uint8List.fromList(address)).address);
   }
   final next = (offset + BigInt.from(count)) % span;
   return (addresses: addresses, nextCursor: next.toString());
