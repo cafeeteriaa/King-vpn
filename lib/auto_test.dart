@@ -1964,7 +1964,10 @@ static void _resetCoreDeadStreak() { _atCoreDeadStreak = 0; }
         final key = _nk(s);
         final f = _NatFacts(s);
         if (pass == 0) total++;
-        autoTestProgress.value = i / (list.isEmpty ? 1 : list.length);
+        final localProgress = list.isEmpty ? 0.0 : i / list.length;
+        autoTestProgress.value = _atTotalSteps == 0
+            ? 0
+            : (_atCompletedSteps + localProgress) / _atTotalSteps;
         autoTestText.value =
             'حالت‌ها (${g}) ${i + 1}/${list.length} • ${s.name} • مانده: ${untried.length}';
 
@@ -2078,7 +2081,9 @@ static void _resetCoreDeadStreak() { _atCoreDeadStreak = 0; }
         'بدون هیچ‌کدام $brokenServers • $mins دقیقه');
     if (perLine.isNotEmpty) rows.insert(2, perLine.join(' • '));
     _itemResult[name] = rows.join('\n');
-    autoTestProgress.value = 1;
+    autoTestProgress.value = _atTotalSteps == 0
+        ? 0
+        : (_atCompletedSteps + 1) / _atTotalSteps;
   }
 
   Future<void> _atItemNatModes() async {
