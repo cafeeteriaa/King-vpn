@@ -34,15 +34,103 @@ class NatIpHit {
   String toString() => '$ip ($ms ms)';
 }
 
-/// بلوک CIDR مثل «5.160.0.0/16» را به فهرست IP تبدیل می‌کند.
-/// برای بلوک‌های بزرگ، فقط [maxPerBlock] آدرس پراکنده برمی‌گرداند.
+BigInt _natAddressToBigInt(List<int> bytes) {
+  var value = BigInt.zero;
+  for (final byte in bytes) {
+    value = (value << 8) | BigInt.from(byte);
+  }
+  return value;
+}
+
+List<int> _natBigIntToAddress(BigInt value, int length) {
+  final bytes = List<int>.filled(length, 0);
+  for (var i = length - 1; i >= 0; i--) {
+    bytes[i] = (value & BigInt.from(255)).toInt();
+    value >>= 8;
+  }
+  return bytes;
+}
+
+({List<String> addresses, String nextCursor}) _natExpandAddressRangeBatch(
+  String input, {
+  required String cursor,
+  required int limit,
+}) {
+  if (limit <= 0) return (addresses: <String>[], nextCursor: cursor);
+  final value = input.trim();
+  InternetAddress? first;
+  InternetAddress? last;
+  int? prefix;
+  if (value.contains('/')) {
+    final parts = value.split('/');
+    if (parts.length != 2) return (addresses: <String>[], nextCursor: cursor);
+    first = InternetAddress.tryParse(parts[0].trim());
+    prefix = int.tryParse(parts[1].trim());
+    if (first == null || prefix == null) {
+      return (addresses: <String>[], nextCursor: cursor);
+    }
+  } else if (value.contains('-')) {
+    final parts = value.split('-');
+    if (parts.length != 2) return (addresses: <String>[], nextCursor: cursor);
+    first = InternetAddress.tryParse(parts[0].trim());
+    last = InternetAddress.tryParse(parts[1].trim());
+    if (first == null || last == null || first.type != last.type) {
+      return (addresses: <String>[], nextCursor: cursor);
+    }
+  } else {
+    first = InternetAddress.tryParse(value);
+    if (first == null) return (addresses: <String>[], nextCursor: cursor);
+    last = first;
+  }
+
+  final bytes = first.rawAddress.length;
+  final bits = bytes * 8;
+  if (last != null && last.rawAddress.length != bytes) {
+    return (addresses: <String>[], nextCursor: cursor);
+  }
+  final base = _natAddressToBigInt(first.rawAddress);
+  late final BigInt start;
+  late final BigInt span;
+  if (prefix != null) {
+    if (prefix < 0 || prefix > bits) {
+      return (addresses: <String>[], nextCursor: cursor);
+    }
+    final hostBits = bits - prefix;
+    span = BigInt.one << hostBits;
+    start = (base >> hostBits) << hostBits;
+  } else {
+    final end = _natAddressToBigInt(last!.rawAddress);
+    if (end < base) return (addresses: <String>[], nextCursor: cursor);
+    start = base;
+    span = end - base + BigInt.one;
+  }
+
+  var offset = BigInt.tryParse(cursor) ?? BigInt.zero;
+  offset = offset % span;
+  final remaining = span - offset;
+  final count = min(BigInt.from(limit), remaining).toInt();
+  final addresses = <String>[];
+  for (var i = 0; i < count; i++) {
+    final address = _natBigIntToAddress(
+      start + offset + BigInt.from(i),
+      bytes,
+    );
+    addresses.add(InternetAddress.fromRawAddress(address).address);
+  }
+  final next = (offset + BigInt.from(count)) % span;
+  return (addresses: addresses, nextCursor: next.toString());
+}
+
+/// Full IPv4/IPv6 CIDR and address-range expansion by default. An explicit
+/// maxPerBlock/maxCount requests one page; cursor batches keep large ranges
+/// resumable without materializing the complete range in memory.
 List<String> _natExpandRangeAll(String range, {int? batchLimit}) {
   final batchSize = batchLimit ?? 4096;
   if (batchSize <= 0) return const <String>[];
   final out = <String>[];
   var cursor = '0';
   while (true) {
-    final batch = natExpandAddressRangeBatch(
+    final batch = _natExpandAddressRangeBatch(
       range,
       cursor: cursor,
       limit: batchSize,
@@ -58,12 +146,12 @@ List<String> _natExpandRangeAll(String range, {int? batchLimit}) {
   return out;
 }
 
-/// Full CIDR expansion by default. An explicit maxPerBlock requests one batch only.
+/// Full CIDR expansion by default. An explicit maxPerBlock requests one page.
 List<String> natExpandCidr(String cidr, {int? maxPerBlock}) =>
     _natExpandRangeAll(cidr, batchLimit: maxPerBlock);
 
 /// Full IPv4/IPv6 address-range expansion by default. An explicit maxCount
-/// requests one batch only; the manual scanner uses the resumable batch API.
+/// requests one page only; the manual scanner uses resumable batches.
 List<String> natExpandDash(String range, {int? maxCount}) =>
     _natExpandRangeAll(range, batchLimit: maxCount);
 
