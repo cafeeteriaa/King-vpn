@@ -10543,7 +10543,8 @@ ListTile( // KINGEXTRAS row
   Future<void> _natMemoryReuse() async {
     try {
       final have = {
-        for (final s in [...pending, ...natRestPending]) '${s.host}|${s.port}'
+        for (final s in (nationalMode ? natRestPending : [...pending, ...good]))
+          '${s.host}|${s.port}'
       };
       await natNationalIpMemLoad();
       final items = <String>[];
@@ -10557,11 +10558,7 @@ ListTile( // KINGEXTRAS row
       }
       if (items.isEmpty) return;
       if (natNationalTemplateSeeds.isEmpty) {
-        natNationalTemplateSeeds = [
-          ...good,
-          ...pending,
-          ...natRestPending,
-        ];
+        natNationalTemplateSeeds = [...natRestPending];
       }
       final before = pending.length;
       await _natRangeAdd(items, count: false);
@@ -10580,7 +10577,10 @@ ListTile( // KINGEXTRAS row
     }
     final tpl = <Server>[];
     final seenTemplates = <String>{};
-    for (final server in [...pending, ...natRestPending, ...natCurrentTemplateSeeds(), ...good]) {
+    final activeTemplates = nationalMode
+        ? <Server>[...natRestPending, ...natNationalTemplateSeeds]
+        : <Server>[...pending, ...good, ...natGlobalTemplateSeeds];
+    for (final server in activeTemplates) {
       // Generic IP grafting is not valid for REALITY or Shadowsocks profiles.
       if (server.reality || server.link.toLowerCase().startsWith('ss://')) continue;
       if (seenTemplates.add(server.key)) tpl.add(server);
@@ -10591,7 +10591,7 @@ ListTile( // KINGEXTRAS row
     }
     final made = <Server>[];
     final seenMade = <String>{};
-    final existingKeys = {for (final server in [...pending, ...natRestPending, ...good]) server.key};
+    final existingKeys = {for (final server in (nationalMode ? natRestPending : [...pending, ...good])) server.key};
     var templateCursor = natRangeTemplateCursor;
     for (final item in items) {
       final parts = item.split('|');
@@ -10617,7 +10617,11 @@ ListTile( // KINGEXTRAS row
     natRangeTemplateCursor = templateCursor % tpl.length;
     if (made.isEmpty) return;
     if (count) natIpFound += items.length;
-    pending = [...made, ...pending];
+    if (nationalMode) {
+      natRestPending = [...made, ...natRestPending];
+    } else {
+      pending = [...made, ...pending];
+    }
     // No destructive queue truncation: every generated profile remains available.
   }
 
