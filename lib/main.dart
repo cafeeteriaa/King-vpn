@@ -5,6 +5,7 @@ import 'king_ai_console.dart';
 import 'king_chat_page.dart';
 import 'king_wireguard_page.dart';
 import 'king_sing_box_page.dart';
+import 'king_sing_box_core.dart';
 import 'king_ai_background.dart';
 import 'king_ai_owner_auth.dart';
 import 'king_command_safety.dart';
@@ -72,6 +73,7 @@ part 'national_engine.dart'; // NNIE: هوشمندسازی حالت موجود �
 final KingWireGuardCore _kingWireGuardCore = KingWireGuardCore();
 bool _kingWireGuardActive = false;
 bool _kingWireGuardStopFailed = false;
+bool _kingSingBoxActive = false;
 
 // One rewarded ad = one 4 hour session. When the 4 hours end the VPN is cut
 // and the next connect shows the ad again. Automatic server switches (bad
@@ -638,10 +640,10 @@ set lastFail(String v) {
 // links pasted with extra text around them ("@channel vless://...") are
 // cleaned: the first vmess/vless/trojan/ss link inside the text is used
 final _schemeRe = RegExp(
-    r'^(vmess|vless|trojan|ss)://',
+    r'^(vmess|vless|trojan|ss|hysteria2|hy2|tuic)://',
     caseSensitive: false);
 final _linkRe = RegExp(
-    r'(vmess|vless|trojan|ss)://[^\s<>"]+',
+    r'(vmess|vless|trojan|ss|hysteria2|hy2|tuic)://[^\s<>"]+',
     caseSensitive: false);
 
 // fast search state: if the parallel delay test never finds anything on this
@@ -3620,6 +3622,8 @@ class Server {
   String get useLink => ipLink ?? link;
   bool get isIp => InternetAddress.tryParse(host) != null;
   bool wireGuard = false;
+  bool singBox = false;
+  bool get isXray => !wireGuard && !singBox;
   bool get reality => link.contains('security=reality');
 
   bool get cdn {
@@ -3654,7 +3658,11 @@ class Server {
     country = detectCountry(name);
   }
 
-  String get key => wireGuard ? 'wireguard:$host:$port' : '$host:$port';
+  String get key {
+    if (wireGuard) return 'wireguard:$host:$port';
+    if (singBox) return 'singbox:${Uri.tryParse(link)?.scheme ?? 'unknown'}:$host:$port';
+    return '$host:$port';
+  }
 
   // SERVERCACHE-SAFE: کش Server. کش هرگز خود نمونه را نگه نمی‌دارد، فقط یک کپی
   // از لحظه‌ی پارس؛ هر بار روی hit یک نمونه‌ی تازه ساخته می‌شود تا تغییرات
@@ -3684,6 +3692,7 @@ class Server {
     final c = Server(s.link, s.name, s.host, s.port);
     c.tls = s.tls;
     c.wireGuard = s.wireGuard;
+    c.singBox = s.singBox;
     c.sni = s.sni;
     c.net = s.net;
     c.country = s.country;
@@ -3707,6 +3716,9 @@ class Server {
         return server;
       }
       link = npvClean(link);
+      if (link.toLowerCase().startsWith('hy2://')) {
+        link = 'hysteria2://${link.substring(6)}';
+      }
       // pasted with extra text around it ("@channel vless://...")
       if (!_schemeRe.hasMatch(link)) {
         final m = _linkRe.firstMatch(link);
@@ -3722,7 +3734,9 @@ class Server {
       if (!(l.startsWith('vmess://') ||
           l.startsWith('vless://') ||
           l.startsWith('trojan://') ||
-          l.startsWith('ss://'))) {
+          l.startsWith('ss://') ||
+          l.startsWith('hysteria2://') ||
+          l.startsWith('tuic://'))) {
         return null;
       }
       if (l.startsWith('vmess://')) {
@@ -3769,6 +3783,12 @@ class Server {
           (l.startsWith('trojan://') && sec != 'none');
       sv.sni = q['sni'] ?? q['host'] ?? '';
       sv.net = q['type'] ?? 'tcp';
+      if (l.startsWith('hysteria2://') || l.startsWith('tuic://')) {
+        sv.singBox = true;
+        sv.tls = true;
+        sv.net = 'udp';
+        sv.sni = q['sni'] ?? q['peer'] ?? '';
+      }
       if (sv.tls) sv.score += 2;
       if (!sv.tls && sv.net == 'tcp') sv.score -= 4;
       // obviously broken configs are dropped here (no test is wasted on them)
@@ -5209,7 +5229,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   String _backupsJson(Server cur) {
     final out = <Map<String, String>>[];
     for (final x in _usable()) {
-      if (identical(x, cur)) continue;
+      if (identical(x, cur) || x.singBox) continue;
       try {
         out.add({
           'config': buildCoreConfig(x.useLink),
@@ -5980,8 +6000,21 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   Future<void> _stopCoreInner() async {
     // جدید: wait for the real DISCONNECTED event (not just a fixed delay), so
     // the next start can never race with the old VPN service still closing
+    final wasSingBoxUp = _kingSingBoxActive;
+    if (wasSingBoxUp) {
+      try {
+        await KingSingBoxCore.instance.disconnect();
+        _kingSingBoxActive = false;
+      } catch (e, st) {
+        logError(e, st);
+        _staleCoreMayBeUp = true;
+        lastState = 'CONNECTED';
+        throw StateError('sing-box did not confirm DOWN; refusing to start another VPN engine');
+      }
+    }
     final wasWireGuardUp = _kingWireGuardActive;
-    final wasUp = !wasWireGuardUp && (lastState == 'CONNECTED' || lastState == 'CONNECTING');
+    final wasUp = !wasWireGuardUp && !wasSingBoxUp &&
+        (lastState == 'CONNECTED' || lastState == 'CONNECTING');
     if (wasUp) downSig = Completer<bool>();
     await _stopV2();
     if (wasWireGuardUp && _kingWireGuardStopFailed) {
@@ -5989,7 +6022,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       lastState = 'CONNECTED';
       throw StateError('WireGuard did not confirm DOWN; refusing to start another VPN engine');
     }
-    var gotDown = wasWireGuardUp || !wasUp;
+    var gotDown = wasWireGuardUp || wasSingBoxUp || !wasUp;
     if (wasUp && downSig != null) {
       // RARE BUG FIX: complete on timeout so a late DISCONNECTED cannot
       // complete a future stop's downSig
@@ -7416,6 +7449,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     final alive = <Server>[];
     await pool<Server>(batch, tcpWorkers, (s) async {
       if (abort) return;
+      if (s.singBox) {
+        alive.add(s);
+        return;
+      }
       // NATSWAP: نت ملی + کانفیگ CDN (SNI/Host): اگر DNS آن IP بسته بدهد، IP آن
       // قابل عوض شدن است؛ پس حذف نمی‌شود و مرحله‌ی جایگزینی IP امتحانش می‌کند.
       // کانفیگ‌های مستقیم (TCP/REALITY) که خود IP:پورتشان بسته است حذف می‌شوند.
@@ -7461,8 +7498,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       {String? row}) async {  // AIQUICKPATCH
     // IP servers: cheap TCP check (no DNS involved). Domain servers go
     // straight to the core test, like v2rayNG.
-    final ipList = batch.where((s) => s.isIp).toList();
-    final alive = batch.where((s) => !s.isIp).toList();
+    final singBoxBatch = batch.where((s) => s.singBox).toList();
+    final regularBatch = batch.where((s) => !s.singBox).toList();
+    final ipList = regularBatch.where((s) => s.isIp).toList();
+    final alive = regularBatch.where((s) => !s.isIp).toList();
     final batchSw = Stopwatch()..start(); // WATCHDOG
     final myGen = batchGen; // BATCHGEN-FIX
     bool stale() => myGen != batchGen; // این دسته رها شده؟
@@ -7511,7 +7550,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     dTcp += alive.length;
     realTested = 0;
     realTotal = alive.length;
-    final skipped = <Server>[];
+    final skipped = <Server>[]..addAll(singBoxBatch);
     final okNow = <Server>[];
     var slowNow = 0; // BADPINGLOOP
     // NATPOOL: در نت ملی هر سرور ماتریس چندده حالته دارد و همه روی یک هسته اجرا می‌شوند.
@@ -7555,6 +7594,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     }
     await pool<Server>(alive, gateMax,
         (s) async {
+      if (s.singBox) {
+        skipped.add(s);
+        return;
+      }
       // DEADSKIP: نت ملی سرورهایی را که اخیراً شکست خورده‌اند تا پایان failWindow دوباره تست نمی‌کند
       if (abort || stale() || enough() || (smartOrder && _srcDead(s)) ||
           (nationalMode && (_recentFail(s) || _bad(s)))) {
@@ -7673,8 +7716,14 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       }
     }
     // FREEZEFIX: skipped servers go to the END of the queue, never the front.
-    // Putting them at the front made the same batch come back forever.
-    pending.addAll(skipped);
+    // libbox links are tested with their own engine, never through Xray's delay API.
+    final singBoxPending = skipped.where((s) => s.singBox).toList();
+    pending.addAll(skipped.where((s) => !s.singBox));
+    if (!abort && wantVpn && !connected && singBoxPending.isNotEmpty && !enough()) {
+      await _testBatchSeq(singBoxPending, enough, keepUp: false, row: row);
+    } else {
+      pending.addAll(singBoxPending);
+    }
     // BADPINGLOOP: found some, but all of them had a bad ping -> the next
     // quick test starts right away (the search loop keeps going)
     if (okNow.isEmpty && slowNow > 0) {
@@ -7705,15 +7754,19 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     final tried = <Server>{};
     for (final s in alive) {
       if (abort || enough()) break;
+      if (s.singBox && connected && !identical(current, s)) {
+        pending.add(s);
+        continue;
+      }
       if (tunFailRun >= 6) {
         logError('اندروید تونل VPN نمی‌سازد؛ اپ را ببند و دوباره باز کن');
         break;
       }
       tried.add(s);
-            final tunnelMode = viaVpn && row != 'r:ai';
+            final tunnelMode = s.singBox || (viaVpn && row != 'r:ai');
       _set('تست ${realTested + 1}/${alive.length} • TCP:$dTcp • '
           'سالم:${_usable().length}${tunnelMode ? ' • VPN' : ''}');
-      if (ipMode && s.ipLink == null && !s.ipTried) {
+      if (!s.singBox && ipMode && s.ipLink == null && !s.ipTried) {
         s.ipTried = true;
         s.ipLink = await ipLinkFor(s);
       }
@@ -7758,17 +7811,20 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           keepUp &&
           nationalMode &&
           (row != 'r:ai' || s.ai == true)) {
-        // NATVERIFY: سرور قبل از «سالم» شدن باید ترافیک واقعی تونل بدهد. اگر حالت فعلی نداد،
-        // نردبان حالت‌ها و جایگزین‌ها همین‌جا (قبل از اعلام سلامت) روی همین سرور امتحان می‌شود.
+        // Every engine must pass a real data-plane check. The NAT variant ladder
+        // is Xray-specific; libbox is verified directly without feeding its URI
+        // into Xray config generation.
         var natOk = await _tunnelTrafficOk();
-        final natOverBudget = natVerifyClock.elapsed > kNatVerifyBudget;
-        if (!natOk && natOverBudget && wantVpn) {
-          dbg('NATVERIFY: سقف زمان تأیید تونل (${kNatVerifyBudget.inMinutes} دقیقه) در این تپ تمام شد؛ نردبان برای ${s.name} اجرا نشد');
-        } else if (!natOk && wantVpn && !abort) {
-          await _stopCore();
-          natOk = await _natLadder(s, socialGate: _tunnelTrafficOk);
-        } else if (!natOk && !wantVpn) {
-          natOk = true; // جستجوی بی‌اتصال: رفتار قبلی (فقط پینگ) حفظ شود
+        if (s.isXray) {
+          final natOverBudget = natVerifyClock.elapsed > kNatVerifyBudget;
+          if (!natOk && natOverBudget && wantVpn) {
+            dbg('NATVERIFY: سقف زمان تأیید تونل (${kNatVerifyBudget.inMinutes} دقیقه) در این تپ تمام شد؛ نردبان برای ${s.name} اجرا نشد');
+          } else if (!natOk && wantVpn && !abort) {
+            await _stopCore();
+            natOk = await _natLadder(s, socialGate: _tunnelTrafficOk);
+          } else if (!natOk && !wantVpn) {
+            natOk = true;
+          }
         }
         if (natOk) {
           _record(s, d);
@@ -8289,9 +8345,54 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       lastFail = 'اتصال توسط کاربر خواسته نشده بود';
       return false;
     }
-    if (_kingWireGuardActive && !s.wireGuard) {
+    if (_kingWireGuardActive && !s.wireGuard && !s.singBox) {
       lastFail = 'هستهٔ WireGuard هنوز فعال است؛ تا تأیید توقف، هستهٔ دیگری شروع نمی‌شود';
       return false;
+    }
+    if (s.singBox) {
+      if (proxyOnly || proxyMode) {
+        lastFail = 'sing-box برای تونل کامل Android آماده شده است و مسیر پراکسی محلی هنوز متصل نشده';
+        return false;
+      }
+      if (abort || !wantVpn) return false;
+      try {
+        await _stopCore();
+        if (_staleCoreMayBeUp) {
+          throw StateError('Previous VPN engine did not confirm DOWN');
+        }
+        if (abort || !wantVpn) return false;
+        await KingSingBoxCore.instance.connect(s.link);
+        if (!KingSingBoxCore.instance.isConnected) {
+          throw StateError('libbox did not confirm CONNECTED');
+        }
+        if (abort || !wantVpn) {
+          await KingSingBoxCore.instance.disconnect();
+          _kingSingBoxActive = false;
+          lastState = 'DISCONNECTED';
+          kVpnLastStateTop = 'DISCONNECTED';
+          return false;
+        }
+        _kingSingBoxActive = true;
+        lastState = 'CONNECTED';
+        kVpnLastStateTop = 'CONNECTED';
+        tunWarn = false;
+        dbg('KING CORE: sing-box/libbox UP • ${await KingSingBoxCore.instance.version()}');
+        return true;
+      } catch (sbError, sbStack) {
+        logError(sbError, sbStack);
+        var stopped = false;
+        try {
+          await KingSingBoxCore.instance.disconnect();
+          stopped = true;
+        } catch (stopError, stopStack) {
+          logError(stopError, stopStack);
+        }
+        _kingSingBoxActive = !stopped && KingSingBoxCore.instance.isConnected;
+        lastState = _kingSingBoxActive ? 'CONNECTED' : 'DISCONNECTED';
+        kVpnLastStateTop = lastState;
+        lastFail = 'sing-box: ${sbError}';
+        return false;
+      }
     }
     if (s.wireGuard) {
       if (proxyOnly || proxyMode) { lastFail = 'WireGuard به تونل کامل VPN نیاز دارد و حالت پراکسی محلی ندارد'; return false; }
@@ -8791,13 +8892,13 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     final nnieElapsedMs = _nnieFinishAttempt(s);
     if (_listPartial) unawaited(_fetchFullListBg());
     // IP کارا به حافظه (هم در نت جهانی و هم در نت ملی؛ دفعه‌ی بعد اول از همین‌ها استفاده می‌شود)
-    if (!s.wireGuard && InternetAddress.tryParse(s.host) != null) {
+    if (s.isXray && InternetAddress.tryParse(s.host) != null) {
       unawaited(nationalMode
           ? natNationalIpMemSave(s.host, s.port)
           : natIpMemSave(s.host, s.port));
-    } else if (!s.wireGuard && nationalMode) {
+    } else if (s.isXray && nationalMode) {
       unawaited(natNationalDomMemSave(s.host, s.port));
-    } else if (!s.wireGuard) {
+    } else if (s.isXray) {
       unawaited(natDomMemSave(s.host, s.port));
     }
     s.miss = 0; // BADCFG: only an end-to-end connection resets health
@@ -8809,10 +8910,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     connBaseDelay = s.ping;
     betterRun = 0;
     aiGen++; // cancel analysis for the previous engine on every core switch
-    if (!s.wireGuard) _aiLoop(aiGen); // legacy AI tuning is Xray-specific until selector integration
+    if (s.isXray) _aiLoop(aiGen); // legacy AI tuning is Xray-specific until selector integration
     // the personal server has its own row, it never joins the healthy list
     if (!s.personal && !s.wireGuard && !good.contains(s)) good.add(s);
-    if (nationalMode && !s.personal && !s.wireGuard) unawaited(_natAdd(s));
+    if (nationalMode && !s.personal && s.isXray) unawaited(_natAdd(s));
     // HEALTHY-STORE: every genuinely connected non-personal server is saved,
     // regardless of discovery source or mode. Reads/injection remain NAT-only.
     if (!s.personal && !s.wireGuard) _resAdd(s);
@@ -8840,7 +8941,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     // remembered so the app can pick the tunnel up again after being closed
     SharedPreferences.getInstance()
         .then((p) => p.setString('last_conn', s.link));
-    if (nationalMode && !s.wireGuard) {
+    if (nationalMode && s.isXray) {
       unawaited(natRememberSuccess(s)); // NATMEM
     }
     // NNIE records end-to-end successes in BOTH domestic and global modes.
@@ -8858,11 +8959,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     if (mounted) setState(() {});
     if (mounted) uiJoinPrompt(context);
     _set(_connStatus());
-    if (!s.wireGuard) autoAiAfterConnect();
+    if (s.isXray) autoAiAfterConnect();
     // TURBO: after Xray-compatible connections only; WireGuard has no Xray mux/fragment settings.
     // مهم: تست سرعت را قبل از توربو شروع نکن — توربو هسته را ریستارت می‌کند
     // و تست سرعت ممکن بود صفر ببیند و به‌اشتباه failover کند
-    if (!s.wireGuard) {
+    if (s.isXray) {
       turboSpeed = true;
       muxEnabled = muxEnabled || kTurboEnabled;
       muxConc = max(muxConc, kTurboEnabled ? 32 : 8);
@@ -8885,7 +8986,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   Future<bool> _natLadder(Server s,
       {Future<bool> Function()? socialGate}) async {
     // NATONLYLADDER: the variant ladder is Xray-specific; never feed wg-quick text to natCfg.
-    if (s.wireGuard || !nationalMode) return false;
+    if (!s.isXray || !nationalMode) return false;
     if (abort || !wantVpn) return false; // FIXLADDERABORT: قبل از هر کار سنگین
     final first = natVarFor(s);
     // CACHEGUARD: نسخه‌ی کش‌شده همین الان fail شد (فقط بعد از fail به
@@ -9070,7 +9171,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     for (final s in list) {
       if (abort) return false;
       final pin = favs.containsKey(s.key);
-      final badCfg = coreUnsupportedReason(s.link);
+      final badCfg = s.singBox ? null : coreUnsupportedReason(s.link);
       if (badCfg != null) {
         s.svc = 0;
         s.badAt = DateTime.now();
@@ -9342,9 +9443,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           // NATTUN: در نت ملی، همان حالت‌های جایگزین را روی همین سرور با اتصال واقعی امتحان می‌کنیم.
           // هر حالتی که ترافیک تونل را رد کند، ذخیره می‌شود؛ وگرنه سرور رد می‌شود.
           var ladderOk = false;
-          if (!abort && wantVpn && _ladderUsedThisConnect < 2) {
+          if (s.isXray && !abort && wantVpn && _ladderUsedThisConnect < 2) {
             _ladderUsedThisConnect++;
-            await _stopV2();
+            await _stopCore();
             ladderOk = await _natLadder(s,
                 socialGate: _tunnelTrafficOk);
             if (abort) return false;
@@ -9357,7 +9458,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             s.svc = 0;
             s.badAt = DateTime.now();
             if (nationalMode) failed[s.key] = DateTime.now(); // NATSKIP
-            await _stopV2();
+            await _stopCore();
             dbg('اتصال: ${s.name} رد شد — ترافیک تونل (google/youtube) رد نشد • سرور بعدی');
             errorLog.value = '${s.name}: ترافیک تونل رد شد — سرور بعدی…';
             continue;
