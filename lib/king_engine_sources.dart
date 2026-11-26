@@ -160,6 +160,7 @@ class KingServerPayloadParser {
       final format = switch (scheme) {
         'hysteria2' || 'hy2' => KingServerConfigFormat.hysteria2Uri,
         'ss' => KingServerConfigFormat.shadowsocksUri,
+        'wireguard' => KingServerConfigFormat.wireGuardConfig,
         _ => KingServerConfigFormat.mixedShareLinks,
       };
       final profile = KingImportedServerProfile(
