@@ -236,35 +236,30 @@ class KingServerPayloadParser {
 
   bool _isOpenVpnProfile(String value) {
     final hasClientMode =
-        RegExp(r'(?im)^\s*(client|tls-client)\s*$').hasMatch(value);
+        RegExp(r'^\s*(client|tls-client)\s*$', multiLine: true, caseSensitive: false).hasMatch(value);
     final hasRemote = RegExp(
-      r'(?im)^\s*remote\s+([A-Za-z0-9._:-]+)\s+(\d{1,5})(?:\s|$)',
-    ).allMatches(value).any((match) {
+      r'^\s*remote\s+([A-Za-z0-9._:-]+)\s+(\d{1,5})(?:\s|$)', multiLine: true, caseSensitive: false).allMatches(value).any((match) {
       final port = int.tryParse(match.group(2) ?? '');
       return port != null && port > 0 && port <= 65535;
     });
     final hasTransport = RegExp(
-      r'(?im)^\s*proto\s+(udp|udp4|udp6|tcp|tcp4|tcp6)(?:-client)?\s*$',
-    ).hasMatch(value);
+      r'^\s*proto\s+(udp|udp4|udp6|tcp|tcp4|tcp6)(?:-client)?\s*$', multiLine: true, caseSensitive: false).hasMatch(value);
     return hasClientMode && hasRemote && hasTransport;
   }
 
   bool _isWireGuardProfile(String value) {
     final interface = RegExp(
-      r'(?ims)^\s*\[Interface\]\s*(.*?)^(?=\s*\[|\s*$)',
-    ).firstMatch(value)?.group(1) ?? '';
+      r'^\s*\[Interface\]\s*(.*?)^(?=\s*\[|\s*$)', multiLine: true, caseSensitive: false, dotAll: true).firstMatch(value)?.group(1) ?? '';
     final peer = RegExp(
-      r'(?ims)^\s*\[Peer\]\s*(.*?)^(?=\s*\[|\s*$)',
-    ).firstMatch(value)?.group(1) ?? '';
-    final privateKey = RegExp(r'(?im)^\s*PrivateKey\s*=\s*([^\s#]+)')
+      r'^\s*\[Peer\]\s*(.*?)^(?=\s*\[|\s*$)', multiLine: true, caseSensitive: false, dotAll: true).firstMatch(value)?.group(1) ?? '';
+    final privateKey = RegExp(r'^\s*PrivateKey\s*=\s*([^\s#]+)', multiLine: true, caseSensitive: false)
         .firstMatch(interface)?.group(1);
-    final publicKey = RegExp(r'(?im)^\s*PublicKey\s*=\s*([^\s#]+)')
+    final publicKey = RegExp(r'^\s*PublicKey\s*=\s*([^\s#]+)', multiLine: true, caseSensitive: false)
         .firstMatch(peer)?.group(1);
     final endpoint = RegExp(
-      r'(?im)^\s*Endpoint\s*=\s*(\[[0-9a-fA-F:]+\]|[^:\s]+):(\d{1,5})\s*$',
-    ).firstMatch(peer);
+      r'^\s*Endpoint\s*=\s*(\[[0-9a-fA-F:]+\]|[^:\s]+):(\d{1,5})\s*$', multiLine: true, caseSensitive: false).firstMatch(peer);
     final port = int.tryParse(endpoint?.group(2) ?? '');
-    final allowedIpLine = RegExp(r'(?im)^\s*AllowedIPs\s*=\s*([^\r\n#]+)')
+    final allowedIpLine = RegExp(r'^\s*AllowedIPs\s*=\s*([^\r\n#]+)', multiLine: true, caseSensitive: false)
         .firstMatch(peer)?.group(1);
 
     if (interface.isEmpty || peer.isEmpty ||
@@ -307,8 +302,7 @@ class KingServerPayloadParser {
 
   bool _containsAmneziaParameters(String value) =>
       RegExp(
-        r'(?im)^\s*(Jc|Jmin|Jmax|S[1-4]|I[1-5]|H[1-4]|HeaderProtectionKey|RandomTrailers)\s*=',
-      ).hasMatch(value);
+        r'^\s*(Jc|Jmin|Jmax|S[1-4]|I[1-5]|H[1-4]|HeaderProtectionKey|RandomTrailers)\s*=', multiLine: true, caseSensitive: false).hasMatch(value);
 
   bool _isHttpsEndpoint(String value) {
     final uri = Uri.tryParse(value);
