@@ -635,7 +635,7 @@ class KingEngineServerSourceCatalog {
       kind: KingServerSourceKind.publicSubscription,
       formats: {KingServerConfigFormat.hysteria2Uri},
       engineIds: {'hysteria2', 'sing_box'},
-      updateCadence: 'hourly',
+      updateCadence: '15m',
       notes: 'Publisher advertises a 15-minute update cycle; live repository activity was observed within minutes of this audit.',
     ),
     KingEngineServerSource(
