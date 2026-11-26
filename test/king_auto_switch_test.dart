@@ -328,7 +328,7 @@ void main() {
       expect(parser.parse(engineId: KingEngineId.wireGuard,
           payload: 'wireguard://private-key@example.org:51820').single.format,
           KingServerConfigFormat.wireGuardConfig);
-      final reorderedIpv6 = '[Peer]\r\nEndpoint = [2001:db8::1]:51820\r\nAllowedIPs = ::/0, 192.0.2.0/24\r\nPublicKey = $publicKey\r\n[Interface]\r\nAddress = 10.0.0.2/32\r\nPrivateKey = $privateKey\r\n';
+      final reorderedIpv6 = '[Peer]\\r\\nEndpoint = [2001:db8::1]:51820\\r\\nAllowedIPs = ::/0, 192.0.2.0/24\\r\\nPublicKey = $publicKey\\r\\n[Interface]\\r\\nAddress = 10.0.0.2/32\\r\\nPrivateKey = $privateKey\\r\\n';
       expect(parser.parse(engineId: KingEngineId.wireGuard, payload: reorderedIpv6),
           hasLength(1));
     });
