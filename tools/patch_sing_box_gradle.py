@@ -75,17 +75,20 @@ def install_go_runtime_merge(gradle_text):
         gradle_text = "\n".join(missing_imports) + "\n" + gradle_text
     task = r'''
 // Both libbox and the existing Xray/V2Ray AAR ship gomobile's shared
-// Go runtime bridge. Keep the bridge already supplied by libv2ray and
-// remove only the two duplicate bridge classes from libbox's classes.jar.
-// All protocol-specific libbox classes and native .so files remain intact.
+// Go runtime bridge. Keep libv2ray's bridge at runtime, but retain the
+// libbox bridge classes in a compile-only jar so Kotlin can resolve API
+// supertypes such as go.Seq.Proxy while compiling the sing_box module.
 val libboxGoRuntimeJar = layout.buildDirectory.file("generated/libbox/libbox-classes.jar")
+val libboxGoCompileJar = layout.buildDirectory.file("generated/libbox/libbox-go-compile.jar")
 val prepareLibboxGoRuntimeJar = tasks.register("prepareLibboxGoRuntimeJar") {
     val original = File(libboxDir, "classes.jar")
     inputs.file(original)
-    outputs.file(libboxGoRuntimeJar)
+    outputs.files(libboxGoRuntimeJar, libboxGoCompileJar)
     doLast {
         val output = libboxGoRuntimeJar.get().asFile
+        val compileOutput = libboxGoCompileJar.get().asFile
         output.parentFile.mkdirs()
+        compileOutput.parentFile.mkdirs()
         val collisions = setOf(
             "go/Seq.class",
             "go/Seq\$GoObject.class",
@@ -103,26 +106,32 @@ val prepareLibboxGoRuntimeJar = tasks.register("prepareLibboxGoRuntimeJar") {
         val found = mutableSetOf<String>()
         ZipFile(original).use { source ->
             ZipOutputStream(output.outputStream().buffered()).use { target ->
-                val entries = source.entries()
-                while (entries.hasMoreElements()) {
-                    val entry = entries.nextElement()
-                    if (entry.name in collisions) {
-                        found.add(entry.name)
-                        continue
+                ZipOutputStream(compileOutput.outputStream().buffered()).use { compileTarget ->
+                    val entries = source.entries()
+                    while (entries.hasMoreElements()) {
+                        val entry = entries.nextElement()
+                        val copied = ZipEntry(entry.name)
+                        if (entry.time >= 0) copied.time = entry.time
+                        if (entry.name in collisions) {
+                            found.add(entry.name)
+                            compileTarget.putNextEntry(copied)
+                            source.getInputStream(entry).use { it.copyTo(compileTarget) }
+                            compileTarget.closeEntry()
+                        } else {
+                            target.putNextEntry(copied)
+                            source.getInputStream(entry).use { it.copyTo(target) }
+                            target.closeEntry()
+                        }
                     }
-                    val copied = ZipEntry(entry.name)
-                    if (entry.time >= 0) copied.time = entry.time
-                    target.putNextEntry(copied)
-                    source.getInputStream(entry).use { it.copyTo(target) }
-                    target.closeEntry()
                 }
             }
         }
         if (found != collisions) {
             output.delete()
+            compileOutput.delete()
             throw GradleException("libbox gomobile runtime layout changed; expected duplicate bridge classes $collisions, found $found. Refusing an unsafe merge.")
         }
-        logger.lifecycle("KING VPN: retained libbox API and native libraries; shared go runtime bridge resolved by libv2ray")
+        logger.lifecycle("KING VPN: libbox bridge classes retained for compilation only; libv2ray supplies the shared runtime bridge")
     }
 }
 '''
@@ -133,7 +142,11 @@ val prepareLibboxGoRuntimeJar = tasks.register("prepareLibboxGoRuntimeJar") {
     new = 'implementation(files(libboxGoRuntimeJar).builtBy(prepareLibboxGoRuntimeJar))'
     if gradle_text.count(old) != 1:
         raise SystemExit("HARD FAIL: unexpected libbox classes.jar dependency declaration")
-    return gradle_text.replace(old, new, 1)
+    return gradle_text.replace(
+        old,
+        new + '\ncompileOnly(files(libboxGoCompileJar).builtBy(prepareLibboxGoRuntimeJar))',
+        1,
+    )
 
 def main():
     host = Path(sys.argv[1] if len(sys.argv) > 1 else "build_app").resolve()
@@ -159,7 +172,7 @@ def main():
     text = install_go_runtime_merge(text)
     gradle.write_text(text, encoding="utf-8")
     check = gradle.read_text(encoding="utf-8")
-    for item in (f'classpath("com.android.tools.build:gradle:{AGP_VERSION}")', f'val kotlinVersion = "{KOTLIN_VERSION}"', f"compileSdk = {COMPILE_SDK}", "minSdk = 24", *MIRRORS, "prepareLibboxGoRuntimeJar", "libboxGoRuntimeJar"):
+    for item in (f'classpath("com.android.tools.build:gradle:{AGP_VERSION}")', f'val kotlinVersion = "{KOTLIN_VERSION}"', f"compileSdk = {COMPILE_SDK}", "minSdk = 24", *MIRRORS, "prepareLibboxGoRuntimeJar", "libboxGoRuntimeJar", "libboxGoCompileJar", "compileOnly(files(libboxGoCompileJar)"):
         if item not in check: raise SystemExit(f"HARD FAIL: Gradle patch verification missing {item}")
     state_file = root / "android" / "src" / "main" / "kotlin" / "com" / "qusadprod" / "sing_box" / "core" / "ServiceState.kt"
     if not state_file.is_file():
