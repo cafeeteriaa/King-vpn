@@ -40,9 +40,12 @@ Each numbered revision must be a substantial functional change and pass three se
 3. Compatibility and verification: source guards, unit tests, static analysis, Android build and final diff review.
 
 ### Revision 58 review status
-1. Architecture and behavior: completed; function inventory compared against Revision 57 base and no existing NPV functions were lost.
-2. Persistence and concurrency: completed; Gold snapshots, append-only inventories, mode-specific stores, cursor commit and partial-result paths reviewed.
-3. Compatibility and verification: pending final CI rerun after the latest source-guard updates.
+1. Architecture and behavior: completed; function inventory and mode-specific discovery paths reviewed.
+2. Persistence and concurrency: completed; atomic snapshots, append-only histories, cursor commit and cancellation paths reviewed.
+3. Compatibility and verification: completed on commit `e21d3416bb21f4ccb60dfff182526c45e74f156d`; GitHub Actions run #3711 passed source guards (230 Python tests), Flutter tests (132), Dart analysis, and optimized Android arm64 release APK build. Analyze emitted non-fatal deprecation/info findings that remain recorded in `docs/IMPLEMENTATION_STATUS_FA.md`.
+- APK: 122,885,886 bytes (117.19 MiB).
+- SHA-256: `0cc18d4b3f9780b35f083df1a1eebfba3213a1e5895958b18a5145315fdd5cb3`.
+- CI verification does not replace real-device VPN connection and carrier testing.
 
 ## Explicit safety boundaries
 
