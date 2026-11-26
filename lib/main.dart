@@ -32,6 +32,10 @@ import 'prefs_store.dart';
 import 'online_count.dart'; // ONLINECOUNT: شمارش کاربران آنلاین
 import 'nnie_core.dart'; // NNIE: کد خالص و قابل تست
 import 'own_vpn.dart'; // KINGVPN: سرویس VPN خودمان (پیش‌فرض خاموش)
+import 'king_wireguard_core.dart'; // independent WireGuard bridge
+
+final KingWireGuardCore _kingWireGuardCore = KingWireGuardCore();
+bool _kingWireGuardActive = false;
 import 'package:crypto/crypto.dart'; // فیکس ۱: sha256 برای APK آپدیت
 import 'package:flutter_secure_storage/flutter_secure_storage.dart'; // فیکس ۲: کلیدهای AI
 import 'package:speech_to_text/speech_to_text.dart' as stt;
@@ -3613,6 +3617,7 @@ class Server {
   bool ipTried = false;
   String get useLink => ipLink ?? link;
   bool get isIp => InternetAddress.tryParse(host) != null;
+  bool wireGuard = false;
   bool get reality => link.contains('security=reality');
 
   bool get cdn {
@@ -3647,7 +3652,7 @@ class Server {
     country = detectCountry(name);
   }
 
-  String get key => '$host:$port';
+  String get key => wireGuard ? 'wireguard:$host:$port' : '$host:$port';
 
   // SERVERCACHE-SAFE: کش Server. کش هرگز خود نمونه را نگه نمی‌دارد، فقط یک کپی
   // از لحظه‌ی پارس؛ هر بار روی hit یک نمونه‌ی تازه ساخته می‌شود تا تغییرات
@@ -3675,6 +3680,7 @@ class Server {
   static Server _freshFrom(Server s) {
     final c = Server(s.link, s.name, s.host, s.port);
     c.tls = s.tls;
+    c.wireGuard = s.wireGuard;
     c.sni = s.sni;
     c.net = s.net;
     c.country = s.country;
@@ -3684,7 +3690,19 @@ class Server {
 
   static Server? _parseImpl(String link) {
     try {
-      link = npvClean(link.trim());
+      link = link.trim();
+      // Parse complete wg-quick profiles before URI normalization.
+      if (link.toLowerCase().startsWith('[interface]')) {
+        final endpointLine = link.split('\\n').firstWhere((line) => line.trim().toLowerCase().startsWith('endpoint'), orElse: () => '');
+        final equals = endpointLine.indexOf('=');
+        if (equals < 0) return null;
+        final endpoint = Uri.tryParse('udp://${endpointLine.substring(equals + 1).trim()}');
+        if (endpoint == null || endpoint.host.isEmpty || !endpoint.hasPort || endpoint.port <= 0 || endpoint.port > 65535 || !_validHost(endpoint.host)) return null;
+        final server = Server(link, 'WireGuard • ${endpoint.host}', endpoint.host, endpoint.port);
+        server.wireGuard = true;
+        return server;
+      }
+      link = npvClean(link);
       // pasted with extra text around it ("@channel vless://...")
       if (!_schemeRe.hasMatch(link)) {
         final m = _linkRe.firstMatch(link);
@@ -4814,6 +4832,7 @@ final rowDefs = <RowDef>[
           .contains(s.net)),
   RowDef('trojan', '🌑 Trojan', (s) => s.link.startsWith('trojan://')),
   RowDef('ss', '🔐 Shadowsocks (ss://)', (s) => s.link.startsWith('ss://')),
+  RowDef('wireguard', '🛡 WireGuard', (s) => s.wireGuard),
   
   // shown as its own fixed row (second line of the list), see build()
   RowDef('ai', '🌐 سرورهای دارای دسترسی وب', (s) => s.ai == true && s.ping != null),
@@ -5911,6 +5930,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     _lastOwnStop = DateTime.now();
     _dropDeferred = false;
     try {
+      if (Platform.isAndroid) {
+        try { await _kingWireGuardCore.disconnect().timeout(const Duration(seconds: 8)); }
+        catch (wgError, wgStack) { logError(wgError, wgStack); }
+      }
+      _kingWireGuardActive = false;
       if (kOwnVpnService) await ownVpnStop(); // KINGVPN
       await v2ray.stopV2Ray().timeout(const Duration(seconds: 8), onTimeout: () {});
     } catch (_swE) { _swl('_stopV2#1', _swE);}
@@ -5942,10 +5966,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   Future<void> _stopCoreInner() async {
     // جدید: wait for the real DISCONNECTED event (not just a fixed delay), so
     // the next start can never race with the old VPN service still closing
-    final wasUp = lastState == 'CONNECTED' || lastState == 'CONNECTING';
+    final wasWireGuardUp = _kingWireGuardActive;
+    final wasUp = !wasWireGuardUp && (lastState == 'CONNECTED' || lastState == 'CONNECTING');
     if (wasUp) downSig = Completer<bool>();
     await _stopV2();
-    var gotDown = !wasUp;
+    var gotDown = wasWireGuardUp || !wasUp;
     if (wasUp && downSig != null) {
       // RARE BUG FIX: complete on timeout so a late DISCONNECTED cannot
       // complete a future stop's downSig
@@ -8245,6 +8270,28 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       lastFail = 'اتصال توسط کاربر خواسته نشده بود';
       return false;
     }
+    if (s.wireGuard) {
+      if (proxyOnly || proxyMode) { lastFail = 'WireGuard به تونل کامل VPN نیاز دارد و حالت پراکسی محلی ندارد'; return false; }
+      if (abort || !wantVpn) return false;
+      try {
+        await _stopCore();
+        if (abort || !wantVpn) return false;
+        final result = await _kingWireGuardCore.connect(s.link);
+        if (result['connected'] != true) throw StateError('WireGuard backend did not confirm UP state');
+        _kingWireGuardActive = true;
+        lastState = 'CONNECTED';
+        tunWarn = false;
+        dbg('KING CORE: WireGuard UP • ${result['version'] ?? 'wireguard-go'}');
+        return true;
+      } catch (wgError, wgStack) {
+        logError(wgError, wgStack);
+        try { await _kingWireGuardCore.disconnect(); } catch (stopError, stopStack) { logError(stopError, stopStack); }
+        _kingWireGuardActive = false;
+        lastState = 'DISCONNECTED';
+        lastFail = 'WireGuard: $wgError';
+        return false;
+      }
+    }
     final po = proxyOnly || proxyMode;
     // FIX: بعد از توقف هسته قبلی، کمی صبر کن تا پورت آزاد شود (رفع XRAY-ERR)
     // PERSQUICK: سرور شخصی منتظر طولانی نمی‌ماند
@@ -8692,13 +8739,13 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     final nnieElapsedMs = _nnieFinishAttempt(s);
     if (_listPartial) unawaited(_fetchFullListBg());
     // IP کارا به حافظه (هم در نت جهانی و هم در نت ملی؛ دفعه‌ی بعد اول از همین‌ها استفاده می‌شود)
-    if (InternetAddress.tryParse(s.host) != null) {
+    if (!s.wireGuard && InternetAddress.tryParse(s.host) != null) {
       unawaited(nationalMode
           ? natNationalIpMemSave(s.host, s.port)
           : natIpMemSave(s.host, s.port));
-    } else if (nationalMode) {
+    } else if (!s.wireGuard && nationalMode) {
       unawaited(natNationalDomMemSave(s.host, s.port));
-    } else {
+    } else if (!s.wireGuard) {
       unawaited(natDomMemSave(s.host, s.port));
     }
     s.miss = 0; // BADCFG: only an end-to-end connection resets health
@@ -8712,11 +8759,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     aiGen++; // FASTPATCH-AI: analyse+apply after ANY connection
     _aiLoop(aiGen);
     // the personal server has its own row, it never joins the healthy list
-    if (!s.personal && !good.contains(s)) good.add(s);
+    if (!s.personal && !s.wireGuard && !good.contains(s)) good.add(s);
     if (nationalMode && !s.personal) unawaited(_natAdd(s));
     // HEALTHY-STORE: every genuinely connected non-personal server is saved,
     // regardless of discovery source or mode. Reads/injection remain NAT-only.
-    if (!s.personal) _resAdd(s);
+    if (!s.personal && !s.wireGuard) _resAdd(s);
     upServer = null;
     fails = 0;
     slowCount = 0;
@@ -8741,7 +8788,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     // remembered so the app can pick the tunnel up again after being closed
     SharedPreferences.getInstance()
         .then((p) => p.setString('last_conn', s.link));
-    if (nationalMode) {
+    if (nationalMode && !s.wireGuard) {
       unawaited(natRememberSuccess(s)); // NATMEM
     }
     // NNIE records end-to-end successes in BOTH domestic and global modes.
@@ -12662,7 +12709,9 @@ ListTile( // KINGEXTRAS row
         connRow = row;
         var ok = only != null
             ? await _connectLoop([only], trust: good.contains(only))
-            : (row == 'f:mine')
+            : (row == 'f:wireguard')
+                ? await _connectLoop(_mineList().where((server) => server.wireGuard).toList())
+                : (row == 'f:mine')
                 // "my configs" row: they are connected directly, no search
                 ? await _connectLoop(_mineList())
                 // پوشه‌ی «سرورهای شخصی»: تمام ورودی‌ها، با اولویت آخرین سرور موفق
@@ -15066,7 +15115,9 @@ ListTile( // KINGEXTRAS row
             FilledButton(
               onPressed: () {
                 final added = <Server>[];
-                for (final l in npvSplit(c.text)) {
+                final rawInput = c.text.trim();
+                final inputs = rawInput.toLowerCase().startsWith('[interface]') ? <String>[rawInput] : npvSplit(rawInput);
+                for (final l in inputs) {
                   final s = Server.parse(l);
                   if (s == null) continue;
                   added.add(s);
@@ -15766,6 +15817,8 @@ ListTile( // KINGEXTRAS row
     titles['p:personal'] = '🏠 سرور شخصی';
     groups['f:mine'] = _mineList();
     titles['f:mine'] = '📌 کانفیگ‌های من';
+    groups['f:wireguard'] = _mineList().where((server) => server.wireGuard).toList();
+    titles['f:wireguard'] = '🛡 هستهٔ مستقل WireGuard';
     groups['r:ai'] = u.where((s) => s.ai == true && s.ping != null).toList();
     titles['r:ai'] = '🌐 سرورهای دارای دسترسی وب تأییدشده';
     if (groupMode == 'country') {
