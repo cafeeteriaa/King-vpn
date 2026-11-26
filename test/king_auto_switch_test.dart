@@ -251,6 +251,8 @@ void main() {
       );
       expect(plain, hasLength(1));
       expect(plain.single.format, KingServerConfigFormat.hysteria2Uri);
+      expect(parser.parse(engineId: KingEngineId.hysteria2,
+          payload: '{"outbounds":[{"type":"hysteria2"}]}'), isEmpty);
       final encoded = base64Encode(utf8.encode('hysteria2://token@example.org:443'));
       expect(parser.parse(engineId: KingEngineId.hysteria2, payload: encoded), hasLength(1));
     });
