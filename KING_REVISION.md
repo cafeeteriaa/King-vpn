@@ -1,7 +1,7 @@
 # KING VPN Revision Ledger
 
-Current revision: 62
-Next revision: 63
+Current revision: 63
+Next revision: 64
 Repository: cafeeteriaa/King-vpn
 Revision branch: fix/personal-folder-uncapped-20261127
 Parent revision branch: fix/healthy-folder-unbounded-retention-20261127
@@ -66,12 +66,24 @@ Consolidated integration PR: https://github.com/cafeeteriaa/King-vpn/pull/66
 - Persistence is still SharedPreferences-backed with an in-memory cache; transactional disk-backed paging remains follow-up work.
 - Exact-head CI and runtime validation are pending.
 
+### Revision 63 — remove pending-queue and saved-list truncation
+- Removed the hard 1,200-entry truncation from the national-network pending queue; entries already held by the active queue are no longer silently discarded at that count.
+- Removed the 3,000-entry truncation and full-list shuffle allocation from the persisted list_cache snapshot; all fetchedAll entries are serialized in their current order.
+- Added source guards against reintroducing either truncation.
+- Per-batch concurrency and staged quick-start behavior remain separate from total inventory retention; further adaptive batching and disk-backed storage remain follow-up work.
+- Exact-head CI and runtime validation are pending.
+
 ## Mandatory three-pass review protocol
 
 Each numbered revision must be a substantial functional change and pass three separate reviews:
 1. Architecture and behavior: feature preservation, global/National Net isolation, complete inventory traversal and no hidden truncation.
 2. Persistence and concurrency: atomic/serialized writes, cursor commit rules, cancellation, partial-result retention and recovery.
 3. Compatibility and verification: source guards, unit tests, static analysis, Android build and final diff review.
+
+### Revision 63 review status
+1. Queue and inventory behavior: pending independent review of queue consumers and retry/cursor semantics.
+2. Persistence and memory: pending; full list_cache snapshot remains in SharedPreferences and needs disk-backed migration.
+3. Compatibility and verification: pending exact-head CI, Flutter tests, Dart analysis and Android build.
 
 ### Revision 62 review status
 1. Architecture and behavior: pending.
