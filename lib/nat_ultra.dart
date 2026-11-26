@@ -2400,22 +2400,19 @@ Future<void> userListsSave(String text) async {
   }
 }
 
-// HOTCAP: کاهش از ۲ میلیون برای جلوگیری از OOM روی گوشی ضعیف
-const int natHotPerSource = 80000;
 const int natHotMin = 30000;
-const int natHotMax = 400000;
 List<Server> Function()? natExtraSource;
 const Duration natHotTtl = Duration(hours: 72);
-const Duration natHotFetchDeadline = Duration(seconds: 900);
 bool _hotBusy = false;
 DateTime? _hotFailAt;
-int _hotCursor = 0;
+int _hotCursorOffset = 0;
 Map<String, double> natSrcRates = {};
 
 class _HotIdx {
   final String file;
-  final List<int> offs;
-  _HotIdx(this.file, this.offs);
+  final int lineCount;
+  final int byteLength;
+  _HotIdx(this.file, this.lineCount, this.byteLength);
 }
 
 _HotIdx? _hot;
@@ -2536,7 +2533,6 @@ Future<List<String>> _hotFetchOne(String u) async {
     // فیکس ۱۱: split روی رشته‌ی چند مگابایتی در isolate انجام می‌شود
     final lines = await compute(_hotSplitIso, body);
     for (final l in lines) {
-      if (out.length >= natHotPerSource) break;
       final t = l.trim();
       if (!t.contains('://') || t.contains('[email') || t.contains('protected]')) {
         continue;
@@ -2567,11 +2563,11 @@ Future<void> natHotEnsure({bool force = false}) async {
 }
 
 Future<void> _natHotEnsureImpl({bool force = false}) async {
-  final f = File(_hotPath());
+  final file = File(_hotPath());
   try {
-    final exists = f.existsSync() && f.lengthSync() > 0;
-    final age = f.existsSync()
-        ? DateTime.now().difference(f.lastModifiedSync())
+    final exists = file.existsSync() && file.lengthSync() > 0;
+    final age = file.existsSync()
+        ? DateTime.now().difference(file.lastModifiedSync())
         : const Duration(days: 365);
     if (!force && exists && age < natHotTtl) return;
     if (!force && _hotFailAt != null &&
@@ -2581,79 +2577,75 @@ Future<void> _natHotEnsureImpl({bool force = false}) async {
     final dir = '/data/data/com.kingvpn.king_vpn/files';
     final parts = [for (var i = 0; i < urls.length; i++) '$dir/hot_part_$i.txt'];
     final extraPath = '$dir/hot_part_extra.txt';
-    final sw = Stopwatch()..start();
     try {
+      // Each source is fetched independently; there is no global 15-minute
+      // deadline and no per-source line quota. The output is disk-backed.
       await pool<int>([for (var i = 0; i < urls.length; i++) i], fetchWorkers,
           (i) async {
-        if (sw.elapsed > natHotFetchDeadline) return;
         final lines = await _hotFetchOne(urls[i]);
         if (lines.isEmpty) return;
         await File(parts[i]).writeAsString(lines.join('\n'), flush: true);
       });
       final extraSrc = natExtraSource?.call() ?? const <Server>[];
       if (extraSrc.isNotEmpty) {
-        final ex = [
-          for (final sv in extraSrc)
-            if (sv.link.contains('://')) 'online\t${sv.link}'
+        final extra = [
+          for (final server in extraSrc)
+            if (server.link.contains('://')) 'online\t${server.link}'
         ];
-        await File(extraPath).writeAsString(ex.join('\n'), flush: true);
+        await File(extraPath).writeAsString(extra.join('\n'), flush: true);
       }
+
       final order = natStableSorted<int>(
-          [for (var i = 0; i < urls.length; i++) i],
-          (a, b) => (natSrcRates[urls[b]] ?? 0.3)
-              .compareTo(natSrcRates[urls[a]] ?? 0.3));
-      final mixed = order;
+        [for (var i = 0; i < urls.length; i++) i],
+        (a, b) => (natSrcRates[urls[b]] ?? 0.3)
+            .compareTo(natSrcRates[urls[a]] ?? 0.3),
+      );
       final newPath = '${_hotPath()}.new';
-      final offs = <int>[0];
-      var pos = 0;
       final sink = File(newPath).openWrite();
+      var total = 0;
       try {
-        var full = false;
         final seenKeys = <String>{};
         final mergeFrom = <String>[
           if (File(extraPath).existsSync()) extraPath,
-          for (final i in mixed) parts[i],
+          for (final index in order) parts[index],
         ];
-        for (final pth in mergeFrom) {
-          if (full) break;
-          final pf = File(pth);
-          if (!pf.existsSync()) continue;
-          await for (final line in pf
+        for (final path in mergeFrom) {
+          final sourceFile = File(path);
+          if (!sourceFile.existsSync()) continue;
+          await for (final line in sourceFile
               .openRead()
               .transform(utf8.decoder)
               .transform(const LineSplitter())) {
             if (line.isEmpty) continue;
             final tab = line.indexOf('\t');
-            final cfg = tab >= 0 ? line.substring(tab + 1) : line;
-            if (!seenKeys.add(cfg)) continue;
-            final b = utf8.encode(line);
-            sink.add(b);
-            sink.add(const [10]);
-            pos += b.length + 1;
-            offs.add(pos);
-            if (offs.length - 1 >= natHotMax) {
-              full = true;
-              break;
-            }
+            final config = tab >= 0 ? line.substring(tab + 1) : line;
+            if (!seenKeys.add(config)) continue;
+            sink.write(line);
+            sink.write('\n');
+            total++;
           }
         }
       } finally {
+        await sink.flush();
         await sink.close();
       }
-      final total = offs.length - 1;
-      final oldIdx = await _hotLoad();
-      final oldTotal = oldIdx == null ? 0 : oldIdx.offs.length - 1;
+
+      final oldIndex = await _hotLoad();
+      final oldTotal = oldIndex?.lineCount ?? 0;
       if (total > 0 && oldTotal > 0 && total < oldTotal ~/ 2) {
         dbg('پوشه‌ی منابع تازه: ساخت جدید فقط $total کانفیگ داشت (قبلی $oldTotal)؛ پوشه‌ی قبلی نگه داشته شد');
         _hotFailAt = DateTime.now();
         try {
           await File(newPath).delete();
-        } catch (e) { errJournalAdd(e, kind: 'SILENT-FILE'); }
+        } catch (e) {
+          errJournalAdd(e, kind: 'SILENT-FILE');
+        }
       } else if (total > 0) {
         _hotFailAt = null;
         await File(newPath).rename(_hotPath());
-        _hot = _HotIdx(_hotPath(), offs);
-        _hotCursor = 0;
+        final installed = File(_hotPath());
+        _hot = _HotIdx(installed.path, total, await installed.length());
+        _hotCursorOffset = 0;
         if (total < natHotMin) {
           dbg('پوشه‌ی منابع تازه: $total کانفیگ (کمتر از $natHotMin)');
         }
@@ -2661,18 +2653,22 @@ Future<void> _natHotEnsureImpl({bool force = false}) async {
         _hotFailAt = DateTime.now();
         try {
           await File(newPath).delete();
-        } catch (e) { errJournalAdd(e, kind: 'SILENT-FILE'); }
+        } catch (e) {
+          errJournalAdd(e, kind: 'SILENT-FILE');
+        }
       }
     } finally {
-      for (final p in [...parts, extraPath]) {
+      for (final path in [...parts, extraPath]) {
         try {
-          await File(p).delete();
-        } catch (e) { errJournalAdd(e, kind: 'SILENT-FILE'); }
+          await File(path).delete();
+        } catch (e) {
+          errJournalAdd(e, kind: 'SILENT-FILE');
+        }
       }
     }
-  } catch (e) {
+  } catch (e, stk) {
     _hotFailAt = DateTime.now();
-    logError(e);
+    logError(e, stk);
   } finally {
     _hotBusy = false;
   }
@@ -2687,46 +2683,26 @@ bool natHotReady() {
   }
 }
 
-// فیکس ۴: ساخت جدول offset خط‌ها برای فایل‌های بزرگ (> 512KB) در isolate انجام می‌شود
-// تا حلقه‌ی بایت‌به‌بایت روی چند مگابایت ترد UI را نگیرد. منطق offs عیناً همان است.
-Future<List<int>> _hotBuildOffsets(String path) =>
-    compute(_hotOffsetsIso, path);
-
-Future<List<int>> _hotOffsetsIso(String path) async {
-  final offs = <int>[0];
-  var pos = 0;
-  await for (final chunk in File(path).openRead()) {
-    for (var i = 0; i < chunk.length; i++) {
-      if (chunk[i] == 10) offs.add(pos + i + 1);
-    }
-    pos += chunk.length;
-  }
-  if (offs.last != pos) offs.add(pos);
-  return offs;
-}
-
 Future<_HotIdx?> _hotLoad() async {
-  final cur = _hot;
-  if (cur != null) return cur;
-  final f = File(_hotPath());
+  final cached = _hot;
+  final file = File(_hotPath());
   try {
-    if (!f.existsSync() || f.lengthSync() == 0) return null;
-    List<int> offs;
-    if (f.lengthSync() > 512 * 1024) {
-      offs = await _hotBuildOffsets(f.path);
-    } else {
-      offs = <int>[0];
-      var pos = 0;
-      await for (final chunk in f.openRead()) {
-        for (var i = 0; i < chunk.length; i++) {
-          if (chunk[i] == 10) offs.add(pos + i + 1);
-        }
-        pos += chunk.length;
-      }
-      if (offs.last != pos) offs.add(pos);
+    if (!file.existsSync() || file.lengthSync() == 0) return null;
+    final byteLength = await file.length();
+    if (cached != null && cached.file == file.path &&
+        cached.byteLength == byteLength) {
+      return cached;
     }
-    _hot = _HotIdx(f.path, offs);
-    _hotCursor = 0;
+    var lineCount = 0;
+    await for (final _ in file
+        .openRead()
+        .transform(utf8.decoder)
+        .transform(const LineSplitter())) {
+      lineCount++;
+    }
+    if (lineCount == 0) return null;
+    _hot = _HotIdx(file.path, lineCount, byteLength);
+    _hotCursorOffset = 0;
     return _hot;
   } catch (e, stk) {
     logError(e, stk);
@@ -2737,50 +2713,50 @@ Future<_HotIdx?> _hotLoad() async {
 Future<List<Server>> natHotNext(int n,
     {bool fetch = true, bool retried = false}) async {
   try {
+    if (n <= 0) return const <Server>[];
     if (fetch) unawaited(natHotEnsure());
-    final h = await _hotLoad();
-    if (h == null) return const [];
-    final lines = h.offs.length - 1;
-    if (lines <= 0) return const [];
+    final index = await _hotLoad();
+    if (index == null || index.lineCount <= 0) return const <Server>[];
+    final file = File(index.file);
+    if (await file.length() != index.byteLength) {
+      _hot = null;
+      _hotCursorOffset = 0;
+      if (retried) return const <Server>[];
+      return natHotNext(n, fetch: false, retried: true);
+    }
+
     final out = <Server>[];
-    final raf = await File(h.file).open();
-    try {
-      // HOTSTALE: طول handle باز را با ایندکس بسنج؛ handle به inode ثابت است، پس
-      // اگر فایل وسط rename عوض شده باشد، این مقایسه ناهم‌خوانی را می‌گیرد
-      if (await raf.length() != h.offs.last) {
-        _hot = null; // ایندکس قدیمی را دور بریز
-        if (retried) return const [];
-        return natHotNext(n, fetch: false, retried: true);
-      }
-      var read = 0;
-      while (out.length < n && read < lines) {
-        var start = _hotCursor;
-        if (start >= lines) start = 0;
-        final take = min(min(n - out.length, lines - start), lines - read);
-        final from = h.offs[start];
-        final to = h.offs[start + take];
-        await raf.setPosition(from);
-        final bytes = await raf.read(to - from);
-        final text = utf8.decode(bytes, allowMalformed: true);
-        for (final e in text.split('\n')) {
-          final i = e.indexOf('\t');
-          if (i < 0) continue;
-          final s = Server.parse(e.substring(i + 1));
-          if (s != null) {
-            s.src = e.substring(0, i);
-            out.add(s);
+    var linesRead = 0;
+    var offset = _hotCursorOffset;
+    while (out.length < n && linesRead < index.lineCount) {
+      if (offset >= index.byteLength) offset = 0;
+      var progressed = false;
+      await for (final line in file
+          .openRead(offset)
+          .transform(utf8.decoder)
+          .transform(const LineSplitter())) {
+        progressed = true;
+        // The cache writer normalizes every record to UTF-8 plus one LF byte.
+        offset += utf8.encode(line).length + 1;
+        linesRead++;
+        final tab = line.indexOf('\t');
+        if (tab >= 0) {
+          final server = Server.parse(line.substring(tab + 1));
+          if (server != null) {
+            server.src = line.substring(0, tab);
+            out.add(server);
           }
         }
-        read += take;
-        _hotCursor = (start + take) % lines;
+        if (out.length >= n || linesRead >= index.lineCount) break;
       }
-    } finally {
-      await raf.close();
+      if (offset >= index.byteLength) offset = 0;
+      if (!progressed) break;
     }
+    _hotCursorOffset = offset;
     return out;
   } catch (e, stk) {
     logError(e, stk);
-    return const [];
+    return const <Server>[];
   }
 }
 
