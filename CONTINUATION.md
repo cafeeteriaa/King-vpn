@@ -4,7 +4,7 @@
 - Repository: cafeeteriaa/King-vpn
 - Active branch: fix/personal-folder-uncapped-20261127
 - Parent branch: fix/healthy-folder-unbounded-retention-20261127
-- Revision: 63
+- Revision: 64
 - Pull request: PR #65; consolidated integration PR #66; parent Revision 60 is PR #64.
 - Default branch is untouched.
 
@@ -22,6 +22,11 @@
 - Removed the 1,200-entry pending queue truncation in national-mode cache merging.
 - Removed the 3,000-entry list_cache truncation and shuffle allocation; the complete fetchedAll list is now saved.
 - Added regression source guards for both cases.
+
+## Revision 64 changes
+- Removed the 50,000-entry cap on learned national winners.
+- Removed the 3,000-entry cap on the persisted normal-network variant map.
+- Added source guards for both learning-retention paths.
 
 ## Remaining work and validation
 - SharedPreferences string-list storage and the in-memory personalFolderCache remain. This is not yet a file-backed, memory-bounded inventory; design and migrate transactionally before claiming very-large-folder readiness.
