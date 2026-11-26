@@ -2329,7 +2329,7 @@ String _natBigIntToIPv6(BigInt value) {
     bytes[index] = (value & BigInt.from(255)).toInt();
     value >>= 8;
   }
-  return InternetAddress.fromRawAddress(bytes).address;
+  return InternetAddress.fromRawAddress(Uint8List.fromList(bytes)).address;
 }
 
 (List<String>, String) _natExpandIPv6Span(
