@@ -4,8 +4,8 @@
 - Repository: cafeeteriaa/King-vpn
 - Active branch: fix/personal-folder-uncapped-20261127
 - Parent branch: fix/healthy-folder-unbounded-retention-20261127
-- Revision: 61
-- Pull request: pending creation; parent Revision 60 is PR #64.
+- Revision: 62
+- Pull request: PR #65; consolidated integration PR #66; parent Revision 60 is PR #64.
 - Default branch is untouched.
 
 ## Revision 61 changes
