@@ -179,15 +179,16 @@ void main() {
   });
 
   group('Selected engine catalog', () {
-    test('contains exactly the selected twelve entries', () {
+    test('contains the baseline engines and all requested technologies', () {
       final catalog = KingNetworkEngineCatalog();
-      expect(catalog.all, hasLength(12));
-      expect(catalog.all.map((e) => e.id).toSet(), {
+      expect(catalog.all.map((e) => e.id), containsAll({
         KingEngineId.xray, KingEngineId.hysteria2, KingEngineId.singBox,
         KingEngineId.nthLink, KingEngineId.shroudly, KingEngineId.byeDpi,
         KingEngineId.powerTunnel, KingEngineId.amneziaWg, KingEngineId.openVpn,
         KingEngineId.shadowsocks, KingEngineId.openConnect, KingEngineId.wireGuard,
-      });
+        'psiphon', 'tor', 'vpn_gate', 'calyx_vpn', 'cloudflare_warp',
+        'lantern', 'avira_phantom', 'ceno', 'i2p',
+      }));
       expect(catalog[KingEngineId.xray]?.state, KingIntegrationState.integrated);
       expect(catalog[KingEngineId.wireGuard]?.state,
           KingIntegrationState.integrationPathVerified);
