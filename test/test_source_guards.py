@@ -38,6 +38,13 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn(".take(3000)", save_list)
         self.assertIn("fetchedAll.map((s)", save_list)
 
+    def test_learned_national_winners_and_variant_memory_are_not_count_truncated(self):
+        source = (ROOT / "lib" / "main.dart").read_text(encoding="utf-8")
+        self.assertNotIn("natGood.length > 50000", source)
+        self.assertNotIn("natVarNormal.length > 3000", source)
+        self.assertIn("natGood.add(s.key)", source)
+        self.assertIn("natVarNormal[s.key] = v;", source)
+
     def test_auto_scan_sheet_forwards_live_vpn_guards(self):
         source = (ROOT / 'lib' / 'auto_scanners.dart').read_text(encoding='utf-8')
         start = source.index('Future<void> autoScanSheet(')
