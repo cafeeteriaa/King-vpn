@@ -121,6 +121,16 @@ jobs:
           echo "APK build still blocked after three transient-resolution attempts."
           exit 1
 
+      - name: Validate release APK native engine payloads
+        if: success()
+        run: |
+          set -euo pipefail
+          python3 tools/validate_android_apk.py build_app/build/app/outputs/flutter-apk/app-arm64-v8a-release.apk --json-report build_app/apk-validation.json | tee apk-validation.log
+          echo "### Native APK verification" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Required Xray, WireGuard and libbox native libraries: present" >> "$GITHUB_STEP_SUMMARY"
+          echo "- ELF architecture and APK archive integrity: passed" >> "$GITHUB_STEP_SUMMARY"
+          echo "- This check verifies packaging, not VPN connectivity on a device" >> "$GITHUB_STEP_SUMMARY"
+
       - name: Report optimized APK size
         if: success()
         run: |
@@ -136,6 +146,18 @@ jobs:
           echo "- SHA-256: ${SHA}" >> "$GITHUB_STEP_SUMMARY"
           echo "- Signing: generated Flutter debug key; not a production-signed release" >> "$GITHUB_STEP_SUMMARY"
           printf 'APK_SIZE_BYTES=%s\nAPK_SIZE_MIB=%s\nAPK_SHA256=%s\n' "$BYTES" "$MIB" "$SHA" > apk-size-report.txt
+
+      - name: Upload APK verification report
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: king-vpn-apk-verification-${{ github.run_number }}
+          path: |
+            build_app/apk-validation.json
+            apk-validation.log
+            apk-size-report.txt
+          if-no-files-found: error
+          retention-days: 30
 
       - name: Upload Dart obfuscation symbols
         if: success()
