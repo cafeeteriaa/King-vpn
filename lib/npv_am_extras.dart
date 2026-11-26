@@ -749,10 +749,16 @@ final Map<String, String> _goldCleanRangeCursors = <String, String>{};
 int _goldCleanRangeIndex = 0;
 Map<String, String> _goldPendingCleanCursors = <String, String>{};
 int _goldPendingCleanRangeIndex = 0;
+bool _goldCleanScanBusy = false;
 
 /// Generate one resumable page across the complete live Cloudflare IPv4 range
 /// inventory. Each page advances cursors only after its probes finish.
 Future<List<String>> _cleanCandidates() async {
+  while (_goldCleanScanBusy) {
+    await Future.delayed(const Duration(milliseconds: 100));
+  }
+  _goldCleanScanBusy = true;
+  try {
   var ranges = List<String>.of(_cfRanges);
   try {
     final res = await http
@@ -771,7 +777,10 @@ Future<List<String>> _cleanCandidates() async {
   }
 
   ranges = ranges.toSet().toList(growable: false);
-  if (ranges.isEmpty) return <String>[];
+  if (ranges.isEmpty) {
+    _goldCleanScanBusy = false;
+    return <String>[];
+  }
   final staged = Map<String, String>.of(_goldCleanRangeCursors);
   final found = <String>{};
   final start = _goldCleanRangeIndex % ranges.length;
@@ -801,8 +810,13 @@ Future<List<String>> _cleanCandidates() async {
       ..clear()
       ..addAll(staged);
     _goldCleanRangeIndex = _goldPendingCleanRangeIndex;
+    _goldCleanScanBusy = false;
   }
   return result;
+  } catch (_) {
+    _goldCleanScanBusy = false;
+    rethrow;
+  }
 }
 
 Future<String> _cfRead(Socket k, Duration t) async {
@@ -1629,11 +1643,20 @@ Future<void> _goldWrite() {
 }
 
 Future<void> goldCommitCleanCandidates() async {
-  _goldCleanRangeCursors
-    ..clear()
-    ..addAll(_goldPendingCleanCursors);
-  _goldCleanRangeIndex = _goldPendingCleanRangeIndex;
-  await goldSave();
+  try {
+    _goldCleanRangeCursors
+      ..clear()
+      ..addAll(_goldPendingCleanCursors);
+    _goldCleanRangeIndex = _goldPendingCleanRangeIndex;
+    await goldSave();
+  } finally {
+    _goldCleanScanBusy = false;
+  }
+}
+
+void goldDiscardCleanCandidates() {
+  // A partial/aborted page must be retried from the previously committed cursor.
+  _goldCleanScanBusy = false;
 }
 
 Future<void> goldSave() async {
@@ -1791,17 +1814,11 @@ Future<void> _goldIpStep() async {
       .where((ip) => !_goldIps.containsKey(ip))
       .toList();
   if (batch.isEmpty) {
-    _goldCleanRangeCursors
-      ..clear()
-      ..addAll(_goldPendingCleanCursors);
-    _goldCleanRangeIndex = _goldPendingCleanRangeIndex;
+    await goldCommitCleanCandidates();
     return;
   }
   final r = await _goldProbe(batch);
-  _goldCleanRangeCursors
-    ..clear()
-    ..addAll(_goldPendingCleanCursors);
-  _goldCleanRangeIndex = _goldPendingCleanRangeIndex;
+  await goldCommitCleanCandidates();
   var found = 0;
   for (final ip in batch) {
     final ms = r[ip];
