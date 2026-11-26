@@ -1550,8 +1550,8 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('maxAddrs: 256', keep)
         self.assertIn('conc: min(2, natAdaptiveWorkers())', keep)
         self.assertNotIn('budget: const Duration(seconds: 90)', keep)
-        for condition in ('!mounted', '!connected', '!wantVpn', '!nationalMode',
-                          '!localPilotOn', 'appGone', 'abort'):
+        for condition in ('!mounted', '!connected', '!wantVpn',
+                          '!localPilotOn', 'appGone', 'abort', 'nationalMode != rangeMode'):
             self.assertIn(condition, keep)
         self.assertIn('Persist partial results even when the tunnel stops', keep)
 
