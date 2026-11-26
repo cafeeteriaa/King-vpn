@@ -10,6 +10,7 @@ import android.content.SharedPreferences;
 import android.net.VpnService;
 import android.os.Build;
 import android.os.ParcelFileDescriptor;
+import android.system.Os;
 import android.util.Log;
 
 import org.json.JSONArray;
@@ -1103,12 +1104,8 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
             } finally {
                 stream.close();
             }
-            if (target.exists() && !target.delete()) {
-                throw new java.io.IOException("could not replace previous failover state");
-            }
-            if (!temp.renameTo(target)) {
-                throw new java.io.IOException("could not atomically publish failover state");
-            }
+            // POSIX rename replaces the previous file atomically on the same filesystem.
+            Os.rename(temp.getAbsolutePath(), target.getAbsolutePath());
             SharedPreferences sp = getSharedPreferences(PREFS, MODE_PRIVATE);
             sp.edit().putInt("idx", currentIdx)
                     .putBoolean("national", nationalMode)
