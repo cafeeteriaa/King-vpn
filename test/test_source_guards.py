@@ -2589,6 +2589,30 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('for (final outbound in fragmentTargets)', extras)
         self.assertIn("outs.removeWhere((entry) => entry is Map && entry['tag'] == 'frag-out')", extras)
 
+    def test_clean_ip_probe_requires_verified_cloudflare_tls_and_keeps_full_results(self):
+        source = (ROOT / 'lib' / 'npv_am_extras.dart').read_text(encoding='utf-8')
+        probe_start = source.index('Future<int?> _cfProbeMs(')
+        probe_end = source.index('final ValueNotifier<int> cleanTick', probe_start)
+        probe = source[probe_start:probe_end]
+        self.assertIn('Socket.connect(ip, 443', probe)
+        self.assertIn('SecureSocket.secure(', probe)
+        self.assertIn('host: \'cloudflare.com\'', probe)
+        self.assertIn('isValidCloudflareTraceResponse(response)', probe)
+        self.assertNotIn('Socket.connect(ip, 80', probe)
+        clean_start = source.index('Future<void> _doRefreshClean()')
+        clean_end = source.index('Future<String?> pickCleanIp()', clean_start)
+        clean = source[clean_start:clean_end]
+        self.assertNotIn('res.length >= 20', clean)
+        self.assertNotIn('res.take(20)', clean)
+        self.assertNotIn('take(240)', clean)
+        self.assertNotIn('Duration(seconds: 40)', clean)
+        picker_start = source.index('Future<String?> pickCleanIp()')
+        picker_end = source.index('Future<void> manualRangeScan', picker_start)
+        picker = source[picker_start:picker_end]
+        self.assertIn('natNationalIpMemLoad()', picker)
+        self.assertNotIn('goldIpList()', picker)
+        self.assertNotIn('cleanIps', picker[:picker.index('if (!_cleanLoaded')])
+
     def test_matrix_order_is_not_truncated_by_the_old_5000_variant_ceiling(self):
         main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
         nat = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
