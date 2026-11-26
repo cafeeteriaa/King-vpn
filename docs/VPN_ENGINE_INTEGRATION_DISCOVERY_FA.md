@@ -25,13 +25,13 @@
 
 | Target | What it actually is | Android integration route to investigate | Current disposition |
 |---|---|---|---|
-| Psiphon | Independent circumvention tunnel core | Official Psiphon Android library/AAR; bridge native lifecycle and proxy/TUN handling to the shared service | Embeddable library documented upstream; not integrated |
-| Tor | Anonymity network and Tor client/router | Tor Android implementation, bootstrap/bridge/transport lifecycle, local SOCKS/DNS interface and shared-TUN routing | Separate engine; not integrated |
+| Psiphon | Independent circumvention tunnel core | Official Android AAR/Maven artifact and source-build path; bridge native lifecycle and proxy/TUN handling to the shared service | GPL-3.0 upstream; integration requires explicit license/distribution compatibility review before bundling; not integrated |
+| Tor | Anonymity network and Tor client/router | Evaluate Tor Android implementation or Arti via Rust JNI; bootstrap/bridge/transport lifecycle and local SOCKS/DNS interface | Arti Android guide states Rust API/bindings are not stable/provided and JNI bindings must be written; overlay router, not a full-device VPN; not integrated |
 | VPN Gate | Public relay directory, not a single VPN protocol | Directory discovery plus SoftEther, OpenVPN or SSTP client adapters; do not rely on legacy Android L2TP/IPsec on modern Android | Multiple protocol adapters required; not integrated |
 | nthLink | VPN app/framework built around Leaf and nthlink-outline SDKs | Reuse audited Android modules or Leaf/Outline core; backend/config functions and lifecycle adapter need implementation | Open-source Android framework exists; not integrated |
 | CalyxVPN | Android VPN product/client, not automatically a reusable engine | Audit its current source, tunnel backend and licenses; reuse protocol cores rather than transplanting the whole app | Source/SDK suitability not yet verified |
 | Cloudflare WARP | Cloudflare-managed consumer/Zero Trust tunnel service | Verify current partner SDK/API and commercial authorization; do not imitate private client APIs or scrape credentials | No embeddable public Android SDK verified in this discovery |
-| Lantern | Circumvention VPN/proxy product | Verify maintained Android core/SDK, redistribution rights, protocol interface and backend dependencies | Reusable Android engine not yet verified |
+| Lantern | Circumvention VPN/proxy product | Upstream Lantern Core is Go/gomobile and documents building an Android AAR; adapt its mobile API and lifecycle only after source audit | GPL-3.0 upstream and its own Android VpnService; TUN ownership and redistribution compliance must be resolved; not integrated |
 | Avira Phantom VPN | Proprietary commercial VPN service/client | Requires a supported partner SDK/API and commercial authorization; otherwise cannot be embedded as an engine | No public embeddable SDK verified |
 | Shroudly | Cross-platform anti-censorship app with portable C engine | Audit Android NDK build, local SOCKS/TUN path, hev-socks5-tunnel dependency, permissions and license | Native core appears reusable in principle; not integrated |
 | Ceno Browser | Browser using Ouinet peer-to-peer content distribution | Integrate as a browser/network capability, not claim it is a system-wide VPN; review Ouinet library and GeckoView integration | Browser-scoped technology; not a full-device VPN engine |
@@ -42,14 +42,14 @@
 ## Evidence and important compatibility notes
 
 - Android's VPN API requires a service derived from `VpnService`, a protected manifest declaration, `VpnService.prepare()`, `protect()` for tunnel sockets and a TUN established through `VpnService.Builder`. Android documents that only one VPN service is active per user/profile.
-- Psiphon upstream documents an Android library distributed as an AAR/Maven artifact and a source-build route.
+- Psiphon upstream documents an Android AAR/Maven artifact and source-build route, but the indexed upstream project declares GPL-3.0. This is a distribution/license gate, not merely a Gradle dependency.
 - VPN Gate's Android instructions list OpenVPN and L2TP/IPsec; its server ecosystem also exposes SoftEther and other protocols. A community Android connector demonstrates SoftEther/OpenVPN/SSTP adapters, but its GPL-3.0 license must be assessed independently.
 - nthLink's Android repository describes an app framework using Leaf and nthlink-outline SDKs, with backend and VPN-client integration points.
 - Shroudly's repository describes a portable C engine and Android NDK build path. The exact TUN/proxy integration and redistribution terms still require source-level review.
 - Ceno's Android build consumes Ouinet and GeckoView-related libraries; this is browser-scoped and must not be presented as a full-device VPN.
 - ByeDPI has an Android VpnService implementation. Its integration must not create a competing VPN service.
 - PowerTunnel Android is based on NetGuard's VPN server and a local proxy. Its own README states that Play Store publication requires permission; license and permission review are a hard precondition.
-- I2P's embedding documentation shows Java router embedding but says an Android router service library is on its roadmap; a direct embedding would require careful state/lifecycle management.
+- I2P's embedding documentation shows Java router embedding but says an Android router service library is on its roadmap; a direct embedding would require careful state/lifecycle management.\n- Tor Project's Arti Android guide says the Rust API is not yet stable and proper JNI bindings are not provided; a production Android adapter therefore needs maintained bindings and device validation.\n- Lantern's current upstream describes compiling its Go Core into an Android AAR via gomobile; the repository is GPL-3.0 and its Android app owns a VpnService, so TUN teardown/handoff and license compatibility are mandatory.
 
 ## Execution order
 
