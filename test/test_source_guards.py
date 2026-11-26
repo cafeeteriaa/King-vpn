@@ -2575,6 +2575,16 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn('goldLoad()', hunt)
         self.assertIn('natNationalDomMem', nat)
 
+    def test_fragmentation_is_not_silently_disabled_and_targets_all_tls_outbounds(self):
+        main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        extras = (ROOT / 'lib' / 'npv_am_extras.dart').read_text(encoding='utf-8')
+        self.assertEqual(main.count('fragEnabled = false;'), 1)
+        self.assertIn("sockopt['dialerProxy'] = 'frag-out';", extras)
+        self.assertIn("'packets': 'tlshello'", extras)
+        self.assertIn('_stripKingFragmentOutbound(cfg)', extras)
+        self.assertIn('for (final outbound in fragmentTargets)', extras)
+        self.assertIn("outs.removeWhere((entry) => entry is Map && entry['tag'] == 'frag-out')", extras)
+
     def test_matrix_order_is_not_truncated_by_the_old_5000_variant_ceiling(self):
         main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
         nat = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
