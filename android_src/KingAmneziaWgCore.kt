@@ -50,7 +50,7 @@ class KingAmneziaWgCore private constructor() {
                 ?: error("Android did not establish the AmneziaWG TUN interface")
             descriptor = activeDescriptor
             val started = GoBackend.awgTurnOn(INTERFACE_NAME, activeDescriptor.fd, userspaceSettings)
-            check(started > 0) { "AmneziaWG native engine returned an invalid handle: $started" }
+            check(started >= 0) { "AmneziaWG native engine failed to start (handle=$started)" }
             handle = started
 
             // Protect both address-family sockets before allowing the engine to
