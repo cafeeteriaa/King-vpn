@@ -10,11 +10,20 @@ import android.content.SharedPreferences;
 import android.net.VpnService;
 import android.os.Build;
 import android.os.ParcelFileDescriptor;
+import android.system.Os;
 import android.util.Log;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
 
+import java.io.BufferedReader;
+import java.io.BufferedWriter;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
+import java.io.InputStreamReader;
+import java.io.OutputStreamWriter;
+import java.nio.charset.StandardCharsets;
 import java.net.ConnectException;
 import java.net.HttpURLConnection;
 import java.net.InetSocketAddress;
@@ -98,7 +107,6 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
     private static final int CHECK_TIMEOUT_MS = 8000;
     /** Soft failures in a row before we switch servers. */
     private static final int FAILS_BEFORE_SWITCH = 2;
-    private static final int MAX_BACKUPS = 8;
     /** Hard cap on a single bringUp() call; stuck servers are skipped. */
     private static final long BRING_UP_TIMEOUT_MS = 20_000L;
 
@@ -221,7 +229,7 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
 
     /** جدید: stop requested by the app while it is in the background. */
     public void stopFromApp() {
-        requestStop();
+        requestStop(true);
         submit(this::stopEverything);
     }
 
@@ -261,7 +269,7 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
             if (!startForegroundSafe("در حال بازیابی اتصال…")) {
                 lastError = "Unable to enter foreground mode during VPN service recovery";
                 Log.e(TAG, lastError);
-                requestStop();
+                requestStop(false);
                 submit(this::stopEverything);
                 return START_NOT_STICKY;
             }
@@ -275,13 +283,16 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
             // ACTION_STOP may itself arrive through startForegroundService; satisfy the
             // same deadline before asynchronous shutdown work is queued.
             startForegroundSafe("در حال قطع اتصال…");
-            requestStop();
+            requestStop(true);
             submit(this::stopEverything);
             return START_NOT_STICKY;
         }
         if (!ACTION_START.equals(action)) {
             return START_NOT_STICKY;
         }
+        // A new start request supersedes any prior explicit-stop marker, even if
+        // the new request is malformed or foreground startup is refused.
+        userStopped = false;
 
         String json = intent.getStringExtra(EXTRA_CONFIG);
         if (json == null || json.isEmpty()) {
@@ -290,7 +301,7 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
             // جدید: startForegroundService requires startForeground() within 5 s, or Android
             // kills the process with ForegroundServiceDidNotStartInTimeException.
             updateNotification("خطا: تنظیمات سرور خالی است");
-            requestStop();
+            requestStop(false);
             submit(this::stopEverything);
             return START_NOT_STICKY;
         }
@@ -304,13 +315,12 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
         sortByScoreDesc(backups);
         nationalMode = intent.getBooleanExtra(EXTRA_NATIONAL, false);
         activeAttemptId = intent.getIntExtra(EXTRA_ATTEMPT, 0);
-        userStopped = false;
 
         if (!startForegroundSafe(first.remark)) {
             lastError = "Unable to enter foreground mode; VPN startup was refused";
             Log.e(TAG, lastError);
             emit("FAILED", lastError, activeAttemptId);
-            requestStop();
+            requestStop(false);
             submit(this::stopEverything);
             return START_NOT_STICKY;
         }
@@ -365,7 +375,6 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
             servers.clear();
             servers.add(first);
             for (Srv b : backups) {
-                if (servers.size() > MAX_BACKUPS) break;
                 if (!b.config.equals(first.config)) servers.add(b);
             }
             currentIdx = 0; // جدید: new list starts at 0; a stale index from the last session was saved before
@@ -405,8 +414,8 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
      * Non-blocking half of a stop. Safe to call on the main thread: it only sets
      * flags and cancels the running attempt. The real work runs on the worker.
      */
-    private void requestStop() {
-        userStopped = true;
+    private void requestStop(boolean explicitUserStop) {
+        if (explicitUserStop) userStopped = true;
         stopping = true;
         active = false;
         retryWaiting = false;
@@ -1051,7 +1060,12 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
                 Log.w(TAG, "core busy in a previous attempt; leaving it to that attempt");
                 lastError = "core busy from a previous attempt";
             }
-            clearState();
+            if (userStopped) {
+                clearState();
+            } else if (!servers.isEmpty()) {
+                // Preserve failover inventory across process/service teardown and failed attempts.
+                saveState();
+            }
             servers.clear();
             try {
                 stopForeground(true);
@@ -1070,44 +1084,92 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
         }
     }
 
+    /** Durable failover inventory. JSONL avoids one giant SharedPreferences value. */
+    private File failoverStateFile() {
+        return new File(getFilesDir(), "king_failover_state.jsonl");
+    }
+
     private void saveState() {
-        try {
-            JSONArray arr = new JSONArray();
-            for (Srv s : servers) {
-                JSONObject o = new JSONObject();
-                o.put("config", s.config);
-                o.put("remark", s.remark);
-                o.put("addr", s.addr);
-                o.put("port", s.port);
-                arr.put(o);
+        synchronized (lock) {
+            File target = failoverStateFile();
+            File temp = new File(getFilesDir(), "king_failover_state.jsonl.tmp");
+            try {
+                FileOutputStream stream = new FileOutputStream(temp, false);
+                try {
+                    BufferedWriter writer = new BufferedWriter(
+                            new OutputStreamWriter(stream, StandardCharsets.UTF_8));
+                    for (Srv s : servers) {
+                        JSONObject row = new JSONObject();
+                        row.put("config", s.config);
+                        row.put("remark", s.remark);
+                        row.put("addr", s.addr);
+                        row.put("port", s.port);
+                        writer.write(row.toString());
+                        writer.newLine();
+                    }
+                    writer.flush();
+                    stream.getFD().sync();
+                } finally {
+                    stream.close();
+                }
+                // POSIX rename replaces the previous file atomically on the same filesystem.
+                Os.rename(temp.getAbsolutePath(), target.getAbsolutePath());
+                SharedPreferences sp = getSharedPreferences(PREFS, MODE_PRIVATE);
+                sp.edit().putInt("idx", currentIdx)
+                        .putBoolean("national", nationalMode)
+                        .remove("list").commit();
+            } catch (Exception e) {
+                Log.w(TAG, "saveState failed; previous durable state is retained when possible", e);
+                if (temp.exists()) temp.delete();
             }
-            SharedPreferences sp = getSharedPreferences(PREFS, MODE_PRIVATE);
-            sp.edit().putString("list", arr.toString())
-                    .putInt("idx", currentIdx)
-                    .putBoolean("national", nationalMode)
-                    .apply();
-        } catch (Exception e) {
-            Log.w(TAG, "saveState failed", e);
         }
+    
     }
 
     private boolean loadState() {
         try {
             SharedPreferences sp = getSharedPreferences(PREFS, MODE_PRIVATE);
-            String raw = sp.getString("list", "");
-            if (raw == null || raw.isEmpty()) return false;
-            JSONArray arr = new JSONArray(raw);
+            File state = failoverStateFile();
             servers.clear();
-            for (int i = 0; i < arr.length(); i++) {
-                JSONObject o = arr.getJSONObject(i);
-                servers.add(new Srv(o.optString("config"), o.optString("remark"),
-                        o.optString("addr"), o.optString("port")));
+            if (state.isFile() && state.length() > 0L) {
+                try (BufferedReader reader = new BufferedReader(new InputStreamReader(
+                        new FileInputStream(state), StandardCharsets.UTF_8))) {
+                    String line;
+                    while ((line = reader.readLine()) != null) {
+                        if (line.trim().isEmpty()) continue;
+                        try {
+                            JSONObject row = new JSONObject(line);
+                            String config = row.optString("config", "");
+                            if (!config.isEmpty()) {
+                                servers.add(new Srv(config, row.optString("remark"),
+                                        row.optString("addr"), row.optString("port")));
+                            }
+                        } catch (Exception malformedRow) {
+                            Log.w(TAG, "skipping malformed failover state row", malformedRow);
+                        }
+                    }
+                }
+            } else {
+                // One-time migration from the legacy JSON array in SharedPreferences.
+                String raw = sp.getString("list", "");
+                if (raw == null || raw.isEmpty()) return false;
+                JSONArray legacy = new JSONArray(raw);
+                for (int i = 0; i < legacy.length(); i++) {
+                    JSONObject row = legacy.getJSONObject(i);
+                    String config = row.optString("config", "");
+                    if (!config.isEmpty()) {
+                        servers.add(new Srv(config, row.optString("remark"),
+                                row.optString("addr"), row.optString("port")));
+                    }
+                }
+                if (!servers.isEmpty()) saveState();
             }
+            if (servers.isEmpty()) return false;
             currentIdx = Math.max(0, Math.min(sp.getInt("idx", 0), servers.size() - 1));
             listExhaustedStreak = 0;
             healthyStreak = 0;
             nationalMode = sp.getBoolean("national", false);
-            return !servers.isEmpty();
+            return true;
         } catch (Exception e) {
             Log.w(TAG, "loadState failed", e);
             return false;
@@ -1116,7 +1178,13 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
 
     private void clearState() {
         try {
-            getSharedPreferences(PREFS, MODE_PRIVATE).edit().clear().apply();
+            getSharedPreferences(PREFS, MODE_PRIVATE).edit().clear().commit();
+            File state = failoverStateFile();
+            if (state.exists() && !state.delete()) {
+                Log.w(TAG, "could not delete failover state after explicit stop");
+            }
+            File temp = new File(getFilesDir(), "king_failover_state.jsonl.tmp");
+            if (temp.exists()) temp.delete();
         } catch (Exception ignored) {
         }
     }
@@ -1162,7 +1230,7 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
         if (raw == null || raw.isEmpty()) return out;
         try {
             JSONArray arr = new JSONArray(raw);
-            for (int i = 0; i < arr.length() && out.size() < MAX_BACKUPS; i++) {
+            for (int i = 0; i < arr.length(); i++) {
                 JSONObject o = arr.getJSONObject(i);
                 String cfg = o.optString("config", "");
                 if (!cfg.isEmpty()) {
@@ -1179,7 +1247,7 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
     @Override
     public void onRevoke() {
         // Another VPN took over: stop our core and free the TUN, without blocking the main thread.
-        requestStop();
+        requestStop(false);
         submit(this::stopEverything);
     }
 
@@ -1187,7 +1255,7 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
     public void onDestroy() {
         if (instance == this) instance = null; // جدید
         stopWatchdog();
-        requestStop();
+        requestStop(false);
         ScheduledExecutorService sch = scheduler; // جدید: close the scheduler thread for good
         scheduler = null;
         if (sch != null) sch.shutdownNow();

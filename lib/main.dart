@@ -3,6 +3,7 @@ import 'network_health.dart';
 import 'king_local_ai.dart';
 import 'king_ai_console.dart';
 import 'king_chat_page.dart';
+import 'king_wireguard_page.dart';
 import 'king_ai_background.dart';
 import 'king_ai_owner_auth.dart';
 import 'king_command_safety.dart';
@@ -16,6 +17,7 @@ import 'package:flutter/foundation.dart' show compute, ValueListenable;
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_v2ray_client/flutter_v2ray.dart';
@@ -30,6 +32,7 @@ import 'prefs_store.dart';
 import 'online_count.dart'; // ONLINECOUNT: شمارش کاربران آنلاین
 import 'nnie_core.dart'; // NNIE: کد خالص و قابل تست
 import 'own_vpn.dart'; // KINGVPN: سرویس VPN خودمان (پیش‌فرض خاموش)
+import 'king_wireguard_core.dart'; // independent WireGuard bridge
 import 'package:crypto/crypto.dart'; // فیکس ۱: sha256 برای APK آپدیت
 import 'package:flutter_secure_storage/flutter_secure_storage.dart'; // فیکس ۲: کلیدهای AI
 import 'package:speech_to_text/speech_to_text.dart' as stt;
@@ -64,6 +67,10 @@ part 'ultimate_extras.dart';
 part 'auto_test.dart';
 part 'net_state.dart';
 part 'national_engine.dart'; // NNIE: هوشمندسازی حالت موجود نت ملی، بدون دکمه جدید
+
+final KingWireGuardCore _kingWireGuardCore = KingWireGuardCore();
+bool _kingWireGuardActive = false;
+bool _kingWireGuardStopFailed = false;
 
 // One rewarded ad = one 4 hour session. When the 4 hours end the VPN is cut
 // and the next connect shows the ad again. Automatic server switches (bad
@@ -175,22 +182,13 @@ Future<void> _cpuTick() async {
 }
 // CONNWORK1: وقتی وصل هستیم، همه مسیرها (از جمله نت ملی) یکی‌یکی تست می‌کنند
 const int kStandbyWorkers = 1;
-// STANDBY20: وقتی وصلیم، جستجوی یکی‌یکی تا ۲۰ سرور سالم ادامه دارد؛ به ۲۰ که رسید خاموش
-// می‌شود و وقتی سالم‌ها زیر ۵ آمد دوباره خودکار روشن می‌شود
-const int kStandbyPause = 5; // هدف همیشگی: ۵ سرور سالم، از اولین جستجو تا آخر
-// STATE: بعد از اولین پرشدن، با هر بار زیر ۵ آمدن فقط تا ۵ سالم جستجو می‌شود و بعد می‌ایستد
-bool standbyFilled = false;
-int standbyGoal() => kStandbyPause; // ۵ سالم، همیشه
-// STANDBY-FIX: the search resumes as soon as the healthy count drops below 20 (it used
-// to wait until the count fell to 5, so with 7-8 healthy servers it never searched again)
-const int kStandbyResume = 5; // RESUME5: وقتی سالم‌ها زیر ۵ آمد جستجو دوباره روشن می‌شود
+// Background discovery has no healthy-server count ceiling. It continues through
+// the available inventory while connected, with adaptive concurrency and cancellation.
 // FG-TARGET: جستجوی اصلی (غیر ملی) تا این تعداد سرور سالم تست می‌کند
 const int kFgSearchTarget = 1; // V13: connect immediately on first healthy // FG5: تست سریع با ۵ سالم تمام می‌شود و وصل می‌شود
-// FASTONE: تست سریع (جستجوی اصلی) فقط یک دسته را کامل تست می‌کند. اگر آن دسته
-// حداقل یک سرور سالم داد، همان‌جا می‌ایستد. اگر نداد، دسته‌ی بعدی تا سقف «حداکثر
-// تعداد دسته در هر جستجو» (maxBatches) می‌آید. برای برگشت به رفتار قبلی عدد را بزرگ کن.
+// FASTONE: the first healthy result may connect immediately; when a batch has
+// no healthy result, discovery continues through the remaining inventory.
 const int kFastBatchesPerSearch = 1;
-bool standbyPaused = false;
 // FAST SEARCH: parallel ping tests (core delay test, no VPN toggling) used
 // when looking for the first healthy server (settings 1..8).
 int fastWorkers = 3; // FAST100 (تست همزمان جستجوی اول = ۳ پیش‌فرض)
@@ -546,8 +544,6 @@ bool speedTestBusy = false;
 int listRefreshMin = 180;
 int failMin = 90; // minutes a failed server is not tested again
 int recheckMin = 20; // minutes before a healthy server is pinged again
-int maxBatches = 8; // safety limit per search
-const standbyBatches = 12; // batches per standby search cycle
 const bgSearchOff = false; // RETRYPATCH // SPEEDSWITCHPATCH: no search while connected
 // while connected the tunnel is shared with the tests, so the batch is bigger
 // and the timeout longer (fewer false "dead" results). The healthy servers
@@ -558,7 +554,8 @@ int firstBatchSize = 100; // FAST100: دسته اول هم ۱۰۰تایی
 int fetchWorkers = 16;
 Duration fetchDeadline = const Duration(seconds: 60);
 int tcpWorkers = 20;
-int maxPerSource = 120;
+// Source parsing traverses each returned list completely; batch/network controls
+// are applied separately and never discard lines from an individual source.
 Duration tcpTimeout = const Duration(milliseconds: 3500);
 // TLS handshakes in the prefilter leaked sockets (crash, instant failures)
 const probeTls = false;
@@ -2852,7 +2849,10 @@ String _reliableVpnCfg(String cfg) {
       }
       d['servers'] = merged;
     } else if (secureDns && !ultraMode && !indestructibleMode) {
-      d['servers'] = <dynamic>[
+      // Preserve explicit DNS servers from the imported profile. The curated
+      // resolvers are fallbacks, not a replacement for user-supplied settings.
+      final existingList = existing is List ? existing : const <dynamic>[];
+      final globalDefaults = <dynamic>[
         '1.1.1.1', '1.0.0.1', '8.8.8.8', '8.8.4.4',
         '9.9.9.9', '149.112.112.112', '208.67.222.222',
         '208.67.220.220', '94.140.14.14', '94.140.15.15',
@@ -2860,6 +2860,15 @@ String _reliableVpnCfg(String cfg) {
         'https://1.1.1.1/dns-query', 'https://8.8.8.8/dns-query',
         'https://9.9.9.9/dns-query', 'https://dns.adguard-dns.com/dns-query',
       ];
+      final merged = <dynamic>[];
+      final seenDns = <String>{};
+      for (final item in [...existingList, ...globalDefaults]) {
+        final value = item.toString().trim();
+        if (value.isNotEmpty && seenDns.add(value.toLowerCase())) {
+          merged.add(item);
+        }
+      }
+      d['servers'] = merged;
     }
     // UseIP = هم IPv4 و هم IPv6 (هر کدام در دسترس باشد)
     d['queryStrategy'] = 'UseIP';
@@ -3609,6 +3618,7 @@ class Server {
   bool ipTried = false;
   String get useLink => ipLink ?? link;
   bool get isIp => InternetAddress.tryParse(host) != null;
+  bool wireGuard = false;
   bool get reality => link.contains('security=reality');
 
   bool get cdn {
@@ -3643,7 +3653,7 @@ class Server {
     country = detectCountry(name);
   }
 
-  String get key => '$host:$port';
+  String get key => wireGuard ? 'wireguard:$host:$port' : '$host:$port';
 
   // SERVERCACHE-SAFE: کش Server. کش هرگز خود نمونه را نگه نمی‌دارد، فقط یک کپی
   // از لحظه‌ی پارس؛ هر بار روی hit یک نمونه‌ی تازه ساخته می‌شود تا تغییرات
@@ -3656,7 +3666,8 @@ class Server {
     // نکته: npvClean خودش trim می‌کند؛ double-trim لازم نیست.
     // اگر npvParse خاموش باشد، npvClean no-op است و کش روی لینک خام
     // کار می‌کند — همان رفتار قبلی.
-    final key = npvClean(link);
+    final raw = link.trim();
+    final key = raw.toLowerCase().startsWith('[interface]') ? raw : npvClean(link);
     if (_serverCache.containsKey(key)) {
       final c = _serverCache[key];
       return c == null ? null : _freshFrom(c);
@@ -3671,6 +3682,7 @@ class Server {
   static Server _freshFrom(Server s) {
     final c = Server(s.link, s.name, s.host, s.port);
     c.tls = s.tls;
+    c.wireGuard = s.wireGuard;
     c.sni = s.sni;
     c.net = s.net;
     c.country = s.country;
@@ -3680,7 +3692,20 @@ class Server {
 
   static Server? _parseImpl(String link) {
     try {
-      link = npvClean(link.trim());
+      link = link.trim();
+      // Parse complete wg-quick profiles before URI normalization.
+      if (link.toLowerCase().startsWith('[interface]')) {
+        if (!link.toLowerCase().contains('[peer]')) return null;
+        final endpointLine = link.split('\n').firstWhere((line) => line.trim().toLowerCase().startsWith('endpoint'), orElse: () => '');
+        final equals = endpointLine.indexOf('=');
+        if (equals < 0) return null;
+        final endpoint = Uri.tryParse('udp://${endpointLine.substring(equals + 1).trim()}');
+        if (endpoint == null || endpoint.host.isEmpty || !endpoint.hasPort || endpoint.port <= 0 || endpoint.port > 65535 || !_validHost(endpoint.host)) return null;
+        final server = Server(link, 'WireGuard • ${endpoint.host}', endpoint.host, endpoint.port);
+        server.wireGuard = true;
+        return server;
+      }
+      link = npvClean(link);
       // pasted with extra text around it ("@channel vless://...")
       if (!_schemeRe.hasMatch(link)) {
         final m = _linkRe.firstMatch(link);
@@ -3804,7 +3829,7 @@ Future<int?> probe(Server s) async {
     final name = s.sni.isNotEmpty ? s.sni : s.host;
     if (s.tls && probeTls) {
       final sec = await SecureSocket.secure(sock,
-              host: name, onBadCertificate: (_) => true)
+              host: name)
           .timeout(tcpTimeout);
       sec.destroy();
     } else {
@@ -4035,7 +4060,7 @@ Future<double?> measure(
   // viaCore / default when VPN is up: always hit the core's local HTTP proxy
   // so we test the REAL outbound. DIRECT from the VPN app often bypasses the
   // tunnel on Android and gives false "OK" while Telegram/apps still hang.
-  final useProxy = await _useCoreProxy(viaCore || !direct);
+  final useProxy = await _useCoreProxy((viaCore || !direct) && !_kingWireGuardActive);
   final c = HttpClient()
     ..findProxy = ((_) =>
         useProxy ? 'PROXY 127.0.0.1:$httpProxyPort' : 'DIRECT')
@@ -4068,7 +4093,7 @@ String lastPingErr = '';
 // (only the headers are read, then the connection is closed)
 Future<bool> _siteOpens(String url, {bool viaCore = true}) async {
   // Default viaCore=true: verify through the core proxy (real tunnel path)
-  final useProxy = await _useCoreProxy(viaCore);
+  final useProxy = await _useCoreProxy(viaCore && !_kingWireGuardActive);
   final c = HttpClient()
     ..findProxy = ((_) =>
         useProxy ? 'PROXY 127.0.0.1:$httpProxyPort' : 'DIRECT')
@@ -4087,6 +4112,11 @@ Future<bool> _siteOpens(String url, {bool viaCore = true}) async {
 }
 
 Future<int> _sitesOpen() async {
+  if (_kingWireGuardActive) {
+    final urls = nationalMode ? _tunnelTestUrlsNational : <String>[delayTestUrl];
+    final results = await Future.wait(urls.map((url) => _siteOpens(url, viaCore: false)));
+    return results.any((ok) => ok) ? 1 : 0;
+  }
   // اگر پورت پروکسی هسته آماده نیست، تست را بی‌اعتبار بدان
   // (قبلاً باعث تعویض الکی «سایت‌ها باز نمی‌شوند» می‌شد)
   try {
@@ -4187,7 +4217,7 @@ Future<int?> pingProxy(
   try {
     if (cancelled?.call() ?? false) return null;
     var useProxy = await _useCoreProxy(
-      viaCore || !direct,
+      (viaCore || !direct) && !_kingWireGuardActive,
       budget: left(),
       cancelled: cancelled,
     );
@@ -4761,7 +4791,8 @@ Future<List<Server>> fetchServers({bool Function()? stop, int? quickCap}) async 
         ..shuffle();
       var pn = 0;
       var okN = 0;
-      for (final l in lines.take(quickCap != null ? 30 : maxPerSource)) {
+      if (quickCap != null) dbg('quick source mode: parsing the complete returned list');
+      for (final l in lines) {
         final s = Server.parse(l);
         if (s != null) {
           s.src = u;
@@ -4842,6 +4873,8 @@ Map<String, String> _favsRef = {};
 
 bool inRowGid(Server s, String gid) {
   if (gid.startsWith('p:')) return s.personal;
+  if (gid == 'f:wireguard') return s.wireGuard;
+  if (gid == 'f:mine') return !s.wireGuard && _favsRef.containsKey(s.key);
   if (gid.startsWith('f:')) return _favsRef.containsKey(s.key);
   if (gid.startsWith('s:')) {
     return gid.length > 2 && ownerOf(s) == gid.substring(2);
@@ -5175,7 +5208,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   String _backupsJson(Server cur) {
     final out = <Map<String, String>>[];
     for (final x in _usable()) {
-      if (identical(x, cur) || out.length >= 8) continue;
+      if (identical(x, cur)) continue;
       try {
         out.add({
           'config': buildCoreConfig(x.useLink),
@@ -5212,15 +5245,14 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
   // the pinned / manually added configs as server objects (the same object
   // that is in the healthy list or in the queue when there is one)
-  /// سرورهای پوشه‌ی «سرورهای شخصی» (حداکثر [max] تا، از اول پوشه)
-  List<Server> personalFolderServers({int max = 50}) {
+  /// تمام ورودی‌های پوشهٔ شخصی؛ بدون سقف ثابت یا برش خاموش.
+  List<Server> personalFolderServers() {
     final out = <Server>[];
-    for (final l in personalFolderCache) {
-      if (out.length >= max) break;
-      final s = Server.parse(l);
-      if (s != null) {
-        s.personal = true; // ONLYFOLDER: تعویض خودکار هرگز به سرور بیرون از پوشه نمی‌رود
-        out.add(s);
+    for (final link in personalFolderCache) {
+      final server = Server.parse(link);
+      if (server != null) {
+        server.personal = true; // ONLYFOLDER: مسیر شخصی مستقل می‌ماند
+        out.add(server);
       }
     }
     return out;
@@ -5717,11 +5749,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     }
     var stillAlive = false;
     try {
-      // IDLECAP: a long national search is fine while it keeps writing progress
-      // lines. It is cut only when it has been silent for a while, or when it
-      // runs past the hard limit.
-      final startedAt = DateTime.now();
-      final hardLimit = Duration(minutes: nationalMode ? 20 : 8);
+      // No global duration ceiling: a long search/connection can continue while
+      // it produces real progress. Only a genuinely idle/hung operation is stopped.
       final idleLimit = Duration(minutes: nationalMode ? 3 : 2);
       var done = false;
       work.whenComplete(() => done = true);
@@ -5729,10 +5758,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         await Future.any(
             [work, Future<void>.delayed(const Duration(seconds: 20))]);
         if (done) break;
-        final now = DateTime.now();
-        if (now.difference(startedAt) > hardLimit ||
-            now.difference(dbgLastAt) > idleLimit) {
-          throw TimeoutException('idle-or-hard-cap');
+        if (DateTime.now().difference(dbgLastAt) > idleLimit) {
+          throw TimeoutException('idle-no-progress');
         }
       }
     } on TimeoutException {
@@ -5740,7 +5767,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       poolStop = true; // ABORTPOOL
       // STUCK-WHERE: the status text shows which step was waiting when it hung
       final quietMin = DateTime.now().difference(dbgLastAt).inMinutes;
-      dbg('کار متوقف شد (بی‌فعالیتی ~$quietMin دقیقه یا سقف زمان) • گیر در: «$status»');
+      dbg('کار متوقف شد (بدون پیشرفت برای ~$quietMin دقیقه) • گیر در: «$status»');
       try {
         // BUSYCAP: مهلت توقف از ۲۰ ثانیه به ۶۰ ثانیه تا کار بتواند خودش تمیز تمام شود
         await work.timeout(const Duration(seconds: 60));
@@ -5911,10 +5938,19 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     // failovers right after a connect).
     _lastOwnStop = DateTime.now();
     _dropDeferred = false;
+    _kingWireGuardStopFailed = false;
     try {
+      if (Platform.isAndroid && _kingWireGuardActive) {
+        await _kingWireGuardCore.disconnect().timeout(const Duration(seconds: 8));
+        _kingWireGuardActive = false;
+        kVpnLastStateTop = 'DISCONNECTED';
+      }
       if (kOwnVpnService) await ownVpnStop(); // KINGVPN
       await v2ray.stopV2Ray().timeout(const Duration(seconds: 8), onTimeout: () {});
-    } catch (_swE) { _swl('_stopV2#1', _swE);}
+    } catch (_swE) {
+      if (_kingWireGuardActive) _kingWireGuardStopFailed = true;
+      _swl('_stopV2#1', _swE);
+    }
     finally {
       _lastOwnStop = DateTime.now();
       _dropDeferred = false;
@@ -5943,10 +5979,16 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   Future<void> _stopCoreInner() async {
     // جدید: wait for the real DISCONNECTED event (not just a fixed delay), so
     // the next start can never race with the old VPN service still closing
-    final wasUp = lastState == 'CONNECTED' || lastState == 'CONNECTING';
+    final wasWireGuardUp = _kingWireGuardActive;
+    final wasUp = !wasWireGuardUp && (lastState == 'CONNECTED' || lastState == 'CONNECTING');
     if (wasUp) downSig = Completer<bool>();
     await _stopV2();
-    var gotDown = !wasUp;
+    if (wasWireGuardUp && _kingWireGuardStopFailed) {
+      _staleCoreMayBeUp = true;
+      lastState = 'CONNECTED';
+      throw StateError('WireGuard did not confirm DOWN; refusing to start another VPN engine');
+    }
+    var gotDown = wasWireGuardUp || !wasUp;
     if (wasUp && downSig != null) {
       // RARE BUG FIX: complete on timeout so a late DISCONNECTED cannot
       // complete a future stop's downSig
@@ -5987,7 +6029,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         fwUserValue = 3;
         indestructibleMode = true;
         muxConc = 32;
-        fragEnabled = false;
+        fragEnabled = true;
         muxEnabled = true;
         cleanIpMode = true;
         npvParse = true;
@@ -6126,12 +6168,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         failMin = 120;
         recheckMin = 30;
         tcpWorkers = 50;
-        maxPerSource = 100;
         fetchWorkers = 4;
         fetchDeadline = const Duration(seconds: 20);
         firstBatchSize = 100;
         standbyBatchSize = 30;
-        maxBatches = 5;
         watchFailLimit = 3;
         badPingLimit = 3;
         missLimit = 3;
@@ -6407,7 +6447,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       final p = await SharedPreferences.getInstance();
       if (connected) {
         _screenWasOn = true;
-        await p.setStringList('personal_shown_v1', [for (final x in _personalShown) x.link]);
+        // The personal folder has its own durable JSONL journal; avoid duplicating
+        // the entire inventory in the general preferences JSON.
+        await p.remove('personal_shown_v1');
         // KEEPALL: مسیر اتصال و سرورهای سالم صفحه (آنلاین/آفلاین) هم ذخیره می‌شوند
         await p.setString('screen_row_v1', connRow ?? '');
         final cur = current;
@@ -6424,7 +6466,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       } else if (_screenWasOn) {
         // قطع اتصال در همین اجرا: لیست صفحه پاک می‌شود
         _screenWasOn = false;
-        await p.setStringList('personal_shown_v1', <String>[]);
+        await p.remove('personal_shown_v1');
         await p.remove('screen_row_v1');
         await p.remove('screen_good_v1');
       }
@@ -6436,21 +6478,19 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   Future<void> _restoreScreenLists() async {
     try {
       final p = await SharedPreferences.getInstance();
-      final ps = <Server>[];
-      for (final l in p.getStringList('personal_shown_v1') ?? const <String>[]) {
-        final x = Server.parse(l);
-        if (x != null) {
-          x.personal = true;
-          x.restored = true;
-          ps.add(x);
-        }
-      }
-      if (ps.isNotEmpty) {
-        _screenWasOn = true; // PERSKEEP-FIX: وضعیت ذخیره‌شده پس از restart هم باید قابل پاک‌شدن باشد
-        if (_personalShown.isEmpty) _personalShown = ps;
+      final legacyPersonal = p.getStringList('personal_shown_v1') ?? const <String>[];
+      if (legacyPersonal.isNotEmpty) {
+        // The independent personal-folder journal is now the source of truth.
+        _screenWasOn = true;
+        if (_personalShown.isEmpty) _personalShown = personalFolderServers();
+        await p.remove('personal_shown_v1');
       }
       // KEEPALL: مسیر اتصال و سرورهای سالم صفحه
       final rowSaved = p.getString('screen_row_v1') ?? '';
+      if (rowSaved == 'p:personal' && _personalShown.isEmpty) {
+        _personalShown = personalFolderServers();
+        _screenWasOn = _personalShown.isNotEmpty;
+      }
       if (rowSaved.isNotEmpty) {
         _screenWasOn = true;
         _restoredRow = rowSaved;
@@ -6998,16 +7038,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           if (fastDelay) {
             // FASTONE: یک دسته کامل، و اگر سرور سالم داد همین‌جا تمام
             if (rdyFg >= 1 && fgBatchesDone >= kFastBatchesPerSearch) return true;
-            // سقف ایمنی: «حداکثر تعداد دسته در هر جستجو» واقعاً اعمال شود
-            if (fgBatchesDone >= maxBatches) return true;
           }
           return rdyFg >= 1 && pending.isEmpty;
-        }
-        // STANDBY20: جستجوی پس‌زمینه وقتی وصل است در ۲۰ سرور سالم می‌ایستد
-        // STANDBY20 برای همه‌ی مسیرهای غیر ملی (جستجوی اول و پس‌زمینه): به ۲۰ سرور سالم که رسید ایست
-        if (!nationalMode &&
-            _usable().where((s) => !identical(s, current)).length >= standbyGoal()) {
-          return true;
         }
         if (explore) return false;
         final ready = _ready(row);
@@ -7072,13 +7104,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       final bgStart = DateTime.now(); // BGCAP: هر دور جستجوی پس‌زمینه حداکثر ۲۰ دقیقه
       // standby search: bigger batches (the tunnel is shared), the healthy
       // servers are re-checked every 25 tests and after every batch
-      final maxB = bg ? standbyBatches : 1000000; // RETRYPATCH
       while (!abort &&
           !(bg && (!connected || appGone)) &&
           !(bg && _bgYield) &&
           !enough() &&
-          !(bg && DateTime.now().difference(bgStart) > const Duration(minutes: 20)) &&
-          batches < maxB) {
+          !(bg && DateTime.now().difference(bgStart) > const Duration(minutes: 20))) {
         // the whole list was tested: download a new one and go on (endless)
         if (pending.isEmpty && folderQ.isEmpty) {
           // V12: in national mode, two-pass search. When the queue empties,
@@ -7410,7 +7440,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     if (ipMode && !abort) {
       final top = (alive.toList()..sort(_cmpAlive))
           .where((s) => s.ipLink == null && !s.ipTried)
-          .take(40)
           .toList();
       await pool<Server>(top, 24, (s) async {
         s.ipTried = true;
@@ -7736,7 +7765,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           dbg('NATVERIFY: سقف زمان تأیید تونل (${kNatVerifyBudget.inMinutes} دقیقه) در این تپ تمام شد؛ نردبان برای ${s.name} اجرا نشد');
         } else if (!natOk && wantVpn && !abort) {
           await _stopCore();
-          natOk = await _natLadder(s, socialGate: _tunnelTrafficOk, maxTries: 6);
+          natOk = await _natLadder(s, socialGate: _tunnelTrafficOk);
         } else if (!natOk && !wantVpn) {
           natOk = true; // جستجوی بی‌اتصال: رفتار قبلی (فقط پینگ) حفظ شود
         }
@@ -7816,13 +7845,13 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     final useMatrix = nationalMode;
     final multi = useMatrix;
     final order = useMatrix
-        ? <int>[0, ..._natOrder(s, full: _resFull).where((v) => v != 0).take(max(0, natMaxVariants - 1))]
+        ? <int>[0, ..._natOrder(s, full: _resFull).where((v) => v != 0)]
         : const [0]; // اول کانفیگ اصلی، سپس variantهای سازگار
     // NATBUDGET: one server may only use a limited time per pass; the rest of
     // its variants continue in the next pass (natCursorAdvance)
     final budget = multi ? natBudget(full: _resFull) : null;
     final bsw = Stopwatch()..start();
-    var genTried = 0;
+    var genCompleted = 0;
     var attempted = 0; // FIXFIRSTTO: اولین حالت واقعاً تست‌شده timeout کامل بگیرد
     var deadRun = 0; // DEADSRV-FIX: حالت‌های پیاپی بی‌پاسخ برای همین سرور
     // plain TCP check (once, lazily): when the port is closed, only variants
@@ -7858,9 +7887,12 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       final to = attempted == 0
           ? tt
           : Duration(seconds: min(tt.inSeconds, i > 60 ? 5 : (i > 12 ? 6 : 9)));
-      if (v >= _natBaseCount) genTried++;
       attempted++;
       final d = await _delayOnce(s, v, to, u);
+      // Advance only after the probe actually returns; a user/app cancellation
+      // during the in-flight probe must leave that variant for the next pass.
+      if (abort || !mounted) break;
+      if (v >= _natBaseCount) genCompleted++;
       // DEADSRV-FIX: هسته برای این سرور پیاپی جواب نمی‌دهد (مهلت تمام شد)؛
       // بعد از ۵ بار، بقیه‌ی حالت‌های همین سرور در این دور رد می‌شود
       if (d != null) {
@@ -7888,7 +7920,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         return d;
       }
     }
-    if (multi && genTried > 0) natCursorAdvance(s, genTried);
+    if (multi && genCompleted > 0) natCursorAdvance(s, genCompleted);
     if (s.isIp) natIpDeadRun.add('${s.host}|${s.port}'); // DEADRUN
     return null;
   }
@@ -8114,9 +8146,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         r = 'settling<25s';
       } else if (rechecking) {
         r = 'rechecking=1';
-      } else if (standbyPaused && !nationalMode) {
-        // STANDBY-FIX: say why the search is held instead of printing a misleading OK
-        r = 'paused: ${kStandbyPause} سرور سالم جمع شد (زیر $kStandbyPause که شد دوباره می‌گردد)';
       }
       final now = DateTime.now();
       if (r == _sbLast && now.difference(_sbAt) < const Duration(seconds: 90)) {
@@ -8178,28 +8207,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     }
     try {
       await _recheckStandby();
-      // STANDBY20: خاموش/روشن شدن خودکار بر اساس تعداد سرورهای سالم
-      final healthyNow = _usable().where((s) => !identical(s, current)).length;
-      // STANDBY-FIX: pause at 20 healthy, resume below 20 (no stuck pause at 7-8)
-      if (!nationalMode) {
-        if (healthyNow >= kStandbyPause) standbyFilled = true;
-        if (healthyNow >= standbyGoal()) {
-          standbyPaused = true; // پر است: هیچ تستی نزن
-        } else if (standbyFilled ? healthyNow < kStandbyResume : true) {
-          standbyPaused = false; // زیر ۵ (بعد از پرشدن) یا هنوز اولین پرشدن: بگرد
-        }
-      }
-      // V11: in national mode, only pause when the queue is fully empty.
-      if (nationalMode) {
-        standbyPaused = pending.isEmpty;
-      }
-      if (nationalMode) {
-        standbyPaused = pending.isEmpty;
-      }
-      if (standbyPaused && connected && !nationalMode) {
-        lastStandby = DateTime.now();
-        return;
-      }
       // CONTSEARCH: while connected the search for a replacement server always runs
       if (autoUpgrade || connected) {
         await _findGood(manualSpeedMax, bg: true, explore: true);
@@ -8280,6 +8287,61 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     if (!proxyOnly && !wantVpn) {
       lastFail = 'اتصال توسط کاربر خواسته نشده بود';
       return false;
+    }
+    if (_kingWireGuardActive && !s.wireGuard) {
+      lastFail = 'هستهٔ WireGuard هنوز فعال است؛ تا تأیید توقف، هستهٔ دیگری شروع نمی‌شود';
+      return false;
+    }
+    if (s.wireGuard) {
+      if (proxyOnly || proxyMode) { lastFail = 'WireGuard به تونل کامل VPN نیاز دارد و حالت پراکسی محلی ندارد'; return false; }
+      if (abort || !wantVpn) return false;
+      try {
+        await _stopCore();
+        if (_staleCoreMayBeUp) throw StateError('Previous VPN engine did not confirm DOWN');
+        if (abort || !wantVpn) return false;
+        final result = await _kingWireGuardCore.connect(s.link);
+        if (result['connected'] != true) throw StateError('WireGuard backend did not confirm UP state');
+        if (abort || !wantVpn) {
+          await _kingWireGuardCore.disconnect();
+          _kingWireGuardActive = false;
+          kVpnLastStateTop = 'DISCONNECTED';
+          return false;
+        }
+        _kingWireGuardActive = true;
+        lastState = 'CONNECTED';
+        kVpnLastStateTop = 'CONNECTED';
+        tunWarn = false;
+        if (_personalFast) {
+          _startNoTraffic = false;
+          final trafficOk = await _tunnelTrafficOk().timeout(
+            const Duration(seconds: 3), onTimeout: () => false);
+          if (!trafficOk) {
+            _startNoTraffic = true;
+            await _kingWireGuardCore.disconnect();
+            _kingWireGuardActive = false;
+            lastState = 'DISCONNECTED';
+            kVpnLastStateTop = 'DISCONNECTED';
+            lastFail = 'WireGuard tunnel did not pass traffic';
+            return false;
+          }
+        }
+        dbg('KING CORE: WireGuard UP • ${result['version'] ?? 'wireguard-go'}');
+        return true;
+      } catch (wgError, wgStack) {
+        logError(wgError, wgStack);
+        var wgStopped = false;
+        try {
+          await _kingWireGuardCore.disconnect();
+          wgStopped = true;
+        } catch (stopError, stopStack) {
+          logError(stopError, stopStack);
+        }
+        _kingWireGuardActive = !wgStopped;
+        lastState = wgStopped ? 'DISCONNECTED' : 'CONNECTED';
+        kVpnLastStateTop = lastState;
+        lastFail = 'WireGuard: $wgError';
+        return false;
+      }
     }
     final po = proxyOnly || proxyMode;
     // FIX: بعد از توقف هسته قبلی، کمی صبر کن تا پورت آزاد شود (رفع XRAY-ERR)
@@ -8728,10 +8790,14 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     final nnieElapsedMs = _nnieFinishAttempt(s);
     if (_listPartial) unawaited(_fetchFullListBg());
     // IP کارا به حافظه (هم در نت جهانی و هم در نت ملی؛ دفعه‌ی بعد اول از همین‌ها استفاده می‌شود)
-    if (InternetAddress.tryParse(s.host) != null) {
-      unawaited(natIpMemSave(s.host, s.port));
-    } else if (nationalMode) {
-      unawaited(natDomMemSave(s.host, s.port)); // NATDOM: دامنه‌ی موفق در نت ملی
+    if (!s.wireGuard && InternetAddress.tryParse(s.host) != null) {
+      unawaited(nationalMode
+          ? natNationalIpMemSave(s.host, s.port)
+          : natIpMemSave(s.host, s.port));
+    } else if (!s.wireGuard && nationalMode) {
+      unawaited(natNationalDomMemSave(s.host, s.port));
+    } else if (!s.wireGuard) {
+      unawaited(natDomMemSave(s.host, s.port));
     }
     s.miss = 0; // BADCFG: only an end-to-end connection resets health
     softFailN.remove(s.key);
@@ -8741,14 +8807,14 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     plusHistAdd(s);
     connBaseDelay = s.ping;
     betterRun = 0;
-    aiGen++; // FASTPATCH-AI: analyse+apply after ANY connection
-    _aiLoop(aiGen);
+    aiGen++; // cancel analysis for the previous engine on every core switch
+    if (!s.wireGuard) _aiLoop(aiGen); // legacy AI tuning is Xray-specific until selector integration
     // the personal server has its own row, it never joins the healthy list
-    if (!s.personal && !good.contains(s)) good.add(s);
-    if (nationalMode && !s.personal) unawaited(_natAdd(s));
+    if (!s.personal && !s.wireGuard && !good.contains(s)) good.add(s);
+    if (nationalMode && !s.personal && !s.wireGuard) unawaited(_natAdd(s));
     // HEALTHY-STORE: every genuinely connected non-personal server is saved,
     // regardless of discovery source or mode. Reads/injection remain NAT-only.
-    if (!s.personal) _resAdd(s);
+    if (!s.personal && !s.wireGuard) _resAdd(s);
     upServer = null;
     fails = 0;
     slowCount = 0;
@@ -8773,7 +8839,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     // remembered so the app can pick the tunnel up again after being closed
     SharedPreferences.getInstance()
         .then((p) => p.setString('last_conn', s.link));
-    if (nationalMode) {
+    if (nationalMode && !s.wireGuard) {
       unawaited(natRememberSuccess(s)); // NATMEM
     }
     // NNIE records end-to-end successes in BOTH domestic and global modes.
@@ -8791,16 +8857,14 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     if (mounted) setState(() {});
     if (mounted) uiJoinPrompt(context);
     _set(_connStatus());
-    autoAiAfterConnect();
-    // TURBO: بعد از هر اتصال واقعی حتماً توربو سرعت فعال شود
+    if (!s.wireGuard) autoAiAfterConnect();
+    // TURBO: after Xray-compatible connections only; WireGuard has no Xray mux/fragment settings.
     // مهم: تست سرعت را قبل از توربو شروع نکن — توربو هسته را ریستارت می‌کند
     // و تست سرعت ممکن بود صفر ببیند و به‌اشتباه failover کند
-    turboSpeed = true;
-    muxEnabled = muxEnabled || kTurboEnabled;
-    muxConc = max(muxConc, kTurboEnabled ? 32 : 8);
-    // NORMALFRAG: در اتصال عادی Fragment کاربر حفظ می‌شود.
-    if (!nationalMode && (localPilotOn || aiSession || isAutoTesting)) {
-      fragEnabled = false;
+    if (!s.wireGuard) {
+      turboSpeed = true;
+      muxEnabled = muxEnabled || kTurboEnabled;
+      muxConc = max(muxConc, kTurboEnabled ? 32 : 8);
     }
     // SPEEDFIRST: اگر هنوز سرعتی اندازه‌گیری نشده، بعد از ۸ ثانیه اندازه‌گیری کن
     if ((s.speed ?? 0) <= 0) {
@@ -8818,9 +8882,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   // tunnel. Expanded for ultraMode: tries many more ranked variants so a
   // server that almost works is not discarded after one failed traffic check.
   Future<bool> _natLadder(Server s,
-      {Future<bool> Function()? socialGate, int? maxTries}) async {
-    // NATONLYLADDER: نردبان حالت‌ها فقط در نت ملی اجرا می‌شود
-    if (!nationalMode) return false;
+      {Future<bool> Function()? socialGate}) async {
+    // NATONLYLADDER: the variant ladder is Xray-specific; never feed wg-quick text to natCfg.
+    if (s.wireGuard || !nationalMode) return false;
     if (abort || !wantVpn) return false; // FIXLADDERABORT: قبل از هر کار سنگین
     final first = natVarFor(s);
     // CACHEGUARD: نسخه‌ی کش‌شده همین الان fail شد (فقط بعد از fail به
@@ -8829,7 +8893,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     if (!nationalMode) natVarNormal.remove(s.key);
     // IPSWEEP-PROJECT: فقط در نت ملی
     if (nationalMode && socialGate != null && cleanIps.isEmpty) {
-      final w = await _atIpSweep(_usable(), const Duration(seconds: 45)); // کوتاه: قبلاً ۲۰ دقیقه بود و اتصال را قفل می‌کرد
+      final w = await _atIpSweep(_usable());
       if (abort || !wantVpn) return false; // FIXLADDERABORT: کاربر وسط اسکن لغو کرده
       if (w.isNotEmpty) {
         cleanIps = List<CleanIp>.of(w);
@@ -8842,14 +8906,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     }
     try {
       final tried = <int>{first};
-      final takeN = maxTries ??
-          (nationalMode ? 6 : (ultraMode ? 6 : 3));
       final cand = _natOrder(s, full: true)
           .where((c) => c < _natCodeBase)
           .where((c) =>
               !nationalMode || socialGate == null || _atIsSubst(c))
           .where((v) => tried.add(v))
-          .take(takeN)
           .toList();
       for (final v in cand) {
         if (abort || !wantVpn) break;
@@ -9195,7 +9256,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           if (!abort && wantVpn && _ladderUsedThisConnect < 2) {
             _ladderUsedThisConnect++;
             final ladderOk = await _natLadder(s,
-                socialGate: _tunnelTrafficOk, maxTries: 3);
+                socialGate: _tunnelTrafficOk);
             if (abort || !wantVpn) {
               _nnieClearAttempt(s);
               return false;
@@ -9284,7 +9345,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             _ladderUsedThisConnect++;
             await _stopV2();
             ladderOk = await _natLadder(s,
-                socialGate: _tunnelTrafficOk, maxTries: 3);
+                socialGate: _tunnelTrafficOk);
             if (abort) return false;
           }
           if (ladderOk) {
@@ -9305,7 +9366,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           dbg('اتصال: ${s.name} ترافیک تونل OK (google + youtube)');
           // SUBSTPROJ: در نت ملی، پایه‌ی سالم هم یک بار جایگزین‌ها را با تونل می‌سنجد.
           // اگر جایگزینی ترافیک بدهد، برای همین سرور ذخیره و اعمال می‌شود؛ وگرنه پایه می‌ماند.
-          if (nationalMode && natVar[_nk(s)] == null && !natSubstSearched.contains(s.key)) {
+          if (!s.wireGuard && nationalMode && natVar[_nk(s)] == null && !natSubstSearched.contains(s.key)) {
             natSubstSearched.add(s.key);
             await _stopV2();
             final sub = await _natLadder(s, socialGate: _tunnelTrafficOk);
@@ -9546,7 +9607,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         speedTopN = max(speedTopN, 5);
         muxEnabled = kTurboEnabled;
         muxConc = max(muxConc, kTurboEnabled ? 24 : 8);
-        fragEnabled = false;
         sortSpeed = true;
         break;
       case 'weak':
@@ -9562,7 +9622,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         speedTopN = max(speedTopN, 8);
         muxEnabled = kTurboEnabled;
         muxConc = max(muxConc, kTurboEnabled ? 32 : 8);
-        fragEnabled = false;
         sortSpeed = true;
         betterSwitch = true;
         minSpeedKB = 0; // دیگر با ۸۰۰KB تعویض نمی‌کند
@@ -9585,8 +9644,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     // 2) Mux = parallel streams on one tunnel (concurrency بالاتر = سرعت بیشتر)
     muxEnabled = muxEnabled || kTurboEnabled;
     if (kTurboEnabled && muxConc < 32) muxConc = 32;
-    // 3) do not force global Fragment outside national crisis (Fragment سرعت را می‌کشد)
-    if (!nationalMode) fragEnabled = false;
+    // 3) Preserve the user's Fragment choice; the core applies it only to TLS/REALITY.
     // 4) rank by real speed, not ping
     sortSpeed = true;
     // 5) تعویض فقط نزدیک صفر یا سرور ۵۰٪ بهتر — minSpeedKB را بالا نبر
@@ -9666,35 +9724,80 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   // NATRESPATCH ---- folder of healthy servers (key 'natres2') ----
   final Map<String, _NatResItem> _resMap = {};
   Timer? _resT, _resSaveT;
-  bool _resBusy = false, _resDirty = false, _resNext = false;
+  bool _resBusy = false, _resDirty = false, _resNext = false, _resSaving = false;
   DateTime? _resHold, _resLast, _resUi;
   int _resDone = 0, _resTotal = 0;
-  static const int _resMax = 5000;
+  static const int _resMax = 50000; // ظرفیت پوشه سرورهای سالم: پنجاه‌هزار
   static const Duration _resEvery = Duration(hours: 48); // FOLDERS: تست خودکار هر ۴۸ ساعت
   int _resMergeCursor = 0; // FOLDERS: چرخش سهم سرورهای سالم در صف نت ملی
   bool _resFull = false; // second-chance pass: every variant
 
+  Future<File> _resDataFile() async {
+    final root = await getApplicationSupportDirectory();
+    final dir = Directory('${root.path}/KingVPN/HealthyServers');
+    if (!await dir.exists()) await dir.create(recursive: true);
+    return File('${dir.path}/servers.json');
+  }
+
+  Map<String, Object?> _resSnapshot() => <String, Object?>{
+        'schema': 2,
+        'last': _resLast?.millisecondsSinceEpoch,
+        'capacity': _resMax,
+        'items': _resMap.values
+            .map((e) => <String, Object?>{
+                  'l': e.link,
+                  'a': e.added.millisecondsSinceEpoch,
+                  'c': e.checked?.millisecondsSinceEpoch,
+                  'p': e.s.ping,
+                })
+            .toList(growable: false),
+      };
+
   Future<void> _resLoad() async {
     try {
-      final p = await SharedPreferences.getInstance();
-      final t = p.getString('natres2');
-      if (t != null) {
-        final j = jsonDecode(t);
-        final last = (j['last'] as num?)?.toInt();
-        if (last != null) {
-          _resLast = DateTime.fromMillisecondsSinceEpoch(last);
-        }
-        for (final x in (j['items'] as List)) {
-          final srv = Server.parse(x['l'] as String);
-          if (srv == null) continue;
-          final e = _NatResItem(srv.link, srv,
-              DateTime.fromMillisecondsSinceEpoch((x['a'] as num).toInt()));
-          final c = (x['c'] as num?)?.toInt();
-          if (c != null) e.checked = DateTime.fromMillisecondsSinceEpoch(c);
-          srv.ping = (x['p'] as num?)?.toInt();
-          _resMap[srv.key] = e;
+      String? raw;
+      final file = await _resDataFile();
+      if (await file.exists()) {
+        raw = await file.readAsString();
+      } else {
+        // One-time migration from the previous SharedPreferences snapshot.
+        final prefs = await SharedPreferences.getInstance();
+        raw = prefs.getString('natres2');
+        if (raw != null && raw.isNotEmpty) _resDirty = true;
+      }
+      if (raw != null && raw.isNotEmpty) {
+        final decoded = jsonDecode(raw);
+        if (decoded is Map) {
+          final j = Map<String, dynamic>.from(decoded);
+          final last = (j['last'] as num?)?.toInt();
+          if (last != null) {
+            _resLast = DateTime.fromMillisecondsSinceEpoch(last);
+          }
+          final items = j['items'];
+          if (items is List) {
+            for (final item in items) {
+              if (item is! Map || item['l'] is! String) continue;
+              final srv = Server.parse(item['l'] as String);
+              if (srv == null) continue;
+              final addedMs = (item['a'] as num?)?.toInt();
+              final e = _NatResItem(
+                srv.link,
+                srv,
+                DateTime.fromMillisecondsSinceEpoch(
+                  addedMs ?? DateTime.now().millisecondsSinceEpoch,
+                ),
+              );
+              final checkedMs = (item['c'] as num?)?.toInt();
+              if (checkedMs != null) {
+                e.checked = DateTime.fromMillisecondsSinceEpoch(checkedMs);
+              }
+              srv.ping = (item['p'] as num?)?.toInt();
+              _resMap[srv.key] = e;
+            }
+          }
         }
       }
+      if (_resDirty) await _resSave();
     } catch (e, stk) {
       logError(e, stk);
     }
@@ -9706,26 +9809,22 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   }
 
   Future<void> _resSave() async {
-    if (!_resDirty) return;
-    _resDirty = false;
+    if (!_resDirty || _resSaving) return;
+    _resSaving = true;
     try {
-      final p = await SharedPreferences.getInstance();
-      await p.setString(
-          'natres2',
-          jsonEncode({
-            'last': _resLast?.millisecondsSinceEpoch,
-            'items': _resMap.values
-                .map((e) => {
-                      'l': e.link,
-                      'a': e.added.millisecondsSinceEpoch,
-                      'c': e.checked?.millisecondsSinceEpoch,
-                      'p': e.s.ping
-                    })
-                .toList()
-          }));
-    } catch (e) {
+      while (_resDirty) {
+        _resDirty = false;
+        final file = await _resDataFile();
+        final temp = File('${file.path}.tmp');
+        await temp.writeAsString(jsonEncode(_resSnapshot()), flush: true);
+        // Same-directory rename keeps the persisted snapshot complete.
+        await temp.rename(file.path);
+      }
+    } catch (e, stk) {
       _resDirty = true;
-      logError(e);
+      logError(e, stk);
+    } finally {
+      _resSaving = false;
     }
   }
 
@@ -9861,13 +9960,12 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     return n;
   }
 
-  // 12 h after the last check: ping again (automatic, VPN up or not). Works stay, fails get a second
-  // chance at the end of the round and are deleted if they fail again.
+  // Every 48 hours, recheck the healthy-server folder in every network mode.
+  // A user connect/search pauses this maintenance; global network failure never mass-deletes entries.
   Future<void> _resDaily({bool force = false}) async {
-    // NAT-ONLY-READ: never retest or consume the healthy folder outside national mode.
-    if (!nationalMode || _resBusy || _resMap.isEmpty) return;
+    if (_resBusy || _resMap.isEmpty) return;
     if (searching || busy || switching || upBusy) return;
-    // NATULTRA: the 12 h check also runs while the VPN is off (the core's
+    // The core delay check also works while the VPN is off (the core's
     // delay test never needs the tunnel); a user connect/search stops it
     final wasUp = connected && wantVpn;
     bool lost() => appGone || busy || switching || upBusy ||
@@ -10171,48 +10269,43 @@ ListTile( // KINGEXTRAS row
     _natKeepOn = true;
     var seen = false; // was connected at least once
     var idle = 0;
-    final startedAt = DateTime.now(); // NATKEEP-CAP: سقف کلی ۸ ساعت
     try {
+      // Continue while the user keeps National Net pilot active; the user/app
+      // lifecycle is the stop condition, not an arbitrary eight-hour timer.
       while (mounted &&
           nationalMode &&
           localPilotOn &&
           !appGone &&
-          !abort &&
-          DateTime.now().difference(startedAt) < const Duration(hours: 8)) {
+          !abort) {
         await Future.delayed(const Duration(seconds: 2));
         if (connected) {
           seen = true;
           idle = 0;
           autoUpgrade = true;
           autoCycle = true;
-          // NATRANGE: پس‌زمینه، هر ۵ دقیقه، بخشی کم از بازه‌های IP با سرعت کم
-          // NATPENDCAP: اگر pending از سقف گذشته، اسکن بازه‌ی جدید اضافه نکن
+          // NATRANGE: resumable background batches are paced to protect battery
+          // and CPU; pacing never discards inventory or advances an incomplete cursor.
           if (localPilotOn && cpuHot == 0 &&
               DateTime.now().difference(natRangeLast) >
-                  const Duration(minutes: 5) &&
-              pending.length < 3000) {
+                  const Duration(minutes: 5)) {
             natRangeLast = DateTime.now();
             unawaited(() async {
+              final rangeMode = nationalMode;
               final ips = await natRangeScanStep(
                   known: [...pending, ...natRestPending],
-                  maxAddrs: 2048, // NATBG-BUDGET: اسکن پس‌زمینه‌ی متصل سبک و مرحله‌ای است
+                  maxAddrs: 256, // resumable batch; cursor continues through every configured range
                   conc: min(2, natAdaptiveWorkers()),
                   stop: () => !mounted ||
                       !connected ||
                       !wantVpn ||
-                      !nationalMode ||
                       !localPilotOn ||
                       appGone ||
-                      abort,
-                  budget: const Duration(seconds: 90));
-              // Do not publish stale discoveries after the tunnel/pilot stops.
-              if (mounted &&
-                  connected &&
-                  wantVpn &&
-                  nationalMode &&
-                  localPilotOn &&
-                  !appGone &&
-                  !abort) {
+                      abort ||
+                      nationalMode != rangeMode,
+                  );
+              // Persist partial results even when the tunnel stops; discard only
+              // when the user switched discovery engines or the page was destroyed.
+              if (mounted && !appGone && nationalMode == rangeMode) {
                 await _natRangeAdd(ips);
               }
             }());
@@ -10396,7 +10489,7 @@ ListTile( // KINGEXTRAS row
       final r = _natRank(b) - _natRank(a); // NATIONALPATCH
       return r != 0 ? r : bySpeedThenPing(a, b);
     });
-    final run = l.take(80).toList();
+    final run = l.toList();
     // NATFIRST: نت ملی همان لحظه‌ی اولین سرور سالم را وصل می‌کند؛ بقیه در پس‌زمینه گشته می‌شوند
     final need = nationalMode ? 1 : max(fastPickN, 6);
     final fsw = Stopwatch()..start();
@@ -10586,10 +10679,12 @@ ListTile( // KINGEXTRAS row
   Future<void> _natMemoryReuse() async {
     try {
       final have = {
-        for (final s in [...pending, ...natRestPending]) '${s.host}|${s.port}'
+        for (final s in (nationalMode ? natRestPending : [...pending, ...good]))
+          '${s.host}|${s.port}'
       };
+      await natNationalIpMemLoad();
       final items = <String>[];
-      for (final e in natIpMem.take(40)) {
+      for (final e in natNationalIpMem) {
         final ip = '${e['ip']}';
         final port = (e['port'] as num?)?.toInt() ?? 0;
         if (InternetAddress.tryParse(ip) == null || port <= 0) continue;
@@ -10598,8 +10693,8 @@ ListTile( // KINGEXTRAS row
         items.add('$ip|$port');
       }
       if (items.isEmpty) return;
-      if (natTemplateSeeds.isEmpty) {
-        natTemplateSeeds = await natHotNext(2, fetch: false);
+      if (natNationalTemplateSeeds.isEmpty) {
+        natNationalTemplateSeeds = [...natRestPending];
       }
       final before = pending.length;
       await _natRangeAdd(items, count: false);
@@ -10610,20 +10705,30 @@ ListTile( // KINGEXTRAS row
     }
   }
 
-  // IPهای بازِ پیداشده در بازه‌ها: با دو سرور نمونه کانفیگ ساخته و جلوی صف گذاشته می‌شود
+  // IPهای بازِ بازه‌ی صریح کاربر: همه‌ی قالب‌های موجود به‌صورت round-robin استفاده می‌شوند.
     Future<void> _natRangeAdd(List<String> items, {bool count = true}) async {
     if (items.isEmpty) return;
     for (final it in items) {
       natScanHits.add(it.split('|')[0]);
     }
-    final tpl = [...pending, ...natRestPending, ...natTemplateSeeds, ...good].take(2).toList();
+    final tpl = <Server>[];
+    final seenTemplates = <String>{};
+    final activeTemplates = nationalMode
+        ? <Server>[...natRestPending, ...natNationalTemplateSeeds]
+        : <Server>[...pending, ...good, ...natGlobalTemplateSeeds];
+    for (final server in activeTemplates) {
+      // Generic IP grafting is not valid for REALITY or Shadowsocks profiles.
+      if (server.reality || server.link.toLowerCase().startsWith('ss://')) continue;
+      if (seenTemplates.add(server.key)) tpl.add(server);
+    }
     if (tpl.isEmpty) {
-      dbg('V8: no template - skipping');
+      dbg('هیچ قالب سازگار برای IPهای باز موجود نیست');
       return;
     }
     final made = <Server>[];
-    final seenMade = <String>{}; // DEDUPE: IP تکراری در همین دسته حذف شود
-    final existingKeys = {for (final s in pending) s.key};
+    final seenMade = <String>{};
+    final existingKeys = {for (final server in (nationalMode ? natRestPending : [...pending, ...good])) server.key};
+    var templateCursor = natRangeTemplateCursor;
     for (final item in items) {
       final parts = item.split('|');
       if (parts.length < 2) continue;
@@ -10631,21 +10736,29 @@ ListTile( // KINGEXTRAS row
       final port = int.tryParse(parts[1].trim());
       if (port == null || port <= 0 || port > 65535) continue;
       if (InternetAddress.tryParse(ip) == null) continue;
-      for (final t in tpl) {
-        try {
-          final s = Server(_natSetPort(_natSetHost(t.link, ip, t.host), port), t.name, ip, port);
-          // DEDUPE: اگر این سرور قبلاً در صف یا همین دسته بوده، اضافه نشود
-          if (existingKeys.contains(s.key) || !seenMade.add(s.key)) continue;
-          made.add(s);
-        } catch (e, stk) { logError(e, stk); }
+      final template = tpl[templateCursor % tpl.length];
+      templateCursor++;
+      try {
+        final link = _natSetPort(
+          _natSetHost(template.link, ip, template.host),
+          port,
+        );
+        final server = Server(link, template.name, ip, port);
+        if (existingKeys.contains(server.key) || !seenMade.add(server.key)) continue;
+        made.add(server);
+      } catch (e, stk) {
+        logError(e, stk);
       }
     }
+    natRangeTemplateCursor = templateCursor % tpl.length;
     if (made.isEmpty) return;
     if (count) natIpFound += items.length;
-    pending = [...made, ...pending];
-    // NATPENDCAP: pending بیش از ۳۰۰۰ نشود (حافظه و زمان دسته‌بندی)؛ انتهای صف حذف می‌شود
-    if (pending.length > 3000) pending.removeRange(3000, pending.length);
-    natRangeCursor = 0;
+    if (nationalMode) {
+      natRestPending = [...made, ...natRestPending];
+    } else {
+      pending = [...made, ...pending];
+    }
+    // No destructive queue truncation: every generated profile remains available.
   }
 
   void _userListsDialog(BuildContext context) {
@@ -10728,20 +10841,17 @@ ListTile( // KINGEXTRAS row
           TextButton(
             // MANUALSCAN: اسکن دستی بازه‌ها؛ نتیجه در پوشه‌ی جهانی ذخیره می‌شود (نت ملی را تغییر نمی‌دهد)
             onPressed: () {
-              final lines = c.text.split('\n');
-              final addrs = <String>[];
-              for (final line in lines) {
-                final t = line.trim();
-                if (t.isEmpty) continue;
-                // LARGE: بازه‌ی CIDR یا خطی؛ بلوک‌های بزرگ تا ۶۵۵۳۶ IP برای پوشش بهتر
-                final got = natExpandCidr(t, maxPerBlock: 65536);
-                addrs.addAll(got.isNotEmpty ? got : natExpandDash(t, maxCount: 65536));
-              }
-              if (addrs.isEmpty) {
-                _set('بازه‌ی معتبر نیست؛ مثلاً 5.160.0.0/24 بنویس');
+              final ranges = c.text
+                  .split('\n')
+                  .map((line) => line.trim())
+                  .where((line) => line.isNotEmpty)
+                  .where((range) => natExpandAddressRangeBatch(range, limit: 1).addresses.isNotEmpty)
+                  .toList(growable: false);
+              if (ranges.isEmpty) {
+                _set('بازه‌ی معتبر نیست؛ IPv4/IPv6 CIDR یا بازه‌ی ابتدا-انتها وارد کن');
                 return;
               }
-              unawaited(manualRangeScan(context, addrs)); // MANUALSCAN: نتیجه و پیشرفت داخل دیالوگ
+              unawaited(manualRangeScan(context, ranges)); // streamed IPv4/IPv6 range scan
             },
             child: const Text('اسکن بازه‌ها'),
           ),
@@ -10975,58 +11085,18 @@ ListTile( // KINGEXTRAS row
     } catch (e, st) { logError(e, st); }
   }
 
-  int? _pilotIpNumber(String value) {
-    final ip = InternetAddress.tryParse(value.trim());
-    if (ip == null || ip.type != InternetAddressType.IPv4) return null;
-    var n = 0;
-    for (final b in ip.rawAddress) { n = (n << 8) | b; }
-    return n;
-  }
-
-  String _pilotIpText(int n) =>
-      '${(n >> 24) & 255}.${(n >> 16) & 255}.${(n >> 8) & 255}.${n & 255}';
-
-  List<String> _pilotExpandRanges(String raw) {
-    final out = <String>{};
-    for (final source in raw.split(String.fromCharCode(10))) {
-      final line = source.trim();
-      if (line.isEmpty) continue;
-      final cidr = RegExp(r'^([0-9.]+)/([0-9]{1,2})$').firstMatch(line);
-      if (cidr != null) {
-        final base = _pilotIpNumber(cidr.group(1)!);
-        final prefix = int.tryParse(cidr.group(2)!);
-        if (base == null || prefix == null || prefix < 24 || prefix > 32) continue;
-        final mask = (0xffffffff << (32 - prefix)) & 0xffffffff;
-        final network = base & mask;
-        final count = 1 << (32 - prefix);
-        for (var i = 0; i < count && out.length < 256; i++) {
-          out.add(_pilotIpText(network + i));
-        }
-      } else if (_pilotIpNumber(line) != null) {
-        out.add(line);
-      }
-      if (out.length >= 256) break;
-    }
-    return out.take(256).toList();
-  }
-
   bool _pilotRangesValid(String raw) {
-    final lines = raw.split(String.fromCharCode(10))
-        .map((v) => v.trim()).where((v) => v.isNotEmpty).toList();
+    final lines = raw
+        .split(String.fromCharCode(10))
+        .map((value) => value.trim())
+        .where((value) => value.isNotEmpty)
+        .toList(growable: false);
     if (lines.isEmpty) return false;
     for (final line in lines) {
-      final cidr = RegExp(r'^([0-9.]+)/([0-9]{1,2})$').firstMatch(line);
-      if (cidr == null) {
-        if (_pilotIpNumber(line) == null) return false;
-        continue;
-      }
-      final base = _pilotIpNumber(cidr.group(1)!);
-      final prefix = int.tryParse(cidr.group(2)!);
-      if (base == null || prefix == null || prefix < 24 || prefix > 32) {
-        return false;
-      }
+      final page = natExpandAddressRangeBatch(line, cursor: '0', limit: 1);
+      if (page.addresses.isEmpty) return false;
     }
-    return _pilotExpandRanges(raw).isNotEmpty;
+    return true;
   }
 
   Future<void> _pilotRangesDialog(BuildContext context) async {
@@ -11037,18 +11107,18 @@ ListTile( // KINGEXTRAS row
     await showDialog<void>(context: context, builder: (ctx) => AlertDialog(
       title: const Text('بازه‌های مستقل IP خلبان'),
       content: TextField(controller: c, minLines: 3, maxLines: 8,
-        decoration: const InputDecoration(hintText: 'هر خط یک IPv4 یا CIDR از /24 تا /32؛ نمونه: 1.2.3.0/24')),
+        decoration: const InputDecoration(hintText: 'هر خط یک IP، CIDR یا بازه IPv4/IPv6؛ نمونه: 1.2.3.0/24 یا 2001:db8::/64')),
       actions: [
         TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('بستن')),
         FilledButton(onPressed: () async {
           if (!_pilotRangesValid(c.text)) {
-            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('یکی از بازه‌ها نامعتبر است؛ هر خط باید IPv4 یا CIDR معتبر /24 تا /32 باشد.')));
+            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('یکی از بازه‌ها نامعتبر است؛ هر خط باید IP، CIDR یا بازهٔ معتبر IPv4/IPv6 باشد.')));
             return;
           }
           _pilotRanges = c.text.split(String.fromCharCode(10)).map((v) => v.trim()).where((v) => v.isNotEmpty).toList();
           await prefs.setStringList('king_pilot_ip_ranges_v1', _pilotRanges);
           if (ctx.mounted) Navigator.pop(ctx);
-          _set('بازه‌های مستقل خلبان ذخیره شد؛ حداکثر ۲۵۶ IP در هر اجرا.');
+          _set('بازه‌های مستقل خلبان ذخیره شد؛ اسکن با cursor پایدار در بسته‌های قابل‌ادامه انجام می‌شود.');
         }, child: const Text('ذخیره')),
       ],
     ));
@@ -11062,34 +11132,114 @@ ListTile( // KINGEXTRAS row
     }
     final prefs = await SharedPreferences.getInstance();
     _pilotRanges = prefs.getStringList('king_pilot_ip_ranges_v1') ?? _pilotRanges;
-    final targets = _pilotExpandRanges(_pilotRanges.join(String.fromCharCode(10)));
-    if (targets.isEmpty) { _set('ابتدا بازه‌های اختصاصی خلبان را تعریف کن.'); return; }
-    _pilotRangeCancelRequested = false;
-    setState(() => _pilotRangeBusy = true);
-    _set('اسکن مستقل خلبان آغاز شد: ${targets.length} نشانی، فقط TCP/443.');
-    final alive = <String>[];
+    final ranges = _pilotRanges
+        .map((value) => value.trim())
+        .where((value) => value.isNotEmpty)
+        .toSet()
+        .toList(growable: false);
+    if (ranges.isEmpty || !_pilotRangesValid(ranges.join(String.fromCharCode(10)))) {
+      _set('ابتدا بازه‌های معتبر IPv4/IPv6 را تعریف کن.');
+      return;
+    }
+
+    final savedCursors = <String, String>{};
     try {
-      for (var i = 0; i < targets.length; i += 12) {
-        if (_pilotRangeCancelRequested) break;
-        final batch = targets.skip(i).take(12).toList();
-        final result = await Future.wait(batch.map((host) async {
-          Socket? socket;
-          try {
-            socket = await Socket.connect(host, 443, timeout: const Duration(milliseconds: 900));
-            return host;
-          } catch (_) { return null; }
-          finally { socket?.destroy(); }
-        }));
-        alive.addAll(result.whereType<String>());
+      final raw = prefs.getString('king_pilot_ip_cursors_v1');
+      if (raw != null && raw.isNotEmpty) {
+        final decoded = jsonDecode(raw);
+        if (decoded is Map) {
+          for (final entry in decoded.entries) {
+            savedCursors[entry.key.toString()] = entry.value.toString();
+          }
+        }
       }
-      await prefs.setStringList('king_pilot_scan_results_v1', alive);
+    } catch (e, st) {
+      logError(e, st);
+    }
+
+    _pilotRangeCancelRequested = false;
+    if (mounted) setState(() => _pilotRangeBusy = true);
+    final alive = <String>{
+      ...(prefs.getStringList('king_pilot_scan_results_v1') ?? const <String>[]),
+    };
+    var scanned = 0;
+    _set('اسکن مستقل خلبان آغاز شد: همهٔ بازه‌های تعریف‌شده با cursor و بسته‌های ۲۵۶تایی ادامه می‌یابند.');
+    try {
+      final active = ranges.toSet();
+      while (active.isNotEmpty && !_pilotRangeCancelRequested) {
+        for (final range in active.toList(growable: false)) {
+          if (_pilotRangeCancelRequested) break;
+          final cursor = savedCursors[range] ?? '0';
+          final page = natExpandAddressRangeBatch(
+            range,
+            cursor: cursor,
+            limit: 256,
+          );
+          if (page.addresses.isEmpty) {
+            active.remove(range);
+            savedCursors.remove(range);
+            continue;
+          }
+
+          final batchAlive = <String>[];
+          var batchCompleted = 0;
+          for (var offset = 0; offset < page.addresses.length; offset += 12) {
+            if (_pilotRangeCancelRequested) break;
+            final batch = page.addresses.skip(offset).take(12).toList();
+            final result = await Future.wait(batch.map((host) async {
+              Socket? socket;
+              try {
+                socket = await Socket.connect(
+                  host,
+                  443,
+                  timeout: const Duration(milliseconds: 900),
+                );
+                return host;
+              } catch (_) {
+                return null;
+              } finally {
+                socket?.destroy();
+              }
+            }));
+            batchCompleted += batch.length;
+            batchAlive.addAll(result.whereType<String>());
+          }
+          alive.addAll(batchAlive);
+          scanned += batchCompleted;
+          await prefs.setStringList('king_pilot_scan_results_v1', alive.toList());
+          if (_pilotRangeCancelRequested) {
+            // Keep valid partial hits, but leave the cursor unchanged so the
+            // uncompleted page is retried rather than silently skipped.
+            break;
+          }
+
+          final oldCursor = BigInt.tryParse(cursor) ?? BigInt.zero;
+          final nextCursor = BigInt.tryParse(page.nextCursor) ?? BigInt.zero;
+          if (nextCursor <= oldCursor) {
+            active.remove(range);
+            savedCursors.remove(range);
+          } else {
+            savedCursors[range] = page.nextCursor;
+          }
+          await prefs.setString(
+            'king_pilot_ip_cursors_v1',
+            jsonEncode(savedCursors),
+          );
+          if (mounted) {
+            _set('اسکن خلبان: ${scanned} IP بررسی شد؛ ${alive.length} میزبان TCP/443 پاسخ‌گو، ${active.length} بازه در حال ادامه');
+          }
+        }
+      }
       if (_pilotRangeCancelRequested) {
-        _set('اسکن خلبان به درخواست کاربر متوقف شد؛ ${alive.length} میزبان پاسخ‌گو تا این لحظه ذخیره شدند.');
+        _set('اسکن خلبان به درخواست کاربر متوقف شد؛ ${scanned} IP در این اجرا بررسی و ${alive.length} میزبان ذخیره شدند.');
       } else {
-        _set('اسکن مستقل خلبان تمام شد: ${alive.length} میزبان TCP/443 پاسخ دادند؛ این نتیجه اثبات اتصال VPN نیست.');
+        await prefs.remove('king_pilot_ip_cursors_v1');
+        _set('اسکن مستقل خلبان کامل شد: ${scanned} IP بررسی شد؛ ${alive.length} میزبان TCP/443 پاسخ دادند. این نتیجه اثبات اتصال VPN نیست.');
       }
-    } catch (e, st) { logError(e, st); _set('اسکن خلبان ناموفق بود: $e'); }
-    finally {
+    } catch (e, st) {
+      logError(e, st);
+      _set('اسکن خلبان ناموفق بود: $e');
+    } finally {
       _pilotRangeCancelRequested = false;
       if (mounted) setState(() => _pilotRangeBusy = false);
     }
@@ -11316,7 +11466,19 @@ ListTile( // KINGEXTRAS row
           ((command.contains('ip') || command.contains('آی پی')) && command.contains('اسکن'))) {
         ipAutoSheet(context);
       } else if (!negatesScan && (command.contains('اسکن sni') || command.contains('اسکن پورت'))) {
-        autoScanSheet(context, isVpnActive: () => connected, isVpnWanted: () => wantVpn);
+        autoScanSheet(
+            context,
+            isVpnActive: () => connected,
+            isVpnWanted: () => wantVpn,
+            configuredServers: nationalMode
+                ? <Server>[...natRestPending, ...natNationalTemplateSeeds]
+                : <Server>[
+                    ...good,
+                    ...pending,
+                    ..._resMap.values.map((entry) => entry.s),
+                  ],
+            frontSnis: natFrontSnis(),
+          );
       } else if (command.contains('ip تمیز') || command.contains('آی پی تمیز')) {
         cleanIpDialog();
       } else if (command.contains('پروکسی تلگرام')) {
@@ -11459,12 +11621,12 @@ ListTile( // KINGEXTRAS row
       if (!runNationalMode || abort) return;
       final ips = await natRangeScanStep(
           known: [...pending, ...natRestPending],
-          maxAddrs: 30000, // SCANCAP: قبلاً ۱۰۰ هزار با بودجه ۱۲ دقیقه
+          maxAddrs: 256, // resumable batch; no total address quota
           conc: natAdaptiveWorkers(),
           stop: () => abort || nationalMode != runNationalMode,
-          budget: const Duration(minutes: 3));
+          );
+      if (nationalMode == runNationalMode) await _natRangeAdd(ips);
       if (abort || nationalMode != runNationalMode) return;
-      await _natRangeAdd(ips);
     } catch (e, stk) {
       logError(e, stk);
     }
@@ -11522,18 +11684,18 @@ ListTile( // KINGEXTRAS row
             [...pending, ...natRestPending],
             conc: natAdaptiveWorkers(),
             stop: () => abort || modeChanged());
+        if (nationalMode == runNationalMode) await _natRangeAdd(domHits);
         if (abort || modeChanged()) return;
-        await _natRangeAdd(domHits);
       }
       final hasTpl = pending.isNotEmpty || natRestPending.isNotEmpty ||
-          natTemplateSeeds.isNotEmpty || good.isNotEmpty;
+          natNationalTemplateSeeds.isNotEmpty || good.isNotEmpty;
       if (runNationalMode && !abort && !ipWaiting && pending.isEmpty && hasTpl) {
         final ips = await natRangeScanStep(
             known: [...pending, ...natRestPending],
-            maxAddrs: 100000, // هر دور تا ۱۰۰ هزار آدرس
+            maxAddrs: 256, // resumable batch; all ranges continue via independent cursors
             conc: natAdaptiveWorkers(),
             stop: () => abort || modeChanged(),
-            budget: const Duration(minutes: 3));
+            );
         if (abort || modeChanged()) return;
         await _natRangeAdd(ips);
       }
@@ -11620,27 +11782,7 @@ ListTile( // KINGEXTRAS row
           await _natQuickStart();
           if (pending.isEmpty) {
             try {
-              final goldIps = goldIpList();
-              final tpl = [...good, ...natTemplateSeeds].take(2).toList();
-              if (goldIps.isNotEmpty && tpl.isNotEmpty) {
-                final made = <Server>[];
-                for (final gip in goldIps.take(20)) {
-                  for (final t in tpl) {
-                    try {
-                      made.add(Server(
-                        _natSetPort(_natSetHost(t.link, gip.ip, t.host), gip.port),
-                        '${t.name} (gold)',
-                        gip.ip,
-                        gip.port,
-                      ));
-                    } catch (e, stk) { logError(e, stk); }
-                  }
-                }
-                if (made.isNotEmpty) {
-                  pending.insertAll(0, made);
-                  dbg('V9-NATGOLD: ${made.length} gold configs injected');
-                }
-              }
+              // National and global discovery inventories remain independent.
             } catch (e, stk) { logError(e, stk); }
           }
         }
@@ -11823,7 +11965,6 @@ ListTile( // KINGEXTRAS row
       cleanIpMode = false;
       ultraMode = false;
       indestructibleMode = false;
-      fragEnabled = false;
     }
   }
 
@@ -11872,7 +12013,6 @@ ListTile( // KINGEXTRAS row
       autoSpeed = false;
       turboSpeed = false;
     } else if (pilot) {
-      fragEnabled = false;
       sniSpoofAll = true; // SNIALL: جعل SNI برای همه‌ی اتصال‌ها روشن است
       ultraMode = true;
       indestructibleMode = false;
@@ -11900,7 +12040,6 @@ ListTile( // KINGEXTRAS row
       autoSpeed = true;
       turboSpeed = true;
     } else {
-      fragEnabled = false;
       sniSpoofAll = true; // SNIALL: جعل SNI برای همه‌ی اتصال‌ها روشن است
       ultraMode = false;
       indestructibleMode = false;
@@ -11945,14 +12084,10 @@ ListTile( // KINGEXTRAS row
   Future<bool> _connectPersonalFast(Server s) async {
     _personalFast = true;
     _personalBusy = true;
-    // PERSNOFRAG: قطعه‌قطعه کردن TLS (fragment) روی ورکر شخصی ترافیک را می‌بست؛
-    // برنامه‌های دیگر این کار را نمی‌کنند. فقط برای همین اتصال خاموش و بعد برگردانده می‌شود.
-    final savedFrag = fragEnabled;
-    fragEnabled = false;
+    // Respect the user's Fragment setting for personal profiles as well.
     try {
       return await _connectPersonalFastImpl(s);
     } finally {
-      fragEnabled = savedFrag;
       _personalFast = false;
       _personalBusy = false;
     }
@@ -12025,7 +12160,7 @@ ListTile( // KINGEXTRAS row
 
   Future<void>? _personalPrep;
   /// PERSLIVE: ردیف‌های لیست شخصی؛ در مسیر فعلی ping=-2 یعنی عمداً بدون تست مستقیم
-  /// PERSPAGE: تا ۵۰ سرور پوشه‌ی شخصی که روی صفحه‌ی اصلی (ردیف «سرور شخصی») با پینگ نشان داده می‌شوند
+  /// PERSPAGE: سرورهای پوشه‌ی شخصی که روی صفحه‌ی اصلی (ردیف «سرور شخصی») با پینگ نشان داده می‌شوند
   List<Server> _personalShown = <Server>[];
   final ValueNotifier<List<_PRow>> _personalRows = ValueNotifier<List<_PRow>>(<_PRow>[]);
   int _personalTotalInFolder = 0;
@@ -12039,19 +12174,20 @@ ListTile( // KINGEXTRAS row
   }
 
   /// هنگام نمایش تبلیغ اجرا می‌شود: جستجوی پس‌زمینه را متوقف و سرورهای شخصی را پینگ می‌گیرد
-  void _personalPrewarm() {
-    _personalPrep = _personalPrepWork();
+  void _personalPrewarm({bool Function()? shouldCancel}) {
+    _personalPrep = _personalPrepWork(shouldCancel: shouldCancel);
   }
 
   /// PERSPING: پینگ همزمان (۸ تایی) برای سرورهای شخصی؛ نتیجه‌ی هر سرور همان لحظه روی صفحه می‌آید.
   /// خروجی: نقشه‌ی link -> ms فقط برای سرورهای سالم
-  Future<Map<String, int>> _personalPingAll(List<Server> list) async {
+  Future<Map<String, int>> _personalPingAll(List<Server> list,
+      {bool Function()? shouldCancel}) async {
     final gen = ++_personalPingGen;
-    bool cancelled() => gen != _personalPingGen;
+    bool cancelled() => gen != _personalPingGen || (shouldCancel?.call() ?? false);
     final ok = <String, int>{};
     final rows = _personalRows.value;
     var doneCount = 0;
-    // V5: یک دور پینگ کامل؛ سرورهایی که شکست خوردند یک بار دیگر (بعد از مکث کوتاه) امتحان می‌شوند
+    // Full inventory pass; failed entries receive one retry after a short pause.
     Future<void> pass(List<int> idxs) async {
       var next = 0;
       Future<void> worker() async {
@@ -12059,6 +12195,15 @@ ListTile( // KINGEXTRAS row
           if (next >= idxs.length || cancelled()) return;
           final i = idxs[next++];
           final s = list[i];
+          if (s.wireGuard) {
+            if (i < rows.length) rows[i].ping = -3; // handshake/data-plane is measured by its own engine on connect
+            doneCount++;
+            if (doneCount % 128 == 0 || doneCount == list.length) {
+              _personalRows.value = List<_PRow>.of(rows);
+              _set('آزمون سرورهای شخصی: $doneCount/${list.length} • پینگ مستقیم و هسته‌ای');
+            }
+            continue;
+          }
           int? d;
           try {
             // V7: پینگ از داخل هسته (همان تست تأییدشده‌ی سرورهای عمومی) به‌جای TCP مستقیم.
@@ -12076,29 +12221,40 @@ ListTile( // KINGEXTRAS row
             rows[i].ping = -1;
           }
           doneCount++;
-          _personalRows.value = List<_PRow>.of(rows);
-          _set('پینگ سرورهای شخصی: $doneCount/${list.length} • سالم: ${ok.length}');
+          // UI notifications are batched; no server is skipped or dropped.
+          if (doneCount % 128 == 0 || doneCount == list.length) {
+            _personalRows.value = List<_PRow>.of(rows);
+            _set('پینگ سرورهای شخصی: $doneCount/${list.length} • سالم: ${ok.length}');
+          }
         }
       }
-      // مشکل ۷: تعداد کارگرها با سقف گیت هماهنگ است
-      final nW = min(8, max(1, _delayGate.max));
+      // Worker concurrency follows the shared delay gate; it never truncates the inventory.
+      final nW = max(1, _delayGate.max);
       await Future.wait([for (var k = 0; k < nW; k++) worker()]);
     }
     await pass([for (var i = 0; i < list.length; i++) i]);
-    final failed = [for (var i = 0; i < list.length; i++) if (!ok.containsKey(list[i].link)) i];
-    if (failed.isNotEmpty && failed.length < list.length) {
+    _personalRows.value = List<_PRow>.of(rows);
+    _set('پینگ سرورهای شخصی: $doneCount/${list.length} • سالم: ${ok.length}');
+    if (cancelled()) return ok;
+    final failed = [for (var i = 0; i < list.length; i++) if (!list[i].wireGuard && !ok.containsKey(list[i].link)) i];
+    if (failed.isNotEmpty) {
       await Future<void>.delayed(const Duration(seconds: 2));
       doneCount = list.length - failed.length;
       await pass(failed);
+      _personalRows.value = List<_PRow>.of(rows);
+      if (cancelled()) {
+        _set('پینگ سرورهای شخصی با درخواست توقف متوقف شد: ${ok.length} سالم از ${list.length}');
+        return ok;
+      }
     }
     _set('پینگ سرورهای شخصی تمام شد: ${ok.length} سالم از ${list.length}');
     return ok;
   }
 
   /// PERSNOPING (قدیمی): تست پینگ سرورهای شخصی قبلاً حذف شده بود.
-  /// فقط لیست پوشه (تا ۵۰ تای اول) روی صفحه می‌آید و ترتیب اتصال همان ترتیب پوشه است
+  /// تمام ورودی‌های پوشه در فهرست شخصی قرار می‌گیرند و ترتیب اتصال همان ترتیب پوشه است
   /// (آخرین سرور سالم اول). هر سرور با تست واقعی هسته امتحان می‌شود؛ اگر خراب بود، بعدی.
-  Future<void> _personalPrepWork() async {
+  Future<void> _personalPrepWork({bool Function()? shouldCancel}) async {
     if (busy || searching || _natKeepOn || _natRangeScanBusy) {
       await _haltAll(max: const Duration(seconds: 10));
     }
@@ -12109,7 +12265,7 @@ ListTile( // KINGEXTRAS row
     final folderCount = personalFolderCache.length;
     final seen = <String>{};
     final list = <Server>[
-      for (final s in personalFolderServers(max: kPersonalShowCap))
+      for (final s in personalFolderServers())
         if (seen.add(s.link)) s,
     ];
     _personalTotalInFolder = folderCount;
@@ -12121,15 +12277,17 @@ ListTile( // KINGEXTRAS row
       final i = order.indexWhere((x) => x.link == lg);
       if (i > 0) order.insert(0, order.removeAt(i));
     }
-    // PERSPING: پینگ واقعی همین ۱۰۰ سرور؛ فقط سالم‌ها وارد ترتیب اتصال می‌شوند
-    final okMap = await _personalPingAll(list);
+    // PERSPING: پینگ واقعی تمام سرورهای پوشه؛ فقط سالم‌ها وارد ترتیب اتصال می‌شوند
+    final okMap = await _personalPingAll(list, shouldCancel: shouldCancel);
     final okList = [for (final s in order) if (okMap.containsKey(s.link)) s];
-    // PERSLOWEST: فقط کمترین پینگ تعیین‌کننده است؛ آخرین سرور موفق فقط در برابر پینگ مساوی جلو می‌افتد
+    // PERSLOWEST: pingable engines are ranked by real core delay; WireGuard
+    // profiles remain in the list and are handshake-tested only when connected.
     okList.sort((a, b) {
       final c = okMap[a.link]!.compareTo(okMap[b.link]!);
       if (c != 0) return c;
       return (a.link == lg ? 0 : 1).compareTo(b.link == lg ? 0 : 1);
     });
+    okList.addAll(order.where((server) => server.wireGuard && !okMap.containsKey(server.link)));
     // V6: اگر پینگ همه‌ی سرورها شکست خورد (مسیر مستقیم DNS در نت ملی)، به‌جای خطا،
     // همان ترتیب پوشه امتحان می‌شود؛ هر سرور با اتصال واقعی و تست ترافیک بررسی می‌شود.
     _personalRanked = okList.isEmpty && order.isNotEmpty ? List<Server>.of(order) : okList;
@@ -12143,27 +12301,29 @@ ListTile( // KINGEXTRAS row
   }
 
   /// سرور شخصی و پوشه: نتیجه‌ی پینگ آماده را می‌گیرد و به بهترینِ آن وصل می‌شود
-  Future<void> personalFolderConnect() async {
+  Future<void> personalFolderConnect({bool Function()? shouldCancel}) async {
     _resetTapCounters(); // تپ کاربر روی پوشه‌ی شخصی (از ماژول تبلیغ هم می‌آید)
-    final prep = _personalPrep ?? _personalPrepWork();
-    // PERSLIVE: اول لیست تا ۵۰ سرور روی صفحه می‌آید، بعد پینگ‌ها زنده پر می‌شوند، بعد وصل می‌شود
+    final prep = _personalPrep ?? _personalPrepWork(shouldCancel: shouldCancel);
+    // PERSLIVE: تمام ورودی‌های پوشه روی صفحه می‌آیند، بعد پینگ‌ها زنده پر می‌شوند، بعد وصل می‌شود
     _set('اتصال به سرورهای شخصی...');
     await prep;
     _personalPrep = null;
+    if (shouldCancel?.call() ?? false) return;
     // V5: نتیجه‌ی پینگ پیش‌گرم (که هنگام تبلیغ اجرا شده) گاهی خالی است؛ یک بار دوباره پینگ می‌گیریم
     if (_personalRanked.isEmpty && personalFolderCache.isNotEmpty) {
       _set('دوباره پینگ سرورهای شخصی...');
-      await _personalPrepWork();
+      await _personalPrepWork(shouldCancel: shouldCancel);
+      if (shouldCancel?.call() ?? false) return;
     }
     if (_personalRanked.isEmpty) {
       _set('هیچ سرور شخصی جواب نداد؛ سرور شخصی یا پوشه را بررسی کن');
       return;
     }
     _set('اتصال به سرور شخصی: ${_personalRanked.first.name}...');
-    await _personalConnectAt(0);
+    await _personalConnectAt(0, shouldCancel: shouldCancel);
   }
 
-  /// لیست زنده‌ی سرورهای پوشه (تا ۵۰ تا) با پینگ؛ تابع برگشتی بستن صفحه را بعد از مدتی انجام می‌دهد
+  /// لیست زندهٔ تمام سرورهای پوشه با پینگ؛ تابع برگشتی بستن صفحه را بعد از مدتی انجام می‌دهد
   void Function(Duration) _personalShowLive() {
     BuildContext? sheetCtx;
     var closed = false;
@@ -12223,7 +12383,7 @@ ListTile( // KINGEXTRAS row
                                     height: 16,
                                     child: CircularProgressIndicator(
                                         strokeWidth: 2))
-                                : Text(p == -2 ? '—' : (p < 0 ? '✗' : '${p}ms')),
+                                : Text(p == -3 ? 'آزمون اتصال' : (p == -2 ? '—' : (p < 0 ? '✗' : '${p}ms'))),
                           );
                         },
                       ),
@@ -12254,18 +12414,19 @@ ListTile( // KINGEXTRAS row
     }
   }
 
-  Future<void> _personalConnectAt(int i) async {
-    if (i >= _personalRanked.length) {
-      _set('هیچ سرور شخصی وصل نشد');
-      return;
+  Future<void> _personalConnectAt(int i, {bool Function()? shouldCancel}) async {
+    // Iterate rather than recurse: a large personal folder must not grow the call stack.
+    for (var index = i; index < _personalRanked.length; index++) {
+      if (abort || (shouldCancel?.call() ?? false)) return;
+      _personalIdx = index;
+      final ok = await _connectPersonalFast(_personalRanked[index]);
+      if (ok) {
+        _personalWatchOn();
+        return;
+      }
+      if (_personalHardFail || abort || (shouldCancel?.call() ?? false) || !wantVpn) return;
     }
-    _personalIdx = i;
-    final ok = await _connectPersonalFast(_personalRanked[i]);
-    if (ok) {
-      _personalWatchOn();
-    } else if (!_personalHardFail && !abort && wantVpn) {
-      await _personalConnectAt(i + 1);
-    }
+    _set('هیچ سرور شخصی وصل نشد');
   }
 
   /// PERSWATCH: فقط خود سرور وصل‌شده هر ۱ دقیقه از داخل تونل بررسی می‌شود (نه لیست پوشه).
@@ -12298,7 +12459,7 @@ ListTile( // KINGEXTRAS row
       context: context,
       isScrollControlled: true,
       builder: (ctx) {
-        final links = List<String>.of(personalFolderCache);
+        final links = personalFolderCache;
         return SafeArea(
           child: SizedBox(
             height: MediaQuery.of(ctx).size.height * 0.75,
@@ -12529,11 +12690,6 @@ ListTile( // KINGEXTRAS row
         tcpTimeout = Duration(
             milliseconds: max(tcpTimeout.inMilliseconds, 4000));
       }
-      // NORMALFRAG: در اتصال عادی تنظیمات کاربر (از جمله Fragment) حفظ می‌شود.
-      // در pilot/nat/test، خودشان مقادیر را تعیین می‌کنند.
-      if (!nationalMode && (localPilotOn || aiSession || isAutoTesting)) {
-        fragEnabled = false;
-      }
       // all throughput levers (Mux, no Fragment, speed-test top servers, ...)
       if (nationalMode || localPilotOn || aiSession || isAutoTesting) {
         _applyTurboLevers();
@@ -12569,7 +12725,7 @@ ListTile( // KINGEXTRAS row
         if (nationalMode) {
           if (pending.isEmpty) await _natMergeCache();
           final hasTpl = pending.isNotEmpty || natRestPending.isNotEmpty ||
-              natTemplateSeeds.isNotEmpty || good.isNotEmpty;
+              natNationalTemplateSeeds.isNotEmpty || good.isNotEmpty;
           if (pending.isEmpty && hasTpl) {
             await _natMemoryReuse();
             await _natPrescan();
@@ -12617,12 +12773,14 @@ ListTile( // KINGEXTRAS row
         connRow = row;
         var ok = only != null
             ? await _connectLoop([only], trust: good.contains(only))
-            : (row == 'f:mine')
+            : (row == 'f:wireguard')
+                ? await _connectLoop(_mineList().where((server) => server.wireGuard).toList())
+                : (row == 'f:mine')
                 // "my configs" row: they are connected directly, no search
-                ? await _connectLoop(_mineList())
-                // پوشه‌ی «سرورهای شخصی»: حداکثر ۵۰ سرور، با ترتیب پوشه و آخرین سرور موفق در اولویت
+                ? await _connectLoop(_mineList().where((server) => !server.wireGuard).toList())
+                // پوشه‌ی «سرورهای شخصی»: تمام ورودی‌ها، با اولویت آخرین سرور موفق
                 : (row == 'f:pfolder')
-                    ? await _connectLoop(personalFolderServers(max: kPersonalShowCap))
+                    ? await _connectLoop(personalFolderServers())
                 // DSGETTER: از مقدار مؤثر
                 : await _acquire(strictRow: row != null, speed: effAutoSpeed);
         // AUTONET: the tapped mode found nothing -> the app picks the best
@@ -13924,10 +14082,23 @@ ListTile( // KINGEXTRAS row
       watchBusy = true;
       _wbSince = DateTime.now();
       try {
+        if (_kingWireGuardActive) {
+          try {
+            final state = await _kingWireGuardCore.status().timeout(const Duration(seconds: 5));
+            if (state.toUpperCase() == 'UP') {
+              lastState = 'CONNECTED';
+              kVpnLastStateTop = 'CONNECTED';
+            } else if (state.toUpperCase() == 'DOWN') {
+              lastState = 'DISCONNECTED';
+              kVpnLastStateTop = 'DISCONNECTED';
+            }
+          } catch (wgStatusError, wgStatusStack) {
+            logError(wgStatusError, wgStatusStack);
+          }
+        }
         if (_syncCore()) return; // SELFHEALPATCH
-        // خودترمیمی اول اجرا شود؛ اگر وارد عمل شد واچ‌داگ این تیک را رد کند
-        // تا دو موتور هم‌زمان تعویض نکنند
-        await kingSelfHeal(reason: 'watch');
+        // Existing HEAL actions are Xray-specific until the multi-core coordinator is integrated.
+        if (!_kingWireGuardActive) await kingSelfHeal(reason: 'watch');
         if (busy || switching || !wantVpn) return;
         if (!connected) {
           // connection lost and the last replacement attempt failed: retry
@@ -14640,7 +14811,7 @@ ListTile( // KINGEXTRAS row
     // REPORTFIX2: فقط وقتی واقعاً می‌تواند کاذب نباشد (پیش‌زمینه، بدون تعویض/تست/بازبینی، و جستجو متوقف‌شده نباشد)
     _insWarn('standby', connected && autoUpgrade && !bgDisabled && upAge > 360 &&
         inForeground && !busy && !switching && !upBusy && !rechecking &&
-        !standbyPaused && !_acquiring &&
+        !_acquiring &&
         now.difference(lastStandbyTry).inSeconds > 360 && !searching, 0,
         'جستجوی پس‌زمینه بیش از ۶ دقیقه اجرا نشده', every: 600);
   }
@@ -15012,7 +15183,7 @@ ListTile( // KINGEXTRAS row
             maxLines: 6,
             decoration: const InputDecoration(
                 hintText:
-                    'هر خط یک کانفیگ (vmess / vless / trojan / ss)\nمتن اضافه دور لینک مهم نیست'),
+                    'هر خط یک کانفیگ (vmess / vless / trojan / ss)\nمتن اضافه دور لینک مهم نیست • WireGuard: کل فایل [Interface] و [Peer] را یک‌جا وارد کن'),
           ),
           actions: [
             TextButton(
@@ -15021,7 +15192,9 @@ ListTile( // KINGEXTRAS row
             FilledButton(
               onPressed: () {
                 final added = <Server>[];
-                for (final l in npvSplit(c.text)) {
+                final rawInput = c.text.trim();
+                final inputs = rawInput.toLowerCase().startsWith('[interface]') ? <String>[rawInput] : npvSplit(rawInput);
+                for (final l in inputs) {
                   final s = Server.parse(l);
                   if (s == null) continue;
                   added.add(s);
@@ -15693,6 +15866,19 @@ ListTile( // KINGEXTRAS row
     );
   }
 
+  Future<void> _openPilotMode() async {
+    if (busy || switching) {
+      _set('یک عملیات در حال اجراست؛ پس از پایان آن دوباره تلاش کن');
+      return;
+    }
+    // Keep the three connection paths independent. The shared picker handles
+    // personal mode itself; online/offline continue through the normal connect path.
+    final proceed = await _askOnlineOfflineMode();
+    if (!mounted || !proceed) return;
+    abort = false;
+    await connect();
+  }
+
   @override
   Widget build(BuildContext context) {
     final u = _usable();
@@ -15706,8 +15892,10 @@ ListTile( // KINGEXTRAS row
         ? _personalShown
         : (personal == null ? [] : [personal!]); // PERSPAGE
     titles['p:personal'] = '🏠 سرور شخصی';
-    groups['f:mine'] = _mineList();
+    groups['f:mine'] = _mineList().where((server) => !server.wireGuard).toList();
     titles['f:mine'] = '📌 کانفیگ‌های من';
+    groups['f:wireguard'] = _mineList().where((server) => server.wireGuard).toList();
+    titles['f:wireguard'] = '🛡 هستهٔ مستقل WireGuard';
     groups['r:ai'] = u.where((s) => s.ai == true && s.ping != null).toList();
     titles['r:ai'] = '🌐 سرورهای دارای دسترسی وب تأییدشده';
     if (groupMode == 'country') {
@@ -15765,29 +15953,13 @@ ListTile( // KINGEXTRAS row
             ]),
           ),
         );
-    Widget searchAllRow(VoidCallback onTap) => InkWell(
-          onTap: onTap,
-          child: Container(
-            width: double.infinity,
-            color: const Color(0xFFD9AE55),
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-            child: const Row(children: [
-              Expanded(
-                  child: Text(
-                      '🔍 جستجوی همه • بزن تا بهترین سرور پیدا و وصل شود',
-                      style: TextStyle(fontWeight: FontWeight.bold))),
-              Icon(Icons.play_circle_outline, size: 22),
-            ]),
-          ),
-        );
     final rows = <Object>[];
-    rows.add(searchAllRow(() => unawaited(startLocalPilot().catchError((e) { logError(e); }))));
     groups.forEach((g, l) {
       if (g == 'p:personal') {
         rows.add(_personalHeader());
         rows.add(rowHeader(
             'f:pfolder',
-            '🗂 سرورهای شخصی • ${personalFolderCache.isEmpty ? 'خالی — سرور اضافه کن یا با ساخت خودکار کلودفلر بساز' : '${personalFolderCache.length} سرور • بزن تا ۱۰۰ تا پینگ و به بهترینش وصل شود'}'));
+            '🗂 سرورهای شخصی • ${personalFolderCache.isEmpty ? 'خالی — سرور اضافه کن یا با ساخت خودکار کلودفلر بساز' : '${personalFolderCache.length} سرور • بزن تا همه پینگ شوند و بهترین سرور انتخاب شود'}'));
         rows.add(tgProxyRow(context));
       } else if (g == 'f:mine') {
         rows.add(rowHeader(
@@ -15808,7 +15980,7 @@ ListTile( // KINGEXTRAS row
     final waiting = pending.where((s) => !favs.containsKey(s.key)).toList();
     if (waiting.isNotEmpty) {
       rows.add(header('تست‌نشده'));
-      rows.addAll(waiting.take(30));
+      rows.addAll(waiting);
     }
     final el = (searchSw?.elapsedMilliseconds ?? 0) / 1000;
     final rate = el > 0 ? totalTested / el : 0.0;
@@ -15887,6 +16059,11 @@ ListTile( // KINGEXTRAS row
           ),
           PopupMenuButton<String>(
             onSelected: (v) {
+              if (v == 'wireguard') {
+                Navigator.of(context).push(MaterialPageRoute<void>(
+                  builder: (_) => const KingWireGuardPage(),
+                ));
+              }
               if (v == 'kingchat') {
                 Navigator.of(context).push(MaterialPageRoute<void>(
                   builder: (_) => const KingChatPage(),
@@ -15936,6 +16113,7 @@ ListTile( // KINGEXTRAS row
             },
             itemBuilder: (_) => const [
               PopupMenuItem(value: 'apps', child: Text('برنامه‌های خارج از VPN')),
+              PopupMenuItem(value: 'wireguard', child: Text('هستهٔ مستقل WireGuard')),
               PopupMenuItem(value: 'kingchat', child: Text('گفت‌وگوی آزاد صوتی و متنی با کینگ')),
               PopupMenuItem(value: 'kingai', child: Text('هوش مصنوعی مهندس محلی')),
               PopupMenuItem(value: 'set', child: Text('تنظیمات تست')),
@@ -16047,6 +16225,23 @@ Container(
         ),
       ),
     ],
+  ),
+),
+Padding(
+  padding: const EdgeInsets.fromLTRB(14, 8, 14, 10),
+  child: SizedBox(
+    width: double.infinity,
+    child: FilledButton.icon(
+      onPressed: (busy || switching) ? null : _openPilotMode,
+      icon: const Icon(Icons.flight_takeoff_rounded),
+      label: const Text('خلبان هوشمند • انتخاب مسیر اتصال'),
+      style: FilledButton.styleFrom(
+        padding: const EdgeInsets.symmetric(vertical: 15),
+        backgroundColor: const Color(0xFFD9AE55),
+        foregroundColor: const Color(0xFF151A20),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      ),
+    ),
   ),
 ),
           if (busy)
@@ -17295,89 +17490,70 @@ extension ProjectNatSweep on _HomePageState {
         const {'360', 'qq'}.contains(x.fp); // NEWFP
   }
 
-  // AUTORANGE: بلوک‌های /24 سرورهای IP دار برنامه، بدون دخالت کاربر
-  List<String> _atAutoRanges(List<Server> servers) {
-    final blocks = <String>{};
-    for (final x in servers) {
-      if (!x.isIp) continue;
-      final p = x.host.split('.');
-      if (p.length != 4) continue;
-      blocks.add('${p[0]}.${p[1]}.${p[2]}.0/24');
-      if (blocks.length >= 200) break;
-    }
-    return blocks.toList();
-  }
-
-  // IPSWEEP: هر IP تمیز را با اتصال واقعی روی یک سرور پشت کلودفلر امتحان می‌کند.
-  // فقط IP‌هایی که ترافیک تونل (google و youtube) بدهند نگه داشته می‌شوند (حداکثر ۱۰ تا).
-  // IPSWEEP: IP‌های باز را روی همه‌ی پورت‌های CDN (_natCfPorts) پیدا می‌کند، سپس هر جفت IP:پورت
-  // را با اتصال واقعی و بررسی تونل (google و youtube) می‌سنجد. فقط جفت‌های ترافیک‌دار نگه داشته می‌شوند.
-  Future<List<CleanIp>> _atIpSweep(List<Server> pool, Duration budget) async {
+  // IPSWEEP: traverse the complete Cloudflare IPv4 inventory with a durable
+  // cursor, test every supported CDN port, then verify every reachable pair
+  // through a real tunnel. AutoTestEngine cancellation is the stop condition.
+  Future<List<CleanIp>> _atIpSweep(List<Server> pool) async {
     Server? server;
-    for (final x in pool) {
-      if (_natCdnNets.contains(x.net)) {
-        server = x;
+    for (final value in pool) {
+      if (_natCdnNets.contains(value.net)) {
+        server = value;
         break;
       }
     }
     if (server == null) return <CleanIp>[];
     final sv = server;
-    final vIdx = _natSpecs.indexWhere((x) => x.name == 'IP تمیز Cloudflare');
+    final vIdx = _natSpecs.indexWhere((value) => value.name == 'IP تمیز Cloudflare');
     if (vIdx <= 0) {
       dbg('IPSCAN: حالت «IP تمیز Cloudflare» در ماتریس پیدا نشد '
           '(vIdx=$vIdx، تعداد ماتریس=${_natSpecs.length})');
       return <CleanIp>[];
     }
 
-    // بازه‌ها: کلودفلر + بلوک‌های /24 سرورهای خود برنامه
-    final ranges = <String>[..._cfRanges, ..._atAutoRanges(good)];
-    final pool2 = <String>[];
-    for (final r in ranges) {
-      pool2.addAll(natExpandCidr(r, maxPerBlock: 128));
-    }
-    pool2.shuffle(Random());
-
-    // FIXSWEEP: سقف کل مرحله‌ی «اسکن» ۳۵ ثانیه است. قبلاً هر پورت جداگانه ۳۵ ثانیه
-    // بود (۷ پورت ⇒ تا ~۴ دقیقه) و بودجه‌ی ۴۵ ثانیه‌ای فقط روی مرحله‌ی تست کاندیدها اثر داشت.
-    // لغو کاربر (abort) هم اسکن را متوقف می‌کند.
-    final scanDeadline = DateTime.now().add(const Duration(seconds: 35));
+    // Cloudflare IPv4 space is traversed by the shared persistent cursor.
+    // Each returned page is checked on every supported Cloudflare port; no
+    // random per-CIDR sample, per-port hit quota, or hidden scan deadline.
+    final addresses = await _cleanCandidates();
     final opened = <CleanIp>[];
-    for (final port in _natCfPorts) {
-      if (abort || AutoTestEngine._abortRequested) break;
-      final left = scanDeadline.difference(DateTime.now());
-      if (left <= Duration.zero) break;
-      final hits = await natScanIps(pool2,
+    try {
+      for (final port in _natCfPorts) {
+        if (abort || AutoTestEngine._abortRequested) break;
+        final hits = await natScanIps(
+          addresses,
           port: port,
           concurrency: 24,
-          want: 20,
-          budget: left,
-          cancelled: () => abort || AutoTestEngine._abortRequested);
-      for (final h in hits) {
-        opened.add(CleanIp(h.ip, h.ms, port));
+          timeout: const Duration(milliseconds: 900),
+          cancelled: () => abort || AutoTestEngine._abortRequested,
+        );
+        for (final hit in hits) {
+          opened.add(CleanIp(hit.ip, hit.ms, port));
+        }
       }
+      if (!abort && !AutoTestEngine._abortRequested) {
+        await goldCommitCleanCandidates();
+      } else {
+        goldDiscardCleanCandidates();
+      }
+    } catch (_) {
+      goldDiscardCleanCandidates();
+      rethrow;
     }
-    dbg('IPSCAN: ${opened.length} جفت IP:پورت باز');
-    var cands = opened;
-    if (cands.isEmpty && !abort) {
-      cands = [for (final ip in await _cleanCandidates()) CleanIp(ip, 0, 443)];
-    }
+    dbg('IPSCAN: ${opened.length} جفت IP:پورت باز از ${addresses.length} آدرس بررسی‌شده');
+    final cands = opened;
 
     final winners = <CleanIp>[];
     final saved = List<CleanIp>.of(cleanIps);
     final key = _nk(sv);
     final prevNatVar = natVar[key]; // FIXSWEEP: حالت یادگرفته‌شده‌ی قبلی را پاک نکن
-    final t0 = DateTime.now();
     final prevWant = wantVpn;
     try {
       wantVpn = true;
       for (var i = 0; i < cands.length; i++) {
         if (abort || AutoTestEngine._abortRequested || AutoTestEngine._phase != _AtPhase.running) break;
-        if (winners.length >= 10) break;
-        if (DateTime.now().difference(t0) > budget) break;
         final c = cands[i];
         cleanIps = [c];
         natVar[key] = vIdx;
-        autoTestText.value = 'سنجش IP تمیز ${winners.length}/10 • ${i + 1}/${cands.length}';
+        autoTestText.value = 'سنجش IP تمیز ${winners.length} • ${i + 1}/${cands.length}';
         var ok = false;
         try {
           if (await _start(sv)) {

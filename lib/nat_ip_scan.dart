@@ -21,6 +21,7 @@
 import 'dart:async';
 import 'dart:io';
 import 'dart:math';
+import 'dart:typed_data';
 
 import 'errjournal.dart';
 import 'nnie_core.dart'; // natStableSort
@@ -34,64 +35,127 @@ class NatIpHit {
   String toString() => '$ip ($ms ms)';
 }
 
-/// بلوک CIDR مثل «5.160.0.0/16» را به فهرست IP تبدیل می‌کند.
-/// برای بلوک‌های بزرگ، فقط [maxPerBlock] آدرس پراکنده برمی‌گرداند.
-List<String> natExpandCidr(String cidr, {int maxPerBlock = 4096}) {
-  if (maxPerBlock <= 0) return const [];
-  final parts = cidr.trim().split('/');
-  if (parts.length != 2) return const [];
-  final octets = parts[0].split('.');
-  final prefix = int.tryParse(parts[1].trim());
-  if (octets.length != 4 || prefix == null || prefix < 8 || prefix > 32) {
-    return const [];
+BigInt _natAddressToBigInt(List<int> bytes) {
+  var value = BigInt.zero;
+  for (final byte in bytes) {
+    value = (value << 8) | BigInt.from(byte);
   }
-  int base = 0;
-  for (final o in octets) {
-    final v = int.tryParse(o.trim());
-    if (v == null || v < 0 || v > 255) return const [];
-    base = (base << 8) | v;
+  return value;
+}
+
+List<int> _natBigIntToAddress(BigInt value, int length) {
+  final bytes = List<int>.filled(length, 0);
+  for (var i = length - 1; i >= 0; i--) {
+    bytes[i] = (value & BigInt.from(255)).toInt();
+    value >>= 8;
   }
-  final size = 1 << (32 - prefix);
-  final start = base & ~(size - 1) & 0xFFFFFFFF;
-  // Ceiling division is required: floor division can exceed maxPerBlock
-  // for non-divisible subnet sizes (e.g. /24 with a limit of 100 yields 128).
-  final step = size > maxPerBlock ? (size + maxPerBlock - 1) ~/ maxPerBlock : 1;
+  return bytes;
+}
+
+({List<String> addresses, String nextCursor}) _natExpandAddressRangeBatch(
+  String input, {
+  required String cursor,
+  required int limit,
+}) {
+  if (limit <= 0) return (addresses: <String>[], nextCursor: cursor);
+  final value = input.trim();
+  InternetAddress? first;
+  InternetAddress? last;
+  int? prefix;
+  if (value.contains('/')) {
+    final parts = value.split('/');
+    if (parts.length != 2) return (addresses: <String>[], nextCursor: cursor);
+    first = InternetAddress.tryParse(parts[0].trim());
+    prefix = int.tryParse(parts[1].trim());
+    if (first == null || prefix == null) {
+      return (addresses: <String>[], nextCursor: cursor);
+    }
+  } else if (value.contains('-')) {
+    final parts = value.split('-');
+    if (parts.length != 2) return (addresses: <String>[], nextCursor: cursor);
+    first = InternetAddress.tryParse(parts[0].trim());
+    last = InternetAddress.tryParse(parts[1].trim());
+    if (first == null || last == null || first.type != last.type) {
+      return (addresses: <String>[], nextCursor: cursor);
+    }
+  } else {
+    first = InternetAddress.tryParse(value);
+    if (first == null) return (addresses: <String>[], nextCursor: cursor);
+    last = first;
+  }
+
+  final bytes = first.rawAddress.length;
+  final bits = bytes * 8;
+  if (last != null && last.rawAddress.length != bytes) {
+    return (addresses: <String>[], nextCursor: cursor);
+  }
+  final base = _natAddressToBigInt(first.rawAddress);
+  late final BigInt start;
+  late final BigInt span;
+  if (prefix != null) {
+    if (prefix < 0 || prefix > bits) {
+      return (addresses: <String>[], nextCursor: cursor);
+    }
+    final hostBits = bits - prefix;
+    span = BigInt.one << hostBits;
+    start = (base >> hostBits) << hostBits;
+  } else {
+    final end = _natAddressToBigInt(last!.rawAddress);
+    if (end < base) return (addresses: <String>[], nextCursor: cursor);
+    start = base;
+    span = end - base + BigInt.one;
+  }
+
+  var offset = BigInt.tryParse(cursor) ?? BigInt.zero;
+  offset = offset % span;
+  final remaining = span - offset;
+  final limitValue = BigInt.from(limit);
+  final count = (remaining < limitValue ? remaining : limitValue).toInt();
+  final addresses = <String>[];
+  for (var i = 0; i < count; i++) {
+    final address = _natBigIntToAddress(
+      start + offset + BigInt.from(i),
+      bytes,
+    );
+    addresses.add(InternetAddress.fromRawAddress(Uint8List.fromList(address)).address);
+  }
+  final next = (offset + BigInt.from(count)) % span;
+  return (addresses: addresses, nextCursor: next.toString());
+}
+
+/// Full IPv4/IPv6 CIDR and address-range expansion by default. An explicit
+/// maxPerBlock/maxCount requests one page; cursor batches keep large ranges
+/// resumable without materializing the complete range in memory.
+List<String> _natExpandRangeAll(String range, {int? batchLimit}) {
+  final batchSize = batchLimit ?? 4096;
+  if (batchSize <= 0) return const <String>[];
   final out = <String>[];
-  for (var i = 0; i < size; i += step) {
-    final v = start + i;
-    out.add('${(v >> 24) & 255}.${(v >> 16) & 255}.${(v >> 8) & 255}.${v & 255}');
+  var cursor = '0';
+  while (true) {
+    final batch = _natExpandAddressRangeBatch(
+      range,
+      cursor: cursor,
+      limit: batchSize,
+    );
+    if (batch.addresses.isEmpty) break;
+    out.addAll(batch.addresses);
+    if (batchLimit != null) break;
+    final previous = BigInt.tryParse(cursor) ?? BigInt.zero;
+    final next = BigInt.tryParse(batch.nextCursor) ?? BigInt.zero;
+    if (next <= previous) break;
+    cursor = batch.nextCursor;
   }
   return out;
 }
 
-/// بازه‌ی خطی به شکل a.b.c.d-e.f.g.h (برای نوشته‌هایی که CIDR نیستند).
-/// بازه‌های بزرگ‌تر از maxCount به‌طور یکنواخت نمونه‌برداری می‌شوند.
-List<String> natExpandDash(String range, {int maxCount = 65536}) {
-  if (maxCount <= 0) return const [];
-  final parts = range.trim().split('-');
-  if (parts.length != 2) return const [];
-  int? toInt(String ip) {
-    final o = ip.trim().split('.');
-    if (o.length != 4) return null;
-    var v = 0;
-    for (final x in o) {
-      final n = int.tryParse(x.trim());
-      if (n == null || n < 0 || n > 255) return null;
-      v = (v << 8) | n;
-    }
-    return v;
-  }
-  final a = toInt(parts[0]);
-  final b = toInt(parts[1]);
-  if (a == null || b == null || b < a) return const [];
-  final count = b - a + 1;
-  final step = count > maxCount ? (count + maxCount - 1) ~/ maxCount : 1; // مشکل ۱۵: سقف رعایت شود
-  final out = <String>[];
-  for (var v = a; v <= b; v += step) {
-    out.add('${(v >> 24) & 255}.${(v >> 16) & 255}.${(v >> 8) & 255}.${v & 255}');
-  }
-  return out;
-}
+/// Full CIDR expansion by default. An explicit maxPerBlock requests one page.
+List<String> natExpandCidr(String cidr, {int? maxPerBlock}) =>
+    _natExpandRangeAll(cidr, batchLimit: maxPerBlock);
+
+/// Full IPv4/IPv6 address-range expansion by default. An explicit maxCount
+/// requests one page only; the manual scanner uses resumable batches.
+List<String> natExpandDash(String range, {int? maxCount}) =>
+    _natExpandRangeAll(range, batchLimit: maxCount);
 
 /// اتصال TCP به ip:port. اگر جواب داد زمان پاسخ را برمی‌گرداند، وگرنه null.
 /// تضمین: سوکت در هر حالتی (موفق، خطا، تایم‌اوت) بسته می‌شود.
@@ -150,17 +214,17 @@ Future<List<NatIpHit>> natScanIps(
   List<String> ips, {
   int port = 443,
   int concurrency = 16,
-  int want = 20,
-  Duration budget = const Duration(seconds: 90),
+  int? want,
+  Duration? budget,
   Duration timeout = const Duration(milliseconds: 1500),
   bool Function()? cancelled,
   void Function(int done, int total, int hits)? onProgress,
   bool randomize = false,
 }) async {
-  if (ips.isEmpty || want <= 0) return <NatIpHit>[];
+  if (ips.isEmpty || (want != null && want <= 0)) return <NatIpHit>[];
 
-  if (budget <= Duration.zero || timeout <= Duration.zero ||
-      port < 1 || port > 65535) {
+  if ((budget != null && budget <= Duration.zero) ||
+      timeout <= Duration.zero || port < 1 || port > 65535) {
     return <NatIpHit>[];
   }
 
@@ -180,9 +244,9 @@ Future<List<NatIpHit>> natScanIps(
 
   Future<void> worker() async {
     while (true) {
-      if (hits.length >= want) return;
+      if (want != null && hits.length >= want) return;
       if (aborted()) return;
-      if (elapsed.elapsed >= budget) return;
+      if (budget != null && elapsed.elapsed >= budget) return;
 
       final idx = next++;
       if (idx >= source.length) return;
@@ -191,14 +255,14 @@ Future<List<NatIpHit>> natScanIps(
       final ms = await natTcpProbe(ip, port, timeout);
       // Do not publish a probe that completed after cancellation or the time budget.
       // In-flight socket connects are bounded by [timeout], then discarded if stale.
-      if (aborted() || elapsed.elapsed >= budget) {
+      if (aborted() || (budget != null && elapsed.elapsed >= budget)) {
         done++;
         if (onProgress != null) onProgress(done, total, hits.length);
         return;
       }
       // Several workers may finish successful probes in the same event-loop turn.
       // Enforce [want] at insertion time so concurrent completions cannot exceed it.
-      if (ms != null && hits.length < want) {
+      if (ms != null && (want == null || hits.length < want)) {
         hits.add(NatIpHit(ip, ms));
       }
 

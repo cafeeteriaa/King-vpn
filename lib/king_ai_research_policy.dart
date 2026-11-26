@@ -95,8 +95,73 @@ List<String> mergeKingAiResearchMemory(
   final entries = byUrl.values.toList()
     ..sort((a, b) => DateTime.parse(b['fetchedAt']!)
         .compareTo(DateTime.parse(a['fetchedAt']!)));
-  final bounded = entries.take(maxEntries.clamp(1, 500).toInt()).toList();
-  return bounded.map(jsonEncode).toList();
+  return entries.map(jsonEncode).toList();
+}
+
+
+/// Validate one persisted research record without loading or merging the full
+/// history. This is shared by append-only storage and streaming retrieval.
+bool isValidKingAiResearchNote(Map<String, String> note) {
+  if (!_trustedKingAiResearchNote(note)) return false;
+  final title = note['title']?.trim() ?? '';
+  final excerpt = note['excerpt'] ?? '';
+  final fetchedAt = DateTime.tryParse(note['fetchedAt'] ?? '');
+  return title.isNotEmpty && excerpt.isNotEmpty && fetchedAt != null;
+}
+
+/// Rank an arbitrarily long JSONL stream while retaining only the best
+/// [maxItems] unique URLs in memory. The history itself is never capped or
+/// materialized as a List. Newer duplicates replace older copies.
+Future<List<Map<String, String>>> rankKingAiResearchMemoryStream(
+  Stream<String> lines,
+  String query, {
+  DateTime? now,
+  int maxItems = 3,
+}) async {
+  final current = now ?? DateTime.now().toUtc();
+  final words = query.toLowerCase()
+      .split(RegExp(r'[^a-z0-9\u0600-\u06FF]+'))
+      .where((word) => word.length > 3)
+      .toSet();
+  if (words.isEmpty) return const <Map<String, String>>[];
+  final limit = maxItems < 1 ? 1 : maxItems;
+  final ranked = <({double score, Map<String, String> note})>[];
+
+  await for (final line in lines) {
+    try {
+      final raw = jsonDecode(line);
+      if (raw is! Map) continue;
+      final note = raw.map((key, value) =>
+          MapEntry(key.toString(), value.toString()));
+      if (!isValidKingAiResearchNote(note)) continue;
+      final fetchedAt = DateTime.parse(note['fetchedAt']!).toUtc();
+      final age = current.difference(fetchedAt);
+      if (age.isNegative || age > const Duration(days: 180)) continue;
+      final title = note['title']!.toLowerCase();
+      final excerpt = note['excerpt']!.toLowerCase();
+      final titleHits = words.where(title.contains).length;
+      final bodyHits = words.where(excerpt.contains).length;
+      if (titleHits + bodyHits == 0) continue;
+      final freshness = 1.0 - (age.inDays / 180.0);
+      final score = titleHits * 3.0 + bodyHits + freshness;
+      final url = note['url']!;
+      final existingIndex = ranked.indexWhere((entry) => entry.note['url'] == url);
+      if (existingIndex >= 0) {
+        final existingAt = DateTime.parse(
+          ranked[existingIndex].note['fetchedAt']!,
+        ).toUtc();
+        // Appending an older replay must never replace a newer verified note.
+        if (!fetchedAt.isAfter(existingAt)) continue;
+        ranked.removeAt(existingIndex);
+      }
+      ranked.add((score: score, note: note));
+      ranked.sort((a, b) => b.score.compareTo(a.score));
+      if (ranked.length > limit) ranked.removeRange(limit, ranked.length);
+    } catch (_) {
+      // Corrupt or hostile rows are skipped; they never enter model context.
+    }
+  }
+  return ranked.map((entry) => entry.note).toList(growable: false);
 }
 
 /// Retrieve only fresh, official-domain notes. Title matches weigh more than

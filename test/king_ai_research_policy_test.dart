@@ -143,7 +143,75 @@ void main() {
           isNot(contains('https://ooni.org.attacker.example/fake')));
     });
 
-    test('bounds retained history', () {
+    test('streaming retrieval finds relevant records beyond the former 500-row ceiling', () async {
+      final now = DateTime.utc(2026, 11, 26);
+      final rows = <String>[
+        jsonEncode(note(
+          url: 'https://docs.flutter.dev/rare-protocol-migration',
+          title: 'Rare protocol migration guide',
+          excerpt: 'Detailed guidance for the rare protocol migration',
+          date: now.subtract(const Duration(days: 179)).toIso8601String(),
+        )),
+      ];
+      for (var i = 0; i < 750; i++) {
+        rows.add(jsonEncode(note(
+          url: 'https://docs.flutter.dev/unrelated-$i',
+          title: 'Generic archive record $i',
+          excerpt: 'General reference manual entry $i',
+          date: now.subtract(Duration(days: i % 20)).toIso8601String(),
+        )));
+      }
+      final result = await rankKingAiResearchMemoryStream(
+        Stream<String>.fromIterable(rows),
+        'rare protocol migration',
+        now: now,
+        maxItems: 3,
+      );
+      expect(result, hasLength(1));
+      expect(result.single['url'], 'https://docs.flutter.dev/rare-protocol-migration');
+    });
+
+    test('streaming retrieval keeps only unique URLs and replaces stale duplicates', () async {
+      final result = await rankKingAiResearchMemoryStream(
+        Stream<String>.fromIterable([
+          jsonEncode(note(
+            url: 'https://docs.flutter.dev/testing',
+            title: 'Flutter testing',
+            excerpt: 'New test reference',
+            date: '2026-11-25T00:00:00Z',
+          )),
+          jsonEncode(note(
+            url: 'https://docs.flutter.dev/testing',
+            title: 'Flutter testing',
+            excerpt: 'Old replayed reference',
+            date: '2026-11-01T00:00:00Z',
+          )),
+        ]),
+        'Flutter testing',
+        now: DateTime.utc(2026, 11, 26),
+      );
+      expect(result, hasLength(1));
+      expect(result.single['excerpt'], 'New test reference');
+    });
+
+    test('streaming retrieval ignores malformed and untrusted rows', () async {
+      final result = await rankKingAiResearchMemoryStream(
+        Stream<String>.fromIterable([
+          'not-json',
+          jsonEncode(note(
+            url: 'https://docs.flutter.dev.attacker.example/fake',
+            title: 'Flutter fake',
+            excerpt: 'Untrusted Flutter instructions',
+            date: '2026-11-25T00:00:00Z',
+          )),
+        ]),
+        'Flutter instructions',
+        now: DateTime.utc(2026, 11, 26),
+      );
+      expect(result, isEmpty);
+    });
+
+    test('retains every valid history entry without a total-entry ceiling', () {
       final notes = List<Map<String, String>>.generate(
         5,
         (i) => note(
@@ -153,8 +221,7 @@ void main() {
           date: '2026-11-${(i + 1).toString().padLeft(2, '0')}T00:00:00Z',
         ),
       );
-      expect(mergeKingAiResearchMemory(const [], notes, maxEntries: 3),
-          hasLength(3));
+      expect(mergeKingAiResearchMemory(const [], notes), hasLength(5));
     });
   });
 }

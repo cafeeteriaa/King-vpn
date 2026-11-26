@@ -28,19 +28,91 @@ class _NetVerdict {
   final String op;
   // V7-LAYERS: which filter layer this network uses (0 = none, 1..4)
   final int filterLayer;
+  final String confidence;
+  final String evidence;
   final DateTime at;
   _NetVerdict(this.tcp, this.tls, this.web, this.home, this.dnsPoison,
-      this.dohOk, this.srcRaw, this.srcMir, this.op, this.filterLayer)
+      this.dohOk, this.srcRaw, this.srcMir, this.op, this.filterLayer,
+      this.confidence, this.evidence)
       : at = DateTime.now();
 }
 
 _NetVerdict? lastNetVerdict;
 
+class _NetClassification {
+  final int filterLayer;
+  final String confidence;
+  final String evidence;
+  const _NetClassification(this.filterLayer, this.confidence, this.evidence);
+}
+
+_NetClassification _classifyNetEvidence(
+  List<_DiagItem> probes, {
+  required bool dnsPoison,
+}) {
+  int successes(_DiagGroup group) =>
+      probes.where((p) => p.group == group && p.ok).length;
+  int total(_DiagGroup group) =>
+      probes.where((p) => p.group == group).length;
+  String ratio(_DiagGroup group, int count) => '$count/${total(group)}';
+
+  final tcp = successes(_DiagGroup.tcp);
+  final tls = successes(_DiagGroup.tls);
+  final web = successes(_DiagGroup.web);
+  final sources = successes(_DiagGroup.sources);
+  final national = successes(_DiagGroup.national);
+
+  if (tcp == 0 && national > 0) {
+    return _NetClassification(
+      1,
+      national >= 2 ? 'high' : 'medium',
+      'TCP خارجی ${ratio(_DiagGroup.tcp, tcp)}؛ مقصد ملی ${ratio(_DiagGroup.national, national)}',
+    );
+  }
+  if (tcp >= 3 && tls == 0) {
+    return _NetClassification(
+      2,
+      'medium',
+      'TCP خارجی ${ratio(_DiagGroup.tcp, tcp)}؛ TLS با SNI برابر ${ratio(_DiagGroup.tls, tls)}',
+    );
+  }
+  if (tcp >= 2 && tls >= 2 && web == 0) {
+    return _NetClassification(
+      3,
+      dnsPoison ? 'high' : 'medium',
+      'TCP ${ratio(_DiagGroup.tcp, tcp)} و TLS ${ratio(_DiagGroup.tls, tls)}؛ وب ${ratio(_DiagGroup.web, web)}'
+          '${dnsPoison ? '؛ اختلاف/نشانه DNS نیز دیده شد' : ''}',
+    );
+  }
+  if (web >= 2 && sources == 0) {
+    return _NetClassification(
+      4,
+      'medium',
+      'وب ${ratio(_DiagGroup.web, web)}؛ منابع ${ratio(_DiagGroup.sources, sources)}',
+    );
+  }
+  if (web >= 2 || (tcp >= 3 && tls >= 2)) {
+    return _NetClassification(
+      0,
+      'high',
+      'اتصال در چند مقصد مستقل تأیید شد (TCP ${ratio(_DiagGroup.tcp, tcp)}، TLS ${ratio(_DiagGroup.tls, tls)}، وب ${ratio(_DiagGroup.web, web)})',
+    );
+  }
+  return _NetClassification(
+    0,
+    'low',
+    'نمونه‌ها برای نتیجه‌گیری کافی نیستند (TCP ${ratio(_DiagGroup.tcp, tcp)}، TLS ${ratio(_DiagGroup.tls, tls)}، وب ${ratio(_DiagGroup.web, web)}، ملی ${ratio(_DiagGroup.national, national)})',
+  );
+}
+
+enum _DiagGroup { tcp, tls, web, sources, national }
+
 class _DiagItem {
   final String label;
   final bool ok;
   final int ms;
-  const _DiagItem(this.label, this.ok, this.ms);
+  final _DiagGroup group;
+  const _DiagItem(this.label, this.ok, this.ms, this.group);
 }
 
 Future<_DiagItem> _diagTcp(String label, String host, int port) async {
@@ -49,16 +121,16 @@ Future<_DiagItem> _diagTcp(String label, String host, int port) async {
   try {
     s = await Socket.connect(host, port,
         timeout: const Duration(seconds: 4));
-    return _DiagItem(label, true, sw.elapsedMilliseconds);
+    return _DiagItem(label, true, sw.elapsedMilliseconds, _DiagGroup.tcp);
   } catch (e, stk) {
     logError(e, stk);
-    return _DiagItem(label, false, sw.elapsedMilliseconds);
+    return _DiagItem(label, false, sw.elapsedMilliseconds, _DiagGroup.tcp);
   } finally {
     s?.destroy();
   }
 }
 
-Future<_DiagItem> _diagHttp(String label, String url) async {
+Future<_DiagItem> _diagHttp(String label, String url, _DiagGroup group) async {
   final sw = Stopwatch()..start();
   final c = HttpClient()
     ..findProxy = ((_) => 'DIRECT')
@@ -68,10 +140,10 @@ Future<_DiagItem> _diagHttp(String label, String url) async {
         await c.getUrl(Uri.parse(url)).timeout(const Duration(seconds: 5));
     final res = await req.close().timeout(const Duration(seconds: 5));
     await res.drain<void>().timeout(const Duration(seconds: 5));
-    return _DiagItem(label, res.statusCode > 0, sw.elapsedMilliseconds);
+    return _DiagItem(label, res.statusCode > 0, sw.elapsedMilliseconds, group);
   } catch (e, stk) {
     logError(e, stk);
-    return _DiagItem(label, false, sw.elapsedMilliseconds);
+    return _DiagItem(label, false, sw.elapsedMilliseconds, group);
   } finally {
     c.close(force: true);
   }
@@ -84,13 +156,14 @@ Future<_DiagItem> _diagTls(String label, String ip, String sni) async {
   Socket? raw;
   try {
     raw = await Socket.connect(ip, 443, timeout: const Duration(seconds: 4));
-    k = await SecureSocket.secure(raw,
-            host: sni, onBadCertificate: (_) => true)
+    // Keep normal certificate validation: an SNI probe must not accept an
+    // invalid certificate and mistake an untrusted endpoint for a healthy one.
+    k = await SecureSocket.secure(raw, host: sni)
         .timeout(const Duration(seconds: 5));
-    return _DiagItem(label, true, sw.elapsedMilliseconds);
+    return _DiagItem(label, true, sw.elapsedMilliseconds, _DiagGroup.tls);
   } catch (e, stk) {
     logError(e, stk);
-    return _DiagItem(label, false, sw.elapsedMilliseconds);
+    return _DiagItem(label, false, sw.elapsedMilliseconds, _DiagGroup.tls);
   } finally {
     k?.destroy();
     raw?.destroy();
@@ -118,20 +191,20 @@ Future<String> netDiagnose() async {
     _diagTls('TLS 104.16.0.1 با SNI=www.cloudflare.com', '104.16.0.1',
         'www.cloudflare.com'),
     // 9..13 foreign sites
-    _diagHttp('gstatic (generate_204)', 'https://www.gstatic.com/generate_204'),
-    _diagHttp('Cloudflare', 'https://cp.cloudflare.com/generate_204'),
-    _diagHttp('Google', 'https://www.google.com/generate_204'),
-    _diagHttp('Apple', 'https://www.apple.com/library/test/success.html'),
-    _diagHttp('Telegram', 'https://web.telegram.org/'),
+    _diagHttp('gstatic (generate_204)', 'https://www.gstatic.com/generate_204', _DiagGroup.web),
+    _diagHttp('Cloudflare', 'https://cp.cloudflare.com/generate_204', _DiagGroup.web),
+    _diagHttp('Google', 'https://www.google.com/generate_204', _DiagGroup.web),
+    _diagHttp('Apple', 'https://www.apple.com/library/test/success.html', _DiagGroup.web),
+    _diagHttp('Telegram', 'https://web.telegram.org/', _DiagGroup.web),
     // 14..17 list sources
-    _diagHttp('GitHub raw', 'https://raw.githubusercontent.com/'),
-    _diagHttp('jsDelivr', 'https://cdn.jsdelivr.net/'),
-    _diagHttp('GitHack', 'https://raw.githack.com/'),
-    _diagHttp('ghproxy', 'https://ghproxy.net/'),
+    _diagHttp('GitHub raw', 'https://raw.githubusercontent.com/', _DiagGroup.sources),
+    _diagHttp('jsDelivr', 'https://cdn.jsdelivr.net/', _DiagGroup.sources),
+    _diagHttp('GitHack', 'https://raw.githack.com/', _DiagGroup.sources),
+    _diagHttp('ghproxy', 'https://ghproxy.net/', _DiagGroup.sources),
     // 18..20 national network
-    _diagHttp('آپارات', 'https://www.aparat.com/'),
-    _diagHttp('دیجی‌کالا', 'https://www.digikala.com/'),
-    _diagHttp('دیوار', 'https://divar.ir/'),
+    _diagHttp('آپارات', 'https://www.aparat.com/', _DiagGroup.national),
+    _diagHttp('دیجی‌کالا', 'https://www.digikala.com/', _DiagGroup.national),
+    _diagHttp('دیوار', 'https://divar.ir/', _DiagGroup.national),
   ]);
 
   // DNS: system resolver vs DNS-over-HTTPS
@@ -173,42 +246,30 @@ Future<String> netDiagnose() async {
   }
   b.writeln();
 
-  bool any(int a, int z) {
-    for (var i = a; i <= z; i++) {
-      if (r[i].ok) return true;
-    }
-    return false;
-  }
+  bool anyGroup(_DiagGroup group) =>
+      r.any((probe) => probe.group == group && probe.ok);
 
-  final tcp = any(0, 4);
-  final tls = any(5, 8);
-  final web = any(9, 13);
-  final srcRaw = r[14].ok;
-  final srcMir = any(15, 17);
-  final home = any(18, 20);
+  final tcp = anyGroup(_DiagGroup.tcp);
+  final tls = anyGroup(_DiagGroup.tls);
+  final web = anyGroup(_DiagGroup.web);
+  final srcRaw = r.any((probe) => probe.label == 'GitHub raw' && probe.ok);
+  final srcMir = r.any((probe) =>
+      probe.group == _DiagGroup.sources &&
+      probe.label != 'GitHub raw' && probe.ok);
+  final home = anyGroup(_DiagGroup.national);
 
-  // ===== V7-LAYERS: تشخیص لایه‌ی فیلترینگ =====
-  // Layer 1 (IP/Port): TCP به IP خارجی بسته ولی نت ملی باز → فیلتر در سطح IP
-  // Layer 2 (SNI/DPI): TCP باز است ولی TLS با هر SNI بسته → DPI روی SNI
-  // Layer 3 (Domain/DNS): TCP و TLS باز است ولی سایت‌ها نه → DNS poisoning
-  // Layer 4 (Sources): سایت باز است ولی منابع لیست بسته → فیلتر منابع
-  // Layer 0: هیچ فیلتری نیست
-  int filterLayer = 0;
-  if (!tcp && home) {
-    filterLayer = 1;
-  } else if (tcp && !tls) {
-    filterLayer = 2;
-  } else if (tls && !web) {
-    filterLayer = 3;
-  } else if (web && !srcRaw && !srcMir) {
-    filterLayer = 4;
-  }
+  // Classification is evidence-weighted. A single reachable endpoint must
+  // not be treated as proof that an entire network layer is open or blocked.
+  final classification = _classifyNetEvidence(r, dnsPoison: dnsPoison);
+  final filterLayer = classification.filterLayer;
 
   lastNetVerdict = _NetVerdict(
       tcp, tls, web, home, dnsPoison, dnsDoh != null, srcRaw, srcMir,
-      natOpKey, filterLayer);
+      natOpKey, filterLayer, classification.confidence,
+      classification.evidence);
 
   b.writeln('— نتیجه و پیشنهاد —');
+  b.writeln('اطمینان تشخیص: ${classification.confidence} • ${classification.evidence}');
   if (!tcp && !web && home) {
     b.writeln('🔴 اینترنت بین‌الملل قطع است و فقط نت ملی کار می‌کند.\n'
         '• خلبان هوشمند اصلی را بزن؛ خودش راهبرد داخلی را انتخاب می‌کند. در صورت نیاز می‌توانی از پوشه‌ی سرورهای سالم هم دستی استفاده کنی.\n'
@@ -270,8 +331,13 @@ Future<String> netDiagnose() async {
       b.writeln('  • جستجوهای قبلی خوب هستند — فقط اتصال عادی بزن.');
       break;
     default:
-      b.writeln('✅ لایه فیلتر مشخصی شناسایی نشد — اینترنت آزاد است.');
-      b.writeln('تنظیمات v7 همه در حالت «خودکار» می‌مانند.');
+      if (classification.confidence == 'low') {
+        b.writeln('ℹ️ شواهد برای تعیین لایه کافی نیست؛ نتیجه را اینترنت آزاد تلقی نکن.');
+        b.writeln('تنظیم خودکار تغییری نمی‌دهد تا نمونه‌های بیشتری جمع شود.');
+      } else {
+        b.writeln('✅ در نمونه‌های کافی، لایه فیلتر مشخصی دیده نشد.');
+        b.writeln('تنظیمات v7 در حالت خودکار می‌مانند.');
+      }
   }
   b.writeln();
   b.writeln('(v7: Port Hopping · Dynamic DNS Fallback · Aggressive TLS Fragment · IP-Scan=ON)');
@@ -285,6 +351,8 @@ extension NetDiagExt on _HomePageState {
   // the network needs them; Fragment is also turned off when it is not needed.
   List<String> autoNetApply(_NetVerdict v) {
     final ch = <String>[];
+    // Do not mutate persistent network settings on a low-confidence sample.
+    if (v.confidence == 'low') return ch;
     if (v.tcp) {
       final wantFrag = !v.tls;
       if (fragEnabled != wantFrag) {

@@ -288,6 +288,16 @@ KSVC = ('<service android:name="com.kingvpn.king_vpn.KingVpnService"\n'
         '        </service>\n    ')
 if 'com.kingvpn.king_vpn.KingVpnService' not in m and '</application>' in m:
     m = m.replace('</application>', KSVC + '</application>', 1)
+
+# GoBackend owns a second, independent Android VpnService implementation.
+# The WireGuard AAR manifest does not inject this app service declaration.
+WGSVC = ('<service android:name="com.wireguard.android.backend.GoBackend$VpnService"\n'
+         '            android:permission="android.permission.BIND_VPN_SERVICE"\n'
+         '            android:exported="false">\n'
+         '            <intent-filter><action android:name="android.net.VpnService"/></intent-filter>\n'
+         '        </service>\n    ')
+if 'com.wireguard.android.backend.GoBackend$VpnService' not in m and '</application>' in m:
+    m = m.replace('</application>', WGSVC + '</application>', 1)
 # FileProvider exposes only the app-cache subfolder used for SHA-256 verified
 # APK updates. Never use file:// URIs for Android package installation.
 UPDATE_PROVIDER = ('<provider android:name="androidx.core.content.FileProvider"\n'
@@ -333,6 +343,7 @@ if os.path.exists(old_java_main):
 ka = os.path.join(APP, 'android/app/src/main/kotlin/com/kingvpn/king_vpn')
 os.makedirs(ka, exist_ok=True)
 shutil.copy('android_src/MainActivity.kt', os.path.join(ka, 'MainActivity.kt'))
+shutil.copy('android_src/KingWireGuardCore.kt', os.path.join(ka, 'KingWireGuardCore.kt'))
 xml_dir = os.path.join(APP, 'android/app/src/main/res/xml')
 os.makedirs(xml_dir, exist_ok=True)
 shutil.copy('android_src/king_file_paths.xml', os.path.join(xml_dir, 'king_file_paths.xml'))
@@ -350,6 +361,38 @@ for name in ('build.gradle', 'build.gradle.kts'):
         g = g.replace('compileSdk = flutter.compileSdkVersion', 'compileSdk = 37')
         g = g.replace('compileSdkVersion flutter.compileSdkVersion', 'compileSdkVersion 37')
         g = re.sub(r'compileSdk\s*=\s*\d+', 'compileSdk = 37', g)
+        # WireGuard is an independent userspace tunnel engine (libwg-go).
+        if 'com.wireguard.android:tunnel' not in g:
+            if name.endswith('.kts'):
+                dep_text = '\n    implementation("com.wireguard.android:tunnel:1.0.20260102")\n    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.0.3")\n'
+                dep_block = re.search(r'dependencies\s*\{', g)
+                if dep_block:
+                    g = g[:dep_block.end()] + dep_text + g[dep_block.end():]
+                else:
+                    g += '\ndependencies {\n' + dep_text + '}\n'
+                compile_block = re.search(r'compileOptions\s*\{', g)
+                if not compile_block:
+                    raise SystemExit('HARD FAIL: app Gradle has no compileOptions block for WireGuard desugaring')
+                close = g.find('}', compile_block.end())
+                if close < 0:
+                    raise SystemExit('HARD FAIL: malformed compileOptions block')
+                if 'isCoreLibraryDesugaringEnabled' not in g[compile_block.end():close]:
+                    g = g[:close] + '\n        isCoreLibraryDesugaringEnabled = true\n    ' + g[close:]
+            else:
+                dep_text = "\n    implementation 'com.wireguard.android:tunnel:1.0.20260102'\n    coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.0.3'\n"
+                dep_block = re.search(r'dependencies\s*\{', g)
+                if dep_block:
+                    g = g[:dep_block.end()] + dep_text + g[dep_block.end():]
+                else:
+                    g += "\ndependencies {\n" + dep_text + "}\n"
+                compile_block = re.search(r'compileOptions\s*\{', g)
+                if not compile_block:
+                    raise SystemExit('HARD FAIL: app Gradle has no compileOptions block for WireGuard desugaring')
+                close = g.find('}', compile_block.end())
+                if close < 0:
+                    raise SystemExit('HARD FAIL: malformed compileOptions block')
+                if 'coreLibraryDesugaringEnabled' not in g[compile_block.end():close]:
+                    g = g[:close] + '\n        coreLibraryDesugaringEnabled true\n    ' + g[close:]
         open(gp, 'w', encoding='utf-8').write(g)
 
 # Do not inject ndk.abiFilters when the Flutter build uses --split-per-abi.

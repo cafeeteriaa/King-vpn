@@ -7,7 +7,7 @@ part of 'main.dart';
 bool npvParse = true;
 String relayServerUrl = ''; // RELAY: لینک سرور واسط (Multi-hop)
 bool cleanIpMode = true;
-bool fragEnabled = false;
+bool fragEnabled = true;
 bool muxEnabled = false; // off by default: enable only when a server is verified compatible
 bool secureDns = true;
 bool blockQuic = true;
@@ -606,25 +606,22 @@ Future<void> refreshCdnRanges() async {
     var liveOk = 0;
     // هر CDN جدا: اگر دریافتش شکست خورد، لیست استاتیک خودش جایگزین می‌شود
     // (قبلاً فقط CDNهای موفق می‌ماندند و بقیه از استخر حذف می‌شدند).
-    Future<void> pull(String label, List<String> fallback, int cap,
+    Future<void> pull(String label, List<String> fallback,
         Future<List<String>> Function() fetch) async {
       var got = const <String>[];
       try {
-        got = await fetch().timeout(const Duration(seconds: 8));
+        got = await fetch().timeout(const Duration(seconds: 30));
       } catch (e, stk) {
         logError(e, stk);
       }
-      if (got.length < 3) {
-        merged.addAll(fallback);
-        return;
-      }
-      // رنج‌های استاتیک همیشه می‌مانند؛ رنج‌های زنده تا سقف cap اضافه می‌شوند
+      // Keep every valid live range, including partial provider responses.
+      // Static fallback ranges are additive, never a replacement for live data.
       merged.addAll(fallback);
-      merged.addAll(got.take(cap));
-      liveOk++;
+      merged.addAll(got.where((range) => range.contains('/')));
+      if (got.isNotEmpty) liveOk++;
     }
 
-    await pull('cloudflare', _cfRanges, 64, () async {
+    await pull('cloudflare', _cfRanges, () async {
       final res = await http.get(Uri.parse('https://www.cloudflare.com/ips-v4'));
       if (res.statusCode != 200) return const <String>[];
       return res.body
@@ -634,7 +631,7 @@ Future<void> refreshCdnRanges() async {
           .toList();
     });
 
-    await pull('fastly', _fastlyRanges, 48, () async {
+    await pull('fastly', _fastlyRanges, () async {
       final res = await http.get(Uri.parse('https://api.fastly.com/public-ip-list'));
       if (res.statusCode != 200) return const <String>[];
       final j = await compute(cdnJsonDecodeBg, res.body);
@@ -643,7 +640,7 @@ Future<void> refreshCdnRanges() async {
       return addrs.whereType<String>().toList();
     });
 
-    await pull('aws-cloudfront', _awsCfRanges, 96, () async {
+    await pull('aws-cloudfront', _awsCfRanges, () async {
       final res = await http.get(Uri.parse('https://ip-ranges.amazonaws.com/ip-ranges.json'));
       if (res.statusCode != 200) return const <String>[];
       final j = await compute(cdnJsonDecodeBg, res.body);
@@ -657,7 +654,7 @@ Future<void> refreshCdnRanges() async {
           .toList();
     });
 
-    await pull('google', _gcpCdnRanges, 48, () async {
+    await pull('google', _gcpCdnRanges, () async {
       final res = await http.get(Uri.parse('https://www.gstatic.com/ipranges/goog.json'));
       if (res.statusCode != 200) return const <String>[];
       final j = await compute(cdnJsonDecodeBg, res.body);
@@ -745,35 +742,21 @@ bool _cleanOk(String ip) {
   return a != null && a.type == InternetAddressType.IPv4 && !_privateIp(a);
 }
 
-List<String> _cidrSample(String cidr, int n, Random r) {
-  final p = cidr.split('/');
-  if (p.length != 2) return const [];
-  final a = InternetAddress.tryParse(p[0]);
-  final bits = int.tryParse(p[1]);
-  if (a == null ||
-      a.type != InternetAddressType.IPv4 ||
-      bits == null ||
-      bits < 8 ||
-      bits > 32) {
-    return const [];
-  }
-  final b = a.rawAddress;
-  final base = (b[0] << 24) | (b[1] << 16) | (b[2] << 8) | b[3];
-  final span = 1 << (32 - bits);
-  final mask = (0xFFFFFFFF << (32 - bits)) & 0xFFFFFFFF;
-  final net = base & mask;
-  final out = <String>[];
-  for (var i = 0; i < n; i++) {
-    final off = span <= 2 ? 0 : 1 + r.nextInt(span - 2);
-    final v = net + off;
-    out.add('${(v >> 24) & 255}.${(v >> 16) & 255}.${(v >> 8) & 255}.${v & 255}');
-  }
-  return out;
-}
+final Map<String, String> _goldCleanRangeCursors = <String, String>{};
+int _goldCleanRangeIndex = 0;
+Map<String, String> _goldPendingCleanCursors = <String, String>{};
+int _goldPendingCleanRangeIndex = 0;
+bool _goldCleanScanBusy = false;
 
+/// Generate one resumable page across the complete live Cloudflare IPv4 range
+/// inventory. Each page advances cursors only after its probes finish.
 Future<List<String>> _cleanCandidates() async {
-  final r = Random();
-  final set = <String>{};
+  await goldLoad();
+  while (_goldCleanScanBusy) {
+    await Future.delayed(const Duration(milliseconds: 100));
+  }
+  _goldCleanScanBusy = true;
+  try {
   var ranges = List<String>.of(_cfRanges);
   try {
     final res = await http
@@ -782,17 +765,56 @@ Future<List<String>> _cleanCandidates() async {
     if (res.statusCode == 200) {
       final live = res.body
           .split(RegExp(r'[\r\n]+'))
-          .map((e) => e.trim())
-          .where((e) => e.contains('/'))
+          .map((value) => value.trim())
+          .where((value) => value.contains('/'))
           .toList();
-      if (live.length >= 5) ranges = live;
+      if (live.isNotEmpty) ranges = live;
     }
-  } catch (e, stk) { logError(e, stk); }
-  for (final c in ranges) {
-    set.addAll(_cidrSample(c, 28, r).where(_cleanOk));
+  } catch (e, stk) {
+    logError(e, stk);
   }
-  final l = set.toList()..shuffle(r);
-  return l.take(240).toList();
+
+  ranges = ranges.toSet().toList(growable: false);
+  if (ranges.isEmpty) {
+    _goldCleanScanBusy = false;
+    return <String>[];
+  }
+  final staged = Map<String, String>.of(_goldCleanRangeCursors);
+  final found = <String>{};
+  final start = _goldCleanRangeIndex % ranges.length;
+  final perRange = max(1, (240 / ranges.length).ceil());
+  for (var offset = 0; offset < ranges.length; offset++) {
+    final index = (start + offset) % ranges.length;
+    final range = ranges[index];
+    final cursor = staged[range] ?? '0';
+    final page = natExpandAddressRangeBatch(
+      range,
+      cursor: cursor,
+      limit: perRange,
+    );
+    for (final ip in page.addresses) {
+      if (_cleanOk(ip)) found.add(ip);
+    }
+    staged[range] = page.nextCursor;
+  }
+
+  _goldPendingCleanCursors = staged;
+  _goldPendingCleanRangeIndex = (start + 1) % ranges.length;
+  final result = found.toList(growable: false);
+  if (result.isEmpty) {
+    // No public IPv4 address was emitted in this page, so its cursors can be
+    // committed immediately without waiting for a network probe.
+    _goldCleanRangeCursors
+      ..clear()
+      ..addAll(staged);
+    _goldCleanRangeIndex = _goldPendingCleanRangeIndex;
+    _goldCleanScanBusy = false;
+  }
+  return result;
+  } catch (_) {
+    _goldCleanScanBusy = false;
+    rethrow;
+  }
 }
 
 Future<String> _cfRead(Socket k, Duration t) async {
@@ -800,50 +822,58 @@ Future<String> _cfRead(Socket k, Duration t) async {
   try {
     await for (final c in k.timeout(t, onTimeout: (sink) => sink.close())) {
       data.addAll(c);
-      if (data.length > 1500) break;
     }
   } catch (e, stk) { logError(e, stk); }
   return utf8.decode(data, allowMalformed: true).toLowerCase();
 }
 
+bool isValidCloudflareTraceResponse(String response) {
+  final headerEnd = response.indexOf('\r\n\r\n');
+  if (headerEnd < 0) return false;
+  final headers = response.substring(0, headerEnd);
+  final lines = headers.split('\r\n');
+  if (lines.isEmpty ||
+      !RegExp(r'^HTTP/1\.[01] 200(?:\s|$)').hasMatch(lines.first)) {
+    return false;
+  }
+  final normalizedHeaders = headers.toLowerCase();
+  if (!normalizedHeaders.contains('server: cloudflare') ||
+      !normalizedHeaders.contains('cf-ray:')) {
+    return false;
+  }
+  final body = response.substring(headerEnd + 4);
+  final bodyLines = body.split(RegExp(r'\r?\n'));
+  bool hasField(String name) =>
+      bodyLines.any((line) => line.toLowerCase().startsWith('$name='));
+  return hasField('ip') && hasField('colo') && hasField('http');
+}
+
 Future<int?> _cfProbeMs(String ip, Duration t) async {
   final sw = Stopwatch()..start();
   Socket? raw;
-  Socket? k;
+  Socket? secure;
   try {
     raw = await Socket.connect(ip, 443, timeout: t);
-    k = await SecureSocket.secure(raw,
-            host: 'cloudflare.com',
-            onBadCertificate: (_) => true,
-            supportedProtocols: const ['http/1.1'])
-        .timeout(t);
-    k.write(
+    secure = await SecureSocket.secure(
+      raw,
+      host: 'cloudflare.com',
+      supportedProtocols: const ['http/1.1'],
+    ).timeout(t);
+    secure.write(
         'GET /cdn-cgi/trace HTTP/1.1\r\nHost: cloudflare.com\r\nConnection: close\r\n\r\n');
-    await k.flush();
-    final txt = await _cfRead(k, t);
+    await secure.flush();
+    final response = await _cfRead(secure, t);
     sw.stop();
-    if (txt.contains('cloudflare')) return sw.elapsedMilliseconds;
+    if (isValidCloudflareTraceResponse(response)) {
+      return sw.elapsedMilliseconds;
+    }
   } catch (e, stk) {
     logError(e, stk);
   } finally {
-    k?.destroy();
+    secure?.destroy();
     raw?.destroy();
   }
-  Socket? h;
-  try {
-    final sw2 = Stopwatch()..start();
-    h = await Socket.connect(ip, 80, timeout: t);
-    h.write(
-        'GET /cdn-cgi/trace HTTP/1.1\r\nHost: cloudflare.com\r\nConnection: close\r\n\r\n');
-    await h.flush();
-    final txt = await _cfRead(h, t);
-    sw2.stop();
-    if (txt.contains('cloudflare')) return sw2.elapsedMilliseconds + 40;
-  } catch (e, stk) {
-    logError(e, stk);
-  } finally {
-    h?.destroy();
-  }
+  // Plain HTTP/80 is not proof of Cloudflare identity and is not accepted.
   return null;
 }
 
@@ -857,7 +887,6 @@ Future<void> _doRefreshClean() async {
     final res = <CleanIp>[];
     var done = 0;
     await pool<String>(c, 20, (ip) async {
-      if (res.length >= 20) return;
       final ms = await _cfProbeMs(ip, const Duration(milliseconds: 3500));
       done++;
       if (ms != null) res.add(CleanIp(ip, ms));
@@ -866,14 +895,16 @@ Future<void> _doRefreshClean() async {
         cleanTick.value++;
       }
       await Future.delayed(const Duration(milliseconds: 20));
-    }).timeout(const Duration(seconds: 40), onTimeout: () {});
+    });
+    await goldCommitCleanCandidates();
     res.sort((a, b) => a.ms.compareTo(b.ms));
-    cleanIps = res.take(20).toList();
+    cleanIps = res.toList(growable: false);
     cleanIpsAt = DateTime.now();
     cleanIpStatus = '${cleanIps.length} IP سالم از ${c.length} تست';
     await _saveCleanIps();
     await goldMergeIps(res);
   } catch (e, stk) {
+    goldDiscardCleanCandidates();
     logError(e, stk);
     cleanIpStatus = 'خطا در دریافت IP';
   }
@@ -920,6 +951,12 @@ Future<void> _loadCleanIps() async {
 }
 
 Future<String?> pickCleanIp() async {
+  if (nationalMode) {
+    await natNationalIpMemLoad();
+    if (natNationalIpMem.isEmpty) return null;
+    final index = _cleanRot++ % natNationalIpMem.length;
+    return (natNationalIpMem[index]['ip'] ?? '').toString();
+  }
   if (!_cleanLoaded || _cleanOp != natOpKey) {
     _cleanLoaded = true;
     if (_cleanOp != natOpKey) {
@@ -929,25 +966,13 @@ Future<String?> pickCleanIp() async {
     _cleanOp = natOpKey;
     await _loadCleanIps();
   }
-  await goldLoad();
-  if (nationalMode) {
-    final g = goldIpList();
-    if (g.isNotEmpty) {
-      cleanIps = g;
-      final n = min(5, cleanIps.length);
-      return cleanIps[_cleanRot++ % n].ip;
-    }
-  }
   final stale = cleanIpsAt == null ||
-      DateTime.now().difference(cleanIpsAt!) > const Duration(hours: 6);
-  if (cleanIps.isEmpty) {
+      DateTime.now().difference(cleanIpsAt!) > const Duration(hours: 12);
+  if (cleanIps.isEmpty || stale) {
     await refreshCleanIps();
-  } else if (stale) {
-    refreshCleanIps();
   }
   if (cleanIps.isEmpty) return null;
-  final n = min(5, cleanIps.length);
-  return cleanIps[_cleanRot++ % n].ip;
+  return cleanIps[_cleanRot++ % cleanIps.length].ip;
 }
 
 const _iranMoreDomains = <String>[
@@ -960,6 +985,31 @@ const _iranMoreDomains = <String>[
   'domain:tgju.org',
 ];
 
+String _stripKingFragmentOutbound(String cfg) {
+  try {
+    final decoded = jsonDecode(cfg);
+    if (decoded is! Map<String, dynamic>) return cfg;
+    final outs = (decoded['outbounds'] as List?) ?? <dynamic>[];
+    for (final outbound in outs) {
+      if (outbound is! Map) continue;
+      final stream = outbound['streamSettings'];
+      if (stream is! Map) continue;
+      final sockopt = stream['sockopt'];
+      if (sockopt is! Map || sockopt['dialerProxy'] != 'frag-out') continue;
+      sockopt.remove('dialerProxy');
+      if (sockopt.isEmpty) {
+        stream.remove('sockopt');
+      } else {
+        stream['sockopt'] = sockopt;
+      }
+    }
+    outs.removeWhere((entry) => entry is Map && entry['tag'] == 'frag-out');
+    return jsonEncode(decoded);
+  } catch (_) {
+    return cfg;
+  }
+}
+
 String withNpvAmCore(String cfg) {
   final moreIr = iranRoute && iranMore;
   if (!fragEnabled &&
@@ -969,12 +1019,83 @@ String withNpvAmCore(String cfg) {
       !blockQuic &&
       !lanDirect &&
       !routeOnly) {
-    return cfg;
+    return _stripKingFragmentOutbound(cfg);
   }
   try {
     final j = jsonDecode(cfg);
     if (j is! Map<String, dynamic>) return cfg;
     final outs = (j['outbounds'] as List?) ?? <dynamic>[];
+
+    // Apply one app-owned fragment outbound to every TLS/REALITY proxy,
+    // including multi-hop profiles with more than one proxy outbound.
+    if (fragEnabled) {
+      final fragmentTargets = <Map>[];
+      for (final outbound in outs) {
+        if (outbound is! Map ||
+            !const {'vmess', 'vless', 'trojan', 'shadowsocks'}
+                .contains(outbound['protocol'])) {
+          continue;
+        }
+        final stream = outbound['streamSettings'];
+        if (stream is! Map) continue;
+        final security = (stream['security'] ?? 'none').toString();
+        if (security == 'tls' || security == 'reality') {
+          fragmentTargets.add(outbound);
+        }
+      }
+      if (fragmentTargets.isNotEmpty) {
+        outs.removeWhere((entry) => entry is Map && entry['tag'] == 'frag-out');
+        outs.add({
+          'tag': 'frag-out',
+          'protocol': 'freedom',
+          'settings': {
+            'fragment': {
+              'packets': 'tlshello',
+              'length': fragLen,
+              'interval': fragInt,
+            }
+          },
+        });
+        for (final outbound in fragmentTargets) {
+          final stream = outbound['streamSettings'] as Map;
+          final sockopt = stream['sockopt'] is Map
+              ? stream['sockopt'] as Map
+              : <String, dynamic>{};
+          sockopt['dialerProxy'] = 'frag-out';
+          stream['sockopt'] = sockopt;
+        }
+      } else {
+        for (final outbound in outs) {
+          if (outbound is! Map) continue;
+          final stream = outbound['streamSettings'];
+          if (stream is! Map) continue;
+          final sockopt = stream['sockopt'];
+          if (sockopt is! Map || sockopt['dialerProxy'] != 'frag-out') continue;
+          sockopt.remove('dialerProxy');
+          if (sockopt.isEmpty) {
+            stream.remove('sockopt');
+          } else {
+            stream['sockopt'] = sockopt;
+          }
+        }
+        outs.removeWhere((entry) => entry is Map && entry['tag'] == 'frag-out');
+      }
+    } else {
+      for (final outbound in outs) {
+        if (outbound is! Map) continue;
+        final stream = outbound['streamSettings'];
+        if (stream is! Map) continue;
+        final sockopt = stream['sockopt'];
+        if (sockopt is! Map || sockopt['dialerProxy'] != 'frag-out') continue;
+        sockopt.remove('dialerProxy');
+        if (sockopt.isEmpty) {
+          stream.remove('sockopt');
+        } else {
+          stream['sockopt'] = sockopt;
+        }
+      }
+      outs.removeWhere((entry) => entry is Map && entry['tag'] == 'frag-out');
+    }
 
     String directTag() {
       for (final o in outs) {
@@ -1050,26 +1171,7 @@ String withNpvAmCore(String cfg) {
     }
     if (proxy != null) {
       final st = proxy['streamSettings'];
-      final sec = st is Map ? (st['security'] ?? 'none').toString() : 'none';
       final net = st is Map ? (st['network'] ?? 'tcp').toString() : 'tcp';
-      if (fragEnabled && st is Map && (sec == 'tls' || sec == 'reality')) {
-        if (!outs.any((o) => o is Map && o['tag'] == 'frag-out')) {
-          outs.add({
-            'tag': 'frag-out',
-            'protocol': 'freedom',
-            'settings': {
-              'fragment': {
-                'packets': 'tlshello',
-                'length': fragLen,
-                'interval': fragInt,
-              }
-            },
-          });
-        }
-        final so = st['sockopt'] is Map ? st['sockopt'] as Map : <String, dynamic>{};
-        so['dialerProxy'] = 'frag-out';
-        st['sockopt'] = so;
-      }
       // MUXWORKER: کلودفلر (workers.dev) mux را نمی‌پذیرد؛ برای آن mux خاموش است
       if (muxEnabled && (net == 'tcp' || net == 'ws') && !_isWorkerOutbound(proxy)) {
         var flow = '';
@@ -1347,7 +1449,7 @@ extension NpvAmExtras on _HomePageState {
                     child: ListView(
                       shrinkWrap: true,
                       children: [
-                        for (final e in cleanIps.take(10))
+                        for (final e in cleanIps)
                           Directionality(
                             textDirection: TextDirection.ltr,
                             child: Text('${e.ip}    ${e.ms} ms'),
@@ -1406,9 +1508,6 @@ extension NpvAmExtras on _HomePageState {
   }
 }
 
-const int kGoldIpCap = 100000;
-const int kGoldSrvCap = 20000;
-const int kGoldDailyProbes = 250000;
 const int kGoldRetestBatch = 500;
 const int kGoldEveryMin = 5;
 const int kGoldRetestHours = 24;
@@ -1433,33 +1532,33 @@ final Map<String, int> _goldDns = {};
 final Map<String, List<String>> _goldScan = {};
 bool _goldRunning = false;
 Timer? _goldTimer;
-String _goldDay = '';
 int _goldCnt = 0;
-
-String _goldToday() {
-  final n = DateTime.now();
-  return '${n.year}-${n.month}-${n.day}';
-}
-
-int _goldBudgetLeft() {
-  final d = _goldToday();
-  if (_goldDay != d) {
-    _goldDay = d;
-    _goldCnt = 0;
-  }
-  return kGoldDailyProbes - _goldCnt;
-}
 
 Future<void>? _goldLoadF;
 
 Future<void> goldLoad() => _goldLoadF ??= _goldLoadOnce();
 
+Future<File> _goldInventoryFile() async {
+  final dir = await getApplicationSupportDirectory();
+  return File('${dir.path}/king_vpn_gold_inventory.json');
+}
+
 Future<void> _goldLoadOnce() async {
   try {
-    final p = await SharedPreferences.getInstance();
-    final s = p.getString('gold_v1');
-    if (s == null) return;
-    final m = jsonDecode(s) as Map;
+    final file = await _goldInventoryFile();
+    final backup = File('${file.path}.bak');
+    if (!await file.exists() && await backup.exists()) {
+      await backup.rename(file.path);
+    }
+    String? source;
+    if (await file.exists()) {
+      source = await file.readAsString();
+    } else {
+      final prefs = await SharedPreferences.getInstance();
+      source = prefs.getString('gold_v1');
+    }
+    if (source == null || source.isEmpty) return;
+    final m = jsonDecode(source) as Map;
     for (final e in (m['ips'] as List? ?? const [])) {
       final x = e as List;
       final ip = x[0].toString();
@@ -1479,11 +1578,21 @@ Future<void> _goldLoadOnce() async {
     for (final e in (m['scan'] as Map? ?? const {}).entries) {
       _goldScan[e.key.toString()] = [for (final x in (e.value as List)) x.toString()];
     }
-    _goldDay = (m['day'] ?? '').toString();
     _goldCnt = (m['cnt'] as num? ?? 0).toInt();
+    _goldCleanRangeCursors
+      ..clear()
+      ..addAll({
+        for (final entry in (m['cleanCursors'] as Map? ?? const {}).entries)
+          entry.key.toString(): entry.value.toString(),
+      });
+    _goldCleanRangeIndex = (m['cleanRangeIndex'] as num? ?? 0).toInt();
+    if (!await file.exists()) {
+      await _goldWrite();
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove('gold_v1');
+    }
   } catch (e, stk) {
     logError(e, stk);
-    // GOLDRETRY: cache را پاک کن تا فراخوانی بعدی دوباره تلاش کند
     _goldLoadF = null;
   }
 }
@@ -1499,62 +1608,75 @@ String _goldEncode() => jsonEncode({
       ],
       'dns': [for (final e in _goldDns.entries) [e.key, e.value]],
       'scan': _goldScan,
-      'day': _goldDay,
       'cnt': _goldCnt,
+      'cleanCursors': _goldCleanRangeCursors,
+      'cleanRangeIndex': _goldCleanRangeIndex,
     });
 
-Future<bool> _goldWrite(SharedPreferences p) =>
-    p.setString('gold_v1', _goldEncode());
+Future<void> _goldWriteQueue = Future<void>.value();
+
+Future<void> _goldWrite() {
+  final next = _goldWriteQueue.catchError((Object _) {}).then((_) async {
+    final file = await _goldInventoryFile();
+    await file.parent.create(recursive: true);
+    final temp = File('${file.path}.tmp');
+    final backup = File('${file.path}.bak');
+    await temp.writeAsString(_goldEncode(), flush: true);
+    var movedOld = false;
+    try {
+      if (await file.exists()) {
+        if (await backup.exists()) await backup.delete();
+        await file.rename(backup.path);
+        movedOld = true;
+      }
+      await temp.rename(file.path);
+      if (movedOld && await backup.exists()) await backup.delete();
+    } catch (_) {
+      if (movedOld && !await file.exists() && await backup.exists()) {
+        await backup.rename(file.path);
+      }
+      rethrow;
+    }
+  });
+  _goldWriteQueue = next;
+  return next;
+}
+
+Future<void> goldCommitCleanCandidates() async {
+  try {
+    _goldCleanRangeCursors
+      ..clear()
+      ..addAll(_goldPendingCleanCursors);
+    _goldCleanRangeIndex = _goldPendingCleanRangeIndex;
+    await goldSave();
+  } finally {
+    _goldCleanScanBusy = false;
+  }
+}
+
+void goldDiscardCleanCandidates() {
+  // A partial/aborted page must be retried from the previously committed cursor.
+  _goldCleanScanBusy = false;
+}
 
 Future<void> goldSave() async {
   await goldLoad();
   try {
-    final p = await SharedPreferences.getInstance();
-    await _goldWrite(p);
+    await _goldWrite();
   } catch (e, stk) {
     logError(e, stk);
   }
 }
 
-void _goldTrimIps() {
-  if (_goldIps.length <= kGoldIpCap) return;
-  final keep = kGoldIpCap * 95 ~/ 100;
-  final l = _goldIps.values.toList()..sort((a, b) => a.ms.compareTo(b.ms));
-  for (final v in l.skip(keep)) {
-    _goldIps.remove(v.ip);
-  }
-}
-
-void _goldTrimSrv() {
-  if (_goldSrv.length <= kGoldSrvCap) return;
-  final l = _goldSrv.values.toList()..sort((a, b) => a.ping.compareTo(b.ping));
-  for (final v in l.skip(kGoldSrvCap)) {
-    _goldSrv.remove(v.link);
-  }
-}
-
-List<CleanIp>? _goldTop;
 List<CleanIp> goldIpList() {
-  if (_goldTop != null) return _goldTop!;
-  final best = <_GoldIp>[];
-  for (final v in _goldIps.values) {
-    if (best.length < 20) {
-      best.add(v);
-      best.sort((a, b) => a.ms.compareTo(b.ms));
-    } else if (v.ms < best.last.ms) {
-      best.removeLast();
-      best.add(v);
-      best.sort((a, b) => a.ms.compareTo(b.ms));
-    }
-  }
-  return _goldTop = [for (final v in best) CleanIp(v.ip, v.ms, v.port)];
+  final all = _goldIps.values.toList()
+    ..sort((a, b) => a.ms.compareTo(b.ms));
+  return [for (final value in all) CleanIp(value.ip, value.ms, value.port)];
 }
 
-// NATHELP: نت ملی از IPهای تمیز پوشه‌ی جهانی کمک می‌گیرد (فقط خواندن). اسکنر دستی در نت ملی اجرا نمی‌شود، پس چیزی را خراب نمی‌کند.
+// National Net never imports the global Gold IP inventory.
 void goldPrepareNational() {
-  if (!nationalMode) return;
-  final g = goldIpList();
-  if (g.isNotEmpty) cleanIps = g;
+  if (nationalMode) unawaited(natNationalIpMemLoad());
 }
 
 // NATQUOTA: سهمیه‌ی اسکنرهای دستی در نت ملی. همزمانی کم، و هر بار قبل از شروع صبر می‌کنند
@@ -1589,7 +1711,6 @@ Future<bool> goldAddScans(
   await goldLoad();
   if (shouldAbort?.call() ?? false) return false;
   try {
-    final p = await SharedPreferences.getInstance();
     // Last cancellation boundary: no shared state is changed before this check.
     if (shouldAbort?.call() ?? false) return false;
     for (final entry in updates.entries) {
@@ -1597,8 +1718,8 @@ Future<bool> goldAddScans(
       _goldScan[entry.key] = merged.toList();
     }
     // Start persistence immediately after the synchronous cache update.
-    final write = _goldWrite(p);
-    return await write;
+    await _goldWrite();
+    return true;
   } catch (e, stk) {
     logError(e, stk);
     return false;
@@ -1617,7 +1738,6 @@ Future<bool> goldAddDns(List<DnsxHit> hits, {bool Function()? shouldAbort}) asyn
   await goldLoad();
   if (shouldAbort?.call() ?? false) return false;
   try {
-    final p = await SharedPreferences.getInstance();
     // Last cancellation check before mutating shared DNS state.
     if (shouldAbort?.call() ?? false) return false;
     var changed = false;
@@ -1627,7 +1747,8 @@ Future<bool> goldAddDns(List<DnsxHit> hits, {bool Function()? shouldAbort}) asyn
       changed = true;
     }
     if (!changed) return true;
-    return await _goldWrite(p);
+    await _goldWrite();
+    return true;
   } catch (e, stk) {
     logError(e, stk);
     return false;
@@ -1641,17 +1762,13 @@ Future<void> goldMergeIps(
   if (res.isEmpty || (shouldAbort?.call() ?? false)) return;
   await goldLoad();
   if (shouldAbort?.call() ?? false) return;
-  final p = await SharedPreferences.getInstance();
-  // Check again after the asynchronous preferences lookup, immediately before
-  // mutating the shared cache so a closed dialog cannot persist stale results.
+    // Recheck after loading the disk inventory and immediately before mutation.
   if (shouldAbort?.call() ?? false) return;
   final now = DateTime.now().millisecondsSinceEpoch;
   for (final c in res) {
     _goldIps[c.ip] = _GoldIp(c.ip, c.ms, c.port, now, now);
   }
-  _goldTrimIps();
-  _goldTop = null;
-  await _goldWrite(p);
+  await _goldWrite();
 }
 
 Future<Map<String, int?>> _goldProbe(List<String> ips) async {
@@ -1660,20 +1777,19 @@ Future<Map<String, int?>> _goldProbe(List<String> ips) async {
   await pool<String>(ips, 20, (ip) async {
     out[ip] = await _cfProbeMs(ip, const Duration(milliseconds: 3500));
     await Future.delayed(const Duration(milliseconds: 20));
-  }).timeout(const Duration(minutes: 2), onTimeout: () {});
+  });
   return out;
 }
 
 Future<void> _goldIpStep() async {
   if (nationalMode) return;
   final nowMs = DateTime.now().millisecondsSinceEpoch;
-  var left = _goldBudgetLeft();
-  if (left <= 0) return;
   final retestMs = kGoldRetestHours * 3600 * 1000;
 
+  // This is a per-tick work batch, not a daily or lifetime inventory quota.
   final due = _goldIps.values
       .where((v) => nowMs - v.testAt >= retestMs)
-      .take(left < kGoldRetestBatch ? left : kGoldRetestBatch)
+      .take(kGoldRetestBatch)
       .map((v) => v.ip)
       .toList();
   if (due.isNotEmpty) {
@@ -1683,7 +1799,7 @@ Future<void> _goldIpStep() async {
       if (v == null) continue;
       final ms = r[ip];
       if (ms == null) {
-        _goldIps.remove(ip);
+        v.testAt = nowMs;
       } else {
         v.ms = ms;
         v.okAt = nowMs;
@@ -1691,18 +1807,24 @@ Future<void> _goldIpStep() async {
       }
     }
     _goldCnt += due.length;
-    left -= due.length;
-    _goldTop = null;
   }
 
-  if (left <= 0) return;
   final cands = await _cleanCandidates();
   final batch = cands
       .where((ip) => !_goldIps.containsKey(ip))
-      .take(left < 240 ? left : 240)
       .toList();
-  if (batch.isEmpty) return;
-  final r = await _goldProbe(batch);
+  if (batch.isEmpty) {
+    await goldCommitCleanCandidates();
+    return;
+  }
+  late final Map<String, int?> r;
+  try {
+    r = await _goldProbe(batch);
+    await goldCommitCleanCandidates();
+  } catch (_) {
+    goldDiscardCleanCandidates();
+    rethrow;
+  }
   var found = 0;
   for (final ip in batch) {
     final ms = r[ip];
@@ -1712,9 +1834,7 @@ Future<void> _goldIpStep() async {
     }
   }
   _goldCnt += batch.length;
-  _goldTrimIps();
-  _goldTop = null;
-  dbg('گلد: IP تازه $found از ${batch.length} • پوشه ${_goldIps.length} • امروز $_goldCnt/$kGoldDailyProbes');
+  dbg('گلد: IP تازه $found از ${batch.length} • پوشه ${_goldIps.length} • مجموع آزمون‌ها $_goldCnt');
 }
 
 Future<void> _goldSrvStep(_HomePageState h) async {
@@ -1735,7 +1855,6 @@ Future<void> _goldSrvStep(_HomePageState h) async {
     }
     changed = true;
   }
-  _goldTrimSrv();
 
   if (!nationalMode) {
     final retestMs = kGoldRetestHours * 3600 * 1000;
@@ -1750,13 +1869,15 @@ Future<void> _goldSrvStep(_HomePageState h) async {
       if (!h.mounted || !h.connected || h.busy || h.switching) break;
       final sv = Server.parse(v.link);
       if (sv == null) {
-        _goldSrv.remove(v.link);
+        v.ping = 0;
+        v.testAt = nowMs;
         changed = true;
         continue;
       }
       final ms = await h._delayOf(sv);
       if (ms == null || ms <= 0) {
-        _goldSrv.remove(v.link);
+        v.ping = 0;
+        v.testAt = nowMs;
       } else {
         v.ping = ms;
         v.okAt = nowMs;
@@ -1848,19 +1969,19 @@ Future<void> goldShowList(BuildContext context) async {
                 const Divider(),
                 const Text('سرورهای سالم (سریع → کند):',
                     style: TextStyle(fontWeight: FontWeight.bold)),
-                for (final v in srvL.take(200))
+                for (final v in srvL)
                   Text('${v.ping} ms  •  ${Server.parse(v.link)?.name ?? v.link}',
                       style: const TextStyle(fontSize: 12)),
                 const Divider(),
                 const Text('IP تمیز (سریع → کند):',
                     style: TextStyle(fontWeight: FontWeight.bold)),
-                for (final v in ipL.take(200))
+                for (final v in ipL)
                   Text('${v.ms} ms  •  ${v.ip}:${v.port}',
                       style: const TextStyle(fontSize: 12, fontFamily: 'monospace')),
                 const Divider(),
                 const Text('DNS سالم (سریع → کند):',
                     style: TextStyle(fontWeight: FontWeight.bold)),
-                for (final e in dnsL.take(200))
+                for (final e in dnsL)
                   Text('${e.value} ms  •  ${e.key}',
                       style: const TextStyle(fontSize: 12, fontFamily: 'monospace')),
                 for (final k in const ['sni', 'port', 'tls']) ...[
@@ -1869,7 +1990,7 @@ Future<void> goldShowList(BuildContext context) async {
                       {'sni': 'SNI سالم', 'port': 'پورت سالم', 'tls': 'پروتکل TLS سالم'}[k]! +
                           ' (${(_goldScan[k] ?? const []).length}):',
                       style: const TextStyle(fontWeight: FontWeight.bold)),
-                  for (final x in (_goldScan[k] ?? const <String>[]).take(200))
+                  for (final x in (_goldScan[k] ?? const <String>[]))
                     Text(x, style: const TextStyle(fontSize: 12, fontFamily: 'monospace')),
                 ],
               ],
@@ -1983,7 +2104,6 @@ void goldNoteServer(Server srv) {
     ex.okAt = now;
     ex.testAt = now;
   }
-  _goldTrimSrv();
   _goldSaveT ??= Timer(const Duration(seconds: 20), () {
     _goldSaveT = null;
     unawaited(goldSave());
@@ -1991,19 +2111,29 @@ void goldNoteServer(Server srv) {
 }
 
 // MANUALSCAN: اسکن دستی بازه‌ها با پیشرفت و نتیجه داخل خود دیالوگ (نه پیام پشت دیالوگ)
-Future<void> manualRangeScan(BuildContext context, List<String> userAddrs) async {
-  // FOLDERHELP: IPهای تمیز پوشه اول تست می‌شوند (کمک پوشه به اسکن بازه، در نت ملی و عادی)
-  await goldLoad();
-  // RANGEFIX: بازه‌ی کاربر اول می‌آید تا با سقف زمان کوتاه هرگز کنار گذاشته نشود
-  // RANGEFIX: بازه‌ی کاربر اول و با ترتیب تصادفی (تا بازه‌ی بزرگ در سقف زمان کل بازه را پوشش دهد)
-  final shuffledUser = List<String>.of(userAddrs)..shuffle(Random());
-  final addrs = {...shuffledUser, for (final c in goldIpList()) c.ip}.toList();
+Future<void> manualRangeScan(BuildContext context, List<String> userRanges) async {
+  final scanNationalMode = nationalMode;
+  final ranges = userRanges.map((value) => value.trim()).where((value) => value.isNotEmpty).toList(growable: false);
+  if (ranges.isEmpty) return;
+
+  if (scanNationalMode) {
+    await natNationalIpMemLoad();
+  } else {
+    await goldLoad();
+  }
+  final extraIps = scanNationalMode
+      ? natNationalIpMemHosts().toList(growable: false)
+      : goldIpList().map((entry) => entry.ip).toList(growable: false);
+
   var cancelled = false;
   var finished = false;
   var done = 0;
   var hitsCount = 0;
-  var total = addrs.length;
+  var extraOffset = 0;
   var result = <NatIpHit>[];
+  final seenHits = <String>{};
+  final cursors = List<String>.filled(ranges.length, '0');
+  final completed = List<bool>.filled(ranges.length, false);
   var open = true;
   StateSetter? setS;
 
@@ -2025,7 +2155,7 @@ Future<void> manualRangeScan(BuildContext context, List<String> userAddrs) async
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text('آدرس‌ها: $done / $total   •   IP سالم: $hitsCount'),
+              Text('آدرس‌های بررسی‌شده: $done   •   IP سالم: $hitsCount'),
               if (!finished) ...[
                 const SizedBox(height: 10),
                 const LinearProgressIndicator(),
@@ -2033,12 +2163,12 @@ Future<void> manualRangeScan(BuildContext context, List<String> userAddrs) async
               if (finished && result.isEmpty)
                 const Padding(
                   padding: EdgeInsets.only(top: 10),
-                  child: Text('هیچ IP سالمی پیدا نشد.'),
+                  child: Text('هیچ IP سالمی پیدا نشد یا بازه‌ای معتبر نبود.'),
                 ),
               if (finished && result.isNotEmpty)
                 TextButton.icon(
                   onPressed: () => Clipboard.setData(ClipboardData(
-                      text: result.map((h) => '${h.ip}:443').join('\n'))),
+                      text: result.map((hit) => '${hit.ip}:443').join('\n'))),
                   icon: const Icon(Icons.copy, size: 16),
                   label: Text('کپی ${result.length} IP'),
                 ),
@@ -2047,8 +2177,8 @@ Future<void> manualRangeScan(BuildContext context, List<String> userAddrs) async
                   height: 260,
                   child: ListView(
                     children: [
-                      for (final h in result)
-                        Text('${h.ms} ms  •  ${h.ip}:443',
+                      for (final hit in result)
+                        Text('${hit.ms} ms  •  ${hit.ip}:443',
                             style: const TextStyle(
                                 fontSize: 12, fontFamily: 'monospace')),
                     ],
@@ -2066,8 +2196,8 @@ Future<void> manualRangeScan(BuildContext context, List<String> userAddrs) async
           if (finished && result.isNotEmpty)
             TextButton(
               onPressed: () async {
-                final t = result.map((h) => '${h.ip}:443').join('\n');
-                await Clipboard.setData(ClipboardData(text: t));
+                final text = result.map((hit) => '${hit.ip}:443').join('\n');
+                await Clipboard.setData(ClipboardData(text: text));
                 if (ctx.mounted) {
                   ScaffoldMessenger.of(ctx).showSnackBar(
                       SnackBar(content: Text('${result.length} IP کپی شد')));
@@ -2091,32 +2221,105 @@ Future<void> manualRangeScan(BuildContext context, List<String> userAddrs) async
   });
 
   try {
-    if (nationalMode) {
-      await natManualYield(shouldAbort: () => cancelled || !open);
+    if (scanNationalMode) {
+      await natManualYield(shouldAbort: () => cancelled || !open || nationalMode != scanNationalMode);
     }
-    // Do not start a scan if the user cancelled while waiting for the national scan.
-    if (!cancelled) {
-      result = await natScanIps(
-        addrs,
-        want: 1000,
-        concurrency: nationalMode ? kNatManualConc : natAdaptiveWorkers(),
-        // RANGEFIX: بازه‌ی کوچک ۲ دقیقه؛ بازه‌ی بزرگ (بیش از ۴۰۹۶ IP) ۸ دقیقه
-        budget: Duration(minutes: userAddrs.length > 4096 ? 8 : 2),
+    while (!cancelled && open && nationalMode == scanNationalMode) {
+      final batchSet = <String>{};
+      // Interleave saved inventory with explicit range batches; neither is truncated.
+      final savedTake = min(128, extraIps.length - extraOffset);
+      for (var index = 0; index < savedTake; index++) {
+        batchSet.add(extraIps[extraOffset++]);
+      }
+      // Stage range cursors locally; only commit them after the whole emitted
+      // batch has been probed. Cancellation keeps the prior cursor for retry.
+      final nextCursors = List<String>.of(cursors);
+      final nextCompleted = List<bool>.of(completed);
+      final activeRanges = <int>[
+        for (var index = 0; index < ranges.length; index++)
+          if (!nextCompleted[index]) index,
+      ];
+      if (activeRanges.isNotEmpty && batchSet.length < 256) {
+        final perRange = max(1, (256 - batchSet.length) ~/ activeRanges.length);
+        for (final index in activeRanges) {
+          final previous = nextCursors[index];
+          final generated = natExpandAddressRangeBatch(
+            ranges[index],
+            cursor: previous,
+            limit: perRange,
+          );
+          if (generated.addresses.isEmpty) {
+            nextCompleted[index] = true;
+            continue;
+          }
+          batchSet.addAll(generated.addresses);
+          final oldCursor = BigInt.tryParse(previous) ?? BigInt.zero;
+          final nextCursor = BigInt.tryParse(generated.nextCursor) ?? BigInt.zero;
+          if (nextCursor <= oldCursor) {
+            nextCompleted[index] = true;
+          } else {
+            nextCursors[index] = generated.nextCursor;
+          }
+          if (batchSet.length >= 256) break;
+        }
+      }
+      if (batchSet.isEmpty) {
+        if (extraOffset >= extraIps.length && completed.every((value) => value)) break;
+        // Invalid ranges are marked complete above; do not spin on an empty batch.
+        if (activeRanges.isNotEmpty && completed.every((value) => value)) break;
+        break;
+      }
+
+      final batch = batchSet.toList(growable: false);
+      final batchBaseDone = done;
+      var batchCompleted = 0;
+      final batchHits = await natScanIps(
+        batch,
+        concurrency: scanNationalMode ? kNatManualConc : natAdaptiveWorkers(),
         timeout: const Duration(milliseconds: 1500),
-        cancelled: () => cancelled || !open,
-        onProgress: (d, t, h) => upd(() {
-          done = d;
-          total = t;
-          hitsCount = h;
+        cancelled: () => cancelled || !open || nationalMode != scanNationalMode,
+        onProgress: (current, total, hits) => upd(() {
+          batchCompleted = current;
+          done = batchBaseDone + current;
+          hitsCount = result.length + hits;
         }),
       );
-      // Partial results remain visible, but a cancelled scan must not enter shared storage.
-      if (!cancelled && open) {
-        await goldMergeIps(
-          [for (final h in result) CleanIp(h.ip, h.ms, 443)],
-          shouldAbort: () => cancelled || !open,
-        );
+      final batchStillCurrent = !cancelled && open && nationalMode == scanNationalMode;
+      if (batchStillCurrent) {
+        done = batchBaseDone + batch.length;
+        for (var index = 0; index < cursors.length; index++) {
+          cursors[index] = nextCursors[index];
+          completed[index] = nextCompleted[index];
+        }
+      } else {
+        done = batchBaseDone + batchCompleted;
       }
+      final newHits = <NatIpHit>[];
+      for (final hit in batchHits) {
+        if (seenHits.add(hit.ip)) {
+          result.add(hit);
+          newHits.add(hit);
+        }
+      }
+      hitsCount = result.length;
+
+      // Valid partial hits are retained even when the user stops the scan.
+      if (newHits.isNotEmpty && nationalMode == scanNationalMode) {
+        if (scanNationalMode) {
+          for (final hit in newHits) {
+            await natNationalIpMemSave(hit.ip, 443);
+          }
+        } else {
+          await goldMergeIps(
+            [for (final hit in newHits) CleanIp(hit.ip, hit.ms, 443)],
+            shouldAbort: () => nationalMode != scanNationalMode,
+          );
+        }
+      }
+      upd(() {
+        hitsCount = result.length;
+      });
+      if (cancelled || !open || nationalMode != scanNationalMode) break;
     }
   } catch (e, stk) {
     logError(e, stk);

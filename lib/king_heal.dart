@@ -19,21 +19,137 @@ class _HealSignal {
 }
 
 class _HealMemory {
+  static const Set<String> _knownActions = <String>{
+    'clear_abort_connect',
+    'connect_now',
+    'search_connect',
+    'soft_clear_blacklist',
+    'soft_clear_and_search',
+    'restart_tunnel',
+    'failover',
+    'failover_soft',
+    'force_turbo',
+    'calm_pilot',
+  };
   final Map<String, int> wins = {};
   final Map<String, int> fails = {};
-  final List<String> recent = [];
-  void remember(String action, bool ok) {
+  final Map<String, int> contextualWins = {};
+  final Map<String, int> contextualFails = {};
+  Future<void>? _loadTask;
+  Future<void> _writeQueue = Future<void>.value();
+
+  // Event journal is append-only: no fixed lifetime limit and no full-file
+  // materialization. It survives process death and is replayed incrementally.
+  Future<void> load() => _loadTask ??= _loadJournal();
+
+  Future<void> _loadJournal() async {
+    try {
+      final root = await getApplicationSupportDirectory();
+      final file = File('${root.path}/king_heal_learning.jsonl');
+      if (!await file.exists()) return;
+      await for (final line in file.openRead()
+          .transform(utf8.decoder)
+          .transform(const LineSplitter())) {
+        try {
+          final row = jsonDecode(line);
+          if (row is! Map || row['v'] != 1) continue;
+          final action = row['action'];
+          final ok = row['ok'];
+          if (action is! String || !_knownActions.contains(action) || ok is! bool) continue;
+          final context = row['context'];
+          _apply(action, ok, context: context is String ? context : '');
+        } catch (_) {
+          // Ignore a torn/corrupt journal row; later rows remain recoverable.
+        }
+      }
+    } catch (_) {
+      // Learning storage is best-effort and must never block VPN recovery.
+    }
+  }
+
+  String _contextKey(String context, String action) => '${context}::$action';
+
+  void _apply(String action, bool ok, {String context = ''}) {
     if (ok) {
       wins[action] = (wins[action] ?? 0) + 1;
     } else {
       fails[action] = (fails[action] ?? 0) + 1;
     }
-    recent.add('${ok ? "✓" : "✗"}$action');
-    if (recent.length > 40) recent.removeAt(0);
+    if (context.isNotEmpty) {
+      final key = _contextKey(context, action);
+      if (ok) {
+        contextualWins[key] = (contextualWins[key] ?? 0) + 1;
+      } else {
+        contextualFails[key] = (contextualFails[key] ?? 0) + 1;
+      }
+    }
   }
 
-  int score(String action) =>
-      (wins[action] ?? 0) - (fails[action] ?? 0);
+  Future<void> remember(String action, bool ok, {String context = ''}) async {
+    if (!_knownActions.contains(action)) return;
+    await load();
+    final previous = _writeQueue;
+    final release = Completer<void>();
+    _writeQueue = release.future;
+    await previous;
+    try {
+      final root = await getApplicationSupportDirectory();
+      final file = File('${root.path}/king_heal_learning.jsonl');
+      final lockFile = await File('${file.path}.lock')
+          .open(mode: FileMode.append);
+      var locked = false;
+      try {
+        await lockFile.lock(FileLock.exclusive);
+        locked = true;
+        await file.writeAsString(
+          jsonEncode(<String, Object>{
+            'v': 1,
+            'action': action,
+            'ok': ok,
+            if (context.isNotEmpty) 'context': context,
+            'at': DateTime.now().toUtc().toIso8601String(),
+          }) + '\n',
+          mode: FileMode.append,
+          flush: true,
+        );
+      } finally {
+        try {
+          if (locked) await lockFile.unlock();
+        } finally {
+          await lockFile.close();
+        }
+      }
+    } catch (_) {
+      // Keep current-session adaptation alive even if storage is unavailable.
+    } finally {
+      _apply(action, ok, context: context);
+      release.complete();
+    }
+  }
+
+  // Laplace-smoothed success estimate: sparse history stays conservative.
+  double score(String action, {String context = ''}) {
+    final totalWins = wins[action] ?? 0;
+    final totalFails = fails[action] ?? 0;
+    final globalRate = (totalWins + 1) / (totalWins + totalFails + 2);
+    if (context.isEmpty) return globalRate;
+    final key = _contextKey(context, action);
+    final localWins = contextualWins[key] ?? 0;
+    final localFails = contextualFails[key] ?? 0;
+    final localRate = (localWins + 1) / (localWins + localFails + 2);
+    final evidenceWeight = (localWins + localFails) /
+        (localWins + localFails + 4);
+    return globalRate * (1 - evidenceWeight) + localRate * evidenceWeight;
+  }
+
+  String bestAction(List<String> actions, String context) {
+    final eligible = actions.where((action) =>
+        (wins[action] ?? 0) + (fails[action] ?? 0) > 0).toList();
+    if (eligible.isEmpty) return actions.first;
+    eligible.sort((a, b) =>
+        score(b, context: context).compareTo(score(a, context: context)));
+    return eligible.first;
+  }
 }
 
 final _healMem = _HealMemory();
@@ -63,7 +179,8 @@ extension KingHealEngine on _HomePageState {
   /// نقطهٔ ورود اصلی — از واچ‌داگ، خلبان، و بعد از خطا
   /// نسخهٔ تهاجمی: سریع‌تر حس می‌کند، زودتر وارد عمل می‌شود، کمتر صبر می‌کند
   Future<void> kingSelfHeal({String reason = ''}) async {
-    if (!mounted || kingHealBusy.value) return; // حقیقی: جلوگیری از هم‌پوشانی چرخه‌های ترمیم
+    // Until the multi-core coordinator lands, legacy repair actions must not mutate a WireGuard session as if it were Xray.
+    if (!mounted || kingHealBusy.value || _kingWireGuardActive) return; // حقیقی: جلوگیری از هم‌پوشانی چرخه‌های ترمیم
     final now = DateTime.now();
     // فاصلهٔ بین چرخه‌ها کمتر شد (۸ → ۴ ثانیه)
     if (_healLastRun != null &&
@@ -79,6 +196,7 @@ extension KingHealEngine on _HomePageState {
 
     try {
       // ----- ۱) حسگر -----
+      await _healMem.load();
       final signals = await _healSense();
       if (signals.isEmpty) {
         _healPhase = _HealPhase.idle;
@@ -127,9 +245,6 @@ extension KingHealEngine on _HomePageState {
       } finally {
         healActive = false;
       }
-      _healMem.remember(plan.$1, ok);
-      _healActStreak = ok ? 0 : _healActStreak + 1;
-
       // ----- ۴) تأیید -----
       _healPhase = _HealPhase.verify;
       await Future.delayed(const Duration(seconds: 2));
@@ -150,6 +265,11 @@ extension KingHealEngine on _HomePageState {
             );
       }
       final fixed = dataPlaneOk && stillBad.every((s) => s.severity < 5);
+      // Learn from verified tunnel recovery, not merely an action's return
+      // value (which may report CONNECTED while no traffic passes).
+      final learningContext = (top.map((signal) => signal.id).toList()..sort()).join('+');
+      await _healMem.remember(plan.$1, fixed, context: learningContext);
+      _healActStreak = fixed ? 0 : _healActStreak + 1;
 
       // ----- ۵) یادگیری + پیشنهاد آپدیت اگر ترمیم کافی نبود -----
       _healPhase = _HealPhase.learn;
@@ -321,17 +441,26 @@ extension KingHealEngine on _HomePageState {
       return ('connect_now', 'اتصال یتیم — اتصال فوری', params);
     }
     if (ids.contains('empty_queue') || ids.contains('no_healthy')) {
-      if (ids.contains('blacklist') || failed.length > 50) {
-        return (
-          'soft_clear_and_search',
-          'سیاه‌لیست بزرگ + بدون سالم — پاک‌سازی نرم و جستجو',
-          params
-        );
-      }
-      return ('search_connect', 'بدون سرور سالم — جستجو و اتصال', params);
+      final contextKey = (ids.toList()..sort()).join('+');
+      final action = ids.contains('blacklist')
+          ? _healMem.bestAction(
+              <String>['soft_clear_and_search', 'search_connect'],
+              contextKey,
+            )
+          : 'search_connect';
+      return (
+        action,
+        'بدون سرور سالم — $action • تصمیم بر اساس شواهد این الگوی خرابی',
+        params
+      );
     }
     if (ids.contains('core_drop')) {
-      return ('failover', 'قطع هسته — تعویض سرور', params);
+      final contextKey = (ids.toList()..sort()).join('+');
+      final action = _healMem.bestAction(
+        <String>['failover', 'failover_soft'],
+        contextKey,
+      );
+      return (action, 'قطع هسته — $action بر اساس سابقهٔ همین الگو', params);
     }
     if (ids.contains('pilot_thrash')) {
       return (
@@ -369,18 +498,31 @@ extension KingHealEngine on _HomePageState {
       return ('none', 'همگام‌سازی انجام شد', params);
     }
 
-    // انتخاب از حافظه: اقدامی که قبلاً بیشتر برد داشته
-    final candidates = [
+    // Context-aware learning: the same repair may behave differently for
+    // no-healthy, core-drop, no-data and pilot-thrash incidents.
+    final context = ids.toList()..sort();
+    final contextKey = context.join('+');
+    final candidates = <String>[
       'connect_now',
+      'search_connect',
       'failover',
+      'failover_soft',
       'soft_clear_and_search',
-      'restart_tunnel'
+      'restart_tunnel',
+      'force_turbo',
+      'calm_pilot',
     ];
-    candidates.sort((a, b) => _healMem.score(b).compareTo(_healMem.score(a)));
-    if (_healMem.score(candidates.first) > 0 && top.first.severity >= 7) {
+    candidates.sort((a, b) => _healMem
+        .score(b, context: contextKey)
+        .compareTo(_healMem.score(a, context: contextKey)));
+    if (top.first.severity >= 7 &&
+        (_healMem.wins[candidates.first] ?? 0) +
+                (_healMem.fails[candidates.first] ?? 0) >
+            0) {
       return (
         candidates.first,
-        'از حافظه: ${candidates.first} قبلاً موفق‌تر بوده',
+        'تصمیم تطبیقی برای [$contextKey] • احتمال موفقیت تاریخی: '
+            '${(_healMem.score(candidates.first, context: contextKey) * 100).round()}%',
         params
       );
     }
@@ -421,14 +563,8 @@ extension KingHealEngine on _HomePageState {
           final cut =
               DateTime.now().subtract(const Duration(minutes: 10));
           failed.removeWhere((_, t) => t.isBefore(cut));
-          // اگر هنوز شلوغ است، ۷۰٪ قدیمی‌ها را آزاد کن
-          if (failed.length > 60) {
-            final keys = failed.keys.toList();
-            final removeCount = (keys.length * 0.7).round();
-            for (var i = 0; i < removeCount && i < keys.length; i++) {
-              failed.remove(keys[i]);
-            }
-          }
+          // Never mass-delete recent failures to force a search. Only
+          // entries whose recorded cooldown has actually expired are released.
           dbg('خودترمیمی تهاجمی: سیاه‌لیست → ${failed.length}');
           if (action == 'soft_clear_and_search') {
             abort = false;
@@ -519,7 +655,8 @@ extension KingHealEngine on _HomePageState {
 
   /// وضعیت انسانی برای UI
   String kingHealStatusLine() {
-    final mem = _healMem.recent.reversed.take(5).join(' ');
+    final mem = 'برد ${_healMem.wins.values.fold<int>(0, (a, b) => a + b)} / '
+        'باخت ${_healMem.fails.values.fold<int>(0, (a, b) => a + b)}';
     final st = _netStateNow(
       connected: connected,
       tunBadNow: tunBad,
