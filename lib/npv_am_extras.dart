@@ -1536,6 +1536,10 @@ Future<File> _goldInventoryFile() async {
 Future<void> _goldLoadOnce() async {
   try {
     final file = await _goldInventoryFile();
+    final backup = File('${file.path}.bak');
+    if (!await file.exists() && await backup.exists()) {
+      await backup.rename(file.path);
+    }
     String? source;
     if (await file.exists()) {
       source = await file.readAsString();
