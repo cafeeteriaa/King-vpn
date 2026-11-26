@@ -2,7 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 import '../lib/king_network_engines.dart';
 
 void main() {
-  test('catalog contains exactly the twelve approved KING VPN technologies', () {
+  test('catalog contains twelve approved technologies plus conditional Psiphon', () {
     final catalog = KingNetworkEngineCatalog();
     const approved = <String>{
       'xray', 'hysteria2', 'sing_box', 'nthlink', 'shroudly', 'byedpi',
@@ -10,7 +10,9 @@ void main() {
       'wireguard',
     };
     expect(catalog.all.map((engine) => engine.id).toSet(), approved);
-    expect(catalog.all, hasLength(12));
+    expect(catalog.all, hasLength(13));
+    expect(catalog['psiphon']!.state, KingIntegrationState.sourceAndLicenseReviewRequired);
+    expect(catalog['psiphon']!.requiresProviderBackend, isTrue);
     expect(catalog['xray']!.state, KingIntegrationState.integrated);
     for (final id in ['shroudly', 'byedpi', 'powertunnel']) {
       expect(catalog[id]!.role, KingEngineRole.localTransport);
