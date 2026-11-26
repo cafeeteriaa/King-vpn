@@ -754,6 +754,7 @@ bool _goldCleanScanBusy = false;
 /// Generate one resumable page across the complete live Cloudflare IPv4 range
 /// inventory. Each page advances cursors only after its probes finish.
 Future<List<String>> _cleanCandidates() async {
+  await goldLoad();
   while (_goldCleanScanBusy) {
     await Future.delayed(const Duration(milliseconds: 100));
   }
