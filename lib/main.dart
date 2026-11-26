@@ -9870,7 +9870,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   Future<void> _resDaily({bool force = false}) async {
     if (_resBusy || _resMap.isEmpty) return;
     if (searching || busy || switching || upBusy) return;
-    // NATULTRA: the 12 h check also runs while the VPN is off (the core's
+    // The core delay check also works while the VPN is off (the core's
     // delay test never needs the tunnel); a user connect/search stops it
     final wasUp = connected && wantVpn;
     bool lost() => appGone || busy || switching || upBusy ||
