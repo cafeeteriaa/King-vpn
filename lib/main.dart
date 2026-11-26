@@ -11334,11 +11334,13 @@ ListTile( // KINGEXTRAS row
             context,
             isVpnActive: () => connected,
             isVpnWanted: () => wantVpn,
-            configuredServers: [
-              ...good,
-              ...pending,
-              ..._resMap.values.map((entry) => entry.s),
-            ],
+            configuredServers: nationalMode
+                ? <Server>[...natRestPending, ...natNationalTemplateSeeds]
+                : <Server>[
+                    ...good,
+                    ...pending,
+                    ..._resMap.values.map((entry) => entry.s),
+                  ],
             frontSnis: natFrontSnis,
           );
       } else if (command.contains('ip تمیز') || command.contains('آی پی تمیز')) {
