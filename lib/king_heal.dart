@@ -22,14 +22,84 @@ class _HealMemory {
   final Map<String, int> wins = {};
   final Map<String, int> fails = {};
   final List<String> recent = [];
-  void remember(String action, bool ok) {
+  Future<void>? _loadTask;
+  Future<void> _writeQueue = Future<void>.value();
+
+  // Event journal is append-only: no fixed lifetime limit and no full-file
+  // materialization. It survives process death and is replayed incrementally.
+  Future<void> load() => _loadTask ??= _loadJournal();
+
+  Future<void> _loadJournal() async {
+    try {
+      final root = await getApplicationSupportDirectory();
+      final file = File('${root.path}/king_heal_learning.jsonl');
+      if (!await file.exists()) return;
+      await for (final line in file.openRead()
+          .transform(utf8.decoder)
+          .transform(const LineSplitter())) {
+        try {
+          final row = jsonDecode(line);
+          if (row is! Map || row['v'] != 1) continue;
+          final action = row['action'];
+          final ok = row['ok'];
+          if (action is! String || action.isEmpty || ok is! bool) continue;
+          _apply(action, ok);
+        } catch (_) {
+          // Ignore a torn/corrupt journal row; later rows remain recoverable.
+        }
+      }
+    } catch (_) {
+      // Learning storage is best-effort and must never block VPN recovery.
+    }
+  }
+
+  void _apply(String action, bool ok) {
     if (ok) {
       wins[action] = (wins[action] ?? 0) + 1;
     } else {
       fails[action] = (fails[action] ?? 0) + 1;
     }
     recent.add('${ok ? "✓" : "✗"}$action');
-    if (recent.length > 40) recent.removeAt(0);
+  }
+
+  Future<void> remember(String action, bool ok) async {
+    await load();
+    final previous = _writeQueue;
+    final release = Completer<void>();
+    _writeQueue = release.future;
+    await previous;
+    try {
+      final root = await getApplicationSupportDirectory();
+      final file = File('${root.path}/king_heal_learning.jsonl');
+      final lockFile = await File('${file.path}.lock')
+          .open(mode: FileMode.append);
+      var locked = false;
+      try {
+        await lockFile.lock(FileLock.exclusive);
+        locked = true;
+        await file.writeAsString(
+          jsonEncode(<String, Object>{
+            'v': 1,
+            'action': action,
+            'ok': ok,
+            'at': DateTime.now().toUtc().toIso8601String(),
+          }) + '\n',
+          mode: FileMode.append,
+          flush: true,
+        );
+      } finally {
+        try {
+          if (locked) await lockFile.unlock();
+        } finally {
+          await lockFile.close();
+        }
+      }
+    } catch (_) {
+      // Keep current-session adaptation alive even if storage is unavailable.
+    } finally {
+      _apply(action, ok);
+      release.complete();
+    }
   }
 
   int score(String action) =>
@@ -79,6 +149,7 @@ extension KingHealEngine on _HomePageState {
 
     try {
       // ----- ۱) حسگر -----
+      await _healMem.load();
       final signals = await _healSense();
       if (signals.isEmpty) {
         _healPhase = _HealPhase.idle;
@@ -127,7 +198,7 @@ extension KingHealEngine on _HomePageState {
       } finally {
         healActive = false;
       }
-      _healMem.remember(plan.$1, ok);
+      await _healMem.remember(plan.$1, ok);
       _healActStreak = ok ? 0 : _healActStreak + 1;
 
       // ----- ۴) تأیید -----
