@@ -3,8 +3,10 @@
 ## منبع و نسخه‌های پین‌شده
 - Flutter plugin: QUSAD-prod/sing_box، نسخه 1.0.0، commit برابر 72f76fb714e07637a560774a7f2fdd3ae11884c4
 - هستهٔ بومی: SagerNet/sing-box، نسخه 1.14.4
-- Android AAR: libbox.aar، SHA-256 برابر d5511581e6275f10683f57bc8e7263badfa48c720d5d04acc741549fe6a66bae
-- حجم AAR منتشرشده: 84,945,706 بایت؛ Gradle پیش از استخراج SHA-256 را بررسی می‌کند.
+- Android AAR: آخرین artifact رسمی `libbox-v1.14.4-lx.25`، SHA-256 برابر `8f25b6600b2f1f1104636c9cb92941c756a6322e1f2ce0e5e97b9a6bc41d3bba`
+- حجم AAR منتشرشده: 88,694,462 بایت؛ اسکریپت build، `android/libbox.properties` را به آخرین artifact پایدار pin می‌کند و Gradle پیش از استخراج SHA-256 را بررسی می‌کند.
+
+انتشار رسمی Android artifact در زمان ممیزی: [libbox-v1.14.4-lx.25](https://github.com/QUSAD-prod/sing_box/releases/tag/libbox-v1.14.4-lx.25). هستهٔ sing-box همچنان `v1.14.4` است؛ پسوند `lx.25` نسخهٔ انتشار artifact اندروید است، نه نسخهٔ مستقل core.
 
 ## معماری اجرا
 - libbox از VpnService بومی و CommandServer خودش استفاده می‌کند؛ این parser یا هستهٔ نمایشی نیست.
