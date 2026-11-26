@@ -10153,12 +10153,11 @@ ListTile( // KINGEXTRAS row
           idle = 0;
           autoUpgrade = true;
           autoCycle = true;
-          // NATRANGE: پس‌زمینه، هر ۵ دقیقه، بخشی کم از بازه‌های IP با سرعت کم
-          // NATPENDCAP: اگر pending از سقف گذشته، اسکن بازه‌ی جدید اضافه نکن
+          // NATRANGE: resumable background batches are paced to protect battery
+          // and CPU; pacing never discards inventory or advances an incomplete cursor.
           if (localPilotOn && cpuHot == 0 &&
               DateTime.now().difference(natRangeLast) >
-                  const Duration(minutes: 5) &&
-              true) {
+                  const Duration(minutes: 5)) {
             natRangeLast = DateTime.now();
             unawaited(() async {
               final ips = await natRangeScanStep(
