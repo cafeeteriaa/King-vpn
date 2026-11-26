@@ -5216,15 +5216,14 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
   // the pinned / manually added configs as server objects (the same object
   // that is in the healthy list or in the queue when there is one)
-  /// سرورهای پوشه‌ی «سرورهای شخصی» (حداکثر [max] تا، از اول پوشه)
-  List<Server> personalFolderServers({int max = 50}) {
+  /// تمام ورودی‌های پوشهٔ شخصی؛ بدون سقف ثابت یا برش خاموش.
+  List<Server> personalFolderServers() {
     final out = <Server>[];
-    for (final l in personalFolderCache) {
-      if (out.length >= max) break;
-      final s = Server.parse(l);
-      if (s != null) {
-        s.personal = true; // ONLYFOLDER: تعویض خودکار هرگز به سرور بیرون از پوشه نمی‌رود
-        out.add(s);
+    for (final link in personalFolderCache) {
+      final server = Server.parse(link);
+      if (server != null) {
+        server.personal = true; // ONLYFOLDER: مسیر شخصی مستقل می‌ماند
+        out.add(server);
       }
     }
     return out;
@@ -12186,7 +12185,7 @@ ListTile( // KINGEXTRAS row
   Future<void> personalFolderConnect() async {
     _resetTapCounters(); // تپ کاربر روی پوشه‌ی شخصی (از ماژول تبلیغ هم می‌آید)
     final prep = _personalPrep ?? _personalPrepWork();
-    // PERSLIVE: اول لیست تا ۵۰ سرور روی صفحه می‌آید، بعد پینگ‌ها زنده پر می‌شوند، بعد وصل می‌شود
+    // PERSLIVE: تمام ورودی‌های پوشه روی صفحه می‌آیند، بعد پینگ‌ها زنده پر می‌شوند، بعد وصل می‌شود
     _set('اتصال به سرورهای شخصی...');
     await prep;
     _personalPrep = null;
@@ -12655,7 +12654,7 @@ ListTile( // KINGEXTRAS row
             : (row == 'f:mine')
                 // "my configs" row: they are connected directly, no search
                 ? await _connectLoop(_mineList())
-                // پوشه‌ی «سرورهای شخصی»: حداکثر ۵۰ سرور، با ترتیب پوشه و آخرین سرور موفق در اولویت
+                // پوشه‌ی «سرورهای شخصی»: تمام ورودی‌ها، با اولویت آخرین سرور موفق
                 : (row == 'f:pfolder')
                     ? await _connectLoop(personalFolderServers())
                 // DSGETTER: از مقدار مؤثر
