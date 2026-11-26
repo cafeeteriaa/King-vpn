@@ -134,11 +134,13 @@ class KingNetworkEngineCatalog {
     KingEngineDescriptor(
       id: 'lantern',
       name: 'Lantern',
-      role: KingEngineRole.externalService,
+      role: KingEngineRole.fullDeviceVpn,
       state: KingIntegrationState.sourceAndLicenseReviewRequired,
       priority: 60,
-      summary: 'سرویس و کلاینت مستقل؛ پیش از ادغام باید API/SDK رسمی قابل‌استفاده و مجوز آن تأیید شود.',
-      sourceUrl: 'https://github.com/getlantern/lantern',
+      summary: 'کلاینت Android متن‌باز و مبتنی بر VpnService دارد؛ ادغام سورس به بررسی GPL و مالکیت VPNService نیاز دارد.',
+      sourceUrl: 'https://github.com/getlantern/lantern-client',
+      license: 'GPL; Android source is distributed as source-dump tarballs',
+      requiresSeparateVpnOwner: true,
     ),
     KingEngineDescriptor(
       id: 'cloudflare_warp',
