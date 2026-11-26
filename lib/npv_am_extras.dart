@@ -1405,8 +1405,6 @@ extension NpvAmExtras on _HomePageState {
   }
 }
 
-const int kGoldIpCap = 100000;
-const int kGoldSrvCap = 20000;
 const int kGoldDailyProbes = 250000;
 const int kGoldRetestBatch = 500;
 const int kGoldEveryMin = 5;
@@ -1453,12 +1451,23 @@ Future<void>? _goldLoadF;
 
 Future<void> goldLoad() => _goldLoadF ??= _goldLoadOnce();
 
+Future<File> _goldInventoryFile() async {
+  final dir = await getApplicationSupportDirectory();
+  return File('${dir.path}/king_vpn_gold_inventory.json');
+}
+
 Future<void> _goldLoadOnce() async {
   try {
-    final p = await SharedPreferences.getInstance();
-    final s = p.getString('gold_v1');
-    if (s == null) return;
-    final m = jsonDecode(s) as Map;
+    final file = await _goldInventoryFile();
+    String? source;
+    if (await file.exists()) {
+      source = await file.readAsString();
+    } else {
+      final prefs = await SharedPreferences.getInstance();
+      source = prefs.getString('gold_v1');
+    }
+    if (source == null || source.isEmpty) return;
+    final m = jsonDecode(source) as Map;
     for (final e in (m['ips'] as List? ?? const [])) {
       final x = e as List;
       final ip = x[0].toString();
@@ -1480,9 +1489,15 @@ Future<void> _goldLoadOnce() async {
     }
     _goldDay = (m['day'] ?? '').toString();
     _goldCnt = (m['cnt'] as num? ?? 0).toInt();
+
+    // One-time migration from the legacy preference snapshot to disk.
+    if (!await file.exists()) {
+      await _goldWrite();
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove('gold_v1');
+    }
   } catch (e, stk) {
     logError(e, stk);
-    // GOLDRETRY: cache را پاک کن تا فراخوانی بعدی دوباره تلاش کند
     _goldLoadF = null;
   }
 }
@@ -1502,306 +1517,48 @@ String _goldEncode() => jsonEncode({
       'cnt': _goldCnt,
     });
 
-Future<bool> _goldWrite(SharedPreferences p) =>
-    p.setString('gold_v1', _goldEncode());
+Future<void> _goldWriteQueue = Future<void>.value();
+
+Future<void> _goldWrite() {
+  final next = _goldWriteQueue.catchError((Object _) {}).then((_) async {
+    final file = await _goldInventoryFile();
+    await file.parent.create(recursive: true);
+    final temp = File('${file.path}.tmp');
+    final backup = File('${file.path}.bak');
+    await temp.writeAsString(_goldEncode(), flush: true);
+    var movedOld = false;
+    try {
+      if (await file.exists()) {
+        if (await backup.exists()) await backup.delete();
+        await file.rename(backup.path);
+        movedOld = true;
+      }
+      await temp.rename(file.path);
+      if (movedOld && await backup.exists()) await backup.delete();
+    } catch (_) {
+      if (movedOld && !await file.exists() && await backup.exists()) {
+        await backup.rename(file.path);
+      }
+      rethrow;
+    }
+  });
+  _goldWriteQueue = next;
+  return next;
+}
 
 Future<void> goldSave() async {
   await goldLoad();
   try {
-    final p = await SharedPreferences.getInstance();
-    await _goldWrite(p);
+    await _goldWrite();
   } catch (e, stk) {
     logError(e, stk);
   }
 }
 
-void _goldTrimIps() {
-  if (_goldIps.length <= kGoldIpCap) return;
-  final keep = kGoldIpCap * 95 ~/ 100;
-  final l = _goldIps.values.toList()..sort((a, b) => a.ms.compareTo(b.ms));
-  for (final v in l.skip(keep)) {
-    _goldIps.remove(v.ip);
-  }
-}
-
-void _goldTrimSrv() {
-  if (_goldSrv.length <= kGoldSrvCap) return;
-  final l = _goldSrv.values.toList()..sort((a, b) => a.ping.compareTo(b.ping));
-  for (final v in l.skip(kGoldSrvCap)) {
-    _goldSrv.remove(v.link);
-  }
-}
-
-List<CleanIp>? _goldTop;
 List<CleanIp> goldIpList() {
-  if (_goldTop != null) return _goldTop!;
-  final best = <_GoldIp>[];
-  for (final v in _goldIps.values) {
-    if (best.length < 20) {
-      best.add(v);
-      best.sort((a, b) => a.ms.compareTo(b.ms));
-    } else if (v.ms < best.last.ms) {
-      best.removeLast();
-      best.add(v);
-      best.sort((a, b) => a.ms.compareTo(b.ms));
-    }
-  }
-  return _goldTop = [for (final v in best) CleanIp(v.ip, v.ms, v.port)];
-}
-
-// NATHELP: نت ملی از IPهای تمیز پوشه‌ی جهانی کمک می‌گیرد (فقط خواندن). اسکنر دستی در نت ملی اجرا نمی‌شود، پس چیزی را خراب نمی‌کند.
-void goldPrepareNational() {
-  if (!nationalMode) return;
-  final g = goldIpList();
-  if (g.isNotEmpty) cleanIps = g;
-}
-
-// NATQUOTA: سهمیه‌ی اسکنرهای دستی در نت ملی. همزمانی کم، و هر بار قبل از شروع صبر می‌کنند
-// تا جستجوی بازه‌ی نت ملی تمام شود، تا نت ملی همیشه اولویت داشته باشد.
-const int kNatManualConc = 3;
-// NATQUOTA-2: جستجوی عادی/آماده‌باش (busy/searching) هم اولویت دارد. _natKeep عمداً گوش داده نمی‌شود
-// چون در نت ملی ساعت‌ها اجرا می‌شود و اسکن دستی را گرسنه نگه می‌دارد.
-bool Function()? natSearchBusyProbe; // توسط State در initState تنظیم می‌شود
-const Duration kNatYieldCap = Duration(minutes: 3); // هیچ اسکن دستی بیش از این صبر نمی‌کند
-Future<void> natManualYield({bool Function()? shouldAbort}) async {
-  final sw = Stopwatch()..start();
-  while (!(shouldAbort?.call() ?? false) &&
-      nationalMode &&
-      (_natRangeScanBusy || (natSearchBusyProbe?.call() ?? false))) {
-    if (sw.elapsed > kNatYieldCap) break;
-    await Future.delayed(const Duration(milliseconds: 500));
-  }
-}
-
-// FOLDERALL: همه‌ی اسکنرها (DNS، SNI/پورت، بازه، IP) در هر حالتی در پوشه‌ی جهانی ذخیره می‌شوند.
-// DNS های پوشه برای اسکن DNS هر دو حالت استفاده می‌شوند.
-Future<List<String>> goldDnsList() async {
-  await goldLoad();
-  return _goldDns.keys.toList();
-}
-
-Future<bool> goldAddScans(
-  Map<String, List<String>> updates, {
-  bool Function()? shouldAbort,
-}) async {
-  if (updates.isEmpty || (shouldAbort?.call() ?? false)) return false;
-  await goldLoad();
-  if (shouldAbort?.call() ?? false) return false;
-  try {
-    final p = await SharedPreferences.getInstance();
-    // Last cancellation boundary: no shared state is changed before this check.
-    if (shouldAbort?.call() ?? false) return false;
-    for (final entry in updates.entries) {
-      final merged = {...(_goldScan[entry.key] ?? const <String>[]), ...entry.value};
-      _goldScan[entry.key] = merged.toList();
-    }
-    // Start persistence immediately after the synchronous cache update.
-    final write = _goldWrite(p);
-    return await write;
-  } catch (e, stk) {
-    logError(e, stk);
-    return false;
-  }
-}
-
-Future<void> goldAddScan(String kind, List<String> items) async {
-  await goldLoad();
-  final merged = {...(_goldScan[kind] ?? const <String>[]), ...items};
-  _goldScan[kind] = merged.toList();
-  await goldSave();
-}
-
-Future<bool> goldAddDns(List<DnsxHit> hits, {bool Function()? shouldAbort}) async {
-  if (hits.isEmpty || (shouldAbort?.call() ?? false)) return false;
-  await goldLoad();
-  if (shouldAbort?.call() ?? false) return false;
-  try {
-    final p = await SharedPreferences.getInstance();
-    // Last cancellation check before mutating shared DNS state.
-    if (shouldAbort?.call() ?? false) return false;
-    var changed = false;
-    for (final h in hits) {
-      if (h.okCount <= 0) continue;
-      _goldDns[h.ip] = h.avgMs;
-      changed = true;
-    }
-    if (!changed) return true;
-    return await _goldWrite(p);
-  } catch (e, stk) {
-    logError(e, stk);
-    return false;
-  }
-}
-
-Future<void> goldMergeIps(
-  List<CleanIp> res, {
-  bool Function()? shouldAbort,
-}) async {
-  if (res.isEmpty || (shouldAbort?.call() ?? false)) return;
-  await goldLoad();
-  if (shouldAbort?.call() ?? false) return;
-  final p = await SharedPreferences.getInstance();
-  // Check again after the asynchronous preferences lookup, immediately before
-  // mutating the shared cache so a closed dialog cannot persist stale results.
-  if (shouldAbort?.call() ?? false) return;
-  final now = DateTime.now().millisecondsSinceEpoch;
-  for (final c in res) {
-    _goldIps[c.ip] = _GoldIp(c.ip, c.ms, c.port, now, now);
-  }
-  _goldTrimIps();
-  _goldTop = null;
-  await _goldWrite(p);
-}
-
-Future<Map<String, int?>> _goldProbe(List<String> ips) async {
-  final out = <String, int?>{};
-  if (ips.isEmpty) return out;
-  await pool<String>(ips, 20, (ip) async {
-    out[ip] = await _cfProbeMs(ip, const Duration(milliseconds: 3500));
-    await Future.delayed(const Duration(milliseconds: 20));
-  });
-  return out;
-}
-
-Future<void> _goldIpStep() async {
-  if (nationalMode) return;
-  final nowMs = DateTime.now().millisecondsSinceEpoch;
-  var left = _goldBudgetLeft();
-  if (left <= 0) return;
-  final retestMs = kGoldRetestHours * 3600 * 1000;
-
-  final due = _goldIps.values
-      .where((v) => nowMs - v.testAt >= retestMs)
-      .take(left < kGoldRetestBatch ? left : kGoldRetestBatch)
-      .map((v) => v.ip)
-      .toList();
-  if (due.isNotEmpty) {
-    final r = await _goldProbe(due);
-    for (final ip in due) {
-      final v = _goldIps[ip];
-      if (v == null) continue;
-      final ms = r[ip];
-      if (ms == null) {
-        _goldIps.remove(ip);
-      } else {
-        v.ms = ms;
-        v.okAt = nowMs;
-        v.testAt = nowMs;
-      }
-    }
-    _goldCnt += due.length;
-    left -= due.length;
-    _goldTop = null;
-  }
-
-  if (left <= 0) return;
-  final cands = await _cleanCandidates();
-  final batch = cands
-      .where((ip) => !_goldIps.containsKey(ip))
-      .take(left < 240 ? left : 240)
-      .toList();
-  if (batch.isEmpty) return;
-  final r = await _goldProbe(batch);
-  var found = 0;
-  for (final ip in batch) {
-    final ms = r[ip];
-    if (ms != null) {
-      _goldIps[ip] = _GoldIp(ip, ms, 443, nowMs, nowMs);
-      found++;
-    }
-  }
-  _goldCnt += batch.length;
-  _goldTrimIps();
-  _goldTop = null;
-  dbg('گلد: IP تازه $found از ${batch.length} • پوشه ${_goldIps.length} • امروز $_goldCnt/$kGoldDailyProbes');
-}
-
-Future<void> _goldSrvStep(_HomePageState h) async {
-  final nowMs = DateTime.now().millisecondsSinceEpoch;
-  var changed = false;
-
-  for (final s in h.good) {
-    final p = s.ping;
-    if (p == null || h._bad(s)) continue;
-    final link = s.useLink;
-    final ex = _goldSrv[link];
-    if (ex == null) {
-      _goldSrv[link] = _GoldSrv(link, p, nowMs, nowMs);
-    } else {
-      ex.ping = p;
-      ex.okAt = nowMs;
-      ex.testAt = nowMs;
-    }
-    changed = true;
-  }
-  _goldTrimSrv();
-
-  if (!nationalMode) {
-    final retestMs = kGoldRetestHours * 3600 * 1000;
-    final due = _goldSrv.values
-        .where((v) => nowMs - v.testAt >= retestMs)
-        .take(20)
-        .toList();
-    // GATEMAX: سقف گیت تست قبل از حلقه‌ی due
-    // DSGETTER: از مقدار مؤثر
-    _delayGate.max = nationalMode ? kNatDelayConcurrency : max(effFastWorkers, 8);
-    for (final v in due) {
-      if (!h.mounted || !h.connected || h.busy || h.switching) break;
-      final sv = Server.parse(v.link);
-      if (sv == null) {
-        _goldSrv.remove(v.link);
-        changed = true;
-        continue;
-      }
-      final ms = await h._delayOf(sv);
-      if (ms == null || ms <= 0) {
-        _goldSrv.remove(v.link);
-      } else {
-        v.ping = ms;
-        v.okAt = nowMs;
-        v.testAt = nowMs;
-      }
-      changed = true;
-    }
-  }
-
-  await _goldMergeGood(h);
-  if (changed) await goldSave();
-}
-
-Future<void> _goldMergeGood(_HomePageState h) async {
-  final keys = {for (final g in h.good) g.key};
-  for (final v in _goldSrv.values) {
-    if (v.ping <= 0) continue;
-    final sv = Server.parse(v.link);
-    if (sv == null || keys.contains(sv.key)) continue;
-    sv.ping = v.ping;
-    h.good.add(sv);
-    keys.add(sv.key);
-  }
-}
-
-Future<void> _goldTick(_HomePageState h) async {
-  if (_goldRunning || !h.mounted || !h.connected || h.busy || h.switching) return;
-  _goldRunning = true;
-  try {
-    await goldLoad();
-    await _goldIpStep();
-    await _goldSrvStep(h);
-    await goldSave();
-  } catch (e, stk) {
-    logError(e, stk);
-  } finally {
-    _goldRunning = false;
-  }
-}
-
-void startGoldLoop(_HomePageState h) {
-  if (_goldTimer != null) return;
-  _goldTimer = Timer.periodic(
-      const Duration(minutes: kGoldEveryMin), (_) => _goldTick(h));
-  unawaited(goldLoad().then((_) => _goldMergeGood(h)));
-  unawaited(_goldTick(h));
+  final all = _goldIps.values.toList()
+    ..sort((a, b) => a.ms.compareTo(b.ms));
+  return [for (final value in all) CleanIp(value.ip, value.ms, value.port)];
 }
 
 String goldInfo() {
