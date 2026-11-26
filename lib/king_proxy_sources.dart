@@ -63,6 +63,12 @@ class KingProxySourceCatalog {
     KingProxySource(id: 'public_50', url: 'https://raw.githubusercontent.com/q31r/Qode/main/nodes_curated.txt'),
   ];
   static const List<KingOfflineSourceKind> offline = KingOfflineSourceKind.values;
-  static List<KingProxySource> forHysteria2() => online.map((s) => KingProxySource(id: s.id, url: s.url, protocols: KingProxyProtocolFilter.hysteria2)).toList(growable: false);
-  static List<KingProxySource> forSingBox() => online;
+  /// These 50 legacy feeds are retained for the Xray-compatible source path.
+  /// Do not relabel all of them as Hysteria2: protocol support must be parsed
+  /// from each payload. Use KingEngineServerSourceCatalog for verified feeds.
+  static List<KingProxySource> forXray() => online;
+  @Deprecated('Use KingEngineServerSourceCatalog.forEngine("hysteria2")')
+  static List<KingProxySource> forHysteria2() => const <KingProxySource>[];
+  @Deprecated('Use KingEngineServerSourceCatalog.forEngine("sing_box")')
+  static List<KingProxySource> forSingBox() => const <KingProxySource>[];
 }
