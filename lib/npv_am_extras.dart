@@ -1100,6 +1100,21 @@ String withNpvAmCore(String cfg) {
           sockopt['dialerProxy'] = 'frag-out';
           stream['sockopt'] = sockopt;
         }
+      } else {
+        for (final outbound in outs) {
+          if (outbound is! Map) continue;
+          final stream = outbound['streamSettings'];
+          if (stream is! Map) continue;
+          final sockopt = stream['sockopt'];
+          if (sockopt is! Map || sockopt['dialerProxy'] != 'frag-out') continue;
+          sockopt.remove('dialerProxy');
+          if (sockopt.isEmpty) {
+            stream.remove('sockopt');
+          } else {
+            stream['sockopt'] = sockopt;
+          }
+        }
+        outs.removeWhere((entry) => entry is Map && entry['tag'] == 'frag-out');
       }
     } else {
       // Turning the setting off also removes stale app-owned references.
@@ -1130,7 +1145,6 @@ String withNpvAmCore(String cfg) {
     }
     if (proxy != null) {
       final st = proxy['streamSettings'];
-      final sec = st is Map ? (st['security'] ?? 'none').toString() : 'none';
       final net = st is Map ? (st['network'] ?? 'tcp').toString() : 'tcp';
       // MUXWORKER: کلودفلر (workers.dev) mux را نمی‌پذیرد؛ برای آن mux خاموش است
       if (muxEnabled && (net == 'tcp' || net == 'ws') && !_isWorkerOutbound(proxy)) {
