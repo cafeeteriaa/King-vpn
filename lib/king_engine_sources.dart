@@ -261,10 +261,54 @@ class KingServerPayloadParser {
     final publicKey = RegExp(r'(?im)^\s*PublicKey\s*=\s*([^\s#]+)')
         .firstMatch(peer)?.group(1);
     final endpoint = RegExp(
-      r'(?im)^\s*Endpoint\s*=\s*(\[[0-9a-fA-F:]+\]|[^:\s]+):(\d{1,5})\s*
+      r'(?im)^\s*Endpoint\s*=\s*(\[[0-9a-fA-F:]+\]|[^:\s]+):(\d{1,5})\s*$',
+    ).firstMatch(peer);
+    final port = int.tryParse(endpoint?.group(2) ?? '');
+    final allowedIpLine = RegExp(r'(?im)^\s*AllowedIPs\s*=\s*([^\r\n#]+)')
+        .firstMatch(peer)?.group(1);
+
+    if (interface.isEmpty || peer.isEmpty ||
+        !_isWireGuardKey(privateKey) || !_isWireGuardKey(publicKey) ||
+        endpoint == null || port == null || port < 1 || port > 65535 ||
+        allowedIpLine == null || allowedIpLine.trim().isEmpty) {
+      return false;
+    }
+
+    final endpointHost = endpoint.group(1)!.replaceAll(RegExp(r'^\[|\]$'), '');
+    if (endpointHost.isEmpty ||
+        endpointHost.contains(RegExp(r'\s')) ||
+        endpointHost.contains('/') ||
+        endpointHost.contains('@')) {
+      return false;
+    }
+
+    final allowedIps = allowedIpLine.split(',');
+    if (allowedIps.isEmpty) return false;
+    for (final item in allowedIps) {
+      final parts = item.trim().split('/');
+      if (parts.length != 2) return false;
+      final address = InternetAddress.tryParse(parts[0].trim());
+      final prefix = int.tryParse(parts[1].trim());
+      if (address == null || prefix == null) return false;
+      final maxPrefix = address.type == InternetAddressType.IPv4 ? 32 : 128;
+      if (prefix < 0 || prefix > maxPrefix) return false;
+    }
+    return true;
+  }
+
+  bool _isWireGuardKey(String? value) {
+    if (value == null || value.isEmpty) return false;
+    try {
+      return base64.decode(base64.normalize(value)).length == 32;
+    } catch (_) {
+      return false;
+    }
+  }
 
   bool _containsAmneziaParameters(String value) =>
-      RegExp(r'(?im)^\s*(Jc|Jmin|Jmax|S1|S2|H1|H2|H3|H4)\s*=').hasMatch(value);
+      RegExp(
+        r'(?im)^\s*(Jc|Jmin|Jmax|S[1-4]|I[1-5]|H[1-4]|HeaderProtectionKey|RandomTrailers)\s*=',
+      ).hasMatch(value);
 
   bool _isHttpsEndpoint(String value) {
     final uri = Uri.tryParse(value);
