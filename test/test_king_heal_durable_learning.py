@@ -16,6 +16,9 @@ class KingHealDurableLearningTests(unittest.TestCase):
         self.assertIn("_knownActions.contains(action)", memory)
         self.assertIn("file.openRead()", memory)
         self.assertIn("await for (final line in", memory)
+        self.assertIn("contextualWins", memory)
+        self.assertIn("contextualFails", memory)
+        self.assertIn("double score(String action", memory)
         self.assertNotIn("readAsLines", memory)
         self.assertNotIn("recent.length >", memory)
 
@@ -27,6 +30,18 @@ class KingHealDurableLearningTests(unittest.TestCase):
         self.assertLess(action, verified)
         self.assertLess(verified, learned)
         self.assertNotIn("_healMem.remember(plan.$1, ok)", source)
+
+    def test_contextual_feedback_is_persisted_and_used_by_planner(self):
+        source = (ROOT / "lib" / "king_heal.dart").read_text(encoding="utf-8")
+        self.assertIn("context: learningContext", source)
+        self.assertIn("score(b, context: contextKey)", source)
+        self.assertIn("Laplace-smoothed success estimate", source)
+
+    def test_recovery_never_mass_deletes_recent_failed_servers(self):
+        source = (ROOT / "lib" / "king_heal.dart").read_text(encoding="utf-8")
+        self.assertNotIn("removeCount = (keys.length * 0.7)", source)
+        self.assertNotIn("failed.length > 60", source)
+        self.assertIn("failed.removeWhere((_, t) => t.isBefore(cut))", source)
 
     def test_learning_restore_runs_before_self_heal_planning(self):
         source = (ROOT / "lib" / "king_heal.dart").read_text(encoding="utf-8")
