@@ -141,9 +141,19 @@ class KingAutoSwitchCoordinator {
     );
   }
 
-  Future<KingAutoSwitchResult> recoverFromTrafficFailure() async {
+  Future<KingAutoSwitchResult> recoverFromTrafficFailure() {
+    final pending = _flight;
+    if (pending != null) return pending;
+    final future = _recoverFromTrafficFailure();
+    _flight = future;
+    return future.whenComplete(() {
+      if (identical(_flight, future)) _flight = null;
+    });
+  }
+
+  Future<KingAutoSwitchResult> _recoverFromTrafficFailure() async {
     final active = _active;
-    if (active == null) return connect();
+    if (active == null) return _connectInOrder(++_generation, _adapters);
     var healthy = false;
     try {
       healthy = await active.verifyTraffic();
@@ -168,7 +178,6 @@ class KingAutoSwitchCoordinator {
       _adapters.where((adapter) => !identical(adapter, active)).toList(),
     );
   }
-
   Future<void> disconnect() async {
     _stoppedByUser = true;
     ++_generation;
@@ -178,10 +187,23 @@ class KingAutoSwitchCoordinator {
   }
 }
 
+class KingProbeResult<R> {
+  const KingProbeResult.success(this.value)
+      : error = null,
+        stackTrace = null;
+  const KingProbeResult.failure(this.error, this.stackTrace) : value = null;
+
+  final R? value;
+  final Object? error;
+  final StackTrace? stackTrace;
+  bool get succeeded => error == null;
+}
+
 /// Adaptive batch executor for adapters which expose independent probe items.
-/// It processes the entire iterable and never truncates the inventory.
+/// It processes the entire iterable, records individual failures, and never
+/// truncates the inventory.
 class KingAdaptiveBatchRunner {
-  static Future<List<R>> run<T, R>({
+  static Future<List<KingProbeResult<R>>> run<T, R>({
     required Iterable<T> items,
     required Future<R> Function(T item) probe,
     int initialBatchSize = 20,
@@ -191,7 +213,7 @@ class KingAdaptiveBatchRunner {
       throw ArgumentError.value(initialBatchSize, 'initialBatchSize');
     }
     final iterator = items.iterator;
-    final results = <R>[];
+    final results = <KingProbeResult<R>>[];
     var batchSize = initialBatchSize;
     var completed = 0;
     while (true) {
@@ -200,7 +222,14 @@ class KingAdaptiveBatchRunner {
         batch.add(iterator.current);
       }
       if (batch.isEmpty) break;
-      results.addAll(await Future.wait(batch.map(probe)));
+      final batchResults = await Future.wait(batch.map((item) async {
+        try {
+          return KingProbeResult<R>.success(await probe(item));
+        } catch (error, stackTrace) {
+          return KingProbeResult<R>.failure(error, stackTrace);
+        }
+      }));
+      results.addAll(batchResults);
       completed += batch.length;
       final next = nextBatchSize?.call(batchSize, completed) ?? batchSize;
       if (next < 1) throw ArgumentError.value(next, 'nextBatchSize result');
