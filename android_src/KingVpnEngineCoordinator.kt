@@ -1,6 +1,7 @@
 package com.kingvpn.king_vpn
 
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.locks.ReentrantLock
 
 /**
  * Process-wide ownership fence for Android's single active VPN/TUN slot.
@@ -8,7 +9,8 @@ import java.util.concurrent.TimeUnit
  * only after its native runtime has stopped and its descriptor is closed.
  */
 object KingVpnEngineCoordinator {
-    private val monitor = Object()
+    private val lock = ReentrantLock()
+    private val released = lock.newCondition()
 
     @Volatile
     private var activeOwner: String? = null
@@ -19,14 +21,13 @@ object KingVpnEngineCoordinator {
     @JvmStatic
     fun acquire(engine: String, timeoutMs: Long): Boolean {
         require(engine.isNotBlank()) { "Engine id must not be blank" }
-        val deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(timeoutMs.coerceAtLeast(0L))
-        synchronized(monitor) {
+        var remaining = TimeUnit.MILLISECONDS.toNanos(timeoutMs.coerceAtLeast(0L))
+        lock.lock()
+        try {
             while (activeOwner != null && activeOwner != engine) {
-                val remaining = deadline - System.nanoTime()
                 if (remaining <= 0L) return false
-                val waitMs = TimeUnit.NANOSECONDS.toMillis(remaining).coerceAtLeast(1L)
                 try {
-                    monitor.wait(waitMs)
+                    remaining = released.awaitNanos(remaining)
                 } catch (_: InterruptedException) {
                     Thread.currentThread().interrupt()
                     return false
@@ -34,16 +35,21 @@ object KingVpnEngineCoordinator {
             }
             activeOwner = engine
             return true
+        } finally {
+            lock.unlock()
         }
     }
 
     @JvmStatic
     fun release(engine: String) {
-        synchronized(monitor) {
+        lock.lock()
+        try {
             if (activeOwner == engine) {
                 activeOwner = null
-                monitor.notifyAll()
+                released.signalAll()
             }
+        } finally {
+            lock.unlock()
         }
     }
 }

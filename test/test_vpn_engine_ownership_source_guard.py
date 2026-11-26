@@ -8,8 +8,8 @@ class VpnEngineOwnershipSourceGuard(unittest.TestCase):
     def test_coordinator_serializes_owners_and_notifies_waiters(self):
         source = (ROOT / "android_src" / "KingVpnEngineCoordinator.kt").read_text()
         self.assertIn("while (activeOwner != null && activeOwner != engine)", source)
-        self.assertIn("monitor.wait(waitMs)", source)
-        self.assertIn("monitor.notifyAll()", source)
+        self.assertIn("released.awaitNanos(remaining)", source)
+        self.assertIn("released.signalAll()", source)
         self.assertIn("if (activeOwner == engine)", source)
 
     def test_wireguard_acquires_before_start_and_releases_only_after_down(self):
