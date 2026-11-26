@@ -253,6 +253,8 @@ final List<String> _npvUrls = [
   'https://raw.githubusercontent.com/hamedcode/port-based-v2ray-configs/main/sub/vmess.txt',
   'https://raw.githubusercontent.com/morpheusadam/v2ray-config/main/subs/bundles/iran.txt',
   'https://raw.githubusercontent.com/morpheusadam/v2ray-config/main/subs/bundles/best.txt',
+  'https://raw.githubusercontent.com/morpheusadam/v2ray-config/main/subs/bundles/hysteria2.txt',
+  'https://raw.githubusercontent.com/morpheusadam/v2ray-config/main/subs/bundles/tuic.txt',
   'https://raw.githubusercontent.com/HosseinKoofi/GO_V2rayCollector/main/mixed_iran.txt',
   'https://raw.githubusercontent.com/youfoundamin/V2rayCollector/main/mixed_iran.txt',
   'https://raw.githubusercontent.com/soroushmirzaei/telegram-configs-collector/main/protocols/vless',
@@ -267,7 +269,7 @@ final List<String> _npvUrls = [
 final RegExp _zeroWidth =
     RegExp('[\u200B-\u200F\u202A-\u202E\u2060\uFEFF]');
 final RegExp _pctScheme =
-    RegExp(r'^(vmess|vless|trojan|ss)%3a%2f%2f', caseSensitive: false);
+    RegExp(r'^(vmess|vless|trojan|ss|hysteria2|hy2|tuic)%3a%2f%2f', caseSensitive: false);
 final RegExp _anyScheme = RegExp(r'^([a-zA-Z][a-zA-Z0-9+.\-]{1,12})://(.+)$');
 final RegExp _b64Body = RegExp(r'^[A-Za-z0-9+/_\-=\s]+$');
 
