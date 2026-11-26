@@ -11,7 +11,6 @@ part of 'main.dart';
 
 int natLevel = 1;
 int natRound = 1; // V12: 1 = pass 1 (skip failed), 2 = pass 2 (retry all)
-const int natMaxVariants = 5000; // V8 • فیکس ۱۷: قبلاً 0x7FFFFFFF
 int natFloor = 0;
 List<Server> natRestPending = [];
 
@@ -1944,23 +1943,17 @@ Future<List<String>> _natDomainFirst(List<Server> known,
     {required int conc, bool Function()? stop}) async {
   final out = <String>[];
   if (!kNatIpScanOn || known.isEmpty) return out;
-  // Bound endpoint collection, DNS resolution, and TCP probes together.
-  // Starting the monotonic clock only after DNS resolution allowed a slow
-  // resolver to keep this background phase alive far beyond its advertised cap.
-  const scanBudget = Duration(seconds: 45);
-  final scanClock = Stopwatch()..start();
-  bool expired() => scanClock.elapsed >= scanBudget;
-  bool cancelled() => (stop != null && stop()) || expired();
+  bool cancelled() => stop?.call() ?? false;
   try {
-    // Only inspect hosts and ports explicitly present in the user's/current
-    // server configurations. Do not scan unrelated public domains or all
-    // 65,535 ports on third-party hosts.
+    // Probe every distinct endpoint explicitly present in the supplied server
+    // inventory. A hostname or one server IP is never expanded into unrelated
+    // neighboring subnets or arbitrary ports.
     final endpoints = <String, Set<int>>{};
-    for (final server in known.take(1200)) {
+    for (final server in known) {
       if (cancelled()) return const <String>[];
       final host = server.host.trim();
       final port = server.port;
-      if (host.isEmpty || port <= 0 || port > 65535) continue;
+      if (host.isEmpty || port < 1 || port > 65535) continue;
       (endpoints[host] ??= <int>{}).add(port);
     }
     natDomainHosts = endpoints.length;
@@ -1968,16 +1961,17 @@ Future<List<String>> _natDomainFirst(List<Server> known,
     for (final entry in endpoints.entries) {
       if (cancelled()) return const <String>[];
       final parsed = InternetAddress.tryParse(entry.key);
-      final addresses = parsed == null ? await safeLookup(entry.key) : <InternetAddress>[parsed];
+      final addresses = parsed == null
+          ? await safeLookup(entry.key)
+          : <InternetAddress>[parsed];
       if (cancelled()) return const <String>[];
       for (final address in addresses) {
-        if (address.type != InternetAddressType.IPv4) continue;
         (resolved[address.address] ??= <int>{}).addAll(entry.value);
       }
     }
     natDomainIps = resolved.length;
     natDomainOpen = 0;
-    dbg('بررسی endpointهای کانفیگ: ${endpoints.length} دامنه/IP • ${resolved.length} IP • فقط پورت‌های تعریف‌شده');
+    dbg('بررسی کامل endpointهای کانفیگ: ${endpoints.length} دامنه/IP • ${resolved.length} آدرس IPv4/IPv6 • فقط پورت‌های خود کانفیگ');
     final grouped = <int, List<String>>{};
     for (final entry in resolved.entries) {
       for (final port in entry.value) {
@@ -1985,36 +1979,26 @@ Future<List<String>> _natDomainFirst(List<Server> known,
       }
     }
     for (final entry in grouped.entries) {
-      if (cancelled()) {
-        return const <String>[];
-      }
+      if (cancelled()) return const <String>[];
+      // No implicit hit quota or short wall-clock deadline: the caller may
+      // cancel, otherwise every configured address for this configured port
+      // is checked. Concurrency remains device-adaptive.
       final hits = await natScanIps(
         entry.value,
         port: entry.key,
         concurrency: conc.clamp(1, 32).toInt(),
-        want: 50,
-        budget: const Duration(seconds: 5),
         timeout: const Duration(milliseconds: 1200),
         cancelled: cancelled,
       );
-      // A cancelled or expired scan must not leak its partial hits to the
-      // caller, which may otherwise persist them as newly discovered servers.
-      if (cancelled()) {
-        return const <String>[];
-      }
+      if (cancelled()) return const <String>[];
       for (final hit in hits) {
         out.add('${hit.ip}|${entry.key}');
         natDomainOpen = out.length;
       }
     }
-    if (cancelled()) {
-      return const <String>[];
-    }
   } catch (e, stk) {
     logError(e, stk);
   }
-  // Exceptions can race the deadline/cancel signal too; never return a partial
-  // result set once the caller has invalidated this discovery batch.
   if (cancelled()) return const <String>[];
   return out;
 }
