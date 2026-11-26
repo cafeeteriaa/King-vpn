@@ -12,6 +12,7 @@ class FakeEngineAdapter implements KingVpnEngineAdapter {
   final List<String> calls = <String>[];
   bool failStart = false;
   bool failHealth = false;
+  Object? stopError;
 
   @override
   Future<bool> isAvailable() async => available;
@@ -41,6 +42,7 @@ class FakeEngineAdapter implements KingVpnEngineAdapter {
   @override
   Future<void> stop() async {
     calls.add('stop');
+    if (stopError != null) throw stopError!;
   }
 
   @override
@@ -144,6 +146,22 @@ void main() {
       expect(coordinator.activeEngineId, 'second');
       expect(first.calls, contains('stop'));
       expect(second.calls, contains('start'));
+    });
+
+    test('does not start another engine when previous TUN teardown fails', () async {
+      final coordinator = KingVpnEngineCoordinator();
+      final first = FakeEngineAdapter(descriptor('first'));
+      final second = FakeEngineAdapter(descriptor('second'));
+      coordinator.registerAdapter(first);
+      coordinator.registerAdapter(second);
+      const request = KingEngineStartRequest(configuration: 'opaque');
+
+      await coordinator.start('first', request);
+      first.stopError = StateError('TUN release not confirmed');
+
+      await expectLater(coordinator.start('second', request), throwsStateError);
+      expect(coordinator.activeEngineId, 'first');
+      expect(second.calls, isNot(contains('start')));
     });
 
     test('cleans up the adapter when startup fails', () async {
