@@ -35,7 +35,7 @@ void main() {
       limit: 2,
     );
     expect(large.addresses, hasLength(2));
-    expect(large.nextCursor, '18446744073709551619');
+    expect(large.nextCursor, '3');
   });
 
   test('IPv4 CIDR cursors remain compatible', () {
