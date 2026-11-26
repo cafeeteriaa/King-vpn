@@ -110,12 +110,13 @@ const List<String> kDnsxGlobalDomains = <String>[
 
 /// همه‌ی دامنه‌های موجود در پروژه برای اسکن دستی (بدون تکرار): ایرانی و خارجی
 List<String> dnsxFullDomains() {
+  final modeTemplates =
+      nationalMode ? natNationalTemplateSeeds : natGlobalTemplateSeeds;
   final discoveredProfiles = <Server>[
     ...good,
     ...pending,
     ...natRestPending,
-    ...natGlobalTemplateSeeds,
-    ...natNationalTemplateSeeds,
+    ...modeTemplates,
   ];
   final profileDomains = <String>{
     for (final server in discoveredProfiles) ...[
@@ -130,6 +131,10 @@ List<String> dnsxFullDomains() {
     ..._dnsxHostsFrom(iranDomains),
     ..._dnsxHostsFrom(_iranMoreDomains),
     ..._dnsxHostsFrom(profileDomains),
+    if (nationalMode)
+      ...natNationalDomMem.map((entry) => (entry['h'] ?? '').toString())
+    else
+      ...natDomMem.map((entry) => (entry['h'] ?? '').toString()),
   };
   return all
       .where((host) => InternetAddress.tryParse(host) == null)
@@ -329,6 +334,11 @@ Future<void> dnsxAutoPick({bool Function()? stop}) async {
     final gapMs = dnsxBestCache.isEmpty ? 6 * 3600 * 1000 : 24 * 3600 * 1000;
     if (now - last < gapMs) return;
     final savedDns = scanNationalMode ? await natNationalDnsList() : await goldDnsList();
+    if (scanNationalMode) {
+      await natNationalDomMemLoad();
+    } else {
+      await natDomMemLoad();
+    }
     if (nationalMode != scanNationalMode) return;
     final list = {...savedDns, ...(scanNationalMode ? kDnsxNationalDefaults : kDnsxDefaults)}.toList();
     // کامل: همه‌ی دامنه‌های پروژه، با فاصله‌ی ۱۵۰ میلی‌ثانیه بین بسته‌ها
