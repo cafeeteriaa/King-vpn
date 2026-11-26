@@ -98,7 +98,6 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
     private static final int CHECK_TIMEOUT_MS = 8000;
     /** Soft failures in a row before we switch servers. */
     private static final int FAILS_BEFORE_SWITCH = 2;
-    private static final int MAX_BACKUPS = 8;
     /** Hard cap on a single bringUp() call; stuck servers are skipped. */
     private static final long BRING_UP_TIMEOUT_MS = 20_000L;
 
@@ -365,7 +364,6 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
             servers.clear();
             servers.add(first);
             for (Srv b : backups) {
-                if (servers.size() > MAX_BACKUPS) break;
                 if (!b.config.equals(first.config)) servers.add(b);
             }
             currentIdx = 0; // جدید: new list starts at 0; a stale index from the last session was saved before
@@ -1162,7 +1160,7 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
         if (raw == null || raw.isEmpty()) return out;
         try {
             JSONArray arr = new JSONArray(raw);
-            for (int i = 0; i < arr.length() && out.size() < MAX_BACKUPS; i++) {
+            for (int i = 0; i < arr.length(); i++) {
                 JSONObject o = arr.getJSONObject(i);
                 String cfg = o.optString("config", "");
                 if (!cfg.isEmpty()) {
