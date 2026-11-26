@@ -50,9 +50,9 @@ def install_go_runtime_merge(gradle_text):
     if "prepareLibboxGoRuntimeJar" in gradle_text:
         return gradle_text
     zip_imports = (
-        "import java.util.zip.ZipEntry\\n"
-        "import java.util.zip.ZipFile\\n"
-        "import java.util.zip.ZipOutputStream\\n"
+        "import java.util.zip.ZipEntry\n"
+        "import java.util.zip.ZipFile\n"
+        "import java.util.zip.ZipOutputStream\n"
     )
     if "import java.util.zip.ZipFile" not in gradle_text:
         gradle_text = zip_imports + gradle_text
