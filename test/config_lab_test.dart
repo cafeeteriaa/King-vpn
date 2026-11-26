@@ -43,7 +43,7 @@ void main() {
         'host': 'node.example',
         'path': '/ws',
       }))).replaceAll('=', '');
-      final parsed = KingConfigDocument.parse('vmess://$payload');
+      final parsed = KingConfigDocument.parse('vmess://$payload#vmess-tag');
       final output = KingConfigDocument.parse(parsed.withOverrides({
         'address': '192.0.2.8',
         'port': 2053,
@@ -55,6 +55,7 @@ void main() {
       expect(output.sni, 'front.example');
       expect(output.values['id'], 'secret-id');
       expect(output.values['ps'], 'test-profile');
+      expect(output.toShareLink(), endsWith('#vmess-tag'));
     });
 
     test('rejects invalid ports and unsupported fields instead of corrupting links', () {
@@ -117,8 +118,8 @@ void main() {
         ports: [8443],
         snis: ['front.example'],
       );
-      expect(variants, hasLength(3));
-      expect(variants.map((v) => v.config).toSet(), hasLength(3));
+      expect(variants, hasLength(7));
+      expect(variants.map((v) => v.config).toSet(), hasLength(7));
     });
   });
 
