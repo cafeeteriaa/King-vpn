@@ -135,3 +135,11 @@ Increment the revision number by exactly one for each substantial edit set. Reco
 - Review 3 (Android compile/runtime and full CI): pending CI run #45784287277 on source commit `e7247343b25e36bec8c24f165e2454bf2b49754d`.
 - Additional correction after review: only explicit user stop (`ACTION_STOP` / app stop) clears the native durable inventory. `onDestroy`, `onRevoke`, malformed starts and failed connection attempts preserve it for a later resume; each new start resets the prior explicit-stop marker.
 - Scalability caveat: the failover list is still passed through the Android Intent as JSON and held in the native in-memory list while connected. The fixed count cap is gone, but very large inventories still need a file-path handoff and disk-backed cursor before they can be called multi-million-scale or Binder-safe.
+
+
+## Revision 67 — نخستین هستهٔ مستقل: WireGuard
+- وابستگی رسمی و قابل‌جاسازی WireGuard Android (com.wireguard.android:tunnel:1.0.20260102) به مرحلهٔ تولید پروژهٔ Android در CI افزوده شد.
+- کنترل‌گر native مستقل android_src/KingWireGuardCore.kt با نمونهٔ جداگانهٔ GoBackend، هویت تونل اختصاصی، parse واقعی فرمت WireGuard و چرخهٔ UP/DOWN اضافه شد؛ کانفیگ WireGuard به Xray تبدیل یا ارسال نمی‌شود.
+- کانال king/wireguard برای connect/disconnect/status افزوده شد. این مرحله هنوز اتصال از Pilot/Server parser و انتخاب‌گر خودکار را فعال نمی‌کند؛ آن‌ها در مرحلهٔ یکپارچه‌سازی بعدی متصل می‌شوند.
+- Android فقط یک VPN slot فعال برای هر برنامه دارد؛ اجرای WireGuard و Xray هم‌زمان روی دو TUN مستقل ادعا نمی‌شود و باید پیش از شروع یکی، دیگری متوقف شود.
+- CI و تست دستگاه واقعی برای این commit هنوز اجرا/تأیید نشده‌اند.
