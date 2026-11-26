@@ -42,7 +42,7 @@ class PersonalFolderUnboundedInventoryTests(unittest.TestCase):
 
     def test_personal_ping_and_failover_cover_every_entry(self):
         source = (ROOT / "lib" / "main.dart").read_text(encoding="utf-8")
-        self.assertIn("gen != _personalPingGen || autoTestAbortRequested", source)
+        self.assertIn("gen != _personalPingGen || AutoTestEngine.autoTestAbortRequested", source)
         self.assertIn("doneCount % 128 == 0 || doneCount == list.length", source)
         self.assertIn("for (var index = i; index < _personalRanked.length; index++)", source)
         self.assertNotIn("_personalConnectAt(i + 1)", source)
