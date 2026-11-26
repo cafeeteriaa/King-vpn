@@ -113,3 +113,13 @@ Increment the revision number by exactly one for each substantial edit set. Reco
 - Review status: passes 1 and 2 completed (architecture/behavior and state/cancellation/regression review); pass 3 is awaiting CI for the latest commit.
 - CI: run #45780872947 on intermediate commit `e4eaf9276a06aa818c00ff0fc6145043d7c77374` passed Python/unit tests and Dart analysis; Android arm64 release build was still in progress at the last check. Latest source/test commits: `4e1e736b2cf86d2f4ed646ec400947b9ef5dbf6d` and `1d1eb3734c59ebbe1e89d7fdd695a4f1f9fbbcae`; current branch head after roadmap/documentation update: `50af0a9c9ee151eb6ae9bc299fcb55659e042f23`. CI run #45781527705 for that head is queued; no final Android build claim is made. Do not treat the intermediate result as final verification of the latest commit.
 - PR #58 remains open and unmerged.
+
+
+### 65 — Personal-server inventory: uncapped journal persistence and full-folder execution
+- Removed the fixed 1,000-entry personal-folder storage cap and the separate 100-entry display/ping cap.
+- Migrated the legacy SharedPreferences list to an append-only JSONL journal under the app support directory; adds/removes are serialized, flushed to disk, and replayed incrementally with malformed-row recovery.
+- Removed the personal-server connection path's 50-entry truncation; the folder's complete inventory is now parsed, displayed, pinged and traversed for connection. Failed ping results receive the retry pass even when every entry in the first pass failed.
+- Kept personal-server records outside the shared healthy-server inventory and independent from Online/Offline source queues.
+- Review 1 (architecture/behavior): completed — full-folder traversal and personal/online/offline isolation checked.
+- Review 2 (persistence/concurrency): completed — legacy migration, serialized journal writes, append/remove replay and failure handling checked. The compatibility cache is still materialized in memory; a lazy/paged index is a required follow-up before claiming multi-million-entry memory scalability.
+- Review 3 (compatibility/verification): pending current CI run #3773; no Dart/Flutter/Android success is claimed until it completes.
