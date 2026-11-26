@@ -424,7 +424,17 @@ class KingServerSourceRefreshScheduler {
     if (cadence == null || cadence.isEmpty) return null;
     if (cadence == 'daily') return const Duration(days: 1);
     if (cadence == 'hourly') return const Duration(hours: 1);
-    final match = RegExp(r'^(\\d+)\\s*(m|min|mins|minute|minutes|h|hr|hrs|hour|hours)
+    final match = RegExp(
+      r'^(\d+)\s*(m|min|mins|minute|minutes|h|hr|hrs|hour|hours)$',
+    ).firstMatch(cadence);
+    if (match == null) return null;
+    final amount = int.tryParse(match.group(1)!);
+    if (amount == null || amount <= 0) return null;
+    final unit = match.group(2)!;
+    return unit.startsWith('m')
+        ? Duration(minutes: amount)
+        : Duration(hours: amount);
+  }
 
   void dispose() {
     if (_disposed) return;
