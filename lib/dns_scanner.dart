@@ -38,7 +38,8 @@ const List<String> kDnsxNationalProbeDomains = <String>[
 
 /// Complete project domain inventory for automatic and manual DNS checks.
 /// The scanner batches requests and supports cancellation instead of dropping domains.
-List<String> dnsxAutoDomains() => dnsxFullDomains();
+List<String> dnsxAutoDomains({Iterable<Server> profileServers = const <Server>[]}) =>
+    dnsxFullDomains(profileServers: profileServers);
 
 /// تبدیل فهرست‌های پروژه (مثل `domain:divar.ir`) به نام میزبان ساده
 List<String> _dnsxHostsFrom(Iterable<String> src) {
@@ -109,13 +110,11 @@ const List<String> kDnsxGlobalDomains = <String>[
 ];
 
 /// همه‌ی دامنه‌های موجود در پروژه برای اسکن دستی (بدون تکرار): ایرانی و خارجی
-List<String> dnsxFullDomains() {
+List<String> dnsxFullDomains({Iterable<Server> profileServers = const <Server>[]}) {
   final modeTemplates =
       nationalMode ? natNationalTemplateSeeds : natGlobalTemplateSeeds;
   final discoveredProfiles = <Server>[
-    ...good,
-    ...pending,
-    ...natRestPending,
+    ...profileServers,
     ...modeTemplates,
   ];
   final profileDomains = <String>{
@@ -142,7 +141,8 @@ List<String> dnsxFullDomains() {
 }
 
 /// متن نمایشی دامنه‌ها در شیت
-String dnsxProbeDomain() => '${dnsxFullDomains().length} دامنه (ایرانی و جهانی)';
+String dnsxProbeDomain({Iterable<Server> profileServers = const <Server>[]}) =>
+    '${dnsxFullDomains(profileServers: profileServers).length} دامنه (ایرانی و جهانی)';
 
 /// بسته‌ی پرس‌وجوی DNS برای نوع A (RD=1)
 List<int> dnsxQuery(String name, int id) {
