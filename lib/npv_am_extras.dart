@@ -2229,17 +2229,18 @@ Future<void> manualRangeScan(BuildContext context, List<String> userRanges) asyn
       }
 
       final batch = batchSet.toList(growable: false);
+      final batchBaseDone = done;
       final batchHits = await natScanIps(
         batch,
         concurrency: scanNationalMode ? kNatManualConc : natAdaptiveWorkers(),
         timeout: const Duration(milliseconds: 1500),
         cancelled: () => cancelled || !open || nationalMode != scanNationalMode,
         onProgress: (current, total, hits) => upd(() {
-          done = done + current;
+          done = batchBaseDone + current;
           hitsCount = result.length + hits;
         }),
       );
-      done += batch.length;
+      done = batchBaseDone + batch.length;
       final newHits = <NatIpHit>[];
       for (final hit in batchHits) {
         if (seenHits.add(hit.ip)) {
