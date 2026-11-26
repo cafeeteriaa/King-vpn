@@ -19,6 +19,18 @@ class _HealSignal {
 }
 
 class _HealMemory {
+  static const Set<String> _knownActions = <String>{
+    'clear_abort_connect',
+    'connect_now',
+    'search_connect',
+    'soft_clear_blacklist',
+    'soft_clear_and_search',
+    'restart_tunnel',
+    'failover',
+    'failover_soft',
+    'force_turbo',
+    'calm_pilot',
+  };
   final Map<String, int> wins = {};
   final Map<String, int> fails = {};
   Future<void>? _loadTask;
@@ -41,7 +53,7 @@ class _HealMemory {
           if (row is! Map || row['v'] != 1) continue;
           final action = row['action'];
           final ok = row['ok'];
-          if (action is! String || action.isEmpty || ok is! bool) continue;
+          if (action is! String || !_knownActions.contains(action) || ok is! bool) continue;
           _apply(action, ok);
         } catch (_) {
           // Ignore a torn/corrupt journal row; later rows remain recoverable.
@@ -61,6 +73,7 @@ class _HealMemory {
   }
 
   Future<void> remember(String action, bool ok) async {
+    if (!_knownActions.contains(action)) return;
     await load();
     final previous = _writeQueue;
     final release = Completer<void>();
