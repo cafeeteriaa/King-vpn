@@ -108,7 +108,8 @@ List<int> _natBigIntToAddress(BigInt value, int length) {
   var offset = BigInt.tryParse(cursor) ?? BigInt.zero;
   offset = offset % span;
   final remaining = span - offset;
-  final count = min(BigInt.from(limit), remaining).toInt();
+  final limitValue = BigInt.from(limit);
+  final count = (remaining < limitValue ? remaining : limitValue).toInt();
   final addresses = <String>[];
   for (var i = 0; i < count; i++) {
     final address = _natBigIntToAddress(
