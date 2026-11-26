@@ -10700,20 +10700,17 @@ ListTile( // KINGEXTRAS row
           TextButton(
             // MANUALSCAN: اسکن دستی بازه‌ها؛ نتیجه در پوشه‌ی جهانی ذخیره می‌شود (نت ملی را تغییر نمی‌دهد)
             onPressed: () {
-              final lines = c.text.split('\n');
-              final addrs = <String>[];
-              for (final line in lines) {
-                final t = line.trim();
-                if (t.isEmpty) continue;
-                // LARGE: بازه‌ی CIDR یا خطی؛ بلوک‌های بزرگ تا ۶۵۵۳۶ IP برای پوشش بهتر
-                final got = natExpandCidr(t, maxPerBlock: 65536);
-                addrs.addAll(got.isNotEmpty ? got : natExpandDash(t, maxCount: 65536));
-              }
-              if (addrs.isEmpty) {
-                _set('بازه‌ی معتبر نیست؛ مثلاً 5.160.0.0/24 بنویس');
+              final ranges = c.text
+                  .split('\n')
+                  .map((line) => line.trim())
+                  .where((line) => line.isNotEmpty)
+                  .where((range) => natExpandAddressRangeBatch(range, limit: 1).addresses.isNotEmpty)
+                  .toList(growable: false);
+              if (ranges.isEmpty) {
+                _set('بازه‌ی معتبر نیست؛ IPv4/IPv6 CIDR یا بازه‌ی ابتدا-انتها وارد کن');
                 return;
               }
-              unawaited(manualRangeScan(context, addrs)); // MANUALSCAN: نتیجه و پیشرفت داخل دیالوگ
+              unawaited(manualRangeScan(context, ranges)); // streamed IPv4/IPv6 range scan
             },
             child: const Text('اسکن بازه‌ها'),
           ),
