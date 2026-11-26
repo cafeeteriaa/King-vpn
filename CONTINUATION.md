@@ -13,6 +13,11 @@
 - Updated test/test_healthy_folder_policy.py to guard against reintroducing a fixed count ceiling or eviction.
 - Preserved Revision 59's network-outage protection and Revision 58's independent scan inventories.
 
+## Engine catalog restoration
+- Restored the missing engine catalog/coordinator/source modules required by the already-present engine tests; this is modular catalog/source groundwork only and does not claim extra engines are operational.
+- Reconciled the catalog with the native-core policy by excluding OpenVPN IDs, runtime descriptors, import formats and parser support; no OpenVPN runtime/dependency is introduced.
+- CI initially exposed the missing-module regression: source guards passed, but one Flutter test file failed to compile. The repair is now committed; a fresh exact-head run is still required.
+
 ## Explicit remaining work
 - The healthy-folder map and JSON snapshot are still whole-inventory/in-memory. Do not claim paging, memory-bounded operation, or multi-million-entry readiness yet.
 - Next implement a disk-backed indexed/paged inventory with transactional writes, migration/rollback, async page iteration for all consumers, and restart/cancellation tests.
