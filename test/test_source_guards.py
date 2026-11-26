@@ -2403,8 +2403,9 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         diagnostics = (ROOT / 'lib' / 'net_diag.dart').read_text(encoding='utf-8')
         for source in (nip, auto, main, extras, diagnostics):
             self.assertNotIn('onBadCertificate: (_) => true', source)
-        self.assertIn('InternetAddress.tryParse(sni.trim()) != null', nip)
-        self.assertIn('InternetAddress.tryParse(value.trim()) == null', nip)
+        self.assertIn('final normalizedSni = _nipHostnameOrEmpty(sni);', nip)
+        self.assertIn('.map(_nipHostnameOrEmpty)', nip)
+        self.assertIn('if (normalizedSni.isEmpty) return null;', nip)
         self.assertIn('List<String> natFrontSnis()', nip)
         self.assertIn('...kAutoSniDomains', nip)
         self.assertIn('...dnsxFullDomains()', nip)
