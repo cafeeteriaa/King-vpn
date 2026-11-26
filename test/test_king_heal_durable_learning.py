@@ -26,7 +26,7 @@ class KingHealDurableLearningTests(unittest.TestCase):
         source = (ROOT / "lib" / "king_heal.dart").read_text(encoding="utf-8")
         action = source.index("ok = await _healAct")
         verified = source.index("final fixed = dataPlaneOk")
-        learned = source.index("await _healMem.remember(plan.$1, fixed)")
+        learned = source.index("await _healMem.remember(plan.$1, fixed, context: learningContext)")
         self.assertLess(action, verified)
         self.assertLess(verified, learned)
         self.assertNotIn("_healMem.remember(plan.$1, ok)", source)
@@ -35,6 +35,8 @@ class KingHealDurableLearningTests(unittest.TestCase):
         source = (ROOT / "lib" / "king_heal.dart").read_text(encoding="utf-8")
         self.assertIn("context: learningContext", source)
         self.assertIn("score(b, context: contextKey)", source)
+        self.assertIn("bestAction(", source)
+        self.assertIn("contextKey", source)
         self.assertIn("Laplace-smoothed success estimate", source)
 
     def test_recovery_never_mass_deletes_recent_failed_servers(self):
