@@ -24,4 +24,11 @@ class WireGuardCoreSourceGuardTests(unittest.TestCase):
         self.assertIn("com.wireguard.android:tunnel:1.0.20260102", script)
         self.assertIn("coreLibraryDesugaring", script)
         self.assertIn("KingWireGuardCore.kt", script)
+        page = (ROOT / "lib" / "king_wireguard_page.dart").read_text()
+        app = (ROOT / "lib" / "main.dart").read_text()
+        native = (ROOT / "android_src" / "MainActivity.kt").read_text()
+        self.assertIn("KingWireGuardPage", page)
+        self.assertIn("value: 'wireguard'", app)
+        self.assertIn("VpnService.prepare(this)", native)
+        self.assertIn("onActivityResult", native)
 
