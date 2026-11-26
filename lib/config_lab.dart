@@ -88,19 +88,35 @@ class KingConfigDocument {
           break;
         case 'sni':
           if (protocol == 'vmess') {
-            next['sni'] = value.toString();
+            if (value.toString().isEmpty) {
+              next.remove('sni');
+            } else {
+              next['sni'] = value.toString();
+            }
           } else {
             final q = Map<String, String>.from(next['_query'] as Map);
-            q['sni'] = value.toString();
+            if (value.toString().isEmpty) {
+              q.remove('sni');
+            } else {
+              q['sni'] = value.toString();
+            }
             next['_query'] = q;
           }
           break;
         case 'host':
           if (protocol == 'vmess') {
-            next['host'] = value.toString();
+            if (value.toString().isEmpty) {
+              next.remove('host');
+            } else {
+              next['host'] = value.toString();
+            }
           } else {
             final q = Map<String, String>.from(next['_query'] as Map);
-            q['host'] = value.toString();
+            if (value.toString().isEmpty) {
+              q.remove('host');
+            } else {
+              q['host'] = value.toString();
+            }
             next['_query'] = q;
           }
           break;
@@ -114,10 +130,18 @@ class KingConfigDocument {
           final wireKey = key == 'type' ? 'type' : key;
           if (protocol == 'vmess') {
             final mapKey = key == 'type' ? 'net' : key;
-            next[mapKey] = value.toString();
+            if (value.toString().isEmpty) {
+              next.remove(mapKey);
+            } else {
+              next[mapKey] = value.toString();
+            }
           } else {
             final q = Map<String, String>.from(next['_query'] as Map);
-            q[wireKey] = value.toString();
+            if (value.toString().isEmpty) {
+              q.remove(wireKey);
+            } else {
+              q[wireKey] = value.toString();
+            }
             next['_query'] = q;
           }
           break;
