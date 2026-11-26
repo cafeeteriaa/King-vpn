@@ -9,7 +9,10 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         source = (ROOT / 'lib' / 'auto_scanners.dart').read_text(encoding='utf-8')
         start = source.index('Future<void> autoScanSheet(')
         body = source[start:]
-        self.assertIn('isVpnActive: isVpnActive, isVpnWanted: isVpnWanted', body)
+        self.assertIn('isVpnActive: isVpnActive,', body)
+        self.assertIn('isVpnWanted: isVpnWanted,', body)
+        self.assertIn('configuredServers: configuredServers,', body)
+        self.assertIn('frontSnis: frontSnis),', body)
 
     def test_auto_sni_scan_refuses_to_compete_with_live_vpn(self):
         auto = (ROOT / 'lib' / 'auto_scanners.dart').read_text(encoding='utf-8')
@@ -2387,10 +2390,11 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         body = source[start:end]
         self.assertNotIn('scanBudget', body)
         self.assertNotIn('timedOut()', body)
-        self.assertIn('for (final entry in _goldIps.values)', body)
+        self.assertIn('if (scanNationalMode) ...natNationalIpMemHosts() else ..._goldIps.keys', body)
+        self.assertIn('for (final server in configuredServers)', body)
         self.assertIn('...kAutoSniDomains', body)
-        self.assertIn('...natFrontSnis()', body)
-        self.assertIn('for (final p in ports)', body)
+        self.assertIn('...frontSnis', body)
+        self.assertIn('for (final port in ports)', body)
         self.assertIn('shouldAbort: () => cancelled(),', body)
         self.assertNotIn('kAutoIpLimit', body)
         self.assertNotIn('kAutoFallbackIps', body)
@@ -2759,7 +2763,10 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         source = (ROOT / 'lib' / 'auto_scanners.dart').read_text(encoding='utf-8')
         start = source.index('Future<void> autoScanSheet(')
         body = source[start:]
-        self.assertIn('isVpnActive: isVpnActive, isVpnWanted: isVpnWanted', body)
+        self.assertIn('isVpnActive: isVpnActive,', body)
+        self.assertIn('isVpnWanted: isVpnWanted,', body)
+        self.assertIn('configuredServers: configuredServers,', body)
+        self.assertIn('frontSnis: frontSnis),', body)
 
     def test_auto_sni_scan_aborts_if_vpn_connects_mid_run(self):
         source = (ROOT / 'lib' / 'auto_scanners.dart').read_text(encoding='utf-8')
