@@ -733,6 +733,15 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
                 return false;
             }
         }
+        if ("amneziawg".equals(KingVpnEngineCoordinator.currentOwner())) {
+            try {
+                KingAmneziaWgCore.shared().disconnect();
+            } catch (Throwable failure) {
+                lastError = "AmneziaWG handoff failed: " + failure.getMessage();
+                Log.e(TAG, lastError, failure);
+                return false;
+            }
+        }
         long remainingMs = Math.max(0L,
                 TimeUnit.NANOSECONDS.toMillis(deadline - System.nanoTime()));
         if (!KingVpnEngineCoordinator.acquire("xray", remainingMs)) return false;
