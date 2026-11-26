@@ -50,7 +50,7 @@ Future<int?> nipTcpProbe(String ip, int port, Duration timeout) async {
   }
 }
 
-/// اسکن هم‌زمان. با رسیدن به [want] نتیجه، یا پایان [budget]، یا [cancelled] = true متوقف می‌شود.
+/// Scan every supplied endpoint unless an explicit hit/time limit or cancellation is requested.
 Future<List<NipHit>> nipScan(
   List<String> ips, {
   int port = 443,
@@ -60,6 +60,11 @@ Future<List<NipHit>> nipScan(
   Duration timeout = const Duration(milliseconds: 1500),
   bool Function()? cancelled,
 }) async {
+  if (ips.isEmpty || (want != null && want <= 0) ||
+      (budget != null && budget <= Duration.zero) ||
+      timeout <= Duration.zero || port < 1 || port > 65535) {
+    return <NipHit>[];
+  }
   final hits = <NipHit>[];
   final elapsed = Stopwatch()..start();
   var next = 0;
@@ -72,6 +77,10 @@ Future<List<NipHit>> nipScan(
       if (next >= ips.length) return;
       final ip = ips[next++];
       final ms = await nipTcpProbe(ip, port, timeout);
+      if ((cancelled != null && cancelled()) ||
+          (budget != null && elapsed.elapsed >= budget)) {
+        return;
+      }
       if (ms != null && (want == null || hits.length < want)) {
         hits.add(NipHit(ip, ms));
       }
