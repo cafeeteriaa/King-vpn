@@ -2659,6 +2659,23 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn('goldIpList()', picker)
         self.assertNotIn('cleanIps', picker[:picker.index('if (!_cleanLoaded')])
 
+    def test_national_fragmentation_covers_every_tls_and_reality_proxy_without_tls_downgrade(self):
+        nat = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
+        start = nat.index('String _natFrag(')
+        end = nat.index('String _natMux(', start)
+        frag = nat[start:end]
+        self.assertIn('final fragmentTargets = <Map>[];', frag)
+        self.assertIn("security == 'tls' || security == 'reality'", frag)
+        self.assertIn('for (final outbound in fragmentTargets)', frag)
+        self.assertIn("sockopt['dialerProxy'] = 'frag-out';", frag)
+        self.assertNotIn('final proxy = _natProxyOut(j);', frag)
+        sni_start = nat.index('String _natSmartSni(')
+        sni_end = nat.index('int natSafeVariant(', sni_start)
+        sni = nat[sni_start:sni_end]
+        self.assertIn("tls['serverName'] = 'cdnjs.cloudflare.com';", sni)
+        self.assertNotIn("tls['allowInsecure'] = true;", sni)
+        self.assertIn('if (tlsHasEch(tls)) continue;', sni)
+
     def test_dpi_matrix_and_fragmentation_have_no_hidden_variant_ceiling(self):
         nat = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
         main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
