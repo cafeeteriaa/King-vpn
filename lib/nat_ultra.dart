@@ -1653,6 +1653,9 @@ Future<void> natLoadPersisted() async {
       });
     }
     if (((j['g'] ?? 0) as num).toInt() != _natGenVer) {
+      // Variant indexes changed; old numeric cursors cannot safely point into
+      // the new matrix, so restart traversal without discarding any inventory.
+      _natCursor.clear();
       natVar.removeWhere((k, v) => v >= _natBaseCount);
       _natWinsVer++; // TOPWIN
       natWins.removeWhere((k, v) {
