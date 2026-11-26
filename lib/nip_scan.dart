@@ -99,8 +99,20 @@ Future<List<String>> nipIranCidrs() async {
 }
 
 String _nipHostnameOrEmpty(String value) {
-  final host = value.trim().toLowerCase().replaceFirst(RegExp(r'\\.
-
+  final host = value.trim().toLowerCase().replaceFirst(RegExp(r'\.$'), '');
+  if (host.isEmpty ||
+      host.length > 253 ||
+      InternetAddress.tryParse(host) != null) {
+    return '';
+  }
+  final labels = host.split('.');
+  if (labels.length < 2) return '';
+  final labelPattern = RegExp(r'^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$');
+  if (labels.any((label) => label.isEmpty || !labelPattern.hasMatch(label))) {
+    return '';
+  }
+  return host;
+}
 /// Replace only the endpoint address/port. Preserve valid TLS SNI and HTTP Host;
 /// never invent an IP literal as a hostname or graft generic IPs onto REALITY.
 String? nipSwapLink(Server t, String ip, {int? port}) {
