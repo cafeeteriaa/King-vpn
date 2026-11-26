@@ -8298,6 +8298,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       if (abort || !wantVpn) return false;
       try {
         await _stopCore();
+        if (_staleCoreMayBeUp) throw StateError('Previous VPN engine did not confirm DOWN');
         if (abort || !wantVpn) return false;
         final result = await _kingWireGuardCore.connect(s.link);
         if (result['connected'] != true) throw StateError('WireGuard backend did not confirm UP state');
