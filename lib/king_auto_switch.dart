@@ -1,4 +1,22 @@
-enum KingEngineId { xray, psiphon }
+import 'king_network_engines.dart';
+
+/// Stable identifiers for the built-in engines. Additional adapters may use
+/// their own IDs and register descriptors without changing this type.
+abstract final class KingEngineId {
+  static const xray = 'xray';
+  static const vpnGate = 'vpn_gate';
+  static const calyxVpn = 'calyx_vpn';
+  static const nthLink = 'nthlink';
+  static const tor = 'tor';
+  static const i2p = 'i2p';
+  static const lantern = 'lantern';
+  static const cloudflareWarp = 'cloudflare_warp';
+  static const aviraPhantom = 'avira_phantom';
+  static const shroudly = 'shroudly';
+  static const ceno = 'ceno';
+  static const byeDpi = 'byedpi';
+  static const powerTunnel = 'powertunnel';
+}
 
 class KingEngineConnectResult {
   const KingEngineConnectResult({
@@ -15,7 +33,7 @@ class KingEngineConnectResult {
 }
 
 abstract interface class KingConnectionAdapter {
-  KingEngineId get id;
+  String get id;
   bool get available;
   Future<KingEngineConnectResult> connect();
   Future<bool> verifyTraffic();
@@ -29,32 +47,44 @@ class KingAutoSwitchResult {
     required this.attempts,
     this.detail = '',
   });
-  final KingEngineId? engine;
+  final String? engine;
   final bool connected;
   final List<KingEngineConnectResult> attempts;
   final String detail;
 }
 
-/// Xray-first, Psiphon-next coordinator. Adapters are always run serially:
-/// Android must not have two competing full-device VPN services.
+/// Runs real adapters serially. Android allows only one active VpnService
+/// owner, so the previous adapter is always torn down before another starts.
 class KingAutoSwitchCoordinator {
-  KingAutoSwitchCoordinator({required List<KingConnectionAdapter> adapters})
-      : _adapters = List.unmodifiable(
-          adapters.toList()..sort((a, b) => a.id.index.compareTo(b.id.index)),
-        ) {
-    final ids = _adapters.map((a) => a.id).toList();
+  factory KingAutoSwitchCoordinator({
+    required List<KingConnectionAdapter> adapters,
+    KingNetworkEngineCatalog? catalog,
+  }) {
+    final registry = catalog ?? KingNetworkEngineCatalog();
+    final indexed = adapters.asMap().entries.toList()
+      ..sort((a, b) {
+        final byPriority =
+            registry.priorityOf(a.value.id).compareTo(registry.priorityOf(b.value.id));
+        return byPriority != 0 ? byPriority : a.key.compareTo(b.key);
+      });
+    final sorted = indexed.map((entry) => entry.value).toList(growable: false);
+    final ids = sorted.map((adapter) => adapter.id).toList();
     if (ids.toSet().length != ids.length) {
       throw ArgumentError('Each engine must have exactly one adapter');
     }
+    return KingAutoSwitchCoordinator._(sorted, registry);
   }
 
+  KingAutoSwitchCoordinator._(this._adapters, this.catalog);
+
   final List<KingConnectionAdapter> _adapters;
+  final KingNetworkEngineCatalog catalog;
   KingConnectionAdapter? _active;
   Future<KingAutoSwitchResult>? _flight;
   int _generation = 0;
   bool _stoppedByUser = false;
 
-  KingEngineId? get activeEngine => _active?.id;
+  String? get activeEngine => _active?.id;
 
   Future<KingAutoSwitchResult> connect() {
     final pending = _flight;
@@ -196,13 +226,12 @@ class KingAutoSwitchCoordinator {
       );
     }
     final generation = ++_generation;
-    // Give every other adapter one chance, including the primary engine when
-    // the active fallback has failed and Xray may have recovered meanwhile.
     return _connectInOrder(
       generation,
       _adapters.where((adapter) => !identical(adapter, active)).toList(),
     );
   }
+
   Future<void> disconnect() async {
     _stoppedByUser = true;
     ++_generation;
@@ -224,9 +253,8 @@ class KingProbeResult<R> {
   bool get succeeded => error == null;
 }
 
-/// Adaptive batch executor for adapters which expose independent probe items.
-/// It processes the entire iterable, records individual failures, and never
-/// truncates the inventory.
+/// Adaptive executor for independent probes. The entire supplied iterable is
+/// consumed; the batch size is runtime-selected and is not an inventory cap.
 class KingAdaptiveBatchRunner {
   static Future<List<KingProbeResult<R>>> run<T, R>({
     required Iterable<T> items,
