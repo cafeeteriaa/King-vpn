@@ -2193,30 +2193,34 @@ Future<void> manualRangeScan(BuildContext context, List<String> userRanges) asyn
       for (var index = 0; index < savedTake; index++) {
         batchSet.add(extraIps[extraOffset++]);
       }
+      // Stage range cursors locally; only commit them after the whole emitted
+      // batch has been probed. Cancellation keeps the prior cursor for retry.
+      final nextCursors = List<String>.of(cursors);
+      final nextCompleted = List<bool>.of(completed);
       final activeRanges = <int>[
         for (var index = 0; index < ranges.length; index++)
-          if (!completed[index]) index,
+          if (!nextCompleted[index]) index,
       ];
       if (activeRanges.isNotEmpty && batchSet.length < 256) {
         final perRange = max(1, (256 - batchSet.length) ~/ activeRanges.length);
         for (final index in activeRanges) {
-          final previous = cursors[index];
+          final previous = nextCursors[index];
           final generated = natExpandAddressRangeBatch(
             ranges[index],
             cursor: previous,
             limit: perRange,
           );
           if (generated.addresses.isEmpty) {
-            completed[index] = true;
+            nextCompleted[index] = true;
             continue;
           }
           batchSet.addAll(generated.addresses);
           final oldCursor = BigInt.tryParse(previous) ?? BigInt.zero;
           final nextCursor = BigInt.tryParse(generated.nextCursor) ?? BigInt.zero;
           if (nextCursor <= oldCursor) {
-            completed[index] = true;
+            nextCompleted[index] = true;
           } else {
-            cursors[index] = generated.nextCursor;
+            nextCursors[index] = generated.nextCursor;
           }
           if (batchSet.length >= 256) break;
         }
@@ -2230,17 +2234,28 @@ Future<void> manualRangeScan(BuildContext context, List<String> userRanges) asyn
 
       final batch = batchSet.toList(growable: false);
       final batchBaseDone = done;
+      var batchCompleted = 0;
       final batchHits = await natScanIps(
         batch,
         concurrency: scanNationalMode ? kNatManualConc : natAdaptiveWorkers(),
         timeout: const Duration(milliseconds: 1500),
         cancelled: () => cancelled || !open || nationalMode != scanNationalMode,
         onProgress: (current, total, hits) => upd(() {
+          batchCompleted = current;
           done = batchBaseDone + current;
           hitsCount = result.length + hits;
         }),
       );
-      done = batchBaseDone + batch.length;
+      final batchStillCurrent = !cancelled && open && nationalMode == scanNationalMode;
+      if (batchStillCurrent) {
+        done = batchBaseDone + batch.length;
+        for (var index = 0; index < cursors.length; index++) {
+          cursors[index] = nextCursors[index];
+          completed[index] = nextCompleted[index];
+        }
+      } else {
+        done = batchBaseDone + batchCompleted;
+      }
       final newHits = <NatIpHit>[];
       for (final hit in batchHits) {
         if (seenHits.add(hit.ip)) {
