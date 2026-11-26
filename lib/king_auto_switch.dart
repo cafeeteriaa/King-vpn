@@ -1,21 +1,18 @@
 import 'king_network_engines.dart';
 
-/// Stable identifiers for the built-in engines. Additional adapters may use
-/// their own IDs and register descriptors without changing this type.
 abstract final class KingEngineId {
   static const xray = 'xray';
-  static const calyxVpn = 'calyx_vpn';
   static const hysteria2 = 'hysteria2';
   static const singBox = 'sing_box';
   static const nthLink = 'nthlink';
-  static const tor = 'tor';
-  static const i2p = 'i2p';
-  static const lantern = 'lantern';
-  static const cloudflareWarp = 'cloudflare_warp';
-  static const aviraPhantom = 'avira_phantom';
   static const shroudly = 'shroudly';
   static const byeDpi = 'byedpi';
   static const powerTunnel = 'powertunnel';
+  static const amneziaWg = 'amneziawg';
+  static const openVpn = 'openvpn';
+  static const shadowsocks = 'shadowsocks';
+  static const openConnect = 'openconnect';
+  static const wireGuard = 'wireguard';
 }
 
 class KingEngineConnectResult {
@@ -53,8 +50,8 @@ class KingAutoSwitchResult {
   final String detail;
 }
 
-/// Runs real adapters serially. Android allows only one active VpnService
-/// owner, so the previous adapter is always torn down before another starts.
+/// Adapters run serially. A new VPN owner starts only after the previous
+/// adapter's disconnect future completes and releases its Android TUN.
 class KingAutoSwitchCoordinator {
   factory KingAutoSwitchCoordinator({
     required List<KingConnectionAdapter> adapters,
@@ -63,8 +60,8 @@ class KingAutoSwitchCoordinator {
     final registry = catalog ?? KingNetworkEngineCatalog();
     final indexed = adapters.asMap().entries.toList()
       ..sort((a, b) {
-        final byPriority =
-            registry.priorityOf(a.value.id).compareTo(registry.priorityOf(b.value.id));
+        final byPriority = registry.priorityOf(a.value.id)
+            .compareTo(registry.priorityOf(b.value.id));
         return byPriority != 0 ? byPriority : a.key.compareTo(b.key);
       });
     final sorted = indexed.map((entry) => entry.value).toList(growable: false);
@@ -91,8 +88,6 @@ class KingAutoSwitchCoordinator {
     final pending = _flight;
     if (pending != null) {
       if (!_stoppedByUser) return pending;
-      // A new start after Stop waits for the cancelled native startup to finish
-      // tearing down; this prevents two VPN owners from racing for Android's TUN.
       await pending;
       return connect();
     }
@@ -113,74 +108,47 @@ class KingAutoSwitchCoordinator {
     final attempts = <KingEngineConnectResult>[];
     for (final adapter in adapters) {
       if (_stoppedByUser || generation != _generation) {
-        return KingAutoSwitchResult(
-          engine: null,
-          connected: false,
-          attempts: List.unmodifiable(attempts),
-          detail: 'Connection attempt cancelled',
-        );
+        return KingAutoSwitchResult(engine: null, connected: false,
+            attempts: List.unmodifiable(attempts), detail: 'Connection attempt cancelled');
       }
       if (!adapter.available) continue;
-
       final previous = _active;
       _active = null;
       if (previous != null) {
-        try {
-          await previous.disconnect();
-        } catch (_) {}
+        try { await previous.disconnect(); } catch (_) {}
       }
-
       _starting = adapter;
       try {
         final result = await adapter.connect();
         attempts.add(result);
         if (_stoppedByUser || generation != _generation) {
           await adapter.disconnect();
-          return KingAutoSwitchResult(
-            engine: null,
-            connected: false,
-            attempts: List.unmodifiable(attempts),
-            detail: 'Connection attempt cancelled',
-          );
+          return KingAutoSwitchResult(engine: null, connected: false,
+              attempts: List.unmodifiable(attempts), detail: 'Connection attempt cancelled');
         }
         final trafficOk = result.healthy && await adapter.verifyTraffic();
         if (_stoppedByUser || generation != _generation) {
           await adapter.disconnect();
-          return KingAutoSwitchResult(
-            engine: null,
-            connected: false,
-            attempts: List.unmodifiable(attempts),
-            detail: 'Connection attempt cancelled',
-          );
+          return KingAutoSwitchResult(engine: null, connected: false,
+              attempts: List.unmodifiable(attempts), detail: 'Connection attempt cancelled');
         }
         if (trafficOk) {
           _starting = null;
           _active = adapter;
-          return KingAutoSwitchResult(
-            engine: adapter.id,
-            connected: true,
-            attempts: List.unmodifiable(attempts),
-          );
+          return KingAutoSwitchResult(engine: adapter.id, connected: true,
+              attempts: List.unmodifiable(attempts));
         }
       } catch (error) {
         if (identical(_starting, adapter)) _starting = null;
-        attempts.add(KingEngineConnectResult(
-          started: false,
-          trafficVerified: false,
-          detail: error.toString(),
-        ));
+        attempts.add(KingEngineConnectResult(started: false,
+            trafficVerified: false, detail: error.toString()));
       }
       if (identical(_starting, adapter)) _starting = null;
-      try {
-        await adapter.disconnect();
-      } catch (_) {}
+      try { await adapter.disconnect(); } catch (_) {}
     }
-    return KingAutoSwitchResult(
-      engine: null,
-      connected: false,
-      attempts: List.unmodifiable(attempts),
-      detail: 'No engine passed end-to-end traffic verification',
-    );
+    return KingAutoSwitchResult(engine: null, connected: false,
+        attempts: List.unmodifiable(attempts),
+        detail: 'No engine passed end-to-end traffic verification');
   }
 
   Future<KingAutoSwitchResult> recoverFromTrafficFailure() {
@@ -197,52 +165,30 @@ class KingAutoSwitchCoordinator {
   Future<KingAutoSwitchResult> _recoverFromTrafficFailure() async {
     final generationAtStart = _generation;
     if (_stoppedByUser) {
-      return const KingAutoSwitchResult(
-        engine: null,
-        connected: false,
-        attempts: [],
-        detail: 'Connection attempt cancelled',
-      );
+      return const KingAutoSwitchResult(engine: null, connected: false,
+          attempts: [], detail: 'Connection attempt cancelled');
     }
     final active = _active;
     if (active == null) return _connectInOrder(++_generation, _adapters);
     var healthy = false;
-    try {
-      healthy = await active.verifyTraffic();
-    } catch (_) {}
+    try { healthy = await active.verifyTraffic(); } catch (_) {}
     if (_stoppedByUser || generationAtStart != _generation) {
-      return const KingAutoSwitchResult(
-        engine: null,
-        connected: false,
-        attempts: [],
-        detail: 'Connection attempt cancelled',
-      );
+      return const KingAutoSwitchResult(engine: null, connected: false,
+          attempts: [], detail: 'Connection attempt cancelled');
     }
     if (healthy) {
-      return KingAutoSwitchResult(
-        engine: active.id,
-        connected: true,
-        attempts: const [],
-        detail: 'Active engine remains healthy',
-      );
+      return KingAutoSwitchResult(engine: active.id, connected: true,
+          attempts: const [], detail: 'Active engine remains healthy');
     }
     _active = null;
-    try {
-      await active.disconnect();
-    } catch (_) {}
+    try { await active.disconnect(); } catch (_) {}
     if (_stoppedByUser || generationAtStart != _generation) {
-      return const KingAutoSwitchResult(
-        engine: null,
-        connected: false,
-        attempts: [],
-        detail: 'Connection attempt cancelled',
-      );
+      return const KingAutoSwitchResult(engine: null, connected: false,
+          attempts: [], detail: 'Connection attempt cancelled');
     }
     final generation = ++_generation;
-    return _connectInOrder(
-      generation,
-      _adapters.where((adapter) => !identical(adapter, active)).toList(),
-    );
+    return _connectInOrder(generation,
+        _adapters.where((adapter) => !identical(adapter, active)).toList());
   }
 
   Future<void> disconnect() async {
@@ -253,26 +199,21 @@ class KingAutoSwitchCoordinator {
     _active = null;
     _starting = null;
     if (active != null) await active.disconnect();
-    if (starting != null && !identical(starting, active)) {
-      await starting.disconnect();
-    }
+    if (starting != null && !identical(starting, active)) await starting.disconnect();
   }
 }
 
 class KingProbeResult<R> {
-  const KingProbeResult.success(this.value)
-      : error = null,
-        stackTrace = null;
+  const KingProbeResult.success(this.value) : error = null, stackTrace = null;
   const KingProbeResult.failure(this.error, this.stackTrace) : value = null;
-
   final R? value;
   final Object? error;
   final StackTrace? stackTrace;
   bool get succeeded => error == null;
 }
 
-/// Adaptive executor for independent probes. The entire supplied iterable is
-/// consumed; the batch size is runtime-selected and is not an inventory cap.
+/// Consumes the complete iterable; batch size is an execution parameter,
+/// never an inventory or result-count ceiling.
 class KingAdaptiveBatchRunner {
   static Future<List<KingProbeResult<R>>> run<T, R>({
     required Iterable<T> items,
