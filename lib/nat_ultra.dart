@@ -2188,8 +2188,9 @@ List<Server> natCurrentTemplateSeeds() =>
 // V7: IP scanning is required by v7 (Layer 1 filter = IP/Port). Set to true.
 bool kNatIpScanOn = true;
 
-final Map<String, String> _cfRangeCursors = {}; // generic/global scan cursor inventory
-final Map<String, String> _natNationalRangeCursors = {}; // isolated National Net cursor inventory
+final Map<String, String> _cfRangeCursors = {}; // generic/global configured-range cursors
+final Map<String, String> _natNationalRangeCursors = {}; // isolated National Net range cursors
+final Map<String, int> _cfIpPoolCursors = {}; // separate cursor for the optional CDN-IP pool
 List<String> _getCfIps({
   int batchSize = 160000,
   // فیکس ۳: داخل isolate مقدار سراسری‌ها (بازه‌های زنده و cursorها) وجود ندارد؛ از
@@ -2202,7 +2203,7 @@ List<String> _getCfIps({
   if (cursors == null) unawaited(refreshCdnRanges());
   final out = <String>[];
   final ranges = liveRanges ?? _liveCdnRanges;
-  final curMap = cursors ?? _cfRangeCursors;
+  final curMap = cursors ?? _cfIpPoolCursors;
   // Cloudflare همچنان اصلی‌ترین استخر است (کانفیگ‌های CDN-fronted معمولاً روی
   // Cloudflare هستند): نیمی از بودجه برای آن، نیم دیگر بین بقیه‌ی CDNها.
   final cfSet = _cfRanges.toSet();
