@@ -2391,6 +2391,8 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn('scanBudget', body)
         self.assertNotIn('timedOut()', body)
         self.assertIn('if (scanNationalMode) ...natNationalIpMemHosts() else ..._goldIps.keys', body)
+        self.assertIn('await natRelayHostsLoad();', body)
+        self.assertIn('if (scanNationalMode) ...natRelayHosts,', body)
         self.assertIn('for (final server in configuredServers)', body)
         self.assertIn('...kAutoSniDomains', body)
         self.assertIn('...frontSnis', body)
