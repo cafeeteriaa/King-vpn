@@ -171,6 +171,11 @@ void main() {
       expect(catalog[KingEngineId.vpnGate]?.role, KingEngineRole.fullDeviceVpn);
       expect(catalog[KingEngineId.ceno]?.role, KingEngineRole.browserNetwork);
       expect(catalog[KingEngineId.byeDpi]?.role, KingEngineRole.localTransport);
+      expect(
+        catalog.all.where((engine) => engine.state == KingIntegrationState.integrated)
+            .map((engine) => engine.id).toList(),
+        [KingEngineId.xray],
+      );
     });
 
     test('allows future engines without a fixed inventory ceiling', () {
