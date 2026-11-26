@@ -1,6 +1,7 @@
 package com.kingvpn.king_vpn
 
 import android.content.Intent
+import android.net.VpnService
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -34,6 +35,33 @@ class MainActivity : FlutterActivity() {
     // it always answered true, even after the app was closed from recents.
     @Volatile private var engineAttached = false
     private var mySink: KingVpnService.StatusSink? = null
+    private var pendingWireGuardConfig: String? = null
+    private var pendingWireGuardResult: MethodChannel.Result? = null
+    private val wireGuardPermissionRequest = 7912
+
+    private fun finishWireGuardConnect(config: String, result: MethodChannel.Result) {
+        Thread {
+            try {
+                val version = kingWireGuardCore().connect(config)
+                runOnUiThread { result.success(mapOf("connected" to true, "version" to version, "core" to "wireguard")) }
+            } catch (t: Throwable) {
+                runOnUiThread { result.error("KING_WIREGUARD_ERROR", t.message ?: t.javaClass.simpleName, t.stackTraceToString()) }
+            }
+        }.start()
+    }
+
+    @Suppress("DEPRECATION")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode != wireGuardPermissionRequest) return
+        val config = pendingWireGuardConfig
+        val result = pendingWireGuardResult
+        pendingWireGuardConfig = null
+        pendingWireGuardResult = null
+        if (config == null || result == null) return
+        if (resultCode == RESULT_OK) finishWireGuardConnect(config, result)
+        else result.error("WIREGUARD_PERMISSION_DENIED", "اجازهٔ ایجاد VPN داده نشد", null)
+    }
 
     private fun kingWireGuardCore(): KingWireGuardCore = KingWireGuardCore.shared(applicationContext)
 
@@ -62,28 +90,41 @@ class MainActivity : FlutterActivity() {
         // ---- Independent core: WireGuard (libwg-go, not an Xray profile) ----
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "king/wireguard")
             .setMethodCallHandler { call, result ->
-                val config = call.argument<String>("config") ?: ""
-                Thread {
-                    try {
-                        when (call.method) {
-                            "connect" -> {
-                                val version = kingWireGuardCore().connect(config)
-                                runOnUiThread { result.success(mapOf("connected" to true, "version" to version, "core" to "wireguard")) }
+                when (call.method) {
+                    "connect" -> {
+                        val config = call.argument<String>("config") ?: ""
+                        try {
+                            val permissionIntent = VpnService.prepare(this)
+                            if (permissionIntent != null) {
+                                if (pendingWireGuardResult != null) {
+                                    result.error("WIREGUARD_PERMISSION_PENDING", "درخواست مجوز قبلی هنوز باز است", null)
+                                } else {
+                                    pendingWireGuardConfig = config
+                                    pendingWireGuardResult = result
+                                    startActivityForResult(permissionIntent, wireGuardPermissionRequest)
+                                }
+                            } else {
+                                finishWireGuardConnect(config, result)
                             }
-                            "disconnect" -> {
+                        } catch (t: Throwable) {
+                            result.error("KING_WIREGUARD_PERMISSION_ERROR", t.message ?: t.javaClass.simpleName, t.stackTraceToString())
+                        }
+                    }
+                    "disconnect", "status" -> Thread {
+                        try {
+                            if (call.method == "disconnect") {
                                 kingWireGuardCore().disconnect()
                                 runOnUiThread { result.success(true) }
-                            }
-                            "status" -> {
+                            } else {
                                 val state = kingWireGuardCore().state()
                                 runOnUiThread { result.success(mapOf("state" to state, "core" to "wireguard")) }
                             }
-                            else -> runOnUiThread { result.notImplemented() }
+                        } catch (t: Throwable) {
+                            runOnUiThread { result.error("KING_WIREGUARD_ERROR", t.message ?: t.javaClass.simpleName, t.stackTraceToString()) }
                         }
-                    } catch (t: Throwable) {
-                        runOnUiThread { result.error("KING_WIREGUARD_ERROR", t.message ?: t.javaClass.simpleName, t.stackTraceToString()) }
-                    }
-                }.start()
+                    }.start()
+                    else -> result.notImplemented()
+                }
             }
 
         // ---- Channel 1: king/vpn (start / stop the own VPN service) ----
