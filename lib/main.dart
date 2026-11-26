@@ -15728,6 +15728,19 @@ ListTile( // KINGEXTRAS row
     );
   }
 
+  Future<void> _openPilotMode() async {
+    if (busy || switching) {
+      _set('یک عملیات در حال اجراست؛ پس از پایان آن دوباره تلاش کن');
+      return;
+    }
+    // Keep the three connection paths independent. The shared picker handles
+    // personal mode itself; online/offline continue through the normal connect path.
+    final proceed = await _askOnlineOfflineMode();
+    if (!mounted || !proceed) return;
+    abort = false;
+    await connect();
+  }
+
   @override
   Widget build(BuildContext context) {
     final u = _usable();
@@ -15800,23 +15813,7 @@ ListTile( // KINGEXTRAS row
             ]),
           ),
         );
-    Widget searchAllRow(VoidCallback onTap) => InkWell(
-          onTap: onTap,
-          child: Container(
-            width: double.infinity,
-            color: const Color(0xFFD9AE55),
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-            child: const Row(children: [
-              Expanded(
-                  child: Text(
-                      '🔍 جستجوی همه • بزن تا بهترین سرور پیدا و وصل شود',
-                      style: TextStyle(fontWeight: FontWeight.bold))),
-              Icon(Icons.play_circle_outline, size: 22),
-            ]),
-          ),
-        );
     final rows = <Object>[];
-    rows.add(searchAllRow(() => unawaited(startLocalPilot().catchError((e) { logError(e); }))));
     groups.forEach((g, l) {
       if (g == 'p:personal') {
         rows.add(_personalHeader());
@@ -15843,7 +15840,7 @@ ListTile( // KINGEXTRAS row
     final waiting = pending.where((s) => !favs.containsKey(s.key)).toList();
     if (waiting.isNotEmpty) {
       rows.add(header('تست‌نشده'));
-      rows.addAll(waiting.take(30));
+      rows.addAll(waiting);
     }
     final el = (searchSw?.elapsedMilliseconds ?? 0) / 1000;
     final rate = el > 0 ? totalTested / el : 0.0;
@@ -16082,6 +16079,23 @@ Container(
         ),
       ),
     ],
+  ),
+),
+Padding(
+  padding: const EdgeInsets.fromLTRB(14, 8, 14, 10),
+  child: SizedBox(
+    width: double.infinity,
+    child: FilledButton.icon(
+      onPressed: (busy || switching) ? null : _openPilotMode,
+      icon: const Icon(Icons.flight_takeoff_rounded),
+      label: const Text('خلبان هوشمند • انتخاب مسیر اتصال'),
+      style: FilledButton.styleFrom(
+        padding: const EdgeInsets.symmetric(vertical: 15),
+        backgroundColor: const Color(0xFFD9AE55),
+        foregroundColor: const Color(0xFF151A20),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      ),
+    ),
   ),
 ),
           if (busy)
