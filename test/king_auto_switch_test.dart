@@ -303,6 +303,15 @@ void main() {
       expect(parser.parse(engineId: KingEngineId.hysteria2, payload: encoded), hasLength(1));
     });
 
+    test('validates sing-box outbound endpoint fields instead of accepting type-only JSON', () {
+      const invalid = '{"outbounds":[{"type":"hysteria2"}]}';
+      const valid = '{"outbounds":[{"type":"hysteria2","server":"vpn.example.org","server_port":443}]}';
+      expect(parser.parse(engineId: KingEngineId.singBox, payload: invalid), isEmpty);
+      final parsed = parser.parse(engineId: KingEngineId.singBox, payload: valid);
+      expect(parsed, hasLength(1));
+      expect(parsed.single.format, KingServerConfigFormat.singBoxJson);
+    });
+
     test('recognizes OpenVPN, WireGuard and AmneziaWG profile files', () {
       const ovpn = 'client\\nremote vpn.example.org 1194\\n';
       const wg = '[Interface]\\nPrivateKey = key\\n[Peer]\\nPublicKey = key\\nEndpoint = vpn.example.org:51820\\n';
