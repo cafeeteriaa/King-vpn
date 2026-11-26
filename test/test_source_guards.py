@@ -2702,5 +2702,16 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('_isWireGuardKey(publicKey)', parser)
 
 
+    def test_amneziawg_detector_covers_current_parameter_families(self):
+        source = (ROOT / 'lib' / 'king_engine_sources.dart').read_text(encoding='utf-8')
+        start = source.index('bool _containsAmneziaParameters')
+        end = source.index('\n\n', start)
+        detector = source[start:end]
+        self.assertIn('S[1-4]', detector)
+        self.assertIn('I[1-5]', detector)
+        self.assertIn('HeaderProtectionKey', detector)
+        self.assertIn('RandomTrailers', detector)
+
+
 if __name__ == '__main__':
     unittest.main()
