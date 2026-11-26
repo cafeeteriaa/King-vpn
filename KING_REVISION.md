@@ -55,6 +55,8 @@ Revision PR: pending creation
 - Updated Persian UI copy and added a source guard against reintroducing the old count limits.
 - Personal-folder persistence still uses SharedPreferences string-list storage and an in-memory cache. This revision removes artificial count gates but does not yet claim robust very-large-inventory persistence or memory-bounded paging; a transactional file-backed migration remains a follow-up.
 - Exact-head CI and device validation are pending.
+- Includes the restored engine catalog/coordinator/source modules required by the repository's engine tests; catalog groundwork does not imply native engine integration.
+- OpenVPN is intentionally absent from the registry, import parser and runtime catalog, consistent with the native-core policy.
 
 ## Mandatory three-pass review protocol
 
