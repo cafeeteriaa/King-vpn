@@ -2438,6 +2438,16 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn("qname != domain.toLowerCase()", dns)
         self.assertIn('allowedOwners.contains(rr.owner)', dns)
 
+    def test_dns_scanner_uses_all_project_domains_and_saved_resolvers(self):
+        dns = (ROOT / 'lib' / 'dns_scanner.dart').read_text(encoding='utf-8')
+        self.assertIn('List<String> dnsxAutoDomains() => dnsxFullDomains();', dns)
+        self.assertIn('...savedDns, ...(scanNationalMode ? kDnsxNationalDefaults : kDnsxDefaults)', dns)
+        self.assertIn('final best = [for (final e in r) e.ip];', dns)
+        self.assertNotIn('savedDns.take(40)', dns)
+        self.assertNotIn('r.take(4)', dns)
+        self.assertIn('...kDnsxGlobalDomains', dns)
+        self.assertIn('...natIrDomains', dns)
+
     def test_matrix_order_is_not_truncated_by_the_old_5000_variant_ceiling(self):
         main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
         nat = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
