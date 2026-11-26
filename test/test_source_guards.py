@@ -2415,6 +2415,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
 
     def test_ip_grafting_preserves_host_and_the_actual_scanned_port(self):
         nip = (ROOT / 'lib' / 'nip_scan.dart').read_text(encoding='utf-8')
+        nat = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
         self.assertIn('String? nipSwapLink(Server t, String ip, {int? port})', nip)
         self.assertIn("j['port'] = port.toString();", nip)
         self.assertIn('u.replace(host: ip, port: port ??', nip)
