@@ -337,13 +337,13 @@ void main() {
     });
 
     test('refreshes OpenVPN relay profiles through the normal source-sync pipeline', () async {
-      const ovpn = 'client\\nproto tcp\\nremote relay.example.org 443\\n';
+      const ovpn = 'client\nproto tcp\nremote relay.example.org 443\n';
       final encoded = base64Encode(utf8.encode(ovpn));
       final csv = [
         '#vpn_servers',
         '#HostName,IP,OpenVPN_ConfigData_Base64,OpenVPN_ConfigData_Base64_UDP,OpenVPN_ConfigData_Base64_TCP',
         'relay,198.51.100.8,,$encoded,',
-      ].join('\\n');
+      ].join('\n');
       final sync = KingServerSourceSync(fetchText: (url) async {
         expect(url, 'https://www.vpngate.net/api/iphone/');
         return csv;
