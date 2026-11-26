@@ -363,7 +363,7 @@ class KingEngineServerSourceCatalog {
       url: 'https://github.com/Au1rxx/free-vpn-subscriptions/raw/main/output/singbox.json',
       kind: KingServerSourceKind.publicSubscription,
       formats: {KingServerConfigFormat.singBoxJson},
-      engineIds: {'sing_box', 'hysteria2', 'shadowsocks'},
+      engineIds: {'sing_box'},
       updateCadence: 'hourly',
       notes: 'Publisher reports hourly refresh and recent HTTP-over-proxy checks; nodes are third-party and untrusted.',
     ),
@@ -395,15 +395,6 @@ class KingEngineServerSourceCatalog {
       engineIds: {'shadowsocks', 'sing_box'},
       updateCadence: 'daily',
       notes: 'Only Shadowsocks-compatible entries should be retained by the parser.',
-    ),
-    KingEngineServerSource(
-      id: 'auto_ovpn_directory',
-      name: '9xN auto-ovpn',
-      url: 'https://api.github.com/repos/9xN/auto-ovpn/contents/configs',
-      kind: KingServerSourceKind.generatedDirectory,
-      formats: {KingServerConfigFormat.openVpnProfile},
-      engineIds: {'openvpn'},
-      notes: 'Auto-generated public OpenVPN profile directory. Directory expansion into individual .ovpn files is a follow-up fetcher step; server availability is not guaranteed.',
     ),
   ];
 
