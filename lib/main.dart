@@ -3660,7 +3660,7 @@ class Server {
 
   String get key {
     if (wireGuard) return 'wireguard:$host:$port';
-    if (singBox) return 'singbox:${Uri.tryParse(link)?.scheme ?? 'unknown'}:$host:$port';
+    if (singBox) return 'singbox:$link';
     return '$host:$port';
   }
 
