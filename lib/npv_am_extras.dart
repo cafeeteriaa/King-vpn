@@ -1576,8 +1576,8 @@ Future<bool> goldAddScans(
       _goldScan[entry.key] = merged.toList();
     }
     // Start persistence immediately after the synchronous cache update.
-    final write = _goldWrite();
-    return await write;
+    await _goldWrite();
+    return true;
   } catch (e, stk) {
     logError(e, stk);
     return false;
@@ -1605,7 +1605,8 @@ Future<bool> goldAddDns(List<DnsxHit> hits, {bool Function()? shouldAbort}) asyn
       changed = true;
     }
     if (!changed) return true;
-    return await _goldWrite();
+    await _goldWrite();
+    return true;
   } catch (e, stk) {
     logError(e, stk);
     return false;
