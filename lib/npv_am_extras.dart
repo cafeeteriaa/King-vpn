@@ -1628,6 +1628,14 @@ Future<void> _goldWrite() {
   return next;
 }
 
+Future<void> goldCommitCleanCandidates() async {
+  _goldCleanRangeCursors
+    ..clear()
+    ..addAll(_goldPendingCleanCursors);
+  _goldCleanRangeIndex = _goldPendingCleanRangeIndex;
+  await goldSave();
+}
+
 Future<void> goldSave() async {
   await goldLoad();
   try {
