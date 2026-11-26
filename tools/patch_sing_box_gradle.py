@@ -2,13 +2,9 @@
 """Align libbox Gradle and reconcile gomobile's shared Go runtime classes."""
 import json
 from pathlib import Path
-# Avoid Kotlin DSL's `java` extension shadowing fully-qualified java.util.zip.
 
 import re
 import sys
-import java.util.zip.ZipEntry
-import java.util.zip.ZipFile
-import java.util.zip.ZipOutputStream
 from urllib.parse import unquote, urlparse
 
 AGP_VERSION = "9.3.1"
@@ -53,6 +49,13 @@ def install_go_runtime_merge(gradle_text):
     marker = "val libboxProperties = Properties().apply {"
     if "prepareLibboxGoRuntimeJar" in gradle_text:
         return gradle_text
+    zip_imports = (
+        "import java.util.zip.ZipEntry\\n"
+        "import java.util.zip.ZipFile\\n"
+        "import java.util.zip.ZipOutputStream\\n"
+    )
+    if "import java.util.zip.ZipFile" not in gradle_text:
+        gradle_text = zip_imports + gradle_text
     task = r'''
 // Both libbox and the existing Xray/V2Ray AAR ship gomobile's shared
 // Go runtime bridge. Keep the bridge already supplied by libv2ray and
