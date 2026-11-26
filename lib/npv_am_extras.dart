@@ -814,7 +814,6 @@ Future<int?> _cfProbeMs(String ip, Duration t) async {
     raw = await Socket.connect(ip, 443, timeout: t);
     k = await SecureSocket.secure(raw,
             host: 'cloudflare.com',
-            onBadCertificate: (_) => true,
             supportedProtocols: const ['http/1.1'])
         .timeout(t);
     k.write(
@@ -1661,7 +1660,7 @@ Future<Map<String, int?>> _goldProbe(List<String> ips) async {
   await pool<String>(ips, 20, (ip) async {
     out[ip] = await _cfProbeMs(ip, const Duration(milliseconds: 3500));
     await Future.delayed(const Duration(milliseconds: 20));
-  }).timeout(const Duration(minutes: 2), onTimeout: () {});
+  });
   return out;
 }
 
