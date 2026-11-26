@@ -11,10 +11,24 @@ import 'package:path_provider/path_provider.dart';
 class FreshResourceStore {
   FreshResourceStore._();
 
-  static const int maxEntries = 20000;
   static const String directoryName = 'KingVPN/ResourcesFresh';
   static const String _configFileName = 'configs.txt';
   static const String _metadataFileName = 'metadata.json';
+
+  // Serialize all mutations so concurrent imports and clears cannot overwrite
+  // one another or race on the same temporary file.
+  static Future<void> _mutationQueue = Future<void>.value();
+
+  static Future<T> _serializeMutation<T>(
+    Future<T> Function() action,
+  ) {
+    final operation = _mutationQueue.then<T>((_) => action());
+    _mutationQueue = operation.then<void>(
+      (_) {},
+      onError: (Object error, StackTrace stackTrace) {},
+    );
+    return operation;
+  }
 
   static Future<Directory> directory() async {
     final root = await getApplicationSupportDirectory();
@@ -28,10 +42,11 @@ class FreshResourceStore {
 
   static Future<String> get storagePath async => (await directory()).path;
 
-  /// Accept only known importable V2Ray URI schemes; reject arbitrary text.
+  /// Accept supported importable V2Ray URI schemes without an arbitrary
+  /// per-link size ceiling. Unsupported schemes remain rejected.
   static String? normalizeLink(String value) {
-    final link = value.trim().replaceAll('\r', '');
-    if (link.isEmpty || link.length > 65536) return null;
+    final link = value.trim().replaceAll('\\r', '');
+    if (link.isEmpty) return null;
     final lower = link.toLowerCase();
     if (!(lower.startsWith('vless://') ||
         lower.startsWith('vmess://') ||
@@ -45,58 +60,84 @@ class FreshResourceStore {
     return link;
   }
 
+  /// Deduplicates supported links while retaining every distinct entry.
+  /// Available device storage is the natural persistence boundary.
   static List<String> normalizeLinks(Iterable<String> values) {
     final seen = <String>{};
     final result = <String>[];
     for (final value in values) {
       final link = normalizeLink(value);
       if (link == null) continue;
-      final key = link.toLowerCase();
-      if (seen.add(key)) result.add(link);
-      if (result.length >= maxEntries) break;
+      if (seen.add(link.toLowerCase())) result.add(link);
     }
     return result;
   }
 
+  static Future<List<String>> _readLinksUnlocked() async {
+    final file = await _configFile();
+    if (!await file.exists()) return <String>[];
+    return normalizeLinks(await file.readAsLines());
+  }
+
   static Future<List<String>> readLinks() async {
     try {
-      final file = await _configFile();
-      if (!await file.exists()) return <String>[];
-      return normalizeLinks(await file.readAsLines());
+      // Readers see the previous or next complete snapshot, never a partially
+      // written file, because writers replace the file using same-dir rename.
+      return await _readLinksUnlocked();
     } catch (_) {
       return <String>[];
     }
   }
 
-  /// Replaces the snapshot atomically, so an interrupted write keeps the
-  /// previous usable resource file intact.
-  static Future<int> saveSnapshot(
+  static Future<void> _writeAtomically(File target, String contents) async {
+    final temp = File('${target.path}.tmp');
+    await temp.writeAsString(contents, flush: true);
+    // On Android, same-directory rename atomically replaces the destination.
+    // If rename fails, the previous file remains intact.
+    await temp.rename(target.path);
+  }
+
+  static Future<int> _saveSnapshotUnlocked(
     Iterable<String> links, {
-    String source = 'online',
+    required String source,
   }) async {
     final normalized = normalizeLinks(links);
     final file = await _configFile();
-    final temp = File('${file.path}.tmp');
-    await temp.writeAsString(
-      normalized.join('\n') + (normalized.isEmpty ? '' : '\n'),
-      flush: true,
+    await _writeAtomically(
+      file,
+      normalized.join('\\n') + (normalized.isEmpty ? '' : '\\n'),
     );
-    if (await file.exists()) await file.delete();
-    await temp.rename(file.path);
+
     final metadata = File('${(await directory()).path}/$_metadataFileName');
-    await metadata.writeAsString(jsonEncode(<String, Object>{
+    final metadataJson = jsonEncode(<String, Object>{
       'schema': 1,
       'source': source,
       'count': normalized.length,
       'updatedAt': DateTime.now().toUtc().toIso8601String(),
-    }), flush: true);
+    });
+    await _writeAtomically(metadata, metadataJson);
     return normalized.length;
   }
 
-  /// Merges newly discovered links with the existing offline cache.
-  static Future<int> merge(Iterable<String> links, {String source = 'online'}) async {
-    final old = await readLinks();
-    return saveSnapshot(<String>[...old, ...links], source: source);
+  static Future<int> saveSnapshot(
+    Iterable<String> links, {
+    String source = 'online',
+  }) {
+    return _serializeMutation(
+      () => _saveSnapshotUnlocked(links, source: source),
+    );
+  }
+
+  /// The complete read/merge/write operation is serialized as one transaction,
+  /// preventing simultaneous imports from losing each other's additions.
+  static Future<int> merge(
+    Iterable<String> links, {
+    String source = 'online',
+  }) {
+    return _serializeMutation(() async {
+      final old = await _readLinksUnlocked();
+      return _saveSnapshotUnlocked(<String>[...old, ...links], source: source);
+    });
   }
 
   static Future<Map<String, Object?>> metadata() async {
@@ -109,10 +150,14 @@ class FreshResourceStore {
     return <String, Object?>{};
   }
 
-  static Future<void> clear() async {
-    final file = await _configFile();
-    if (await file.exists()) await file.delete();
-    final metadata = File('${(await directory()).path}/$_metadataFileName');
-    if (await metadata.exists()) await metadata.delete();
+  /// Clears only this cache; personal servers and national IP data are separate.
+  static Future<void> clear() {
+    return _serializeMutation(() async {
+      final file = await _configFile();
+      if (await file.exists()) await file.delete();
+      final metadata =
+          File('${(await directory()).path}/$_metadataFileName');
+      if (await metadata.exists()) await metadata.delete();
+    });
   }
 }
