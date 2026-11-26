@@ -53,6 +53,7 @@ class LibboxDependencyGuard(unittest.TestCase):
         self.assertIn("import java.util.zip.ZipFile", patch)
         self.assertIn("import java.util.zip.ZipOutputStream", patch)
         self.assertIn("import java.util.zip.ZipEntry", patch)
+        self.assertIn("current = current.toURI().resolve(location).toURL()", patch)
 
     def test_gradle_zip_imports_are_emitted_as_real_lines(self):
         import importlib.util
@@ -70,6 +71,11 @@ class LibboxDependencyGuard(unittest.TestCase):
         expected = "import java.util.zip.ZipEntry\nimport java.util.zip.ZipFile\nimport java.util.zip.ZipOutputStream\n"
         self.assertTrue(patched.startswith(expected))
         self.assertNotIn("ZipEntry\\nimport", patched)
+        existing_zipfile = "import java.util.zip.ZipFile\\n" + gradle
+        patched_existing = module.install_go_runtime_merge(existing_zipfile)
+        self.assertEqual(patched_existing.count("import java.util.zip.ZipFile"), 1)
+        self.assertIn("import java.util.zip.ZipEntry\\n", patched_existing)
+        self.assertIn("import java.util.zip.ZipOutputStream\\n", patched_existing)
 
     def test_third_party_license_and_build_provenance_exist(self):
         folder = ROOT / "licenses" / "sing_box"
