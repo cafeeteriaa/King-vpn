@@ -1484,7 +1484,6 @@ extension NpvAmExtras on _HomePageState {
   }
 }
 
-const int kGoldDailyProbes = 250000;
 const int kGoldRetestBatch = 500;
 const int kGoldEveryMin = 5;
 const int kGoldRetestHours = 24;
@@ -1509,22 +1508,7 @@ final Map<String, int> _goldDns = {};
 final Map<String, List<String>> _goldScan = {};
 bool _goldRunning = false;
 Timer? _goldTimer;
-String _goldDay = '';
 int _goldCnt = 0;
-
-String _goldToday() {
-  final n = DateTime.now();
-  return '${n.year}-${n.month}-${n.day}';
-}
-
-int _goldBudgetLeft() {
-  final d = _goldToday();
-  if (_goldDay != d) {
-    _goldDay = d;
-    _goldCnt = 0;
-  }
-  return kGoldDailyProbes - _goldCnt;
-}
 
 Future<void>? _goldLoadF;
 
@@ -1570,7 +1554,6 @@ Future<void> _goldLoadOnce() async {
     for (final e in (m['scan'] as Map? ?? const {}).entries) {
       _goldScan[e.key.toString()] = [for (final x in (e.value as List)) x.toString()];
     }
-    _goldDay = (m['day'] ?? '').toString();
     _goldCnt = (m['cnt'] as num? ?? 0).toInt();
     if (!await file.exists()) {
       await _goldWrite();
@@ -1594,7 +1577,6 @@ String _goldEncode() => jsonEncode({
       ],
       'dns': [for (final e in _goldDns.entries) [e.key, e.value]],
       'scan': _goldScan,
-      'day': _goldDay,
       'cnt': _goldCnt,
     });
 
@@ -1752,13 +1734,12 @@ Future<Map<String, int?>> _goldProbe(List<String> ips) async {
 Future<void> _goldIpStep() async {
   if (nationalMode) return;
   final nowMs = DateTime.now().millisecondsSinceEpoch;
-  var left = _goldBudgetLeft();
-  if (left <= 0) return;
   final retestMs = kGoldRetestHours * 3600 * 1000;
 
+  // This is a per-tick work batch, not a daily or lifetime inventory quota.
   final due = _goldIps.values
       .where((v) => nowMs - v.testAt >= retestMs)
-      .take(left < kGoldRetestBatch ? left : kGoldRetestBatch)
+      .take(kGoldRetestBatch)
       .map((v) => v.ip)
       .toList();
   if (due.isNotEmpty) {
@@ -1776,14 +1757,11 @@ Future<void> _goldIpStep() async {
       }
     }
     _goldCnt += due.length;
-    left -= due.length;
   }
 
-  if (left <= 0) return;
   final cands = await _cleanCandidates();
   final batch = cands
       .where((ip) => !_goldIps.containsKey(ip))
-      .take(left < 240 ? left : 240)
       .toList();
   if (batch.isEmpty) return;
   final r = await _goldProbe(batch);
@@ -1796,7 +1774,7 @@ Future<void> _goldIpStep() async {
     }
   }
   _goldCnt += batch.length;
-  dbg('گلد: IP تازه $found از ${batch.length} • پوشه ${_goldIps.length} • امروز $_goldCnt/$kGoldDailyProbes');
+  dbg('گلد: IP تازه $found از ${batch.length} • پوشه ${_goldIps.length} • مجموع آزمون‌ها $_goldCnt');
 }
 
 Future<void> _goldSrvStep(_HomePageState h) async {
