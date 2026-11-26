@@ -88,10 +88,10 @@ class KingNetworkEngineCatalog {
     ),
     KingEngineDescriptor(
       id: 'psiphon', name: 'Psiphon', role: KingEngineRole.fullDeviceVpn,
-      state: KingIntegrationState.integrationPathVerified, priority: 5,
-      summary: 'هسته رسمی Android library/AAR دارد؛ باید lifecycle و TUN با سرویس مشترک KING هماهنگ و مجوز نسخه pin‌شده بررسی شود.',
-      sourceUrl: 'https://github.com/Psiphon-Inc/psiphon-tunnel-core',
-      requiresSeparateVpnOwner: true,
+      state: KingIntegrationState.sourceAndLicenseReviewRequired, priority: 5,
+      summary: 'کتابخانه رسمی Android AAR دارد، اما upstream آن GPL-3.0 است؛ ادغام فقط پس از تصمیم مجوز/انتشار، pin نسخه و طراحی adapter مجاز است.',
+      sourceUrl: 'https://github.com/Psiphon-Labs/psiphon-tunnel-core',
+      license: 'GPL-3.0', requiresSeparateVpnOwner: true,
     ),
     KingEngineDescriptor(
       id: 'tor', name: 'Tor', role: KingEngineRole.overlayNetwork,
@@ -122,9 +122,9 @@ class KingNetworkEngineCatalog {
     KingEngineDescriptor(
       id: 'lantern', name: 'Lantern', role: KingEngineRole.fullDeviceVpn,
       state: KingIntegrationState.sourceAndLicenseReviewRequired, priority: 38,
-      summary: 'محصول ضدسانسور؛ وجود هسته Android قابل‌توزیع و رابط embedding نگهداری‌شده باید از upstream تأیید شود.',
-      sourceUrl: 'https://github.com/getlantern',
-      requiresSeparateVpnOwner: true,
+      summary: 'Lantern Core به‌صورت Go/gomobile AAR ساخته می‌شود، اما کد upstream GPL-3.0 است و سرویس VPN اختصاصی دارد؛ بررسی مجوز و جداسازی مالکیت TUN لازم است.',
+      sourceUrl: 'https://github.com/getlantern/lantern',
+      license: 'GPL-3.0', requiresSeparateVpnOwner: true,
     ),
     KingEngineDescriptor(
       id: 'avira_phantom', name: 'Avira Phantom VPN', role: KingEngineRole.externalService,
