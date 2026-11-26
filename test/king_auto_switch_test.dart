@@ -156,8 +156,8 @@ void main() {
       expect(alternatives, hasLength(12));
       expect(alternatives.map((engine) => engine.id).toSet(), {
         KingEngineId.calyxVpn,
-        KingEngineId.riseupVpn,
-        KingEngineId.vpnBook,
+        KingEngineId.hysteria2,
+        KingEngineId.singBox,
         KingEngineId.nthLink,
         KingEngineId.tor,
         KingEngineId.i2p,
@@ -181,8 +181,8 @@ void main() {
       final catalog = KingNetworkEngineCatalog();
       expect(catalog[KingEngineId.byeDpi]?.role, KingEngineRole.localTransport);
       expect(catalog[KingEngineId.powerTunnel]?.role, KingEngineRole.localTransport);
-      expect(catalog[KingEngineId.riseupVpn]?.requiresSeparateVpnOwner, isTrue);
-      expect(catalog[KingEngineId.vpnBook]?.requiresProviderBackend, isTrue);
+      expect(catalog[KingEngineId.hysteria2]?.requiresSeparateVpnOwner, isTrue);
+      expect(catalog[KingEngineId.singBox]?.requiresSeparateVpnOwner, isTrue);
     });
 
     test('allows future engines without a fixed inventory ceiling', () {
