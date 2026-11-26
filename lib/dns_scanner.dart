@@ -439,6 +439,15 @@ extension DnsxExt on _HomePageState {
                 upd(() => note = 'اسکن متوقف شد؛ نتایج ذخیره نشد.');
                 return;
               }
+              if (scanNationalMode) {
+                await natNationalDomMemLoad();
+              } else {
+                await natDomMemLoad();
+              }
+              if (stopFlag || !sheetOpen || nationalMode != scanNationalMode) {
+                upd(() => note = 'اسکن متوقف شد؛ نتایج ناقص ذخیره نشد.');
+                return;
+              }
               final defaults = scanNationalMode ? kDnsxNationalDefaults : kDnsxDefaults;
               final list = {...saved, ...defaults, ...extra}.toList(growable: false);
               upd(() => total = list.length);
