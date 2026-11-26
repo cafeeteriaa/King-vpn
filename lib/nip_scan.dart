@@ -422,11 +422,17 @@ extension NipHunt on _HomePageState {
       // National Net discovery reads only its own persisted inventory,
       // user-entered relay IPs and endpoints present in National Net profiles.
       await natNationalIpMemLoad();
+      await natNationalDomMemLoad();
       await natRelayHostsLoad();
       final savedIps = <String>{
         ...natNationalIpMemHosts(),
         ...natRelayHosts,
       };
+      for (final entry in natNationalDomMem) {
+        if (abort) return false;
+        final host = (entry['h'] ?? '').toString().trim();
+        if (host.isNotEmpty) savedIps.addAll(await nipResolveAll(host));
+      }
       for (final server in templates) {
         if (abort) return false;
         if (server.isIp) {
