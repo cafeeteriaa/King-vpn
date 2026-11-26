@@ -8372,7 +8372,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         lastState = 'CONNECTED';
         kVpnLastStateTop = 'CONNECTED';
         tunWarn = false;
-        dbg('KING CORE: sing-box/libbox UP • ${await KingSingBoxCore.instance.version()}');
+        dbg('KING CORE: sing-box/libbox UP');
         return true;
       } catch (sbError, sbStack) {
         logError(sbError, sbStack);
