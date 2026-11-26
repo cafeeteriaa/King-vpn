@@ -65,7 +65,7 @@ class _FreshResourcesPageState extends State<FreshResourcesPage> {
       _importController.clear();
       await _refresh();
       if (mounted) {
-        setState(() => _message = 'ذخیره انجام شد؛ تعداد کل منابع: $total (تغییر خالص: ${total - before}).');
+        setState(() => _message = 'ذخیره انجام شد؛ تعداد کل منابع: ${total} (تغییر خالص: ${total - before}).');
       }
     } catch (error) {
       if (mounted) setState(() => _message = 'ذخیره انجام نشد: $error');
@@ -74,7 +74,7 @@ class _FreshResourcesPageState extends State<FreshResourcesPage> {
 
   Future<void> _copyAll() async {
     if (_links.isEmpty) return;
-    await Clipboard.setData(ClipboardData(text: _links.join('\\n')));
+    await Clipboard.setData(ClipboardData(text: _links.join('\n')));
     if (mounted) setState(() => _message = 'لینک همه منابع کپی شد.');
   }
 
@@ -147,7 +147,7 @@ class _FreshResourcesPageState extends State<FreshResourcesPage> {
               textDirection: TextDirection.ltr,
               decoration: const InputDecoration(
                 labelText: 'افزودن کانفیگ‌ها (هر لینک در یک خط)',
-                hintText: 'vless://...\\nvmess://...',
+                hintText: 'vless://...\nvmess://...',
                 border: OutlineInputBorder(),
               ),
             ),
@@ -158,7 +158,7 @@ class _FreshResourcesPageState extends State<FreshResourcesPage> {
             if (_busy) const Padding(padding: EdgeInsets.all(12), child: Center(child: CircularProgressIndicator())),
             if (_message.isNotEmpty) Padding(padding: const EdgeInsets.all(8), child: Text(_message)),
             const SizedBox(height: 8),
-            Text('ظرفیت داخلی پوشه: حداکثر ${FreshResourceStore.maxEntries} کانفیگ. هر کانفیگ قبل از ذخیره از نظر قالب لینک بررسی می‌شود.'),
+            const Text('تعداد منابع سقف ثابت ندارد؛ لینک‌های دارای طرح پشتیبانی‌شده نگهداری می‌شوند.'),
           ],
         ),
       ),
