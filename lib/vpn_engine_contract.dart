@@ -303,36 +303,47 @@ class KingVpnEngineCoordinator {
         throw StateError('Engine $engineId is not installed or initialized');
       }
 
-      final previousId = _activeEngineId;
-      if (previousId != null && previousId != engineId) {
-        final previous = _adapters[previousId];
-        if (previous != null) await previous.stop();
-        _activeEngineId = null;
-      }
+      var startAttempted = false;
+      try {
+        final previousId = _activeEngineId;
+        if (previousId != null) {
+          final previous = _adapters[previousId];
+          if (previous != null) await previous.stop();
+          _activeEngineId = null;
+        }
 
-      await adapter.prepare();
-      await adapter.start(request);
-      _activeEngineId = engineId;
+        await adapter.prepare();
+        startAttempted = true;
+        await adapter.start(request);
+        _activeEngineId = engineId;
 
-      final health = await adapter.checkHealth();
-      if (!health.operational) {
-        await adapter.stop();
-        _activeEngineId = null;
+        final health = await adapter.checkHealth();
+        if (!health.operational) {
+          await adapter.stop();
+          _activeEngineId = null;
+          return KingEngineSession(
+            engineId: engineId,
+            state: KingEngineState.degraded,
+            health: health,
+          );
+        }
+
         return KingEngineSession(
           engineId: engineId,
-          state: KingEngineState.degraded,
+          state: KingEngineState.connected,
           health: health,
         );
+      } catch (_) {
+        if (startAttempted) {
+          try {
+            await adapter.stop();
+          } catch (_) {
+            // Preserve the original startup/health error; adapter logs stop failure.
+          }
+        }
+        _activeEngineId = null;
+        rethrow;
       }
-
-      return KingEngineSession(
-        engineId: engineId,
-        state: KingEngineState.connected,
-        health: health,
-      );
-    } catch (_) {
-      if (_activeEngineId == engineId) _activeEngineId = null;
-      rethrow;
     } finally {
       _transitioning = false;
     }
