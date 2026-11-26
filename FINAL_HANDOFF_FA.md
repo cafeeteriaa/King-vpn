@@ -4,7 +4,7 @@
 - مخزن: `cafeeteriaa/King-vpn`
 - شاخهٔ توسعه: `fix/revision-58-network-identity-fragmentation-20261126`
 - PR: شمارهٔ 58
-- commit جاری شاخه: `10c99af7d8e7b3e17684bd88929e09b19467add6`
+- commit جاری شاخه: `50af0a9c9ee151eb6ae9bc299fcb55659e042f23` (آخرین تغییر اجرایی: `4e1e736b...`)
 
 ## معماری واقعی
 - موتور تونل اجرایی این نسخه `flutter_v2ray_client 3.5.0` با Xray/V2Ray است. NNIE و National Engine موتور تونل مستقل نیستند؛ وظیفهٔ آن‌ها تحلیل شواهد و انتخاب مسیر است.
