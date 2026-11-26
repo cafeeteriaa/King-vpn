@@ -50,6 +50,11 @@ class LibboxDependencyGuard(unittest.TestCase):
         self.assertIn("prepareLibboxGoRuntimeJar", patch)
         self.assertIn("libboxGoRuntimeJar", patch)
         self.assertIn("Refusing an unsafe merge", patch)
+        self.assertIn("import java.util.zip.ZipFile", patch)
+        self.assertIn("import java.util.zip.ZipOutputStream", patch)
+        self.assertIn("import java.util.zip.ZipEntry", patch)
+        self.assertIn("current.toURI().resolve(location).toURL()", patch)
+        self.assertNotIn("URL(current, location)", patch)
 
     def test_third_party_license_and_build_provenance_exist(self):
         folder = ROOT / "licenses" / "sing_box"
