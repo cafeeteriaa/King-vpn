@@ -1117,7 +1117,6 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
             }
         }
     
-        }
     }
 
     private boolean loadState() {
