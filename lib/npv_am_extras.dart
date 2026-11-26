@@ -1425,7 +1425,7 @@ extension NpvAmExtras on _HomePageState {
                     child: ListView(
                       shrinkWrap: true,
                       children: [
-                        for (final e in cleanIps.take(10))
+                        for (final e in cleanIps)
                           Directionality(
                             textDirection: TextDirection.ltr,
                             child: Text('${e.ip}    ${e.ms} ms'),
