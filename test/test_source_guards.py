@@ -1359,7 +1359,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('Build.VERSION.SDK_INT >= Build.VERSION_CODES.O', service)
         stop = service[service.index('if (ACTION_STOP.equals(action))'):
                        service.index('if (!ACTION_START.equals(action))')]
-        self.assertLess(stop.index('startForegroundSafe('), stop.index('requestStop()'))
+        self.assertLess(stop.index('startForegroundSafe('), stop.index('requestStop(true)'))
 
     def test_vpn_service_promotes_before_queuing_sticky_restart_or_stop(self):
         service = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
@@ -1384,7 +1384,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('return true;', service[service.index('private boolean updateNotification'):])
         self.assertIn('return false;', service[service.index('private boolean updateNotification'):])
         self.assertLess(restart.index('if (!startForegroundSafe('), restart.index('submit(this::resumeSaved)'))
-        self.assertIn('requestStop();', restart)
+        self.assertIn('requestStop(false);', restart)
         self.assertIn('submit(this::stopEverything);', restart)
         self.assertLess(action_start.index('if (!startForegroundSafe(first.remark))'),
                         action_start.index('submit(() -> startFlow(first, backups, attempt))'))
