@@ -2531,6 +2531,24 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('_hotCursorOffset = offset;', nat)
         self.assertIn('await for (final _ in file', nat)
 
+    def test_gold_inventory_is_file_backed_complete_and_keeps_historical_records(self):
+        gold = (ROOT / 'lib' / 'npv_am_extras.dart').read_text(encoding='utf-8')
+        self.assertIn('king_vpn_gold_inventory.json', gold)
+        self.assertIn('await temp.writeAsString(_goldEncode(), flush: true)', gold)
+        self.assertNotIn('kGoldIpCap', gold)
+        self.assertNotIn('kGoldSrvCap', gold)
+        self.assertNotIn('_goldTrimIps', gold)
+        self.assertNotIn('_goldTrimSrv', gold)
+        self.assertNotIn('cleanIps.take(10)', gold)
+        self.assertNotIn('srvL.take(200)', gold)
+        self.assertNotIn('ipL.take(200)', gold)
+        self.assertNotIn('dnsL.take(200)', gold)
+        self.assertNotIn('want: 1000', gold)
+        self.assertNotIn('budget: Duration(minutes: userAddrs.length', gold)
+        self.assertNotIn('timeout(const Duration(minutes: 2)', gold)
+        self.assertIn('v.testAt = nowMs;', gold)
+        self.assertIn('await _goldWrite();', gold)
+
     def test_matrix_order_is_not_truncated_by_the_old_5000_variant_ceiling(self):
         main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
         nat = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
