@@ -10,21 +10,25 @@ Psiphon بهترین گزینهٔ فعلی برای مسیر «VPN ضدسانس�
 - هسته: https://github.com/Psiphon-Labs/psiphon-tunnel-core
 - کلاینت Android: https://github.com/Psiphon-Inc/psiphon-android
 - کتابخانهٔ Android: https://github.com/Psiphon-Labs/psiphon-tunnel-core-Android-library
-- راهنمای رسمی کتابخانه: https://github.com/Psiphon-Labs/psiphon-tunnel-core/blob/v2.0.42/MobileLibrary/Android/README.md
+- راهنمای رسمی کتابخانه: https://github.com/Psiphon-Labs/psiphon-tunnel-core/blob/v2.0.43/MobileLibrary/Android/README.md
 - مجوز هسته: GPL-3.0؛ مجوز و notices تمام اجزای بستهٔ AAR و dependencyها باید جداگانه ثبت و بررسی شوند.
+
+## آخرین نسخهٔ پایدار رسمی (ممیزی 2026-11-26)
+
+آخرین release پایدار رسمی در زمان این ممیزی `v2.0.43` است (منتشرشده در 2026-11-17). نسخهٔ `v2.0.42` که در پیش‌نویس قبلی آمده بود قدیمی بود و جایگزین شد.
 
 ## نسخه‌های upstream پین‌شده
 
-- Psiphon tunnel-core release: `v2.0.42`
-- commit هسته: `c4a09096ab401b57f52e092c8f2f829c8fac7628`
-- مخزن Android Maven library، tag: `v2.0.42`
-- commit مخزن Android library: `a53e1d1d040020d21caaf2ded520b72d1644dd6f`
+- Psiphon tunnel-core release: `v2.0.43`
+- commit هسته: `66e249dde58a8f90fed17d3773d987942f100425`
+- مخزن Android Maven library، tag: `v2.0.43`
+- commit مخزن Android library: `7ba832f9d693b69889e6c1582dac2d3e5b51e6ad`
 - مختصات AAR رسمی: `ca.psiphon:psiphontunnel:2.0.42`
-- مخزن Maven نسخه‌دار: `https://raw.githubusercontent.com/Psiphon-Labs/psiphon-tunnel-core-Android-library/v2.0.42`
-- SHA-1 منتشرشده برای AAR: `35f720be52382da0de88f8058f2ff187747a38fd`
-- SHA-256 آرشیو رسمی Android Library در release: `63559428a04f5f2aa2ed6004eaaa99fbd7ad3e23ff5a89306d486f6d07ea189f`
+- مخزن Maven نسخه‌دار: `https://raw.githubusercontent.com/Psiphon-Labs/psiphon-tunnel-core-Android-library/v2.0.43`
+- SHA-1 منتشرشده برای AAR: `c5adb96568633b828c9d9e9d88d98a32fe3f89ca`
+- SHA-256 آرشیو رسمی Android Library در release: `6ad02dfa8fd98173f6aaaf89258b3eb69953c81ab61b1f32604bd2c2f68750b5`
 
-از شاخهٔ شناور `master` یا نسخهٔ بدون pin استفاده نشود.
+از شاخهٔ شناور `master` یا نسخهٔ بدون pin استفاده نشود. قبل از ادغام واقعی، latest release دوباره از GitHub بررسی و checksum AAR نهایی نیز جداگانه ثبت شود.
 
 ## یافتهٔ مهم معماری Android
 
