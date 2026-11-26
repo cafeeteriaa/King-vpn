@@ -316,14 +316,14 @@ void main() {
     });
 
     test('imports all valid OpenVPN variants from the official VPN Gate CSV directory', () {
-      const ovpn = 'client\\nproto udp\\nremote vpn.example.org 1194\\n';
+      const ovpn = 'client\nproto udp\nremote vpn.example.org 1194\n';
       final encoded = base64Encode(utf8.encode(ovpn));
       final payload = [
         '#vpn_servers',
         '#HostName,IP,OpenVPN_ConfigData_Base64,OpenVPN_ConfigData_Base64_UDP,OpenVPN_ConfigData_Base64_TCP',
         '"Relay, Amsterdam",203.0.113.10,$encoded,,$encoded',
         'invalid,203.0.113.11,not-base64,,',
-      ].join('\\n');
+      ].join('\n');
       final profiles = parser.parse(
         engineId: KingEngineId.openVpn,
         payload: payload,
