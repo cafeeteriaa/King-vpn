@@ -330,6 +330,7 @@ static void _resetCoreDeadStreak() { _atCoreDeadStreak = 0; }
     try {
       if (!natHotReady()) unawaited(natHotEnsure(force: true));
       final steps = <(String, Future<void> Function())>[
+        ('تشخیص اولیهٔ شبکه', () async { await _atEnsureDisconnected(); await _atScenarioNational(); }),
         (_atItemNames[0], _atItemGlobal),
         (_atItemNames[1], _atItemFolder),
         (_atSearchName, _atItemNational),
@@ -422,9 +423,9 @@ static void _resetCoreDeadStreak() { _atCoreDeadStreak = 0; }
     }
     _atVerdict = _atNatDiagnosis(); // NATONLY
     final buf = StringBuffer();
-    buf.writeln('===== گزارش تست خودکار نت ملی (۹۰ دقیقه) =====');
+    buf.writeln('===== گزارش جامع تست خودکار KING VPN =====');
     buf.writeln('مدت: ${min}m ${sec}s • دلیل پایان: $reason');
-    buf.writeln('نمونه‌های ثبت‌شده (حداکثر ۵۰۰): ${_samples.length}');
+    buf.writeln('نمونه‌های ثبت‌شده: ${_samples.length}');
     // TOPACTIONS: the three most important findings first, each with its first action
     const atPriority = ['ABORT-STUCK', 'TIMEOUT', 'SWITCH-FLAG-STUCK', 'SWITCH-STUCK', 'BG-BUSY',
         'BUSY-STUCK', 'CONNECT-HANG', 'STABLE-NODATA', 'PLUGIN-SWALLOW', 'XRAY-NOLOG', 'PILOT-FLAP'];
@@ -1776,6 +1777,7 @@ static void _resetCoreDeadStreak() { _atCoreDeadStreak = 0; }
     await connect(); // Triggers V13 logic, returns on first server
 
     final tStart = DateTime.now();
+    var lastIdleRestart = DateTime.fromMillisecondsSinceEpoch(0);
 
     while (_phase == _AtPhase.running && !_abortRequested) {
       final elapsed = DateTime.now().difference(tStart);
@@ -1790,13 +1792,20 @@ static void _resetCoreDeadStreak() { _atCoreDeadStreak = 0; }
 
       if (!searching && !busy && connected && pending.isNotEmpty) {
         unawaited(_standbyRun());
+      } else if (!searching && !busy && !connected &&
+          DateTime.now().difference(lastIdleRestart) >= const Duration(seconds: 15)) {
+        // Re-enter the ordinary search path when the previous pass becomes idle.
+        // This cadence is not a total test or source-inventory cutoff.
+        lastIdleRestart = DateTime.now();
+        await connect();
       }
 
       await Future<void>.delayed(const Duration(seconds: 3));
     }
 
-    _itemResult[name] = '✅ جستجو تمام شد • '
-        'سالم: ${good.length} • تست‌شده: $natIpTested • باز: $natIpFound';
+    _itemResult[name] = _abortRequested
+        ? '⏹ جستجو با درخواست توقف متوقف شد • سالم: ${good.length} • تست‌شده: $natIpTested • باز: $natIpFound'
+        : '✅ جستجو تمام شد • سالم: ${good.length} • تست‌شده: $natIpTested • باز: $natIpFound';
   }
 
   /// NATMODES: هر سطح ماتریس نت ملی جدا با سقف ۴ دقیقه؛ نتیجه‌ی هر سطح ثبت می‌شود
