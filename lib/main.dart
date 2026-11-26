@@ -16,6 +16,7 @@ import 'package:flutter/foundation.dart' show compute, ValueListenable;
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_v2ray_client/flutter_v2ray.dart';
@@ -11341,7 +11342,7 @@ ListTile( // KINGEXTRAS row
                     ...pending,
                     ..._resMap.values.map((entry) => entry.s),
                   ],
-            frontSnis: natFrontSnis,
+            frontSnis: natFrontSnis(),
           );
       } else if (command.contains('ip تمیز') || command.contains('آی پی تمیز')) {
         cleanIpDialog();
