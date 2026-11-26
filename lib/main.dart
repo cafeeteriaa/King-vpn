@@ -7726,7 +7726,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           dbg('NATVERIFY: سقف زمان تأیید تونل (${kNatVerifyBudget.inMinutes} دقیقه) در این تپ تمام شد؛ نردبان برای ${s.name} اجرا نشد');
         } else if (!natOk && wantVpn && !abort) {
           await _stopCore();
-          natOk = await _natLadder(s, socialGate: _tunnelTrafficOk, maxTries: 6);
+          natOk = await _natLadder(s, socialGate: _tunnelTrafficOk);
         } else if (!natOk && !wantVpn) {
           natOk = true; // جستجوی بی‌اتصال: رفتار قبلی (فقط پینگ) حفظ شود
         }
@@ -8786,7 +8786,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   // tunnel. Expanded for ultraMode: tries many more ranked variants so a
   // server that almost works is not discarded after one failed traffic check.
   Future<bool> _natLadder(Server s,
-      {Future<bool> Function()? socialGate, int? maxTries}) async {
+      {Future<bool> Function()? socialGate}) async {
     // NATONLYLADDER: نردبان حالت‌ها فقط در نت ملی اجرا می‌شود
     if (!nationalMode) return false;
     if (abort || !wantVpn) return false; // FIXLADDERABORT: قبل از هر کار سنگین
@@ -8810,14 +8810,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     }
     try {
       final tried = <int>{first};
-      final takeN = maxTries ??
-          (nationalMode ? 6 : (ultraMode ? 6 : 3));
       final cand = _natOrder(s, full: true)
           .where((c) => c < _natCodeBase)
           .where((c) =>
               !nationalMode || socialGate == null || _atIsSubst(c))
           .where((v) => tried.add(v))
-          .take(takeN)
           .toList();
       for (final v in cand) {
         if (abort || !wantVpn) break;
@@ -9163,7 +9160,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           if (!abort && wantVpn && _ladderUsedThisConnect < 2) {
             _ladderUsedThisConnect++;
             final ladderOk = await _natLadder(s,
-                socialGate: _tunnelTrafficOk, maxTries: 3);
+                socialGate: _tunnelTrafficOk);
             if (abort || !wantVpn) {
               _nnieClearAttempt(s);
               return false;
@@ -9252,7 +9249,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             _ladderUsedThisConnect++;
             await _stopV2();
             ladderOk = await _natLadder(s,
-                socialGate: _tunnelTrafficOk, maxTries: 3);
+                socialGate: _tunnelTrafficOk);
             if (abort) return false;
           }
           if (ladderOk) {
