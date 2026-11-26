@@ -187,8 +187,8 @@ static void _resetCoreDeadStreak() { _atCoreDeadStreak = 0; }
     }
     // GROUPED: به‌جای هزاران خط، یک خط خلاصه با چند نمونه
     if (timeoutNames.isNotEmpty) {
-      out.add('${timeoutNames.length} حالت به‌خاطر پایان زمان تست امتحان نشد '
-          '(مدت تست کوتاه بود). نمونه: ${timeoutNames.take(8).join('، ')}');
+      out.add('${timeoutNames.length} حالت به‌دلیل توقف چرخه تست‌نشده باقی ماند '
+          '(نمونه: ${timeoutNames.take(8).join('، ')})');
     }
     if (noServerNames.isNotEmpty) {
       out.add('${noServerNames.length} حالت با هیچ‌کدام از سرورهای تست‌شده سازگار نبود '
@@ -249,7 +249,7 @@ static void _resetCoreDeadStreak() { _atCoreDeadStreak = 0; }
                   const SizedBox(height: 8),
                   const SizedBox(height: 6),
                   const Text(
-                    'در این ۹۰ دقیقه اپ را نبند و صفحه را قفل نکن.\n'
+                    'تا پایان مراحل، اپ را در پس‌زمینه نبند و صفحه را قفل نکن.\n'
                     'می‌توانی وسط کار «توقف تست» را بزنی.',
                     style: TextStyle(fontSize: 12),
                   ),
