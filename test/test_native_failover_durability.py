@@ -35,5 +35,21 @@ class NativeFailoverDurabilityTests(unittest.TestCase):
         self.assertIn('if (state.exists() && !state.delete())', native)
 
 
+
+    def test_only_explicit_user_stop_clears_durable_state(self):
+        native = (ROOT / "android_src" / "KingVpnService.java").read_text(encoding="utf-8")
+        stop_flow = native.split("private void stopEverything()", 1)[1].split(
+            "private void closeTun()", 1
+        )[0]
+        self.assertIn("if (userStopped)", stop_flow)
+        self.assertIn("else if (!servers.isEmpty())", stop_flow)
+        self.assertIn("saveState();", stop_flow)
+        self.assertIn("requestStop(true)", native)
+        self.assertIn("requestStop(false)", native)
+        destroy = native.split("public void onDestroy()", 1)[1].split(
+            "private static String orEmpty", 1
+        )[0]
+        self.assertIn("requestStop(false)", destroy)
+
 if __name__ == "__main__":
     unittest.main()
