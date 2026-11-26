@@ -8311,6 +8311,20 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         lastState = 'CONNECTED';
         kVpnLastStateTop = 'CONNECTED';
         tunWarn = false;
+        if (_personalFast) {
+          _startNoTraffic = false;
+          final trafficOk = await _tunnelTrafficOk().timeout(
+            const Duration(seconds: 3), onTimeout: () => false);
+          if (!trafficOk) {
+            _startNoTraffic = true;
+            await _kingWireGuardCore.disconnect();
+            _kingWireGuardActive = false;
+            lastState = 'DISCONNECTED';
+            kVpnLastStateTop = 'DISCONNECTED';
+            lastFail = 'WireGuard tunnel did not pass traffic';
+            return false;
+          }
+        }
         dbg('KING CORE: WireGuard UP • ${result['version'] ?? 'wireguard-go'}');
         return true;
       } catch (wgError, wgStack) {
