@@ -235,7 +235,7 @@ extension IpAutoExt on _HomePageState {
     if (runNationalMode) {
       say('دریافت الگوهای مستقل نت ملی...');
       try {
-        final nationalSeeds = await natHotNext(50, fetch: false);
+        final nationalSeeds = await natHotAll(fetch: false);
         if (halted()) return false;
         if (nationalSeeds.isNotEmpty) {
           natNationalTemplateSeeds = [
@@ -254,7 +254,7 @@ extension IpAutoExt on _HomePageState {
     } else {
       say('دریافت سرور نمونه از منابع جهانی...');
       try {
-        pool = await fetchServers(stop: () => halted(), quickCap: 200);
+        pool = await fetchServers(stop: () => halted());
       } catch (e, stk) {
         logError(e, stk);
         if (halted()) return false;
