@@ -186,8 +186,6 @@ void main() {
         KingEngineId.nthLink, KingEngineId.shroudly, KingEngineId.byeDpi,
         KingEngineId.powerTunnel, KingEngineId.amneziaWg, KingEngineId.openVpn,
         KingEngineId.shadowsocks, KingEngineId.openConnect, KingEngineId.wireGuard,
-        'psiphon', 'tor', 'vpn_gate', 'calyx_vpn', 'cloudflare_warp',
-        'lantern', 'avira_phantom', 'ceno', 'i2p',
       }));
       expect(catalog[KingEngineId.xray]?.state, KingIntegrationState.integrated);
       expect(catalog[KingEngineId.wireGuard]?.state,
@@ -231,7 +229,7 @@ void main() {
       expect(KingEngineServerSourceCatalog.forEngine(KingEngineId.hysteria2), hasLength(4));
       expect(KingEngineServerSourceCatalog.forEngine(KingEngineId.singBox), hasLength(10));
       expect(KingEngineServerSourceCatalog.forEngine(KingEngineId.shadowsocks), hasLength(4));
-      expect(KingEngineServerSourceCatalog.forEngine(KingEngineId.openVpn), hasLength(1));
+      expect(KingEngineServerSourceCatalog.forEngine(KingEngineId.openVpn), isEmpty);
       expect(KingEngineServerSourceCatalog.forEngine(KingEngineId.amneziaWg), isEmpty);
       expect(KingEngineServerSourceCatalog.forEngine(KingEngineId.wireGuard), hasLength(1));
       expect(KingEngineServerSourceCatalog.forEngine(KingEngineId.openConnect), isEmpty);
@@ -313,60 +311,6 @@ void main() {
       final parsed = parser.parse(engineId: KingEngineId.singBox, payload: valid);
       expect(parsed, hasLength(1));
       expect(parsed.single.format, KingServerConfigFormat.singBoxJson);
-    });
-
-    test('imports all valid OpenVPN variants from the official VPN Gate CSV directory', () {
-      const ovpn = 'client\nproto udp\nremote vpn.example.org 1194\n';
-      const tcpOvpn = 'client\nproto tcp\nremote vpn.example.org 443\n';
-      final encoded = base64Encode(utf8.encode(ovpn));
-      final tcpEncoded = base64Encode(utf8.encode(tcpOvpn));
-      final payload = [
-        '#vpn_servers',
-        '#HostName,IP,OpenVPN_ConfigData_Base64,OpenVPN_ConfigData_Base64_UDP,OpenVPN_ConfigData_Base64_TCP',
-        '"Relay, Amsterdam",203.0.113.10,$encoded,$encoded,$tcpEncoded',
-        'invalid,203.0.113.11,not-base64,,',
-      ].join('\n');
-      final profiles = parser.parse(
-        engineId: KingEngineId.openVpn,
-        payload: payload,
-        sourceId: 'vpn_gate_official_directory',
-      );
-      expect(profiles, hasLength(2));
-      expect(profiles.every((profile) =>
-          profile.format == KingServerConfigFormat.openVpnProfile), isTrue);
-      expect(profiles.every((profile) =>
-          profile.sourceId == 'vpn_gate_official_directory'), isTrue);
-      expect(profiles.every((profile) =>
-          profile.name!.contains('Relay, Amsterdam')), isTrue);
-      expect(profiles.map((profile) => profile.raw).toSet(),
-          {ovpn, tcpOvpn});
-    });
-
-    test('refreshes OpenVPN relay profiles through the normal source-sync pipeline', () async {
-      const ovpn = 'client\nproto tcp\nremote relay.example.org 443\n';
-      final encoded = base64Encode(utf8.encode(ovpn));
-      final csv = [
-        '#vpn_servers',
-        '#HostName,IP,OpenVPN_ConfigData_Base64,OpenVPN_ConfigData_Base64_UDP,OpenVPN_ConfigData_Base64_TCP',
-        'relay,198.51.100.8,,$encoded,',
-      ].join('\n');
-      final sync = KingServerSourceSync(fetchText: (url) async {
-        expect(url, 'https://www.vpngate.net/api/iphone/');
-        return csv;
-      });
-      final result = await sync.refresh(KingEngineId.openVpn);
-      expect(result.failures, isEmpty);
-      expect(result.profiles, hasLength(1));
-      expect(result.profiles.single.engineId, KingEngineId.openVpn);
-      expect(result.profiles.single.raw, ovpn);
-    });
-
-    test('registers VPN Gate as a live OpenVPN relay directory source', () {
-      final sources = KingEngineServerSourceCatalog.forEngine(KingEngineId.openVpn);
-      final source = sources.singleWhere((item) => item.id == 'vpn_gate_official_directory');
-      expect(source.url, 'https://www.vpngate.net/api/iphone/');
-      expect(source.kind, KingServerSourceKind.publicSubscription);
-      expect(source.formats, contains(KingServerConfigFormat.openVpnProfile));
     });
 
     test('recognizes OpenVPN, WireGuard and AmneziaWG profile files', () {
