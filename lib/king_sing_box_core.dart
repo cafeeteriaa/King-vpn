@@ -15,6 +15,7 @@ class KingSingBoxCore {
 
   SingBoxConnectionStatus get status => _engine.status;
   SingBoxConnectionState get state => _engine.state;
+  bool get isConnected => _engine.status == SingBoxConnectionStatus.connected;
 
   Future<void> initialize() {
     if (_engine.isInitialized) return Future<void>.value();
