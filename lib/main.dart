@@ -10153,6 +10153,7 @@ ListTile( // KINGEXTRAS row
                   const Duration(minutes: 5)) {
             natRangeLast = DateTime.now();
             unawaited(() async {
+              final rangeMode = nationalMode;
               final ips = await natRangeScanStep(
                   known: [...pending, ...natRestPending],
                   maxAddrs: 256, // resumable batch; cursor continues through every configured range
@@ -10160,19 +10161,14 @@ ListTile( // KINGEXTRAS row
                   stop: () => !mounted ||
                       !connected ||
                       !wantVpn ||
-                      !nationalMode ||
                       !localPilotOn ||
                       appGone ||
-                      abort,
+                      abort ||
+                      nationalMode != rangeMode,
                   );
-              // Do not publish stale discoveries after the tunnel/pilot stops.
-              if (mounted &&
-                  connected &&
-                  wantVpn &&
-                  nationalMode &&
-                  localPilotOn &&
-                  !appGone &&
-                  !abort) {
+              // Persist partial results even when the tunnel stops; discard only
+              // when the user switched discovery engines or the page was destroyed.
+              if (mounted && !appGone && nationalMode == rangeMode) {
                 await _natRangeAdd(ips);
               }
             }());
