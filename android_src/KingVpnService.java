@@ -172,6 +172,8 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
     private final AtomicInteger inFlight = new AtomicInteger(0);
     /** True while a stopCore call is still running on its thread (it may hang). Core is fenced. */
     private volatile boolean coreStopping = false;
+    /** Ownership release is deferred while a timed-out native stop still owns the TUN. */
+    private volatile boolean engineReleasePending = false;
     /** Close the TUN only after a timed-out native stop has actually returned. */
     private boolean closeTunAfterCoreStop = false;
     /**
@@ -230,6 +232,12 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
     /** جدید: stop requested by the app while it is in the background. */
     public void stopFromApp() {
         requestStop(true);
+        submit(this::stopEverything);
+    }
+
+    /** Stop Xray for a handoff without treating the handoff as a user data reset. */
+    public void stopForEngineHandoff() {
+        requestStop(false);
         submit(this::stopEverything);
     }
 
@@ -612,6 +620,10 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
                         closeQuietly(tun);
                         tun = null;
                         closeTunAfterCoreStop = false;
+                        if (engineReleasePending || stopping) {
+                            KingVpnEngineCoordinator.release("xray");
+                            engineReleasePending = false;
+                        }
                     } else if (stillRunning) {
                         // stopCore() may throw or return while the native process is alive.
                         // Keep both the descriptor and the deferred-close marker for retry.
@@ -660,6 +672,20 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
         }
     }
 
+    /** Acquire the single process-wide Android VPN slot before establishing TUN. */
+    private boolean acquireEngineOwnership() {
+        if ("wireguard".equals(KingVpnEngineCoordinator.currentOwner())) {
+            try {
+                KingWireGuardCore.Companion.shared(this).disconnect();
+            } catch (Throwable failure) {
+                lastError = "WireGuard handoff failed: " + failure.getMessage();
+                Log.e(TAG, lastError, failure);
+                return false;
+            }
+        }
+        return KingVpnEngineCoordinator.acquire("xray", 30_000L);
+    }
+
     /**
      * Worker-side start of one attempt. Everything that touches the shared core or the
      * TUN happens here, under coreLock, and only while this attempt is current.
@@ -700,6 +726,12 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
             // Refuse to start on a core that is still shutting down or still running.
             if (coreStopping || core.isV2rayCoreRunning()) {
                 lastError = "core still busy from a previous attempt";
+                Log.e(TAG, lastError);
+                return false;
+            }
+
+            if (!acquireEngineOwnership()) {
+                lastError = "Android VPN slot is owned by another KING VPN engine";
                 Log.e(TAG, lastError);
                 return false;
             }
@@ -1047,13 +1079,21 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
             if (locked) {
                 try {
                     boolean stopped = stopCoreNow();
-                    if (stopped) closeTun();
+                    if (stopped) {
+                        closeTun();
+                        KingVpnEngineCoordinator.release("xray");
+                        engineReleasePending = false;
+                    } else {
+                        engineReleasePending = true;
+                    }
                 } catch (Exception e) {
+                    engineReleasePending = true;
                     Log.e(TAG, "stopEverything core stop failed", e);
                 } finally {
                     coreLock.unlock();
                 }
             } else {
+                engineReleasePending = true;
                 // An attempt is still inside a native call. Never touch the core or the
                 // TUN from here: that attempt is stale now and will stop the core and
                 // close its TUN itself as soon as it returns.
