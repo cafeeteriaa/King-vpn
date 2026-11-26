@@ -5,7 +5,8 @@ Next revision: 63
 Repository: cafeeteriaa/King-vpn
 Revision branch: fix/personal-folder-uncapped-20261127
 Parent revision branch: fix/healthy-folder-unbounded-retention-20261127
-Revision PR: pending creation
+Revision PR: https://github.com/cafeeteriaa/King-vpn/pull/65
+Consolidated integration PR: https://github.com/cafeeteriaa/King-vpn/pull/66
 
 ## Revision history
 
