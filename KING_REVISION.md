@@ -1,7 +1,7 @@
 # KING VPN Revision Ledger
 
-Current revision: 60
-Next revision: 61
+Current revision: 61
+Next revision: 62
 Repository: cafeeteriaa/King-vpn
 Revision branch: fix/revision-58-network-identity-fragmentation-20261126
 Revision PR: https://github.com/cafeeteriaa/King-vpn/pull/58
@@ -49,6 +49,15 @@ Revision PR: https://github.com/cafeeteriaa/King-vpn/pull/58
 - Added Python source-guard tests for persistence, streaming replay, lock usage, restore-before-planning, and verified-outcome ordering.
 - Journal rows are checked against the finite action vocabulary of the heal engine before they can influence planner scores; arbitrary or tampered action names are ignored.
 - Verification: CI pending for this commit; no Dart/Android success is claimed before the workflow completes.
+
+### 61 — Context-aware KING HEAL decision engine
+- Expanded persistent learning from global per-action counters to symptom-context × action outcomes. The context key is the sorted set of active diagnostic signals, so the same repair can learn separately for core-drop, no-healthy, no-data and other incident patterns.
+- Added Laplace-smoothed success estimates with evidence weighting; one lucky result cannot dominate, and context evidence gains influence as observations accumulate.
+- Integrated learned selection into the no-healthy/blacklist and core-drop paths, while retaining deterministic high-priority safety handling for stuck abort and missing TUN.
+- Removed arbitrary 70% bulk deletion of failed servers and the unrelated fixed >60 trigger. Recovery now releases only entries whose recorded cooldown has actually expired; recent failure evidence is preserved.
+- Removed a stale UI reference to the deleted in-memory recent-event list and display aggregate durable win/loss counts instead.
+- Added source guards for context persistence, planner integration and non-destructive failure-history handling.
+- Verification: source changes are committed; Dart/Android CI result is not yet available and is not claimed.
 
 ## Mandatory three-pass review protocol
 
