@@ -320,22 +320,22 @@ List<String> natFrontSnis() => <String>{
     ...natNationalDomMem.map((entry) => (entry['h'] ?? '').toString())
   else
     ...natDomMem.map((entry) => (entry['h'] ?? '').toString()),
-}.where((value) =>
-    value.trim().isNotEmpty && InternetAddress.tryParse(value.trim()) == null)
+}.map(_nipHostnameOrEmpty)
+ .where((value) => value.isNotEmpty)
+ .toSet()
  .toList(growable: false);
 
 /// روی IP:port یک TLS با SNI داده‌شده کامل شود؟ برمی‌گرداند همان SNI یا null.
 Future<String?> nipFrontProbe(String ip, int port, String sni) async {
-  if (sni.trim().isEmpty || InternetAddress.tryParse(sni.trim()) != null) {
-    return null;
-  }
+  final normalizedSni = _nipHostnameOrEmpty(sni);
+  if (normalizedSni.isEmpty) return null;
   Socket? raw;
   SecureSocket? sec;
   try {
     raw = await Socket.connect(ip, port, timeout: const Duration(milliseconds: 2000));
-    sec = await SecureSocket.secure(raw, host: sni)
+    sec = await SecureSocket.secure(raw, host: normalizedSni)
         .timeout(const Duration(seconds: 3));
-    return sni;
+    return normalizedSni;
   } catch (_) {
     return null;
   } finally {
@@ -343,6 +343,7 @@ Future<String?> nipFrontProbe(String ip, int port, String sni) async {
     try { raw?.destroy(); } catch (e, st) { logError(e, st); }
   }
 }
+
 
 Future<String?> nipFindFrontSni(
     String ip, int port, {bool Function()? stop}) async {
