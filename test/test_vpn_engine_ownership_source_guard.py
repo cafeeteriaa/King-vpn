@@ -32,6 +32,10 @@ class VpnEngineOwnershipSourceGuard(unittest.TestCase):
         self.assertIn('KingWireGuardCore.Companion.shared(this).disconnect()', source)
         self.assertIn("engineReleasePending", source)
 
+    def test_android_prepare_copies_the_coordinator_into_the_generated_host(self):
+        source = (ROOT / "prepare_android.py").read_text()
+        self.assertIn("shutil.copy('android_src/KingVpnEngineCoordinator.kt'", source)
+
     def test_handoff_does_not_clear_user_failover_state(self):
         source = (ROOT / "android_src" / "KingVpnService.java").read_text()
         start = source.index("public void stopForEngineHandoff()")
