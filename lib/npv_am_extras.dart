@@ -7,7 +7,7 @@ part of 'main.dart';
 bool npvParse = true;
 String relayServerUrl = ''; // RELAY: لینک سرور واسط (Multi-hop)
 bool cleanIpMode = true;
-bool fragEnabled = false;
+bool fragEnabled = true;
 bool muxEnabled = false; // off by default: enable only when a server is verified compatible
 bool secureDns = true;
 bool blockQuic = true;
