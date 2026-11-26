@@ -491,6 +491,16 @@ class KingEngineServerSourceCatalog {
       notes: 'Publisher advertises a 15-minute update cycle; JSON contains multiple proxy outbounds including Hysteria2 and Shadowsocks.',
     ),
     KingEngineServerSource(
+      id: 'mohammadaz2_shadowsocks',
+      name: 'mohammadaz2 hourly Shadowsocks',
+      url: 'https://raw.githubusercontent.com/mohammadaz2/v2rayConfigsForYou/main/sub/ss.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.shadowsocksUri},
+      engineIds: {'shadowsocks', 'sing_box'},
+      updateCadence: 'hourly',
+      notes: 'Repository documents hourly scraping and TCP reachability validation; latest repository update observed on 2026-11-26.',
+    ),
+    KingEngineServerSource(
       id: 'radikal_shadowsocks',
       name: '0xRadikal Shadowsocks',
       url: 'https://raw.githubusercontent.com/0xRadikal/Free-v2ray-Configs/main/protocols/shadowsocks.txt',
