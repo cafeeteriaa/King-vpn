@@ -2924,6 +2924,13 @@ Future<_HotIdx?> _hotLoad() async {
   }
 }
 
+Future<List<Server>> natHotAll({bool fetch = true}) async {
+  if (fetch) await natHotEnsure();
+  final index = await _hotLoad();
+  if (index == null || index.lineCount <= 0) return <Server>[];
+  return natHotNext(index.lineCount, fetch: false);
+}
+
 Future<List<Server>> natHotNext(int n,
     {bool fetch = true, bool retried = false}) async {
   try {
