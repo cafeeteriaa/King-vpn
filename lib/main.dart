@@ -12086,7 +12086,7 @@ ListTile( // KINGEXTRAS row
     final ok = <String, int>{};
     final rows = _personalRows.value;
     var doneCount = 0;
-    // V5: یک دور پینگ کامل؛ سرورهایی که شکست خوردند یک بار دیگر (بعد از مکث کوتاه) امتحان می‌شوند
+    // Full inventory pass; failed entries receive one retry after a short pause.
     Future<void> pass(List<int> idxs) async {
       var next = 0;
       Future<void> worker() async {
@@ -12118,7 +12118,7 @@ ListTile( // KINGEXTRAS row
           }
         }
       }
-      // مشکل ۷: تعداد کارگرها با سقف گیت هماهنگ است
+      // Worker concurrency follows the shared delay gate; it never truncates the inventory.
       final nW = max(1, _delayGate.max);
       await Future.wait([for (var k = 0; k < nW; k++) worker()]);
     }
@@ -12132,6 +12132,10 @@ ListTile( // KINGEXTRAS row
       doneCount = list.length - failed.length;
       await pass(failed);
       _personalRows.value = List<_PRow>.of(rows);
+      if (cancelled()) {
+        _set('پینگ سرورهای شخصی با درخواست توقف متوقف شد: ${ok.length} سالم از ${list.length}');
+        return ok;
+      }
     }
     _set('پینگ سرورهای شخصی تمام شد: ${ok.length} سالم از ${list.length}');
     return ok;
