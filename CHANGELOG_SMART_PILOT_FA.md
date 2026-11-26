@@ -113,3 +113,11 @@
 - GitHub Actions run **#1259** روی commit `5989d42f9954f6ee324f3b617423e3ba3dc4d98a` موفق شد: **137 تست Python/source guard**، تست‌های Flutter، تحلیل Dart و ساخت APK Release برای arm64-v8a.
 - APK: **122,754,686 بایت (117.07 MiB)**؛ SHA-256: `b3599c2cc1f875bc99798efdf2684ccff6a2787dea0e45245631daf0dfe247f9`.
 - APK با debug key تولیدشده در CI امضا شده است؛ تست نصب، تونل VPN و شبکهٔ واقعی روی دستگاه انجام نشده‌اند. امضای production همچنان نیازمند keystore مالک پروژه است.
+
+ 
+## Revision 62 — Evidence-based network diagnosis
+- Network diagnosis now requires corroborating outcomes across independent TCP, TLS/SNI, web, source-mirror and national-network probe groups.
+- Added confidence levels and evidence summaries; inconclusive samples are not described as an unrestricted network.
+- Automatic settings are not changed when diagnostic confidence is low.
+- Added source guards for evidence aggregation and safe auto-configuration.
+- Runtime tests and Android build remain unverified for this revision.
