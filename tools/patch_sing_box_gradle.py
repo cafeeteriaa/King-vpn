@@ -1,0 +1,244 @@
+#!/usr/bin/env python3
+"""Align libbox Gradle and reconcile gomobile's shared Go runtime classes."""
+import json
+from pathlib import Path
+
+import re
+import sys
+from urllib.parse import unquote, urlparse
+
+AGP_VERSION = "9.3.1"
+KOTLIN_VERSION = "2.4.20"
+COMPILE_SDK = 37
+LIBBOX_ARTIFACT_VERSION = "1.14.4-lx.25"
+LIBBOX_ARTIFACT_SHA256 = "8f25b6600b2f1f1104636c9cb92941c756a6322e1f2ce0e5e97b9a6bc41d3bba"
+LIBBOX_ARTIFACT_BASE_URL = "https://github.com/QUSAD-prod/sing_box/releases/download/libbox-v{version}"
+MIRRORS = (
+    'maven { url = uri("https://maven-central.storage-download.googleapis.com/maven2/") }',
+    'maven { url = uri("https://maven.aliyun.com/repository/central/") }',
+    'maven { url = uri("https://maven.aliyun.com/repository/gradle-plugin/") }',
+)
+# Exact gomobile bridge classes reported by the Android Gradle duplicate-class
+# check for the pinned libbox and existing libv2ray artifacts. Keep the
+# libv2ray copy as the process-wide bridge; upstream layout changes hard-fail.
+GO_RUNTIME_COLLISIONS = (
+    "go/Seq.class",
+    "go/Seq$GoObject.class",
+    "go/Seq$GoRef.class",
+    "go/Seq$GoRefQueue.class",
+    "go/Seq$GoRefQueue$1.class",
+    "go/Seq$Proxy.class",
+    "go/Seq$Ref.class",
+    "go/Seq$RefMap.class",
+    "go/Seq$RefTracker.class",
+    "go/Universe.class",
+    "go/Universe$proxyerror.class",
+    "go/error.class",
+)
+
+def matching_brace(text, start):
+    depth = 0
+    for i in range(start, len(text)):
+        if text[i] == "{": depth += 1
+        elif text[i] == "}":
+            depth -= 1
+            if depth == 0: return i
+    return -1
+
+def add_mirrors(text, scope):
+    match = re.search(r"\b" + re.escape(scope) + r"\s*\{", text)
+    if not match: raise SystemExit(f"HARD FAIL: missing {scope}")
+    open_pos = match.end() - 1
+    close_pos = matching_brace(text, open_pos)
+    if close_pos < 0: raise SystemExit(f"HARD FAIL: malformed {scope}")
+    body = text[open_pos + 1:close_pos]
+    repo = re.search(r"\brepositories\s*\{", body)
+    if not repo: raise SystemExit(f"HARD FAIL: no repositories in {scope}")
+    repo_open = open_pos + 1 + repo.end() - 1
+    repo_close = matching_brace(text, repo_open)
+    if repo_close < 0: raise SystemExit(f"HARD FAIL: malformed repositories in {scope}")
+    repo_body = text[repo_open + 1:repo_close]
+    extra = "".join("\n        " + m for m in MIRRORS if m not in repo_body)
+    return text[:repo_open + 1] + extra + text[repo_open + 1:] if extra else text
+
+def install_go_runtime_merge(gradle_text):
+    marker = "val libboxProperties = Properties().apply {"
+    if "prepareLibboxGoRuntimeJar" in gradle_text:
+        if (
+            "libboxGoCompileJar" in gradle_text
+            and "compileOnly(files(libboxGoCompileJar)" in gradle_text
+        ):
+            return gradle_text
+        # Pub caches can retain a Gradle file patched by an earlier CI run.
+        # Replace that older single-output task instead of silently reusing it.
+        task_start = gradle_text.find(
+            "// Both libbox and the existing Xray/V2Ray AAR ship gomobile's shared"
+        )
+        marker_pos = gradle_text.find(marker)
+        if task_start < 0 or marker_pos < task_start:
+            raise SystemExit("HARD FAIL: stale or malformed libbox runtime patch")
+        gradle_text = gradle_text[:task_start] + gradle_text[marker_pos:]
+        old_patched = 'implementation(files(libboxGoRuntimeJar).builtBy(prepareLibboxGoRuntimeJar))'
+        if gradle_text.count(old_patched) != 1:
+            raise SystemExit("HARD FAIL: cannot migrate stale libbox runtime dependency")
+        gradle_text = gradle_text.replace(
+            old_patched,
+            'implementation(files(File(libboxDir, "classes.jar")))',
+            1,
+        )
+    required_imports = (
+        "import java.util.zip.ZipEntry",
+        "import java.util.zip.ZipFile",
+        "import java.util.zip.ZipOutputStream",
+    )
+    missing_imports = [
+        item for item in required_imports
+        if not re.search(r"(?m)^" + re.escape(item) + r"\s*$", gradle_text)
+    ]
+    if missing_imports:
+        gradle_text = "\n".join(missing_imports) + "\n" + gradle_text
+    task = r'''
+// Both libbox and the existing Xray/V2Ray AAR ship gomobile's shared
+// Go runtime bridge. Keep libv2ray's bridge at runtime, but retain the
+// libbox bridge classes in a compile-only jar so Kotlin can resolve API
+// supertypes such as go.Seq.Proxy while compiling the sing_box module.
+val libboxGoRuntimeJar = layout.buildDirectory.file("generated/libbox/libbox-classes.jar")
+val libboxGoCompileJar = layout.buildDirectory.file("generated/libbox/libbox-go-compile.jar")
+val prepareLibboxGoRuntimeJar = tasks.register("prepareLibboxGoRuntimeJar") {
+    val original = File(libboxDir, "classes.jar")
+    inputs.file(original)
+    outputs.files(libboxGoRuntimeJar, libboxGoCompileJar)
+    doLast {
+        val output = libboxGoRuntimeJar.get().asFile
+        val compileOutput = libboxGoCompileJar.get().asFile
+        output.parentFile.mkdirs()
+        compileOutput.parentFile.mkdirs()
+        val collisions = setOf(
+            "go/Seq.class",
+            "go/Seq\$GoObject.class",
+            "go/Seq\$GoRef.class",
+            "go/Seq\$GoRefQueue.class",
+            "go/Seq\$GoRefQueue\$1.class",
+            "go/Seq\$Proxy.class",
+            "go/Seq\$Ref.class",
+            "go/Seq\$RefMap.class",
+            "go/Seq\$RefTracker.class",
+            "go/Universe.class",
+            "go/Universe\$proxyerror.class",
+            "go/error.class"
+        )
+        val found = mutableSetOf<String>()
+        ZipFile(original).use { source ->
+            ZipOutputStream(output.outputStream().buffered()).use { target ->
+                ZipOutputStream(compileOutput.outputStream().buffered()).use { compileTarget ->
+                    val entries = source.entries()
+                    while (entries.hasMoreElements()) {
+                        val entry = entries.nextElement()
+                        val copied = ZipEntry(entry.name)
+                        if (entry.time >= 0) copied.time = entry.time
+                        if (entry.name in collisions) {
+                            found.add(entry.name)
+                            compileTarget.putNextEntry(copied)
+                            source.getInputStream(entry).use { it.copyTo(compileTarget) }
+                            compileTarget.closeEntry()
+                        } else {
+                            target.putNextEntry(copied)
+                            source.getInputStream(entry).use { it.copyTo(target) }
+                            target.closeEntry()
+                        }
+                    }
+                }
+            }
+        }
+        if (found != collisions) {
+            output.delete()
+            compileOutput.delete()
+            throw GradleException("libbox gomobile runtime layout changed; expected duplicate bridge classes $collisions, found $found. Refusing an unsafe merge.")
+        }
+        logger.lifecycle("KING VPN: libbox bridge classes retained for compilation only; libv2ray supplies the shared runtime bridge")
+    }
+}
+'''
+    if marker not in gradle_text:
+        raise SystemExit("HARD FAIL: cannot locate libbox Gradle dependency declarations")
+    gradle_text = gradle_text.replace(marker, task + "\n" + marker, 1)
+    old = 'implementation(files(File(libboxDir, "classes.jar")))'
+    new = 'implementation(files(libboxGoRuntimeJar).builtBy(prepareLibboxGoRuntimeJar))'
+    if gradle_text.count(old) != 1:
+        raise SystemExit("HARD FAIL: unexpected libbox classes.jar dependency declaration")
+    return gradle_text.replace(
+        old,
+        new + '\ncompileOnly(files(libboxGoCompileJar).builtBy(prepareLibboxGoRuntimeJar))',
+        1,
+    )
+
+def pin_latest_libbox_artifact(properties_text):
+    """Pin the Android binary to the latest verified stable libbox release."""
+    replacements = (
+        (r"(?m)^version=.*$", f"version={LIBBOX_ARTIFACT_VERSION}"),
+        (r"(?m)^sha256=.*$", f"sha256={LIBBOX_ARTIFACT_SHA256}"),
+        (r"(?m)^baseUrl=.*$", f"baseUrl={LIBBOX_ARTIFACT_BASE_URL}"),
+    )
+    for pattern, replacement in replacements:
+        properties_text, count = re.subn(pattern, lambda _m: replacement, properties_text, count=1)
+        if count != 1:
+            raise SystemExit(f"HARD FAIL: expected exactly one libbox property matching {pattern}")
+    for expected in (
+        f"version={LIBBOX_ARTIFACT_VERSION}",
+        f"sha256={LIBBOX_ARTIFACT_SHA256}",
+        f"baseUrl={LIBBOX_ARTIFACT_BASE_URL}",
+    ):
+        if expected not in properties_text:
+            raise SystemExit(f"HARD FAIL: latest libbox artifact pin missing: {expected}")
+    return properties_text
+
+def main():
+    host = Path(sys.argv[1] if len(sys.argv) > 1 else "build_app").resolve()
+    config = host / ".dart_tool" / "package_config.json"
+    if not config.is_file(): raise SystemExit(f"HARD FAIL: missing {config}")
+    data = json.loads(config.read_text(encoding="utf-8"))
+    pkg = next((p for p in data.get("packages", []) if p.get("name") == "sing_box"), None)
+    if pkg is None: raise SystemExit("HARD FAIL: sing_box package missing")
+    uri = urlparse(pkg.get("rootUri", ""))
+    root = Path(unquote(uri.path)) if uri.scheme == "file" else (config.parent / unquote(pkg["rootUri"])).resolve()
+    properties_file = root / "android" / "libbox.properties"
+    if not properties_file.is_file():
+        raise SystemExit(f"HARD FAIL: missing {properties_file}")
+    properties_text = properties_file.read_text(encoding="utf-8")
+    properties_text = pin_latest_libbox_artifact(properties_text)
+    properties_file.write_text(properties_text, encoding="utf-8")
+    gradle = root / "android" / "build.gradle.kts"
+    if not gradle.is_file(): raise SystemExit(f"HARD FAIL: missing {gradle}")
+    text = gradle.read_text(encoding="utf-8")
+    text = text.replace("current = URL(current, location)", "current = current.toURI().resolve(location).toURL()")
+    if "minSdk = 24" not in text:
+        raise SystemExit("HARD FAIL: plugin minSdk changed; preserve API 24 support")
+    text, a = re.subn(r'classpath\("com\.android\.tools\.build:gradle:[^"]+"\)', f'classpath("com.android.tools.build:gradle:{AGP_VERSION}")', text, count=1)
+    text, k = re.subn(r'val kotlinVersion = "[^"]+"', f'val kotlinVersion = "{KOTLIN_VERSION}"', text, count=1)
+    text, c = re.subn(r"compileSdk = \d+", f"compileSdk = {COMPILE_SDK}", text, count=1)
+    if (a, k, c) != (1, 1, 1): raise SystemExit("HARD FAIL: unexpected plugin Gradle declarations")
+    text = add_mirrors(text, "buildscript")
+    text = add_mirrors(text, "allprojects")
+    text = install_go_runtime_merge(text)
+    gradle.write_text(text, encoding="utf-8")
+    check = gradle.read_text(encoding="utf-8")
+    for item in (f'classpath("com.android.tools.build:gradle:{AGP_VERSION}")', f'val kotlinVersion = "{KOTLIN_VERSION}"', f"compileSdk = {COMPILE_SDK}", "minSdk = 24", *MIRRORS, "prepareLibboxGoRuntimeJar", "libboxGoRuntimeJar", "libboxGoCompileJar", "compileOnly(files(libboxGoCompileJar)"):
+        if item not in check: raise SystemExit(f"HARD FAIL: Gradle patch verification missing {item}")
+    state_file = root / "android" / "src" / "main" / "kotlin" / "com" / "qusadprod" / "sing_box" / "core" / "ServiceState.kt"
+    if not state_file.is_file():
+        raise SystemExit(f"HARD FAIL: missing libbox ServiceState API: {state_file}")
+    state_source = state_file.read_text(encoding="utf-8")
+    for private_decl, public_decl in (
+        ("internal enum class ServiceStatus", "enum class ServiceStatus"),
+        ("internal data class ServiceSnapshot", "data class ServiceSnapshot"),
+        ("internal object ServiceState", "object ServiceState"),
+    ):
+        if private_decl in state_source:
+            state_source = state_source.replace(private_decl, public_decl, 1)
+        elif public_decl not in state_source:
+            raise SystemExit(f"HARD FAIL: unexpected ServiceState declaration: {private_decl}")
+    state_file.write_text(state_source, encoding="utf-8")
+    print(f"OK: libbox {LIBBOX_ARTIFACT_VERSION} SHA-256 pinned; Gradle aligned; minSdk 24 retained; Go runtime collision merge installed; ServiceState exposed")
+
+if __name__ == "__main__":
+    main()

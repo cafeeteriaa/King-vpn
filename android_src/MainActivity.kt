@@ -127,6 +127,49 @@ class MainActivity : FlutterActivity() {
                 }
             }
 
+        // ---- Shared full-device VPN/TUN owner coordinator ----
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "king/vpn_engine_owner")
+            .setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "acquire" -> {
+                        val engine = call.argument<String>("engine")?.trim().orEmpty()
+                        val timeoutMs = call.argument<Number>("timeoutMs")?.toLong() ?: 30_000L
+                        if (engine.isEmpty()) result.error("ENGINE_ID_REQUIRED", "Engine id must not be empty", null)
+                        else Thread {
+                            try {
+                                val previous = KingVpnEngineCoordinator.currentOwner()
+                                if (previous != null && previous != engine) {
+                                    when (previous) {
+                                        "xray" -> check(
+                                            KingVpnService.instance?.stopForEngineHandoff(timeoutMs) == true
+                                        ) { "Xray TUN handoff timed out before the native core was verified stopped" }
+                                        "wireguard" -> kingWireGuardCore().disconnect()
+                                        "libbox" -> check(KingVpnEngineCoordinator.stopLibboxAndRelease(this, timeoutMs)) {
+                                                "libbox TUN handoff timed out"
+                                            }
+                                        "amneziawg" -> KingAmneziaWgCore.shared().disconnect()
+                                    }
+                                }
+                                val acquired = KingVpnEngineCoordinator.acquire(engine, timeoutMs)
+                                runOnUiThread { result.success(acquired) }
+                            } catch (e: Throwable) {
+                                runOnUiThread { result.error("ENGINE_HANDOFF_ERROR", e.message ?: e.javaClass.simpleName, e.stackTraceToString()) }
+                            }
+                        }.start()
+                    }
+                    "release" -> {
+                        val engine = call.argument<String>("engine")?.trim().orEmpty()
+                        if (engine.isEmpty()) result.error("ENGINE_ID_REQUIRED", "Engine id must not be empty", null)
+                        else {
+                            KingVpnEngineCoordinator.release(engine)
+                            result.success(true)
+                        }
+                    }
+                    "owner" -> result.success(KingVpnEngineCoordinator.currentOwner())
+                    else -> result.notImplemented()
+                }
+            }
+
         // ---- Channel 1: king/vpn (start / stop the own VPN service) ----
         val kingVpnChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "king/vpn")
         // جدید: the native outcome of a start (CONNECTED / FAILED / STOPPED) goes to Dart as 'status'

@@ -35,6 +35,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -172,6 +173,8 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
     private final AtomicInteger inFlight = new AtomicInteger(0);
     /** True while a stopCore call is still running on its thread (it may hang). Core is fenced. */
     private volatile boolean coreStopping = false;
+    /** Ownership release is deferred while a timed-out native stop still owns the TUN. */
+    private volatile boolean engineReleasePending = false;
     /** Close the TUN only after a timed-out native stop has actually returned. */
     private boolean closeTunAfterCoreStop = false;
     /**
@@ -231,6 +234,36 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
     public void stopFromApp() {
         requestStop(true);
         submit(this::stopEverything);
+    }
+
+    /**
+     * Stop Xray for an engine handoff and wait until the native core and TUN
+     * have been verified stopped and the coordinator ownership is released.
+     * This method is called from a background thread, never the Android main thread.
+     */
+    public boolean stopForEngineHandoff(long timeoutMs) {
+        if (android.os.Looper.myLooper() == android.os.Looper.getMainLooper()) {
+            throw new IllegalStateException("Xray handoff must not block the Android main thread");
+        }
+        requestStop(false);
+        CountDownLatch completed = new CountDownLatch(1);
+        submit(() -> {
+            try {
+                stopEverything();
+            } finally {
+                completed.countDown();
+            }
+        });
+        try {
+            if (!completed.await(Math.max(0L, timeoutMs), TimeUnit.MILLISECONDS)) {
+                Log.w(TAG, "Xray handoff timed out while waiting for verified native stop");
+                return false;
+            }
+        } catch (InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
+            return false;
+        }
+        return !"xray".equals(KingVpnEngineCoordinator.currentOwner());
     }
 
     private static class Srv {
@@ -612,6 +645,10 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
                         closeQuietly(tun);
                         tun = null;
                         closeTunAfterCoreStop = false;
+                        if (engineReleasePending || stopping) {
+                            KingVpnEngineCoordinator.release("xray");
+                            engineReleasePending = false;
+                        }
                     } else if (stillRunning) {
                         // stopCore() may throw or return while the native process is alive.
                         // Keep both the descriptor and the deferred-close marker for retry.
@@ -660,6 +697,61 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
         }
     }
 
+    /** Acquire the single process-wide Android VPN slot before establishing TUN. */
+    private boolean acquireEngineOwnership(int myAttempt) {
+        // A previous native stop may still own the TUN. Do not re-enter the same
+        // engine owner while its deferred release is pending.
+        final long deadline = System.nanoTime()
+                + TimeUnit.MILLISECONDS.toNanos(BRING_UP_TIMEOUT_MS);
+        while (engineReleasePending) {
+            if (!isCurrent(myAttempt)) return false;
+            long remaining = deadline - System.nanoTime();
+            if (remaining <= 0L) return false;
+            try {
+                Thread.sleep(Math.min(50L,
+                        Math.max(1L, TimeUnit.NANOSECONDS.toMillis(remaining))));
+            } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+                return false;
+            }
+        }
+        if (!isCurrent(myAttempt)) return false;
+        if ("libbox".equals(KingVpnEngineCoordinator.currentOwner())) {
+            long waitMs = Math.max(0L, TimeUnit.NANOSECONDS.toMillis(deadline - System.nanoTime()));
+            if (!KingVpnEngineCoordinator.stopLibboxAndRelease(this, waitMs)) {
+                lastError = "libbox TUN handoff timed out before Xray start";
+                Log.e(TAG, lastError);
+                return false;
+            }
+        }
+        if ("wireguard".equals(KingVpnEngineCoordinator.currentOwner())) {
+            try {
+                KingWireGuardCore.Companion.shared(this).disconnect();
+            } catch (Throwable failure) {
+                lastError = "WireGuard handoff failed: " + failure.getMessage();
+                Log.e(TAG, lastError, failure);
+                return false;
+            }
+        }
+        if ("amneziawg".equals(KingVpnEngineCoordinator.currentOwner())) {
+            try {
+                KingAmneziaWgCore.shared().disconnect();
+            } catch (Throwable failure) {
+                lastError = "AmneziaWG handoff failed: " + failure.getMessage();
+                Log.e(TAG, lastError, failure);
+                return false;
+            }
+        }
+        long remainingMs = Math.max(0L,
+                TimeUnit.NANOSECONDS.toMillis(deadline - System.nanoTime()));
+        if (!KingVpnEngineCoordinator.acquire("xray", remainingMs)) return false;
+        if (!isCurrent(myAttempt)) {
+            KingVpnEngineCoordinator.release("xray");
+            return false;
+        }
+        return true;
+    }
+
     /**
      * Worker-side start of one attempt. Everything that touches the shared core or the
      * TUN happens here, under coreLock, and only while this attempt is current.
@@ -700,6 +792,12 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
             // Refuse to start on a core that is still shutting down or still running.
             if (coreStopping || core.isV2rayCoreRunning()) {
                 lastError = "core still busy from a previous attempt";
+                Log.e(TAG, lastError);
+                return false;
+            }
+
+            if (!acquireEngineOwnership(myAttempt)) {
+                lastError = "Android VPN slot is owned by another KING VPN engine";
                 Log.e(TAG, lastError);
                 return false;
             }
@@ -1047,13 +1145,21 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
             if (locked) {
                 try {
                     boolean stopped = stopCoreNow();
-                    if (stopped) closeTun();
+                    if (stopped) {
+                        closeTun();
+                        KingVpnEngineCoordinator.release("xray");
+                        engineReleasePending = false;
+                    } else {
+                        engineReleasePending = true;
+                    }
                 } catch (Exception e) {
+                    engineReleasePending = true;
                     Log.e(TAG, "stopEverything core stop failed", e);
                 } finally {
                     coreLock.unlock();
                 }
             } else {
+                engineReleasePending = true;
                 // An attempt is still inside a native call. Never touch the core or the
                 // TUN from here: that attempt is stale now and will stop the core and
                 // close its TUN itself as soon as it returns.
