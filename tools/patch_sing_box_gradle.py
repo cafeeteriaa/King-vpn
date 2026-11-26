@@ -10,6 +10,9 @@ from urllib.parse import unquote, urlparse
 AGP_VERSION = "9.3.1"
 KOTLIN_VERSION = "2.4.20"
 COMPILE_SDK = 37
+LIBBOX_ARTIFACT_VERSION = "1.14.4-lx.25"
+LIBBOX_ARTIFACT_SHA256 = "8f25b6600b2f1f1104636c9cb92941c756a6322e1f2ce0e5e97b9a6bc41d3bba"
+LIBBOX_ARTIFACT_BASE_URL = "https://github.com/QUSAD-prod/sing_box/releases/download/libbox-v{version}"
 MIRRORS = (
     'maven { url = uri("https://maven-central.storage-download.googleapis.com/maven2/") }',
     'maven { url = uri("https://maven.aliyun.com/repository/central/") }',
@@ -169,6 +172,26 @@ val prepareLibboxGoRuntimeJar = tasks.register("prepareLibboxGoRuntimeJar") {
         1,
     )
 
+def pin_latest_libbox_artifact(properties_text):
+    """Pin the Android binary to the latest verified stable libbox release."""
+    replacements = (
+        (r"(?m)^version=.*$", f"version={LIBBOX_ARTIFACT_VERSION}"),
+        (r"(?m)^sha256=.*$", f"sha256={LIBBOX_ARTIFACT_SHA256}"),
+        (r"(?m)^baseUrl=.*$", f"baseUrl={LIBBOX_ARTIFACT_BASE_URL}"),
+    )
+    for pattern, replacement in replacements:
+        properties_text, count = re.subn(pattern, lambda _m: replacement, properties_text, count=1)
+        if count != 1:
+            raise SystemExit(f"HARD FAIL: expected exactly one libbox property matching {pattern}")
+    for expected in (
+        f"version={LIBBOX_ARTIFACT_VERSION}",
+        f"sha256={LIBBOX_ARTIFACT_SHA256}",
+        f"baseUrl={LIBBOX_ARTIFACT_BASE_URL}",
+    ):
+        if expected not in properties_text:
+            raise SystemExit(f"HARD FAIL: latest libbox artifact pin missing: {expected}")
+    return properties_text
+
 def main():
     host = Path(sys.argv[1] if len(sys.argv) > 1 else "build_app").resolve()
     config = host / ".dart_tool" / "package_config.json"
@@ -178,6 +201,12 @@ def main():
     if pkg is None: raise SystemExit("HARD FAIL: sing_box package missing")
     uri = urlparse(pkg.get("rootUri", ""))
     root = Path(unquote(uri.path)) if uri.scheme == "file" else (config.parent / unquote(pkg["rootUri"])).resolve()
+    properties_file = root / "android" / "libbox.properties"
+    if not properties_file.is_file():
+        raise SystemExit(f"HARD FAIL: missing {properties_file}")
+    properties_text = properties_file.read_text(encoding="utf-8")
+    properties_text = pin_latest_libbox_artifact(properties_text)
+    properties_file.write_text(properties_text, encoding="utf-8")
     gradle = root / "android" / "build.gradle.kts"
     if not gradle.is_file(): raise SystemExit(f"HARD FAIL: missing {gradle}")
     text = gradle.read_text(encoding="utf-8")
@@ -209,7 +238,7 @@ def main():
         elif public_decl not in state_source:
             raise SystemExit(f"HARD FAIL: unexpected ServiceState declaration: {private_decl}")
     state_file.write_text(state_source, encoding="utf-8")
-    print("OK: libbox Gradle aligned; minSdk 24 retained; Go runtime collision merge installed; ServiceState exposed")
+    print(f"OK: libbox {LIBBOX_ARTIFACT_VERSION} SHA-256 pinned; Gradle aligned; minSdk 24 retained; Go runtime collision merge installed; ServiceState exposed")
 
 if __name__ == "__main__":
     main()
