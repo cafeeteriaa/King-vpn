@@ -189,6 +189,8 @@ void main() {
         KingEngineId.shadowsocks, KingEngineId.openConnect, KingEngineId.wireGuard,
       });
       expect(catalog[KingEngineId.xray]?.state, KingIntegrationState.integrated);
+      expect(catalog[KingEngineId.wireGuard]?.state,
+          KingIntegrationState.integrationPathVerified);
       expect(catalog.all.where((e) => e.state == KingIntegrationState.integrated)
           .map((e) => e.id), [KingEngineId.xray]);
     });
