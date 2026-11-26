@@ -7084,8 +7084,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           !(bg && (!connected || appGone)) &&
           !(bg && _bgYield) &&
           !enough() &&
-          !(bg && DateTime.now().difference(bgStart) > const Duration(minutes: 20)) &&
-          true) {
+          !(bg && DateTime.now().difference(bgStart) > const Duration(minutes: 20))) {
         // the whole list was tested: download a new one and go on (endless)
         if (pending.isEmpty && folderQ.isEmpty) {
           // V12: in national mode, two-pass search. When the queue empties,
@@ -10635,7 +10634,7 @@ ListTile( // KINGEXTRAS row
     }
     final made = <Server>[];
     final seenMade = <String>{};
-    final existingKeys = {for (final server in [...pending, ...natRestPending]) server.key};
+    final existingKeys = {for (final server in [...pending, ...natRestPending, ...good]) server.key};
     var templateCursor = natRangeTemplateCursor;
     for (final item in items) {
       final parts = item.split('|');
