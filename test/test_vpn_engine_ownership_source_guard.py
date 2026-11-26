@@ -25,7 +25,7 @@ class VpnEngineOwnershipSourceGuard(unittest.TestCase):
 
     def test_xray_acquires_before_establish_and_releases_after_stop(self):
         source = (ROOT / "android_src" / "KingVpnService.java").read_text()
-        acquire = source.index("if (!acquireEngineOwnership())")
+        acquire = source.index("if (!acquireEngineOwnership(myAttempt))")
         establish = source.index("ParcelFileDescriptor fd = establish(cfg)")
         self.assertLess(acquire, establish)
         self.assertIn('KingVpnEngineCoordinator.release("xray")', source)
