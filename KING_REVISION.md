@@ -1,10 +1,10 @@
 # KING VPN Revision Ledger
 
-Current revision: 60
-Next revision: 61
+Current revision: 61
+Next revision: 62
 Repository: cafeeteriaa/King-vpn
-Revision branch: fix/healthy-folder-unbounded-retention-20261127
-Parent revision branch: fix/healthy-folder-small-sample-outage-20261126
+Revision branch: fix/personal-folder-uncapped-20261127
+Parent revision branch: fix/healthy-folder-unbounded-retention-20261127
 Revision PR: pending creation
 
 ## Revision history
@@ -49,12 +49,24 @@ Revision PR: pending creation
 - Important remaining scalability work: _resMap is still an in-memory working map and the current JSON snapshot is loaded as a whole. This revision removes data loss but does not yet claim memory-bounded paging or multi-million-entry scalability. The next stage must migrate to a disk-backed indexed/paged store before such scale is claimed.
 - Exact-head CI and runtime/device validation are pending.
 
+### Revision 61 — remove personal-server folder count and selection ceilings
+- Removed the fixed 1,000-entry insertion ceiling from the personal-server folder.
+- Removed the fixed 100-entry display/ping/selection ceiling; personalFolderServers now returns every valid stored entry, and both the personal-folder preparation and direct-connect paths use the complete list.
+- Updated Persian UI copy and added a source guard against reintroducing the old count limits.
+- Personal-folder persistence still uses SharedPreferences string-list storage and an in-memory cache. This revision removes artificial count gates but does not yet claim robust very-large-inventory persistence or memory-bounded paging; a transactional file-backed migration remains a follow-up.
+- Exact-head CI and device validation are pending.
+
 ## Mandatory three-pass review protocol
 
 Each numbered revision must be a substantial functional change and pass three separate reviews:
 1. Architecture and behavior: feature preservation, global/National Net isolation, complete inventory traversal and no hidden truncation.
 2. Persistence and concurrency: atomic/serialized writes, cursor commit rules, cancellation, partial-result retention and recovery.
 3. Compatibility and verification: source guards, unit tests, static analysis, Android build and final diff review.
+
+### Revision 61 review status
+1. Architecture and behavior: pending independent review of complete-folder selection and existing personal-only routing.
+2. Persistence and concurrency: pending; verify SharedPreferences failure behavior and plan file-backed migration.
+3. Compatibility and verification: pending source guards, Flutter tests, Dart analysis and Android build.
 
 ### Revision 60 review status
 1. Architecture and behavior: pending independent review.
