@@ -32,3 +32,13 @@ class WireGuardCoreSourceGuardTests(unittest.TestCase):
         self.assertIn("VpnService.prepare(this)", native)
         self.assertIn("onActivityResult", native)
 
+    def test_native_ownership_check_uses_a_valid_kotlin_check_lambda(self):
+        core = (ROOT / "android_src" / "KingWireGuardCore.kt").read_text()
+        self.assertRegex(
+            core,
+            r'check\(KingVpnEngineCoordinator\.acquire\("wireguard", 30_000L\)\)\s*\{\s*"Another KING VPN engine did not release the Android VPN slot"\s*\}',
+        )
+        self.assertLess(
+            core.index('check(KingVpnEngineCoordinator.acquire("wireguard", 30_000L))'),
+            core.index("backend.setState(tunnel, Tunnel.State.UP, config)"),
+        )
