@@ -1671,7 +1671,8 @@ Future<void> natLoadPersisted() async {
 
 const String _ipMemKey = 'natIpMem';
 const String _rangeKey = 'natRanges';
-const int _ipMemMax = 200;
+const String _ipMemFileName = 'king_vpn_ip_inventory.jsonl';
+const String _domMemFileName = 'king_vpn_domain_inventory.jsonl';
 
 final List<Map<String, dynamic>> natIpMem = [];
 final Set<String> natIpDeadRun = {};
@@ -1681,33 +1682,153 @@ int natRangeTemplateCursor = 0; // round-robin through every compatible profile 
 int _natConfiguredRangeCursor = 0; // isolated National Net user-range cursor
 DateTime natRangeLast = DateTime.fromMillisecondsSinceEpoch(0);
 
+Future<void> _natInventoryWriteQueue = Future<void>.value();
+
+Future<File> _natInventoryFile(String name) async {
+  final dir = await getApplicationSupportDirectory();
+  return File('${dir.path}/$name');
+}
+
+Future<void> _natAppendInventoryRecord(
+    String name, Map<String, dynamic> record) {
+  final next = _natInventoryWriteQueue.catchError((Object _) {}).then((_) async {
+    final file = await _natInventoryFile(name);
+    await file.parent.create(recursive: true);
+    final handle = await file.open(mode: FileMode.append);
+    try {
+      await handle.writeString('${jsonEncode(record)}\n');
+      await handle.flush();
+    } finally {
+      await handle.close();
+    }
+  });
+  _natInventoryWriteQueue = next;
+  return next;
+}
+
+Future<List<Map<String, dynamic>>> _natReadInventory(
+    String name, String hostKey) async {
+  await _natInventoryWriteQueue.catchError((Object _) {});
+  final file = await _natInventoryFile(name);
+  if (!await file.exists()) return <Map<String, dynamic>>[];
+  final latest = <String, Map<String, dynamic>>{};
+  for (final line in await file.readAsLines()) {
+    try {
+      final decoded = jsonDecode(line);
+      if (decoded is! Map) continue;
+      final row = Map<String, dynamic>.from(decoded);
+      final host = (row[hostKey] ?? '').toString().trim();
+      final port = (row['port'] as num?)?.toInt() ?? 0;
+      if (host.isEmpty || port < 1 || port > 65535) continue;
+      if (hostKey == 'ip' && InternetAddress.tryParse(host) == null) continue;
+      final key = '$host|$port';
+      latest.remove(key);
+      latest[key] = row;
+    } catch (_) {
+      // A torn final JSONL record is ignored; all preceding records survive.
+    }
+  }
+  return latest.values.toList().reversed.toList(growable: false);
+}
+
+Future<List<Map<String, dynamic>>> _natMigrateLegacyInventory(
+    SharedPreferences prefs, String prefKey, String fileName, String hostKey) async {
+  final legacy = prefs.getString(prefKey);
+  if (legacy != null && legacy.isNotEmpty) {
+    try {
+      final decoded = jsonDecode(legacy);
+      if (decoded is List) {
+        for (final value in decoded) {
+          if (value is! Map) continue;
+          final row = Map<String, dynamic>.from(value);
+          await _natAppendInventoryRecord(fileName, row);
+        }
+      }
+      await prefs.remove(prefKey);
+    } catch (e, stk) {
+      logError(e, stk);
+    }
+  }
+  return _natReadInventory(fileName, hostKey);
+}
+
 Set<String> natIpMemHosts() => {for (final e in natIpMem) '${e['ip']}'};
 
 Future<void> natIpMemLoad() async {
   try {
     final p = await SharedPreferences.getInstance();
-    final s = p.getString(_ipMemKey);
-    if (s != null) {
-      natIpMem
-        ..clear()
-        ..addAll((jsonDecode(s) as List).cast<Map<String, dynamic>>());
-      final cutoff = DateTime.now()
-          .subtract(const Duration(days: 14))
-          .millisecondsSinceEpoch;
-      natIpMem.removeWhere((e) => ((e['t'] as num?)?.toInt() ?? 0) < cutoff);
-    }
+    final file = await _natInventoryFile(_ipMemFileName);
+    final loaded = await file.exists()
+        ? await _natReadInventory(_ipMemFileName, 'ip')
+        : await _natMigrateLegacyInventory(p, _ipMemKey, _ipMemFileName, 'ip');
+    natIpMem
+      ..clear()
+      ..addAll(loaded);
     natRanges = (p.getString(_rangeKey) ?? '')
         .split(RegExp(r'[\r\n,; ]+'))
         .where((x) => x.contains('/') || x.contains('-'))
         .toList();
-    _natConfiguredRangeCursor = (p.getInt('natConfiguredRangeCursor') ?? 0).clamp(0, 1 << 31).toInt();
+    _natConfiguredRangeCursor =
+        (p.getInt('natConfiguredRangeCursor') ?? 0).clamp(0, 1 << 31).toInt();
   } catch (e, stk) {
     logError(e, stk);
   }
 }
 
 const String _domMemKey = 'natDomMem';
-const int _domMemMax = 200;
+final List<Map<String, dynamic>> natDomMem = [];
+
+Set<String> natDomMemHosts() => {for (final e in natDomMem) '${e['h']}:${e['port']}'};
+
+Future<void> natDomMemLoad() async {
+  try {
+    final p = await SharedPreferences.getInstance();
+    final file = await _natInventoryFile(_domMemFileName);
+    final loaded = await file.exists()
+        ? await _natReadInventory(_domMemFileName, 'h')
+        : await _natMigrateLegacyInventory(p, _domMemKey, _domMemFileName, 'h');
+    natDomMem
+      ..clear()
+      ..addAll(loaded);
+  } catch (e, stk) {
+    logError(e, stk);
+  }
+}
+
+Future<void> natDomMemSave(String host, int port) async {
+  final normalized = host.trim().toLowerCase();
+  if (normalized.isEmpty || port < 1 || port > 65535) return;
+  final row = <String, dynamic>{
+    'h': normalized,
+    'port': port,
+    't': DateTime.now().millisecondsSinceEpoch,
+  };
+  natDomMem.removeWhere((e) => e['h'] == normalized && e['port'] == port);
+  natDomMem.insert(0, row);
+  try {
+    await _natAppendInventoryRecord(_domMemFileName, row);
+  } catch (e, stk) {
+    logError(e, stk);
+  }
+}
+
+Future<void> natIpMemSave(String ip, int port) async {
+  final normalized = ip.trim();
+  if (InternetAddress.tryParse(normalized) == null || port < 1 || port > 65535) return;
+  final row = <String, dynamic>{
+    'ip': normalized,
+    'port': port,
+    't': DateTime.now().millisecondsSinceEpoch,
+  };
+  natIpMem.removeWhere((e) => e['ip'] == normalized && e['port'] == port);
+  natIpMem.insert(0, row);
+  try {
+    await _natAppendInventoryRecord(_ipMemFileName, row);
+  } catch (e, stk) {
+    logError(e, stk);
+  }
+}
+
 const int natDelaySecs = 14;
 final List<Map<String, dynamic>> natDomMem = [];
 
