@@ -368,10 +368,12 @@ static void _resetCoreDeadStreak() { _atCoreDeadStreak = 0; }
             _atTotalSteps == 0 ? 0 : _atCompletedSteps / _atTotalSteps;
         dbg('🧪 پایان مرحلهٔ $_atCompletedSteps/$_atTotalSteps: $label');
       }
-      final reason = _abortRequested
-          ? 'توقف دستی پس از $_atCompletedSteps مرحله'
-          : 'تمام مسیرهای آزمون‌شده اجرا شدند';
-      await _atFinish(reason: reason);
+      if (_abortRequested) {
+        dbg('تست به درخواست کاربر پس از $_atCompletedSteps مرحله متوقف شد.');
+        await _atFinish(reason: 'توقف دستی');
+      } else {
+        await _atFinish(reason: 'تمام مسیرهای آزمون‌شده اجرا شدند');
+      }
     } catch (e, stk) {
       logError(e, stk);
       _atAdd('CRASH', 'استثنای تست جامع: $e');
