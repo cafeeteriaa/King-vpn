@@ -1,7 +1,7 @@
 # KING VPN Revision Ledger
 
-Current revision: 61
-Next revision: 62
+Current revision: 62
+Next revision: 63
 Repository: cafeeteriaa/King-vpn
 Revision branch: fix/personal-folder-uncapped-20261127
 Parent revision branch: fix/healthy-folder-unbounded-retention-20261127
@@ -58,12 +58,24 @@ Revision PR: pending creation
 - Includes the restored engine catalog/coordinator/source modules required by the repository's engine tests; catalog groundwork does not imply native engine integration.
 - OpenVPN is intentionally absent from the registry, import parser and runtime catalog, consistent with the native-core policy.
 
+### Revision 62 — serialize personal-folder mutations
+- Added a shared asynchronous mutation queue for personal-folder load, add, remove and last-good writes.
+- Prevents overlapping read/modify/write operations from overwriting one another in the app's shared JSON preferences store.
+- Added a source guard verifying all personal-folder mutation entry points use the serialized queue.
+- Persistence is still SharedPreferences-backed with an in-memory cache; transactional disk-backed paging remains follow-up work.
+- Exact-head CI and runtime validation are pending.
+
 ## Mandatory three-pass review protocol
 
 Each numbered revision must be a substantial functional change and pass three separate reviews:
 1. Architecture and behavior: feature preservation, global/National Net isolation, complete inventory traversal and no hidden truncation.
 2. Persistence and concurrency: atomic/serialized writes, cursor commit rules, cancellation, partial-result retention and recovery.
 3. Compatibility and verification: source guards, unit tests, static analysis, Android build and final diff review.
+
+### Revision 62 review status
+1. Architecture and behavior: pending.
+2. Persistence/concurrency: pending; queue semantics and error recovery require test verification.
+3. Compatibility/verification: pending exact-head CI, Flutter tests, Dart analysis and Android build.
 
 ### Revision 61 review status
 1. Architecture and behavior: pending independent review of complete-folder selection and existing personal-only routing.
