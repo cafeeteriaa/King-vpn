@@ -5216,11 +5216,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
   // the pinned / manually added configs as server objects (the same object
   // that is in the healthy list or in the queue when there is one)
-  /// سرورهای پوشه‌ی «سرورهای شخصی» (حداکثر [max] تا، از اول پوشه)
-  List<Server> personalFolderServers({int max = 50}) {
+  /// همهٔ سرورهای پوشهٔ شخصی؛ محدودیت تعداد ساختگی اعمال نمی‌شود.
+  List<Server> personalFolderServers() {
     final out = <Server>[];
     for (final l in personalFolderCache) {
-      if (out.length >= max) break;
       final s = Server.parse(l);
       if (s != null) {
         s.personal = true; // ONLYFOLDER: تعویض خودکار هرگز به سرور بیرون از پوشه نمی‌رود
@@ -12051,7 +12050,7 @@ ListTile( // KINGEXTRAS row
 
   Future<void>? _personalPrep;
   /// PERSLIVE: ردیف‌های لیست شخصی؛ در مسیر فعلی ping=-2 یعنی عمداً بدون تست مستقیم
-  /// PERSPAGE: تا ۵۰ سرور پوشه‌ی شخصی که روی صفحه‌ی اصلی (ردیف «سرور شخصی») با پینگ نشان داده می‌شوند
+  /// PERSPAGE: تمام سرورهای پوشهٔ شخصی در ردیف اختصاصی نمایش داده و بررسی می‌شوند
   List<Server> _personalShown = <Server>[];
   final ValueNotifier<List<_PRow>> _personalRows = ValueNotifier<List<_PRow>>(<_PRow>[]);
   int _personalTotalInFolder = 0;
@@ -12135,7 +12134,7 @@ ListTile( // KINGEXTRAS row
     final folderCount = personalFolderCache.length;
     final seen = <String>{};
     final list = <Server>[
-      for (final s in personalFolderServers(max: kPersonalShowCap))
+      for (final s in personalFolderServers())
         if (seen.add(s.link)) s,
     ];
     _personalTotalInFolder = folderCount;
@@ -12641,7 +12640,7 @@ ListTile( // KINGEXTRAS row
             : (row == 'f:mine')
                 // "my configs" row: they are connected directly, no search
                 ? await _connectLoop(_mineList())
-                // پوشه‌ی «سرورهای شخصی»: حداکثر ۵۰ سرور، با ترتیب پوشه و آخرین سرور موفق در اولویت
+                // پوشهٔ «سرورهای شخصی»: همهٔ ورودی‌ها، با آخرین سرور موفق در اولویت
                 : (row == 'f:pfolder')
                     ? await _connectLoop(personalFolderServers(max: kPersonalShowCap))
                 // DSGETTER: از مقدار مؤثر
@@ -15808,7 +15807,7 @@ ListTile( // KINGEXTRAS row
         rows.add(_personalHeader());
         rows.add(rowHeader(
             'f:pfolder',
-            '🗂 سرورهای شخصی • ${personalFolderCache.isEmpty ? 'خالی — سرور اضافه کن یا با ساخت خودکار کلودفلر بساز' : '${personalFolderCache.length} سرور • بزن تا ۱۰۰ تا پینگ و به بهترینش وصل شود'}'));
+            '🗂 سرورهای شخصی • ${personalFolderCache.isEmpty ? 'خالی — سرور اضافه کن یا با ساخت خودکار کلودفلر بساز' : '${personalFolderCache.length} سرور • بزن تا همه بررسی و بهترین سرور سالم انتخاب شود'}'));
         rows.add(tgProxyRow(context));
       } else if (g == 'f:mine') {
         rows.add(rowHeader(
