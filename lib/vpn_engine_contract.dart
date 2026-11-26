@@ -337,11 +337,13 @@ class KingVpnEngineCoordinator {
         if (startAttempted) {
           try {
             await adapter.stop();
+            _activeEngineId = null;
           } catch (_) {
-            // Preserve the original startup/health error; adapter logs stop failure.
+            // Keep ownership marked active when teardown cannot be confirmed.
+            // A later engine must not start while this TUN may still be held.
+            _activeEngineId = engineId;
           }
         }
-        _activeEngineId = null;
         rethrow;
       }
     } finally {
