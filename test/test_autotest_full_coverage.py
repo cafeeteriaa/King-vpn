@@ -28,6 +28,7 @@ class AutoTestFullCoverageTests(unittest.TestCase):
             "_atItemNatModes",
             "_atItemOffline",
             "_atItemOnline",
+            "_atItemPersonal",
             "_atItemProto(5, 'vmess')",
             "_atItemProto(6, 'vless')",
             "_atItemProto(7, 'trojan')",
@@ -46,7 +47,7 @@ class AutoTestFullCoverageTests(unittest.TestCase):
         active = SOURCE.split("static List<String> get _atActiveNames", 1)[1].split(
             "static const String _atSearchName", 1
         )[0]
-        for index in range(11):
+        for index in range(12):
             self.assertIn(f"_atItemNames[{index}]", active)
         self.assertIn("_atSubstName", active)
 
