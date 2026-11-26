@@ -29,6 +29,15 @@ class KingVpnSourceGuardTests(unittest.TestCase):
             end = folder.find("\n}", start)
             self.assertIn("_serializePersonalMutation", folder[start:end + 2])
 
+    def test_server_queues_and_cached_inventory_are_not_truncated(self):
+        source = (ROOT / "lib" / "main.dart").read_text(encoding="utf-8")
+        self.assertNotIn("pending.removeRange(1200", source)
+        start = source.index("Future<void> _saveList() async")
+        end = source.index("Future<void> _saveFavs()", start)
+        save_list = source[start:end]
+        self.assertNotIn(".take(3000)", save_list)
+        self.assertIn("fetchedAll.map((s)", save_list)
+
     def test_auto_scan_sheet_forwards_live_vpn_guards(self):
         source = (ROOT / 'lib' / 'auto_scanners.dart').read_text(encoding='utf-8')
         start = source.index('Future<void> autoScanSheet(')
