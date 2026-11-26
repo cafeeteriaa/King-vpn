@@ -2085,8 +2085,10 @@ List<String> natSeedBlocks(List<String> hosts) {
   final seen = <String>{};
   for (final host in hosts) {
     final parsed = InternetAddress.tryParse(host.trim());
-    if (parsed == null || parsed.type != InternetAddressType.IPv4) continue;
-    final cidr = '${parsed.address}/32';
+    if (parsed == null) continue;
+    final cidr = parsed.type == InternetAddressType.IPv4
+        ? '${parsed.address}/32'
+        : '${parsed.address}/128';
     if (seen.add(cidr)) out.add(cidr);
   }
   return out;
@@ -2164,9 +2166,12 @@ List<String> _getCfIps({
     if (parts.length != 2) return (<String>[], 0);
     final ip = InternetAddress.tryParse(parts[0].trim());
     final prefix = int.tryParse(parts[1]);
-    if (ip == null || ip.type != InternetAddressType.IPv4 || prefix == null || prefix < 8 || prefix > 32) {
-      return (<String>[], 0);
+    if (ip == null || prefix == null) return (<String>[], 0);
+    if (ip.type == InternetAddressType.IPv6) {
+      if (prefix != 128) return (<String>[], 0);
+      return (<String>[ip.address], 0);
     }
+    if (prefix < 8 || prefix > 32) return (<String>[], 0);
     final base = _ipToInt(ip.address) & (0xffffffff << (32 - prefix));
     span = 1 << (32 - prefix);
     startIp = _intToIp(base);
@@ -2185,7 +2190,8 @@ List<String> _getCfIps({
     startIp = _intToIp(low);
   } else {
     final ip = InternetAddress.tryParse(item.trim());
-    if (ip == null || ip.type != InternetAddressType.IPv4) return (<String>[], 0);
+    if (ip == null) return (<String>[], 0);
+    if (ip.type == InternetAddressType.IPv6) return (<String>[ip.address], 0);
     startIp = ip.address;
     span = 1;
   }
@@ -2363,6 +2369,7 @@ Future<List<String>> _natRangeScanStepBody({
   cursorStore
     ..clear()
     ..addAll(generatedCursors);
+  natTemplateSeeds = seeds.toList(growable: false);
   return out;
 }
 
