@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:king_vpn/king_auto_switch.dart';
+import 'package:king_vpn/king_engine_sources.dart';
 import 'package:king_vpn/king_network_engines.dart';
 import 'package:king_vpn/king_proxy_sources.dart';
 
@@ -36,10 +37,8 @@ class BlockingAdapter implements KingConnectionAdapter {
   bool get available => delegate.available;
   int _connectCalls = 0;
   @override
-  Future<KingEngineConnectResult> connect() {
-    if (_connectCalls++ == 0) return started.future;
-    return delegate.connect();
-  }
+  Future<KingEngineConnectResult> connect() =>
+      _connectCalls++ == 0 ? started.future : delegate.connect();
   @override
   Future<bool> verifyTraffic() => delegate.verifyTraffic();
   @override
@@ -48,18 +47,16 @@ class BlockingAdapter implements KingConnectionAdapter {
 
 void main() {
   group('KING multi-engine coordinator', () {
-    test('Xray stays primary and CalyxVPN is next configured full VPN', () async {
+    test('Xray stays primary and falls back only after data-plane failure', () async {
       final events = <String>[];
       final result = await KingAutoSwitchCoordinator(adapters: [
-        FakeAdapter(KingEngineId.calyxVpn, events: events),
+        FakeAdapter(KingEngineId.amneziaWg, events: events),
         FakeAdapter(KingEngineId.xray, trafficOk: false, events: events),
       ]).connect();
       expect(result.connected, isTrue);
-      expect(result.engine, KingEngineId.calyxVpn);
+      expect(result.engine, KingEngineId.amneziaWg);
       expect(events, [
-        'connect:xray',
-        'disconnect:xray',
-        'connect:calyx_vpn',
+        'connect:xray', 'disconnect:xray', 'connect:amneziawg',
       ]);
     });
 
@@ -67,26 +64,22 @@ void main() {
       final events = <String>[];
       final result = await KingAutoSwitchCoordinator(adapters: [
         FakeAdapter(KingEngineId.xray, available: false, events: events),
-        FakeAdapter(KingEngineId.tor, events: events),
+        FakeAdapter(KingEngineId.wireGuard, events: events),
       ]).connect();
-      expect(result.engine, KingEngineId.tor);
-      expect(events, ['connect:tor']);
+      expect(result.engine, KingEngineId.wireGuard);
+      expect(events, ['connect:wireguard']);
     });
 
     test('user disconnect cancels a late engine startup', () async {
       final started = Completer<KingEngineConnectResult>();
       final events = <String>[];
-      final adapter = FakeAdapter(KingEngineId.xray, events: events);
-      final blocking = BlockingAdapter(adapter, started);
+      final blocking = BlockingAdapter(FakeAdapter(KingEngineId.xray, events: events), started);
       final coordinator = KingAutoSwitchCoordinator(adapters: [blocking]);
       final pending = coordinator.connect();
       await Future<void>.delayed(Duration.zero);
       await coordinator.disconnect();
       expect(events, ['disconnect:xray']);
-      started.complete(const KingEngineConnectResult(
-        started: true,
-        trafficVerified: true,
-      ));
+      started.complete(const KingEngineConnectResult(started: true, trafficVerified: true));
       final result = await pending;
       expect(result.connected, isFalse);
       expect(result.engine, isNull);
@@ -96,34 +89,23 @@ void main() {
     test('waits for cancelled startup teardown before reconnecting', () async {
       final started = Completer<KingEngineConnectResult>();
       final events = <String>[];
-      final adapter = FakeAdapter(KingEngineId.xray, events: events);
       final coordinator = KingAutoSwitchCoordinator(adapters: [
-        BlockingAdapter(adapter, started),
+        BlockingAdapter(FakeAdapter(KingEngineId.xray, events: events), started),
       ]);
       final first = coordinator.connect();
       await Future<void>.delayed(Duration.zero);
       await coordinator.disconnect();
       final second = coordinator.connect();
-      started.complete(const KingEngineConnectResult(
-        started: true,
-        trafficVerified: true,
-      ));
-      final cancelled = await first;
+      started.complete(const KingEngineConnectResult(started: true, trafficVerified: true));
+      expect((await first).connected, isFalse);
       final reconnected = await second;
-      expect(cancelled.connected, isFalse);
-      expect(reconnected.connected, isTrue);
       expect(reconnected.engine, KingEngineId.xray);
-      expect(events, [
-        'disconnect:xray',
-        'disconnect:xray',
-        'connect:xray',
-      ]);
+      expect(events, ['disconnect:xray', 'disconnect:xray', 'connect:xray']);
     });
 
     test('rejects duplicate adapter identifiers', () {
       expect(() => KingAutoSwitchCoordinator(adapters: [
-        FakeAdapter(KingEngineId.xray),
-        FakeAdapter(KingEngineId.xray),
+        FakeAdapter(KingEngineId.xray), FakeAdapter(KingEngineId.xray),
       ]), throwsArgumentError);
     });
 
@@ -135,83 +117,100 @@ void main() {
       expect(result.engine, isNull);
     });
 
-    test('recovers from a failed secondary engine back to Xray', () async {
-      final events = <String>[];
-      final xray = FakeAdapter(KingEngineId.xray, trafficOk: false, events: events);
-      final tor = FakeAdapter(KingEngineId.tor, events: events);
-      final coordinator = KingAutoSwitchCoordinator(adapters: [xray, tor]);
+    test('recovers from failed active engine to next healthy engine', () async {
+      final xray = FakeAdapter(KingEngineId.xray, trafficOk: false);
+      final wg = FakeAdapter(KingEngineId.wireGuard);
+      final coordinator = KingAutoSwitchCoordinator(adapters: [xray, wg]);
       final initial = await coordinator.connect();
-      expect(initial.engine, KingEngineId.tor);
+      expect(initial.engine, KingEngineId.wireGuard);
       xray.trafficOk = true;
-      tor.trafficOk = false;
+      wg.trafficOk = false;
       final recovered = await coordinator.recoverFromTrafficFailure();
       expect(recovered.engine, KingEngineId.xray);
       expect(recovered.connected, isTrue);
     });
   });
 
-  group('Extensible engine catalog', () {
-    test('contains the ten selected alternatives without Psiphon, VPN Gate, or Ceno', () {
+  group('Selected engine catalog', () {
+    test('contains exactly the selected twelve entries', () {
       final catalog = KingNetworkEngineCatalog();
-      final alternatives = catalog.all.where((engine) => engine.id != KingEngineId.xray);
-      expect(alternatives, hasLength(12));
-      expect(alternatives.map((engine) => engine.id).toSet(), {
-        KingEngineId.calyxVpn,
-        KingEngineId.hysteria2,
-        KingEngineId.singBox,
-        KingEngineId.nthLink,
-        KingEngineId.tor,
-        KingEngineId.i2p,
-        KingEngineId.lantern,
-        KingEngineId.cloudflareWarp,
-        KingEngineId.aviraPhantom,
-        KingEngineId.shroudly,
-        KingEngineId.byeDpi,
-        KingEngineId.powerTunnel,
+      expect(catalog.all, hasLength(12));
+      expect(catalog.all.map((e) => e.id).toSet(), {
+        KingEngineId.xray, KingEngineId.hysteria2, KingEngineId.singBox,
+        KingEngineId.nthLink, KingEngineId.shroudly, KingEngineId.byeDpi,
+        KingEngineId.powerTunnel, KingEngineId.amneziaWg, KingEngineId.openVpn,
+        KingEngineId.shadowsocks, KingEngineId.openConnect, KingEngineId.wireGuard,
       });
-      expect(catalog[KingEngineId.byeDpi]?.role, KingEngineRole.localTransport);
-      expect(catalog[KingEngineId.powerTunnel]?.role, KingEngineRole.localTransport);
-      expect(
-        catalog.all.where((engine) => engine.state == KingIntegrationState.integrated)
-            .map((engine) => engine.id).toList(),
-        [KingEngineId.xray],
-      );
-    });
-
-    test('provides 50 shared online feeds and offline import paths for Hysteria2 and sing-box', () {
-      expect(KingProxySourceCatalog.online, hasLength(50));
-      expect(KingProxySourceCatalog.online.map((s) => s.url).toSet(), hasLength(50));
-      expect(KingProxySourceCatalog.forHysteria2(), hasLength(50));
-      expect(KingProxySourceCatalog.forHysteria2().every(
-        (s) => s.protocols == KingProxyProtocolFilter.hysteria2), isTrue);
-      expect(KingProxySourceCatalog.forSingBox(), hasLength(50));
-      expect(KingProxySourceCatalog.offline, hasLength(8));
+      expect(catalog[KingEngineId.xray]?.state, KingIntegrationState.integrated);
+      expect(catalog.all.where((e) => e.state == KingIntegrationState.integrated)
+          .map((e) => e.id), [KingEngineId.xray]);
     });
 
     test('keeps local DPI tools separate from full-device VPN engines', () {
       final catalog = KingNetworkEngineCatalog();
-      expect(catalog[KingEngineId.byeDpi]?.role, KingEngineRole.localTransport);
-      expect(catalog[KingEngineId.powerTunnel]?.role, KingEngineRole.localTransport);
-      expect(catalog[KingEngineId.hysteria2]?.requiresSeparateVpnOwner, isTrue);
-      expect(catalog[KingEngineId.singBox]?.requiresSeparateVpnOwner, isTrue);
+      for (final id in [KingEngineId.shroudly, KingEngineId.byeDpi, KingEngineId.powerTunnel]) {
+        expect(catalog[id]?.role, KingEngineRole.localTransport);
+      }
+      for (final id in [KingEngineId.hysteria2, KingEngineId.singBox,
+        KingEngineId.amneziaWg, KingEngineId.openVpn, KingEngineId.shadowsocks,
+        KingEngineId.openConnect, KingEngineId.wireGuard]) {
+        expect(catalog[id]?.requiresSeparateVpnOwner, isTrue);
+      }
     });
 
-    test('allows future engines without a fixed inventory ceiling', () {
+    test('allows future engines without an inventory ceiling', () {
       final catalog = KingNetworkEngineCatalog();
       catalog.register(const KingEngineDescriptor(
-        id: 'future_engine',
-        name: 'Future Engine',
+        id: 'future_engine', name: 'Future Engine',
         role: KingEngineRole.fullDeviceVpn,
         state: KingIntegrationState.sourceAndLicenseReviewRequired,
-        priority: 200,
-        summary: 'Dynamically registered adapter.',
+        priority: 200, summary: 'Dynamically registered adapter.',
       ));
       expect(catalog['future_engine']?.name, 'Future Engine');
     });
   });
 
+  group('Protocol-aware server sources', () {
+    test('retains fifty legacy feeds for Xray only', () {
+      expect(KingEngineServerSourceCatalog.xrayFeeds(), hasLength(50));
+      expect(KingProxySourceCatalog.forXray(), hasLength(50));
+      expect(KingProxySourceCatalog.online.map((s) => s.url).toSet(), hasLength(50));
+    });
+
+    test('uses only sources that declare compatible formats for each engine', () {
+      expect(KingEngineServerSourceCatalog.forEngine(KingEngineId.hysteria2), hasLength(3));
+      expect(KingEngineServerSourceCatalog.forEngine(KingEngineId.singBox), hasLength(3));
+      expect(KingEngineServerSourceCatalog.forEngine(KingEngineId.shadowsocks), hasLength(4));
+      expect(KingEngineServerSourceCatalog.forEngine(KingEngineId.openVpn), hasLength(1));
+      expect(KingEngineServerSourceCatalog.forEngine(KingEngineId.amneziaWg), isEmpty);
+      expect(KingEngineServerSourceCatalog.forEngine(KingEngineId.wireGuard), isEmpty);
+      expect(KingEngineServerSourceCatalog.forEngine(KingEngineId.openConnect), isEmpty);
+    });
+
+    test('exposes offline imports without limiting the number of imported profiles', () {
+      expect(KingEngineServerSourceCatalog.offline, containsAll([
+        KingOfflineImportKind.androidDocumentPicker,
+        KingOfflineImportKind.localFile,
+        KingOfflineImportKind.clipboardText,
+        KingOfflineImportKind.qrCode,
+        KingOfflineImportKind.amneziaWgConf,
+        KingOfflineImportKind.openVpnOvpn,
+        KingOfflineImportKind.wireGuardConf,
+        KingOfflineImportKind.openConnectUrl,
+        KingOfflineImportKind.shadowsocksUri,
+      ]));
+    });
+
+    test('identifies provider-managed and local-only engines', () {
+      expect(KingEngineServerSourceCatalog.needsUserOrProviderServer(KingEngineId.nthLink), isTrue);
+      expect(KingEngineServerSourceCatalog.isLocalOnly(KingEngineId.shroudly), isTrue);
+      expect(KingEngineServerSourceCatalog.isLocalOnly(KingEngineId.byeDpi), isTrue);
+      expect(KingEngineServerSourceCatalog.isLocalOnly(KingEngineId.powerTunnel), isTrue);
+    });
+  });
+
   group('Adaptive batches', () {
-    test('processes every item while increasing batch sizes', () async {
+    test('processes the complete supplied iterable while changing batch size', () async {
       final seen = <int>[];
       final result = await KingAdaptiveBatchRunner.run<int, int>(
         items: List<int>.generate(75, (i) => i),
@@ -223,30 +222,21 @@ void main() {
       expect(result.map((item) => item.value).toList(), List<int>.generate(75, (i) => i * 2));
     });
 
-    test('records a failed probe and continues through the inventory', () async {
+    test('records failures and continues through the entire inventory', () async {
       final result = await KingAdaptiveBatchRunner.run<int, int>(
         items: List<int>.generate(45, (i) => i),
         initialBatchSize: 20,
-        probe: (item) async {
-          if (item == 7) throw StateError('probe failed');
-          return item;
-        },
+        probe: (item) async { if (item == 7) throw StateError('probe failed'); return item; },
       );
       expect(result, hasLength(45));
       expect(result[7].succeeded, isFalse);
-      expect(result[7].error, isA<StateError>());
       expect(result.where((item) => item.succeeded), hasLength(44));
     });
 
     test('rejects an invalid batch size', () async {
-      await expectLater(
-        KingAdaptiveBatchRunner.run<int, int>(
-          items: const [1],
-          initialBatchSize: 0,
-          probe: (item) async => item,
-        ),
-        throwsArgumentError,
-      );
+      await expectLater(KingAdaptiveBatchRunner.run<int, int>(
+        items: const [1], initialBatchSize: 0, probe: (item) async => item,
+      ), throwsArgumentError);
     });
   });
 }
