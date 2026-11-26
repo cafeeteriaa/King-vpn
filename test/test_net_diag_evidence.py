@@ -10,13 +10,22 @@ class NetworkDiagnosticEvidenceTests(unittest.TestCase):
         classifier = source.split("_NetClassification _classifyNetEvidence(", 1)[1].split(
             "class _DiagItem", 1
         )[0]
-        for category in ("successes(0, 4)", "successes(5, 8)",
-                         "successes(9, 13)", "successes(14, 17)",
-                         "successes(18, 20)"):
+        for category in ("successes(_DiagGroup.tcp)", "successes(_DiagGroup.tls)",
+                         "successes(_DiagGroup.web)", "successes(_DiagGroup.sources)",
+                         "successes(_DiagGroup.national)"):
             self.assertIn(category, classifier)
+        self.assertIn("p.group == group && p.ok", classifier)
+        self.assertIn("final _DiagGroup group;", source)
+        self.assertIn("ratio(_DiagGroup.tcp, tcp)", classifier)
         self.assertIn("tcp >= 3 && tls == 0", classifier)
         self.assertIn("tcp >= 2 && tls >= 2 && web == 0", classifier)
         self.assertIn("web >= 2 && sources == 0", classifier)
+
+    def test_probe_groups_are_explicit_and_order_independent(self):
+        source = (ROOT / "lib" / "net_diag.dart").read_text(encoding="utf-8")
+        self.assertIn("enum _DiagGroup { tcp, tls, web, sources, national }", source)
+        self.assertNotIn("probes.skip(start)", source)
+        self.assertNotIn("successes(0, 4)", source)
 
     def test_low_confidence_does_not_claim_unfiltered_network(self):
         source = (ROOT / "lib" / "net_diag.dart").read_text(encoding="utf-8")
