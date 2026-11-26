@@ -2,12 +2,13 @@ import 'dart:async';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:king_vpn/king_auto_switch.dart';
+import 'package:king_vpn/king_network_engines.dart';
 
 class FakeAdapter implements KingConnectionAdapter {
   FakeAdapter(this.id, {this.available = true, this.startOk = true,
     this.trafficOk = true, this.events});
   @override
-  final KingEngineId id;
+  final String id;
   @override
   final bool available;
   final bool startOk;
@@ -15,21 +16,21 @@ class FakeAdapter implements KingConnectionAdapter {
   final List<String>? events;
   @override
   Future<KingEngineConnectResult> connect() async {
-    events?.add('connect:${id.name}');
+    events?.add('connect:$id');
     return KingEngineConnectResult(started: startOk, trafficVerified: trafficOk);
   }
   @override
   Future<bool> verifyTraffic() async => trafficOk;
   @override
-  Future<void> disconnect() async => events?.add('disconnect:${id.name}');
+  Future<void> disconnect() async => events?.add('disconnect:$id');
 }
 
-class _BlockingAdapter implements KingConnectionAdapter {
-  _BlockingAdapter(this.delegate, this.started);
+class BlockingAdapter implements KingConnectionAdapter {
+  BlockingAdapter(this.delegate, this.started);
   final FakeAdapter delegate;
   final Completer<KingEngineConnectResult> started;
   @override
-  KingEngineId get id => delegate.id;
+  String get id => delegate.id;
   @override
   bool get available => delegate.available;
   @override
@@ -41,44 +42,37 @@ class _BlockingAdapter implements KingConnectionAdapter {
 }
 
 void main() {
-  group('KING AutoSwitch', () {
-    test('tries Xray before Psiphon and verifies actual traffic', () async {
-      final events = <String>[];
-      final xray = FakeAdapter(KingEngineId.xray, trafficOk: false, events: events);
-      final psiphon = FakeAdapter(KingEngineId.psiphon, events: events);
-      final result = await KingAutoSwitchCoordinator(
-        adapters: [xray, psiphon],
-      ).connect();
-      expect(result.connected, isTrue);
-      expect(result.engine, KingEngineId.psiphon);
-      expect(events, ['connect:xray', 'disconnect:xray', 'connect:psiphon']);
-    });
-
-    test('Xray remains primary even if adapters are supplied out of order', () async {
+  group('KING multi-engine coordinator', () {
+    test('Xray stays primary and VPN Gate is the next configured full VPN', () async {
       final events = <String>[];
       final result = await KingAutoSwitchCoordinator(adapters: [
-        FakeAdapter(KingEngineId.psiphon, events: events),
-        FakeAdapter(KingEngineId.xray, events: events),
+        FakeAdapter(KingEngineId.vpnGate, events: events),
+        FakeAdapter(KingEngineId.xray, trafficOk: false, events: events),
       ]).connect();
-      expect(result.engine, KingEngineId.xray);
-      expect(events, ['connect:xray']);
+      expect(result.connected, isTrue);
+      expect(result.engine, KingEngineId.vpnGate);
+      expect(events, [
+        'connect:xray',
+        'disconnect:xray',
+        'connect:vpn_gate',
+      ]);
     });
 
     test('does not start unavailable engines', () async {
       final events = <String>[];
       final result = await KingAutoSwitchCoordinator(adapters: [
         FakeAdapter(KingEngineId.xray, available: false, events: events),
-        FakeAdapter(KingEngineId.psiphon, events: events),
+        FakeAdapter(KingEngineId.tor, events: events),
       ]).connect();
-      expect(result.engine, KingEngineId.psiphon);
-      expect(events, ['connect:psiphon']);
+      expect(result.engine, KingEngineId.tor);
+      expect(events, ['connect:tor']);
     });
 
     test('user disconnect cancels a late engine startup', () async {
       final started = Completer<KingEngineConnectResult>();
       final events = <String>[];
       final adapter = FakeAdapter(KingEngineId.xray, events: events);
-      final blocking = _BlockingAdapter(adapter, started);
+      final blocking = BlockingAdapter(adapter, started);
       final coordinator = KingAutoSwitchCoordinator(adapters: [blocking]);
       final pending = coordinator.connect();
       await Future<void>.delayed(Duration.zero);
@@ -93,19 +87,57 @@ void main() {
       expect(events, ['disconnect:xray']);
     });
 
-    test('rejects duplicate engine adapters', () {
+    test('rejects duplicate adapter identifiers', () {
       expect(() => KingAutoSwitchCoordinator(adapters: [
         FakeAdapter(KingEngineId.xray),
         FakeAdapter(KingEngineId.xray),
       ]), throwsArgumentError);
     });
 
-    test('does not accept core CONNECTED without data-plane proof', () async {
+    test('does not accept CONNECTED without data-plane proof', () async {
       final result = await KingAutoSwitchCoordinator(adapters: [
         FakeAdapter(KingEngineId.xray, trafficOk: false),
       ]).connect();
       expect(result.connected, isFalse);
       expect(result.engine, isNull);
+    });
+
+    test('recovers from a failed secondary engine back to Xray', () async {
+      final events = <String>[];
+      final xray = FakeAdapter(KingEngineId.xray, trafficOk: false, events: events);
+      final tor = FakeAdapter(KingEngineId.tor, events: events);
+      final coordinator = KingAutoSwitchCoordinator(adapters: [xray, tor]);
+      final initial = await coordinator.connect();
+      expect(initial.engine, KingEngineId.tor);
+      xray.trafficOk = true;
+      tor.trafficOk = false;
+      final recovered = await coordinator.recoverFromTrafficFailure();
+      expect(recovered.engine, KingEngineId.xray);
+      expect(recovered.connected, isTrue);
+    });
+  });
+
+  group('Extensible engine catalog', () {
+    test('contains the twelve alternatives without Psiphon', () {
+      final catalog = KingNetworkEngineCatalog();
+      final alternatives = catalog.all.where((engine) => engine.id != KingEngineId.xray);
+      expect(alternatives, hasLength(12));
+      expect(catalog[KingEngineId.vpnGate]?.role, KingEngineRole.fullDeviceVpn);
+      expect(catalog[KingEngineId.ceno]?.role, KingEngineRole.browserNetwork);
+      expect(catalog[KingEngineId.byeDpi]?.role, KingEngineRole.localTransport);
+    });
+
+    test('allows future engines without a fixed inventory ceiling', () {
+      final catalog = KingNetworkEngineCatalog();
+      catalog.register(const KingEngineDescriptor(
+        id: 'future_engine',
+        name: 'Future Engine',
+        role: KingEngineRole.fullDeviceVpn,
+        state: KingIntegrationState.sourceAndLicenseReviewRequired,
+        priority: 200,
+        summary: 'Dynamically registered adapter.',
+      ));
+      expect(catalog['future_engine']?.name, 'Future Engine');
     });
   });
 
