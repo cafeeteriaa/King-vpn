@@ -1083,36 +1083,40 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
     }
 
     private void saveState() {
-        File target = failoverStateFile();
-        File temp = new File(getFilesDir(), "king_failover_state.jsonl.tmp");
-        try {
-            FileOutputStream stream = new FileOutputStream(temp, false);
+        synchronized (lock) {
+            File target = failoverStateFile();
+            File temp = new File(getFilesDir(), "king_failover_state.jsonl.tmp");
             try {
-                BufferedWriter writer = new BufferedWriter(
-                        new OutputStreamWriter(stream, StandardCharsets.UTF_8));
-                for (Srv s : servers) {
-                    JSONObject row = new JSONObject();
-                    row.put("config", s.config);
-                    row.put("remark", s.remark);
-                    row.put("addr", s.addr);
-                    row.put("port", s.port);
-                    writer.write(row.toString());
-                    writer.newLine();
+                FileOutputStream stream = new FileOutputStream(temp, false);
+                try {
+                    BufferedWriter writer = new BufferedWriter(
+                            new OutputStreamWriter(stream, StandardCharsets.UTF_8));
+                    for (Srv s : servers) {
+                        JSONObject row = new JSONObject();
+                        row.put("config", s.config);
+                        row.put("remark", s.remark);
+                        row.put("addr", s.addr);
+                        row.put("port", s.port);
+                        writer.write(row.toString());
+                        writer.newLine();
+                    }
+                    writer.flush();
+                    stream.getFD().sync();
+                } finally {
+                    stream.close();
                 }
-                writer.flush();
-                stream.getFD().sync();
-            } finally {
-                stream.close();
+                // POSIX rename replaces the previous file atomically on the same filesystem.
+                Os.rename(temp.getAbsolutePath(), target.getAbsolutePath());
+                SharedPreferences sp = getSharedPreferences(PREFS, MODE_PRIVATE);
+                sp.edit().putInt("idx", currentIdx)
+                        .putBoolean("national", nationalMode)
+                        .remove("list").commit();
+            } catch (Exception e) {
+                Log.w(TAG, "saveState failed; previous durable state is retained when possible", e);
+                if (temp.exists()) temp.delete();
             }
-            // POSIX rename replaces the previous file atomically on the same filesystem.
-            Os.rename(temp.getAbsolutePath(), target.getAbsolutePath());
-            SharedPreferences sp = getSharedPreferences(PREFS, MODE_PRIVATE);
-            sp.edit().putInt("idx", currentIdx)
-                    .putBoolean("national", nationalMode)
-                    .remove("list").commit();
-        } catch (Exception e) {
-            Log.w(TAG, "saveState failed; previous durable state is retained when possible", e);
-            if (temp.exists()) temp.delete();
+        }
+    
         }
     }
 
