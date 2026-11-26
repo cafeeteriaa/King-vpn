@@ -33,6 +33,8 @@ class _HealMemory {
   };
   final Map<String, int> wins = {};
   final Map<String, int> fails = {};
+  final Map<String, int> contextualWins = {};
+  final Map<String, int> contextualFails = {};
   Future<void>? _loadTask;
   Future<void> _writeQueue = Future<void>.value();
 
@@ -54,7 +56,8 @@ class _HealMemory {
           final action = row['action'];
           final ok = row['ok'];
           if (action is! String || !_knownActions.contains(action) || ok is! bool) continue;
-          _apply(action, ok);
+          final context = row['context'];
+          _apply(action, ok, context: context is String ? context : '');
         } catch (_) {
           // Ignore a torn/corrupt journal row; later rows remain recoverable.
         }
@@ -64,15 +67,25 @@ class _HealMemory {
     }
   }
 
-  void _apply(String action, bool ok) {
+  String _contextKey(String context, String action) => '${context}::$action';
+
+  void _apply(String action, bool ok, {String context = ''}) {
     if (ok) {
       wins[action] = (wins[action] ?? 0) + 1;
     } else {
       fails[action] = (fails[action] ?? 0) + 1;
     }
+    if (context.isNotEmpty) {
+      final key = _contextKey(context, action);
+      if (ok) {
+        contextualWins[key] = (contextualWins[key] ?? 0) + 1;
+      } else {
+        contextualFails[key] = (contextualFails[key] ?? 0) + 1;
+      }
+    }
   }
 
-  Future<void> remember(String action, bool ok) async {
+  Future<void> remember(String action, bool ok, {String context = ''}) async {
     if (!_knownActions.contains(action)) return;
     await load();
     final previous = _writeQueue;
@@ -93,6 +106,7 @@ class _HealMemory {
             'v': 1,
             'action': action,
             'ok': ok,
+            if (context.isNotEmpty) 'context': context,
             'at': DateTime.now().toUtc().toIso8601String(),
           }) + '\n',
           mode: FileMode.append,
@@ -108,13 +122,24 @@ class _HealMemory {
     } catch (_) {
       // Keep current-session adaptation alive even if storage is unavailable.
     } finally {
-      _apply(action, ok);
+      _apply(action, ok, context: context);
       release.complete();
     }
   }
 
-  int score(String action) =>
-      (wins[action] ?? 0) - (fails[action] ?? 0);
+  double score(String action, {String context = ''}) {
+    final totalWins = wins[action] ?? 0;
+    final totalFails = fails[action] ?? 0;
+    final globalRate = (totalWins + 1) / (totalWins + totalFails + 2);
+    if (context.isEmpty) return globalRate;
+    final key = _contextKey(context, action);
+    final localWins = contextualWins[key] ?? 0;
+    final localFails = contextualFails[key] ?? 0;
+    final localRate = (localWins + 1) / (localWins + localFails + 2);
+    final evidenceWeight = (localWins + localFails) /
+        (localWins + localFails + 4);
+    return globalRate * (1 - evidenceWeight) + localRate * evidenceWeight;
+  }
 }
 
 final _healMem = _HealMemory();
@@ -231,7 +256,8 @@ extension KingHealEngine on _HomePageState {
       final fixed = dataPlaneOk && stillBad.every((s) => s.severity < 5);
       // Learn from verified tunnel recovery, not merely an action's return
       // value (which may report CONNECTED while no traffic passes).
-      await _healMem.remember(plan.$1, fixed);
+      final learningContext = (top.map((signal) => signal.id).toList()..sort()).join('+');
+      await _healMem.remember(plan.$1, fixed, context: learningContext);
       _healActStreak = fixed ? 0 : _healActStreak + 1;
 
       // ----- ۵) یادگیری + پیشنهاد آپدیت اگر ترمیم کافی نبود -----
@@ -452,18 +478,31 @@ extension KingHealEngine on _HomePageState {
       return ('none', 'همگام‌سازی انجام شد', params);
     }
 
-    // انتخاب از حافظه: اقدامی که قبلاً بیشتر برد داشته
-    final candidates = [
+    // Context-aware learning: the same repair may behave differently for
+    // no-healthy, core-drop, no-data and pilot-thrash incidents.
+    final context = ids.toList()..sort();
+    final contextKey = context.join('+');
+    final candidates = <String>[
       'connect_now',
+      'search_connect',
       'failover',
+      'failover_soft',
       'soft_clear_and_search',
-      'restart_tunnel'
+      'restart_tunnel',
+      'force_turbo',
+      'calm_pilot',
     ];
-    candidates.sort((a, b) => _healMem.score(b).compareTo(_healMem.score(a)));
-    if (_healMem.score(candidates.first) > 0 && top.first.severity >= 7) {
+    candidates.sort((a, b) => _healMem
+        .score(b, context: contextKey)
+        .compareTo(_healMem.score(a, context: contextKey)));
+    if (top.first.severity >= 7 &&
+        (_healMem.wins[candidates.first] ?? 0) +
+                (_healMem.fails[candidates.first] ?? 0) >
+            0) {
       return (
         candidates.first,
-        'از حافظه: ${candidates.first} قبلاً موفق‌تر بوده',
+        'تصمیم تطبیقی برای [$contextKey] • احتمال موفقیت تاریخی: '
+            '${(_healMem.score(candidates.first, context: contextKey) * 100).round()}%',
         params
       );
     }
@@ -602,7 +641,8 @@ extension KingHealEngine on _HomePageState {
 
   /// وضعیت انسانی برای UI
   String kingHealStatusLine() {
-    final mem = _healMem.recent.reversed.take(5).join(' ');
+    final mem = 'برد ${_healMem.wins.values.fold<int>(0, (a, b) => a + b)} / '
+        'باخت ${_healMem.fails.values.fold<int>(0, (a, b) => a + b)';
     final st = _netStateNow(
       connected: connected,
       tunBadNow: tunBad,
