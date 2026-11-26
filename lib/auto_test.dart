@@ -3,10 +3,10 @@ part of 'main.dart';
 bool autoTestAdFree = false;
 
 // =============================================================================
-// AUTO TEST 60min — تست خودکار شش بخش واقعی + سناریوهای پایداری
-// بخش‌ها به ترتیب: اینترنت جهانی | نت ملی (IP اول، بعد تست کانفیگ، همه‌ی سطوح ماتریس)
+// AUTO TEST — جامع‌ترین اجرای مسیرهای اتصال موجود + سناریوهای پایداری
+// مسیرها به ترتیب: جهانی، منابع تازه، نت ملی، آفلاین، آنلاین، پروتکل‌ها، کشور، AI و جایگزینی
 // | خلبان | پوشه‌ی منابع تازه | اتصال آفلاین | اتصال آنلاین
-// بعد از آن‌ها قطع/وصل، قطع وسط اتصال، تعویض سرور و مانیتور طولانی با باقی‌مانده‌ی وقت اجرا می‌شوند.
+// سپس سناریوهای قطع/وصل، توقف وسط اتصال، تعویض سرور و پایش پایداری اجرا می‌شوند.
 // هدف: پیدا کردن race، گیر کردن busy/switching، و اینکه هر حالت واقعاً کار می‌کند.
 // =============================================================================
 
@@ -361,6 +361,11 @@ static void _resetCoreDeadStreak() { _atCoreDeadStreak = 0; }
         } catch (e, stk) {
           logError(e, stk);
           _atAdd('STEP-CRASH', '$label: $e');
+          try {
+            await _atResetToGlobal();
+          } catch (cleanupError, cleanupStack) {
+            logError(cleanupError, cleanupStack);
+          }
         }
         if (_abortRequested || _phase != _AtPhase.running) break;
         _atCompletedSteps++;
@@ -2089,7 +2094,7 @@ static void _resetCoreDeadStreak() { _atCoreDeadStreak = 0; }
     _atNatWorking = false;
     for (var lvl = 0; lvl <= 10; lvl++) {
       if (_abortRequested || _phase != _AtPhase.running) break;
-natFloor = lvl;
+      natFloor = lvl;
       natLevel = lvl;
       final s0 = natIpScanned, f0 = natIpFound, t0 = natIpTested, o0 = natIpOk;
       final connected = await _atConnectItem('$name • سطح $lvl',
@@ -2154,6 +2159,7 @@ natFloor = lvl;
     _scenario = 2;
     autoTestText.value = 'سناریو ۲: قطع/وصل سریع';
     dbg('🧪 سناریو ۲ — قطع/وصل ×۳ روی V2Ray');
+    await _atResetToGlobal();
     await _atApplyEngine('v2ray');
 
     for (var i = 1; i <= 3; i++) {
@@ -2184,6 +2190,7 @@ natFloor = lvl;
     _scenario = 3;
     autoTestText.value = 'سناریو ۳: قطع وسط اتصال';
     dbg('🧪 سناریو ۳ — abort وسط اتصال');
+    await _atResetToGlobal();
     await _atApplyEngine('v2ray');
     await _atEnsureDisconnected();
 
@@ -2227,6 +2234,7 @@ natFloor = lvl;
     _scenario = 4;
     autoTestText.value = 'سناریو ۴: تعویض سرور';
     dbg('🧪 سناریو ۴ — تعویض سرور');
+    await _atResetToGlobal();
     await _atApplyEngine('v2ray');
 
     if (!connected) {
