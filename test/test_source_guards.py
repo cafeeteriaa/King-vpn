@@ -3105,12 +3105,17 @@ class WireGuardIntegrationGuards(unittest.TestCase):
         self.assertIn("_kingWireGuardCore.connect(s.link)", self.main)
         self.assertIn("row == 'f:wireguard'", self.main)
         self.assertIn("if (!s.personal && !s.wireGuard) _resAdd(s)", self.main)
+        self.assertIn("(viaCore || !direct) && !_kingWireGuardActive", self.main)
+        self.assertIn("if (s.wireGuard || !nationalMode) return false", self.main)
+        self.assertIn("_kingWireGuardCore.status().timeout", self.main)
 
     def test_native_engine_uses_official_wireguard_backend(self):
         self.assertIn("GoBackend(appContext)", self.native)
         self.assertIn("Config.parse(it)", self.native)
         self.assertIn("backend.setState(tunnel, Tunnel.State.UP, config)", self.native)
         self.assertIn("backend.setState(tunnel, Tunnel.State.DOWN, null)", self.native)
+        heal = (ROOT / "lib/king_heal.dart").read_text(encoding="utf-8")
+        self.assertIn("|| _kingWireGuardActive", heal)
         self.assertNotIn("V2rayCoreManager", self.native)
 
     def test_native_channel_handles_permission_and_lifecycle(self):
