@@ -2188,8 +2188,8 @@ List<Server> natCurrentTemplateSeeds() =>
 // V7: IP scanning is required by v7 (Layer 1 filter = IP/Port). Set to true.
 bool kNatIpScanOn = true;
 
-final Map<String, int> _cfRangeCursors = {}; // generic/global scan cursor inventory
-final Map<String, int> _natNationalRangeCursors = {}; // isolated National Net cursor inventory
+final Map<String, String> _cfRangeCursors = {}; // generic/global scan cursor inventory
+final Map<String, String> _natNationalRangeCursors = {}; // isolated National Net cursor inventory
 List<String> _getCfIps({
   int batchSize = 160000,
   // فیکس ۳: داخل isolate مقدار سراسری‌ها (بازه‌های زنده و cursorها) وجود ندارد؛ از
@@ -2239,56 +2239,106 @@ List<String> _getCfIps({
 }
 
 // Cursor-aware expansion so large CIDR catalogs are covered fairly across runs.
-(List<String>, int) _natExpandAnyCursor(String item, int cursor, int maxPerBlock) {
-  String? startIp;
-  int span = 0;
+BigInt _natIPv6ToBigInt(InternetAddress address) {
+  var value = BigInt.zero;
+  for (final byte in address.rawAddress) {
+    value = (value << 8) | BigInt.from(byte);
+  }
+  return value;
+}
+
+String _natBigIntToIPv6(BigInt value) {
+  final bytes = List<int>.filled(16, 0);
+  for (var index = 15; index >= 0; index--) {
+    bytes[index] = (value & BigInt.from(255)).toInt();
+    value >>= 8;
+  }
+  return InternetAddress.fromRawAddress(bytes).address;
+}
+
+(List<String>, String) _natExpandIPv6Span(
+    BigInt base, BigInt span, String cursorText, int maxPerBlock) {
+  if (span <= BigInt.zero || maxPerBlock <= 0) return (<String>[], cursorText);
+  final offset = (BigInt.tryParse(cursorText) ?? BigInt.zero) % span;
+  final remaining = span - offset;
+  final count = remaining > BigInt.from(maxPerBlock)
+      ? maxPerBlock
+      : remaining.toInt();
+  final out = <String>[];
+  for (var index = 0; index < count; index++) {
+    out.add(_natBigIntToIPv6(base + offset + BigInt.from(index)));
+  }
+  return (out, ((offset + BigInt.from(count)) % span).toString());
+}
+
+// Cursor-aware expansion for IPv4 and IPv6 CIDRs/ranges. BigInt-backed IPv6
+// cursors allow explicit /64 and larger address spaces to progress without overflow.
+(List<String>, String) _natExpandAnyCursor(
+    String item, String cursorText, int maxPerBlock) {
+  if (maxPerBlock <= 0) return (<String>[], cursorText);
   if (item.contains('/')) {
     final parts = item.split('/');
-    if (parts.length != 2) return (<String>[], 0);
+    if (parts.length != 2) return (<String>[], cursorText);
     final ip = InternetAddress.tryParse(parts[0].trim());
     final prefix = int.tryParse(parts[1]);
-    if (ip == null || prefix == null) return (<String>[], 0);
+    if (ip == null || prefix == null) return (<String>[], cursorText);
     if (ip.type == InternetAddressType.IPv6) {
-      if (prefix != 128) return (<String>[], 0);
-      if (cursor >= 1) return (<String>[], 1);
-      return (<String>[ip.address], 1);
+      if (prefix < 32 || prefix > 128) return (<String>[], cursorText);
+      final hostBits = 128 - prefix;
+      final allMask = (BigInt.one << 128) - BigInt.one;
+      final hostMask = (BigInt.one << hostBits) - BigInt.one;
+      final base = _natIPv6ToBigInt(ip) & (allMask ^ hostMask);
+      return _natExpandIPv6Span(
+          base, BigInt.one << hostBits, cursorText, maxPerBlock);
     }
-    if (prefix < 8 || prefix > 32) return (<String>[], 0);
+    if (prefix < 8 || prefix > 32) return (<String>[], cursorText);
     final base = _ipToInt(ip.address) & (0xffffffff << (32 - prefix));
-    span = 1 << (32 - prefix);
-    startIp = _intToIp(base);
-  } else if (item.contains('-')) {
+    final span = 1 << (32 - prefix);
+    final offset = (int.tryParse(cursorText) ?? 0) % span;
+    final count = min(maxPerBlock, span);
+    final out = <String>[];
+    for (var index = 0; index < count; index++) {
+      out.add(_intToIp(base + ((offset + index) % span)));
+    }
+    return (out, ((offset + count) % span).toString());
+  }
+
+  if (item.contains('-')) {
     final parts = item.split('-');
-    if (parts.length != 2) return (<String>[], 0);
-    final a = InternetAddress.tryParse(parts[0].trim());
-    final b = InternetAddress.tryParse(parts[1].trim());
-    if (a == null || b == null || a.type != InternetAddressType.IPv4 || b.type != InternetAddressType.IPv4) {
-      return (<String>[], 0);
+    if (parts.length != 2) return (<String>[], cursorText);
+    final first = InternetAddress.tryParse(parts[0].trim());
+    final last = InternetAddress.tryParse(parts[1].trim());
+    if (first == null || last == null || first.type != last.type) {
+      return (<String>[], cursorText);
     }
-    final first = _ipToInt(a.address);
-    final last = _ipToInt(b.address);
-    final low = min(first, last);
-    span = (max(first, last) - low) + 1;
-    startIp = _intToIp(low);
-  } else {
-    final ip = InternetAddress.tryParse(item.trim());
-    if (ip == null) return (<String>[], 0);
-    if (ip.type == InternetAddressType.IPv6) {
-      if (cursor >= 1) return (<String>[], 1);
-      return (<String>[ip.address], 1);
+    if (first.type == InternetAddressType.IPv6) {
+      final a = _natIPv6ToBigInt(first);
+      final b = _natIPv6ToBigInt(last);
+      final low = a <= b ? a : b;
+      final high = a >= b ? a : b;
+      return _natExpandIPv6Span(
+          low, high - low + BigInt.one, cursorText, maxPerBlock);
     }
-    startIp = ip.address;
-    span = 1;
+    final a = _ipToInt(first.address);
+    final b = _ipToInt(last.address);
+    final low = min(a, b);
+    final span = max(a, b) - low + 1;
+    final offset = (int.tryParse(cursorText) ?? 0) % span;
+    final count = min(maxPerBlock, span);
+    final out = <String>[];
+    for (var index = 0; index < count; index++) {
+      out.add(_intToIp(low + ((offset + index) % span)));
+    }
+    return (out, ((offset + count) % span).toString());
   }
-  if (span <= 0) return (<String>[], 0);
-  final base = _ipToInt(startIp);
-  final offset = cursor % span;
-  final count = min(maxPerBlock, span);
-  final out = <String>[];
-  for (var i = 0; i < count; i++) {
-    out.add(_intToIp(base + ((offset + i) % span)));
+
+  final ip = InternetAddress.tryParse(item.trim());
+  if (ip == null) return (<String>[], cursorText);
+  if (ip.type == InternetAddressType.IPv6) {
+    return _natExpandIPv6Span(
+        _natIPv6ToBigInt(ip), BigInt.one, cursorText, maxPerBlock);
   }
-  return (out, (offset + count) % span);
+  return (<String>[ip.address], '0');
 }
 
 // فیکس ۳: ساخت رشته‌های IP (صدها هزار تا چند میلیون) از ترد UI به isolate منتقل شد.
@@ -2301,7 +2351,10 @@ Map<String, dynamic> _genAddrsIso(Map<String, dynamic> args) {
   final List<String> blocks = List<String>.from(args['blocks'] as List);
   final bool nationalMode = args['nationalMode'] as bool;
   final List<String> liveRanges = List<String>.from(args['liveRanges'] as List);
-  final Map<String, int> cursors = Map<String, int>.from(args['cursors'] as Map);
+  final Map<String, String> cursors = {
+    for (final entry in (args['cursors'] as Map).entries)
+      entry.key.toString(): entry.value.toString(),
+  };
   final addrs = <String>[];
   // NATMEM: هر بلوک حداکثر ۲۵۶ آدرس پراکنده و کل فهرست سقف دارد. قبلاً هر بلوک تا ۶۵۵۳۶ آدرس
   // و فهرست ISP حدود ۲۸۰۰ بلوک داشت، یعنی ده‌ها میلیون رشته در isolate و فقط ۶۰۰۰ تای آن استفاده می‌شد.
@@ -2313,14 +2366,14 @@ Map<String, dynamic> _genAddrsIso(Map<String, dynamic> args) {
     if (blocks.isEmpty) return;
     // Rotate across the entire CIDR/range catalog; otherwise a capped list
     // repeatedly expands only its first ~N blocks and starves the rest.
-    final start = (cursors['__block_cursor'] ?? 0) % blocks.length;
+    final start = (int.tryParse(cursors['__block_cursor'] ?? '0') ?? 0) % blocks.length;
     var processed = 0;
     for (var offset = 0; offset < blocks.length; offset++) {
       if (addrs.length >= cap) break;
       final index = (start + offset) % blocks.length;
       final range = blocks[index];
       final key = 'block:$range';
-      final cursor = cursors[key] ?? 0;
+      final cursor = cursors[key] ?? '0';
       final remaining = cap - addrs.length;
       if (remaining <= 0) break;
       final generated = _natExpandAnyCursor(range, cursor, min(256, remaining));
@@ -2330,14 +2383,14 @@ Map<String, dynamic> _genAddrsIso(Map<String, dynamic> args) {
       }
       processed++;
     }
-    cursors['__block_cursor'] = ((start + max(1, processed)) % blocks.length).toInt();
+    cursors['__block_cursor'] = ((start + max(1, processed)) % blocks.length).toString();
   }
   if (nationalMode) {
-    addrs.addAll(_getCfIps(batchSize: cfIpsBatch, liveRanges: liveRanges, cursors: cursors));
+    addrs.addAll(_getCfIps(batchSize: cfIpsBatch, liveRanges: liveRanges, cursors: <String, int>{}));
     addBlocks();
   } else {
     addBlocks();
-    addrs.addAll(_getCfIps(batchSize: cfIpsBatch, liveRanges: liveRanges, cursors: cursors));
+    addrs.addAll(_getCfIps(batchSize: cfIpsBatch, liveRanges: liveRanges, cursors: <String, int>{}));
   }
   return {'addrs': addrs, 'cursors': cursors};
 }
@@ -2418,11 +2471,11 @@ Future<List<String>> _natRangeScanStepBody({
     'blocks': blocks,
     'nationalMode': modeSnapshot,
     'liveRanges': <String>[],
-    'cursors': Map<String, int>.of(cursorStore),
+    'cursors': Map<String, String>.of(cursorStore),
   };
   final generated = await compute(_genAddrsIso, args);
   if (shouldAbort()) return const <String>[];
-  final generatedCursors = Map<String, int>.from(generated['cursors'] as Map);
+  final generatedCursors = <String, String>{for (final entry in (generated['cursors'] as Map).entries) entry.key.toString(): entry.value.toString()};
   // The isolate now emits exactly maxAddrs entries; no generated tail is
   // silently skipped after its per-range cursor has advanced.
   final slice = (generated['addrs'] as List).cast<String>();
