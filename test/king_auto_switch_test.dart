@@ -409,7 +409,10 @@ void main() {
       expect(identical(first, second), isTrue);
       gate.complete('hy2://token@example.org:443');
       await first;
-      expect(calls, 2);
+      expect(
+        calls,
+        KingEngineServerSourceCatalog.forEngine(KingEngineId.hysteria2).length,
+      );
       scheduler.dispose();
     });
   });
