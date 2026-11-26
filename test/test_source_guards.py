@@ -2505,7 +2505,10 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn('.take(2)', range_add)
         self.assertNotIn('pending.length > 3000', range_add)
         self.assertIn('natRangeTemplateCursor', range_add)
-        self.assertIn('for (final server in [...pending, ...natRestPending, ...natCurrentTemplateSeeds(), ...good])', range_add)
+        self.assertIn('final activeTemplates = nationalMode', range_add)
+        self.assertIn('? <Server>[...natRestPending, ...natNationalTemplateSeeds]', range_add)
+        self.assertIn(': <Server>[...pending, ...good, ...natGlobalTemplateSeeds]', range_add)
+        self.assertIn('if (nationalMode) {\n      natRestPending = [...made, ...natRestPending];', range_add)
         self.assertNotIn('maxPerSource', main)
 
     def test_search_does_not_stop_after_a_fixed_batch_count(self):
