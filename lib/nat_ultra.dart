@@ -2058,8 +2058,9 @@ const List<String> natIrDomains = [
 Future<List<String>> _natDomainFirst(List<Server> known,
     {required int conc, bool Function()? stop}) async {
   final out = <String>[];
-  if (!kNatIpScanOn || known.isEmpty) return out;
+  if (!kNatIpScanOn) return out;
   await natNationalDomMemLoad();
+  if (known.isEmpty && natNationalDomMem.isEmpty) return out;
   bool cancelled() => stop?.call() ?? false;
   try {
     // Probe every distinct endpoint explicitly present in the supplied server
