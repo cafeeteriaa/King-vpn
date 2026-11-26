@@ -12073,15 +12073,16 @@ ListTile( // KINGEXTRAS row
   }
 
   /// هنگام نمایش تبلیغ اجرا می‌شود: جستجوی پس‌زمینه را متوقف و سرورهای شخصی را پینگ می‌گیرد
-  void _personalPrewarm() {
-    _personalPrep = _personalPrepWork();
+  void _personalPrewarm({bool Function()? shouldCancel}) {
+    _personalPrep = _personalPrepWork(shouldCancel: shouldCancel);
   }
 
   /// PERSPING: پینگ همزمان (۸ تایی) برای سرورهای شخصی؛ نتیجه‌ی هر سرور همان لحظه روی صفحه می‌آید.
   /// خروجی: نقشه‌ی link -> ms فقط برای سرورهای سالم
-  Future<Map<String, int>> _personalPingAll(List<Server> list) async {
+  Future<Map<String, int>> _personalPingAll(List<Server> list,
+      {bool Function()? shouldCancel}) async {
     final gen = ++_personalPingGen;
-    bool cancelled() => gen != _personalPingGen || AutoTestEngine.autoTestAbortRequested;
+    bool cancelled() => gen != _personalPingGen || (shouldCancel?.call() ?? false);
     final ok = <String, int>{};
     final rows = _personalRows.value;
     var doneCount = 0;
@@ -12139,7 +12140,7 @@ ListTile( // KINGEXTRAS row
   /// PERSNOPING (قدیمی): تست پینگ سرورهای شخصی قبلاً حذف شده بود.
   /// تمام ورودی‌های پوشه در فهرست شخصی قرار می‌گیرند و ترتیب اتصال همان ترتیب پوشه است
   /// (آخرین سرور سالم اول). هر سرور با تست واقعی هسته امتحان می‌شود؛ اگر خراب بود، بعدی.
-  Future<void> _personalPrepWork() async {
+  Future<void> _personalPrepWork({bool Function()? shouldCancel}) async {
     if (busy || searching || _natKeepOn || _natRangeScanBusy) {
       await _haltAll(max: const Duration(seconds: 10));
     }
@@ -12163,7 +12164,7 @@ ListTile( // KINGEXTRAS row
       if (i > 0) order.insert(0, order.removeAt(i));
     }
     // PERSPING: پینگ واقعی تمام سرورهای پوشه؛ فقط سالم‌ها وارد ترتیب اتصال می‌شوند
-    final okMap = await _personalPingAll(list);
+    final okMap = await _personalPingAll(list, shouldCancel: shouldCancel);
     final okList = [for (final s in order) if (okMap.containsKey(s.link)) s];
     // PERSLOWEST: فقط کمترین پینگ تعیین‌کننده است؛ آخرین سرور موفق فقط در برابر پینگ مساوی جلو می‌افتد
     okList.sort((a, b) {
@@ -12184,25 +12185,26 @@ ListTile( // KINGEXTRAS row
   }
 
   /// سرور شخصی و پوشه: نتیجه‌ی پینگ آماده را می‌گیرد و به بهترینِ آن وصل می‌شود
-  Future<void> personalFolderConnect() async {
+  Future<void> personalFolderConnect({bool Function()? shouldCancel}) async {
     _resetTapCounters(); // تپ کاربر روی پوشه‌ی شخصی (از ماژول تبلیغ هم می‌آید)
-    final prep = _personalPrep ?? _personalPrepWork();
+    final prep = _personalPrep ?? _personalPrepWork(shouldCancel: shouldCancel);
     // PERSLIVE: تمام ورودی‌های پوشه روی صفحه می‌آیند، بعد پینگ‌ها زنده پر می‌شوند، بعد وصل می‌شود
     _set('اتصال به سرورهای شخصی...');
     await prep;
     _personalPrep = null;
-    if (AutoTestEngine.autoTestAbortRequested) return;
+    if (shouldCancel?.call() ?? false) return;
     // V5: نتیجه‌ی پینگ پیش‌گرم (که هنگام تبلیغ اجرا شده) گاهی خالی است؛ یک بار دوباره پینگ می‌گیریم
     if (_personalRanked.isEmpty && personalFolderCache.isNotEmpty) {
       _set('دوباره پینگ سرورهای شخصی...');
-      await _personalPrepWork();
+      await _personalPrepWork(shouldCancel: shouldCancel);
+      if (shouldCancel?.call() ?? false) return;
     }
     if (_personalRanked.isEmpty) {
       _set('هیچ سرور شخصی جواب نداد؛ سرور شخصی یا پوشه را بررسی کن');
       return;
     }
     _set('اتصال به سرور شخصی: ${_personalRanked.first.name}...');
-    await _personalConnectAt(0);
+    await _personalConnectAt(0, shouldCancel: shouldCancel);
   }
 
   /// لیست زندهٔ تمام سرورهای پوشه با پینگ؛ تابع برگشتی بستن صفحه را بعد از مدتی انجام می‌دهد
@@ -12296,17 +12298,17 @@ ListTile( // KINGEXTRAS row
     }
   }
 
-  Future<void> _personalConnectAt(int i) async {
+  Future<void> _personalConnectAt(int i, {bool Function()? shouldCancel}) async {
     // Iterate rather than recurse: a large personal folder must not grow the call stack.
     for (var index = i; index < _personalRanked.length; index++) {
-      if (abort || AutoTestEngine.autoTestAbortRequested) return;
+      if (abort || (shouldCancel?.call() ?? false)) return;
       _personalIdx = index;
       final ok = await _connectPersonalFast(_personalRanked[index]);
       if (ok) {
         _personalWatchOn();
         return;
       }
-      if (_personalHardFail || abort || AutoTestEngine.autoTestAbortRequested || !wantVpn) return;
+      if (_personalHardFail || abort || (shouldCancel?.call() ?? false) || !wantVpn) return;
     }
     _set('هیچ سرور شخصی وصل نشد');
   }
