@@ -55,28 +55,30 @@ Future<List<NipHit>> nipScan(
   List<String> ips, {
   int port = 443,
   int concurrency = 16,
-  int want = 12,
-  Duration budget = const Duration(minutes: 2),
+  int? want,
+  Duration? budget,
   Duration timeout = const Duration(milliseconds: 1500),
   bool Function()? cancelled,
 }) async {
   final hits = <NipHit>[];
-  final deadline = DateTime.now().add(budget);
+  final elapsed = Stopwatch()..start();
   var next = 0;
 
   Future<void> worker() async {
     while (true) {
-      if (hits.length >= want) return;
+      if (want != null && hits.length >= want) return;
       if (cancelled != null && cancelled()) return;
-      if (DateTime.now().isAfter(deadline)) return;
+      if (budget != null && elapsed.elapsed >= budget) return;
       if (next >= ips.length) return;
       final ip = ips[next++];
       final ms = await nipTcpProbe(ip, port, timeout);
-      if (ms != null) hits.add(NipHit(ip, ms));
+      if (ms != null && (want == null || hits.length < want)) {
+        hits.add(NipHit(ip, ms));
+      }
     }
   }
 
-  final n = min(concurrency.clamp(1, 16), max(ips.length, 1));
+  final n = min(natAdaptiveConcurrency(concurrency), max(ips.length, 1));
   await Future.wait(List.generate(n, (_) => worker()));
   natStableSort(hits, (a, b) => a.ms.compareTo(b.ms));
   return hits;
@@ -107,27 +109,69 @@ Future<List<String>> nipIranCidrs() async {
   }
 }
 
-/// همان کانفیگ سرور [t] را روی IP دیگری می‌سازد؛ SNI و Host اصلی حفظ می‌شوند.
-String? nipSwapLink(Server t, String ip) {
+String _nipHostnameOrEmpty(String value) {
+  final host = value.trim();
+  if (host.isEmpty || InternetAddress.tryParse(host) != null) return '';
+  return host;
+}
+
+/// Replace only the endpoint address/port. Preserve valid TLS SNI and HTTP Host;
+/// never invent an IP literal as a hostname or graft generic IPs onto REALITY.
+String? nipSwapLink(Server t, String ip, {int? port}) {
   final l = t.link;
   final lower = l.toLowerCase();
-  if (lower.startsWith('ss://')) return null;
+  if (lower.startsWith('ss://') || t.reality) return null;
   try {
     if (lower.startsWith('vmess://')) {
-      var b = natB64Normalize(l.substring(8));
-      final j = jsonDecode(utf8.decode(base64.decode(b)));
+      final b = natB64Normalize(l.substring(8));
+      final decoded = jsonDecode(utf8.decode(base64.decode(b)));
+      if (decoded is! Map) return null;
+      final j = Map<String, dynamic>.from(decoded);
+      final originalSni = _nipHostnameOrEmpty((j['sni'] ?? '').toString());
+      final originalHost = _nipHostnameOrEmpty((j['host'] ?? '').toString());
+      final fallbackHost = originalSni.isNotEmpty
+          ? originalSni
+          : _nipHostnameOrEmpty(t.host);
       j['add'] = ip;
-      if ((j['sni'] ?? '').toString().isEmpty) j['sni'] = t.host;
-      if ((j['host'] ?? '').toString().isEmpty && j['net'] == 'ws') {
-        j['host'] = t.host;
+      if (port != null) j['port'] = port.toString();
+      if (originalSni.isNotEmpty) {
+        j['sni'] = originalSni;
+      } else {
+        final fallbackSni = _nipHostnameOrEmpty(t.host);
+        if (fallbackSni.isEmpty) {
+          j.remove('sni');
+        } else {
+          j['sni'] = fallbackSni;
+        }
+      }
+      if (j['net'] == 'ws' && originalHost.isEmpty) {
+        if (fallbackHost.isEmpty) {
+          j.remove('host');
+        } else {
+          j['host'] = fallbackHost;
+        }
       }
       return 'vmess://${base64.encode(utf8.encode(jsonEncode(j)))}';
     }
     final u = Uri.parse(l);
     final q = Map<String, String>.from(u.queryParameters);
-    if ((q['sni'] ?? '').isEmpty) q['sni'] = t.host;
-    if (q['type'] == 'ws' && (q['host'] ?? '').isEmpty) q['host'] = t.host;
-    return u.replace(host: ip, queryParameters: q).toString();
+    final originalSni = _nipHostnameOrEmpty(q['sni'] ?? '');
+    final fallbackSni = _nipHostnameOrEmpty(t.host);
+    if (originalSni.isEmpty && fallbackSni.isEmpty) {
+      q.remove('sni');
+    } else if (originalSni.isEmpty) {
+      q['sni'] = fallbackSni;
+    }
+    if (q['type'] == 'ws' && _nipHostnameOrEmpty(q['host'] ?? '').isEmpty) {
+      final host = originalSni.isNotEmpty ? originalSni : fallbackSni;
+      if (host.isEmpty) {
+        q.remove('host');
+      } else {
+        q['host'] = host;
+      }
+    }
+    return u.replace(host: ip, port: port ?? (u.hasPort ? u.port : null),
+        queryParameters: q).toString();
   } catch (_) {
     return null;
   }
@@ -238,29 +282,31 @@ Future<List<String>> nipAsnPrefixes(String ip) async {
   }
 }
 
-// FRONTSNI: کانفیگ‌های CDN: اگر SNI اصلی فیلتر شده باشد، SNI را به یک دامنه‌ی دیگر
-// روی همان Cloudflare تغییر می‌دهیم و Host را همان سرور نگه می‌داریم.
-// لیست کاندید؛ هر کدام که TLS روی IP باز کامل شد نگه داشته می‌شود.
-// خودت می‌توانی دامنه‌های بیشتری به این لیست اضافه کنی.
-// FRONTSNI: کاهش از ۱۹ به ۸ دامنه برای سرعت بیشتر nipFindFrontSni
-const natFrontSnis = <String>[
-  'cdnjs.cloudflare.com',    // 0
-  'www.cloudflare.com',      // 1
-  'speed.cloudflare.com',    // 2  ← قبلاً 3 بود، حالا 2
-  'one.one.one.one',         // 3  ← قبلاً 16 بود
-  '1.1.1.1',                 // 4  ← قبلاً 17 بود
-  'www.aparat.com',          // 5
-  'www.digikala.com',        // 6
-  'divar.ir',                // 7
-];
+// Full hostname inventory: retain the original CDN-oriented names and add the
+// app's complete SNI domain inventory. IP literals are never valid TLS SNI.
+final List<String> natFrontSnis = <String>{
+  'cdnjs.cloudflare.com',
+  'www.cloudflare.com',
+  'speed.cloudflare.com',
+  'one.one.one.one',
+  'www.aparat.com',
+  'www.digikala.com',
+  'divar.ir',
+  ...kAutoSniDomains,
+}.where((value) =>
+    value.trim().isNotEmpty && InternetAddress.tryParse(value.trim()) == null)
+ .toList(growable: false);
 
 /// روی IP:port یک TLS با SNI داده‌شده کامل شود؟ برمی‌گرداند همان SNI یا null.
 Future<String?> nipFrontProbe(String ip, int port, String sni) async {
+  if (sni.trim().isEmpty || InternetAddress.tryParse(sni.trim()) != null) {
+    return null;
+  }
   Socket? raw;
   SecureSocket? sec;
   try {
     raw = await Socket.connect(ip, port, timeout: const Duration(milliseconds: 2000));
-    sec = await SecureSocket.secure(raw, host: sni, onBadCertificate: (_) => true)
+    sec = await SecureSocket.secure(raw, host: sni)
         .timeout(const Duration(seconds: 3));
     return sni;
   } catch (_) {
@@ -279,201 +325,168 @@ Future<String?> nipFindFrontSni(String ip, int port) async {
   return null;
 }
 
-/// همان کانفیگ را با IP و SNI جدید می‌سازد؛ Host اصلی سرور حفظ می‌شود.
-String? nipSwapSni(Server t, String ip, String sni) {
+/// Replace SNI only for TLS hostname profiles; keep the original HTTP Host.
+String? nipSwapSni(Server t, String ip, String sni, {int? port}) {
   final l = t.link;
   final lower = l.toLowerCase();
-  if (lower.startsWith('ss://')) return null;
-  if (echFromLink(l).isNotEmpty) return null; // ECH: SNI جایگزین ممنوع
+  if (lower.startsWith('ss://') || !t.tls || t.reality ||
+      echFromLink(l).isNotEmpty ||
+      _nipHostnameOrEmpty(sni).isEmpty) {
+    return null;
+  }
   try {
     if (lower.startsWith('vmess://')) {
-      var b = natB64Normalize(l.substring(8));
-      final j = jsonDecode(utf8.decode(base64.decode(b)));
-      final oldSni = (j['sni'] ?? '').toString().isNotEmpty ? j['sni'].toString() : t.host;
-      if ((j['host'] ?? '').toString().isEmpty) j['host'] = oldSni;
+      final b = natB64Normalize(l.substring(8));
+      final decoded = jsonDecode(utf8.decode(base64.decode(b)));
+      if (decoded is! Map) return null;
+      final j = Map<String, dynamic>.from(decoded);
+      final oldSni = _nipHostnameOrEmpty((j['sni'] ?? '').toString());
+      final oldHost = _nipHostnameOrEmpty((j['host'] ?? '').toString());
+      final fallbackHost = oldHost.isNotEmpty
+          ? oldHost
+          : (oldSni.isNotEmpty ? oldSni : _nipHostnameOrEmpty(t.host));
       j['add'] = ip;
+      if (port != null) j['port'] = port.toString();
       j['sni'] = sni;
+      if (j['net'] == 'ws' && fallbackHost.isNotEmpty) {
+        j['host'] = fallbackHost;
+      }
       return 'vmess://${base64.encode(utf8.encode(jsonEncode(j)))}';
     }
     final u = Uri.parse(l);
     final q = Map<String, String>.from(u.queryParameters);
-    final oldSni = (q['sni'] ?? '').isNotEmpty ? q['sni']! : t.host;
-    if ((q['host'] ?? '').isEmpty) q['host'] = oldSni;
+    if (_nipHostnameOrEmpty(q['host'] ?? '').isEmpty) {
+      final fallbackHost = _nipHostnameOrEmpty(q['sni'] ?? '') ;
+      final host = fallbackHost.isNotEmpty ? fallbackHost : _nipHostnameOrEmpty(t.host);
+      if (host.isNotEmpty) q['host'] = host;
+    }
     q['sni'] = sni;
-    return u.replace(host: ip, queryParameters: q).toString();
+    return u.replace(host: ip, port: port ?? (u.hasPort ? u.port : null),
+        queryParameters: q).toString();
   } catch (_) {
     return null;
   }
 }
 
 extension NipHunt on _HomePageState {
-  static DateTime? _nipLastHunt;
+  static bool _natHuntBusy = false;
 
-  /// نت ملی: وقتی سرورهای شناخته‌شده جواب ندادند، IP های باز ایران را پیدا
-  /// می‌کند و کانفیگ‌های خود کاربر را روی آن‌ها امتحان می‌کند.
-  /// موفق‌ها ذخیره می‌شوند تا دفعه‌ی بعد اول امتحان شوند.
+  /// Re-test every exact IP saved by the user or present in their server
+  /// profiles. A public ASN/CIDR is metadata, not permission to scan its range.
   Future<bool> _natIpHunt() async {
-    if (!nationalMode || connected || abort) return false;
-    final last = _nipLastHunt;
-    if (last != null &&
-        DateTime.now().difference(last) < const Duration(minutes: 4)) {
-      return false;
-    }
-    _nipLastHunt = DateTime.now();
+    if (!nationalMode || connected || abort || _natHuntBusy) return false;
+    _natHuntBusy = true;
+    try {
+      final templates = <Server>[];
+      final seen = <String>{};
+      final pool = <Server>[
+        ...good,
+        ...pending,
+        for (final entry in _resMap.values) entry.s,
+      ];
+      for (final server in pool) {
+        if (server.link.toLowerCase().startsWith('ss://') || server.reality) {
+          continue;
+        }
+        if (seen.add(server.key)) templates.add(server);
+      }
+      if (templates.isEmpty) {
+        _set('برای جایگزینی IP، کانفیگ TLS/WS قابل‌استفاده در منابع فعلی وجود ندارد');
+        return false;
+      }
 
-    final templates = <Server>[];
-    final seen = <String>{};
-    final pool = <Server>[];
-    pool.addAll(good);
-    pool.addAll(pending);
-    for (final e in _resMap.values) {
-      if (!pool.any((x) => x.link == e.link)) pool.add(e.s);
-    }
-    for (final s in pool) {
-      if (s.link.toLowerCase().startsWith('ss://')) continue;
-      if (!seen.add(s.host)) continue;
-      templates.add(s);
-      if (templates.length >= 40) break;
-    }
-    if (templates.isEmpty) {
-      _set('برای جستجوی IP سرور نمونه نداریم؛ یک بار با سرورهای پوشه وصل شو');
-      return false;
-    }
-    final cdnT = templates.where((s) => s.cdn).toList();
-    final direct = templates.where((s) => !s.cdn).toList();
+      final savedIps = <String>{
+        for (final entry in _goldIps.values) entry.ip,
+        ...natRelayHosts,
+      };
+      for (final server in templates) {
+        if (abort) return false;
+        if (server.isIp) {
+          savedIps.add(server.host);
+        } else {
+          final resolved = await nipResolve(server.host);
+          if (resolved != null) savedIps.add(resolved);
+        }
+      }
+      if (savedIps.isEmpty) {
+        _set('IP مشخصی در پوشه یا endpointهای کانفیگ پیدا نشد');
+        return false;
+      }
+      final ips = savedIps.toList(growable: false);
+      _set('نت ملی: بررسی کامل ${ips.length} IP ذخیره‌شده و endpointهای خود کانفیگ');
 
-    // مرحله ۱: کانفیگ‌های CDN (SNI/Host) ← لبه‌های باز چند CDN
-    // CDNDIV: Cloudflare + Fastly + AWS CloudFront + Google، نه فقط Cloudflare
-    if (cdnT.isNotEmpty) {
-      final cfSet = _cfRanges.toSet();
-      final cfIps = <String>[];
-      final otherIps = <String>[];
-      for (final c in _liveCdnRanges) {
-        if (cfSet.contains(c)) cfIps.addAll(nipExpandCidr(c, maxPerBlock: 512));
-      }
-      // PERFFIX: بقیه‌ی CDNها را فقط تا سقف هم‌اندازه‌ی Cloudflare بساز. قبلاً
-      // همه‌ی بلوک‌های زنده (صدها بلوک × ۵۱۲) روی UI ساخته و بعد کوتاه می‌شد
-      // که باعث قفل شدن اپ می‌شد.
-      final cap = cfIps.isEmpty ? 6000 : cfIps.length;
-      final rnd = Random();
-      final others = _liveCdnRanges.where((c) => !cfSet.contains(c)).toList()
-        ..shuffle(rnd);
-      for (final c in others) {
-        if (otherIps.length >= cap) break;
-        otherIps.addAll(nipExpandCidr(c, maxPerBlock: 32));
-      }
-      if (otherIps.length > cap) otherIps.removeRange(cap, otherIps.length);
-      final ips = <String>[...cfIps, ...otherIps];
-      ips.shuffle(rnd);
-      if (await _natTryScan(cdnT, ips,
-          port: cdnT.first.port, label: 'لبه‌ی CDN', front: true)) {
-        return true;
-      }
-      if (abort) return false;
-    }
-    if (direct.isEmpty) return false;
-
-    // مرحله ۲: واسط‌های تعریف‌شده (natRelayHosts) — مستقیم امتحان می‌شوند
-    if (natRelayHosts.isNotEmpty) {
-      final cands = <Server>[];
-      for (final ip in natRelayHosts) {
-        final link = nipSwapLink(direct[cands.length % direct.length], ip);
-        if (link == null) continue;
-        final c = Server.parse(link);
-        if (c != null) cands.add(c);
-        if (cands.length >= 8) break;
-      }
-      if (cands.isNotEmpty) {
-        _set('نت ملی: امتحان ${cands.length} واسط…');
-        if (await _connectLoop(cands, trust: false)) {
-          final w = current;
-          if (w != null) _natAdd(w);
+      // Process every compatible profile and every port explicitly carried by
+      // that profile. The scan is resumable by user cancellation, not truncated
+      // to a fixed number of templates, hits, or SNI names.
+      for (final server in templates) {
+        if (abort) return false;
+        if (server.port < 1 || server.port > 65535) continue;
+        final front = server.cdn && server.tls;
+        if (await _natTryScan(
+          <Server>[server],
+          ips,
+          port: server.port,
+          label: 'endpoint ${server.name}',
+          front: front,
+        )) {
           return true;
         }
-        if (abort) return false;
       }
+      _set('نت ملی: همه IPهای مشخص‌شده برای کانفیگ‌های موجود بررسی شدند؛ اتصال واقعی تأیید نشد');
+      return false;
+    } finally {
+      _natHuntBusy = false;
     }
-
-    // مرحله ۳: IP های همان شرکت هاست سرور (ASN) روی همان پورت
-    final t0 = direct.first;
-    final sIp = t0.isIp ? t0.host : await nipResolve(t0.host);
-    if (sIp != null) {
-      final prefixes = await nipAsnPrefixes(sIp);
-      if (prefixes.isNotEmpty) {
-        final ips = <String>[];
-        for (final p in prefixes.take(80)) {
-          ips.addAll(nipExpandCidr(p, maxPerBlock: 256));
-        }
-        ips.shuffle(Random());
-        if (ips.isNotEmpty &&
-            await _natTryScan(direct, ips,
-                port: t0.port, label: 'IP هم‌شرکت سرور')) {
-          return true;
-        }
-        if (abort) return false;
-      }
-    }
-
-    // مرحله ۴ (IP های باز ایران) حذف شد: یک IP باز ایران فوروارد نمی‌کند،
-    // پس برای REALITY/TCP وقت تلف می‌کرد و هیچ‌وقت وصل نمی‌شد.
-    _set('نت ملی: واسط یا IP هم‌شرکت سالم پیدا نشد');
-    return false;
   }
 
-  /// اسکن IP ها و امتحان نتیجه‌ها با همان کانفیگ‌ها (فقط IP عوض می‌شود).
-  /// front = true (CDN): برای IP های باز، SNI دامنه‌ی باز هم امتحان می‌شود.
+  /// TCP-open is only a discovery signal. Each resulting profile is passed to
+  /// the real Core/TUN connection path before it can be stored as successful.
   Future<bool> _natTryScan(List<Server> tpls, List<String> ips,
       {required int port, required String label, bool front = false}) async {
-    if (ips.isEmpty) return false;
-    _set('نت ملی: جستجوی $label (${ips.length} آدرس)…');
-    final hits = await nipScan(ips,
-        port: port,
-        want: 12,
-        budget: const Duration(minutes: 2),
-        cancelled: () => abort);
+    if (ips.isEmpty || tpls.isEmpty) return false;
+    _set('نت ملی: جستجوی $label روی ${ips.length} آدرس، پورت $port…');
+    final hits = await nipScan(
+      ips,
+      port: port,
+      concurrency: natAdaptiveConcurrency(0),
+      timeout: const Duration(milliseconds: 1500),
+      cancelled: () => abort,
+    );
     if (abort) return false;
     if (hits.isEmpty) {
-      _set('نت ملی: هیچ $label بازی پیدا نشد');
+      _set('نت ملی: هیچ endpoint پاسخ‌گوی TCP برای $label پیدا نشد');
       return false;
     }
-    final top = hits.take(8).toList(); // CHOP: قبلاً ۱۲ بود ولی فقط ۸ تا استفاده می‌شد
-    // BATCHSNI: ۴ تا ۴ تا (نه همه با هم که SYN flood می‌کند، نه تک‌تک)
-    final snis = <String?>[];
-    if (front) {
-      for (var i = 0; i < top.length; i += 4) {
-        final batch = top.skip(i).take(4).toList();
-        snis.addAll(await Future.wait(
-            batch.map((h) => nipFindFrontSni(h.ip, port))));
+
+    for (var i = 0; i < hits.length; i++) {
+      if (abort) return false;
+      final hit = hits[i];
+      final template = tpls[i % tpls.length];
+      final links = <String?>[
+        nipSwapLink(template, hit.ip, port: port),
+      ];
+      if (front) {
+        final sni = await nipFindFrontSni(hit.ip, port);
+        if (abort) return false;
+        if (sni != null) {
+          links.add(nipSwapSni(template, hit.ip, sni, port: port));
+        }
       }
-    }
-    final cands = <Server>[];
-    for (var i = 0; i < top.length && cands.length < 8; i++) {
-      final t = tpls[i % tpls.length];
-      final link = nipSwapLink(t, top[i].ip);
-      if (link != null) {
-        final c = Server.parse(link);
-        if (c != null) cands.add(c);
-      }
-      final sni = i < snis.length ? snis[i] : null;
-      if (sni != null && cands.length < 8) {
-        final fl = nipSwapSni(t, top[i].ip, sni);
-        if (fl != null) {
-          final c = Server.parse(fl);
-          if (c != null) cands.add(c);
+      for (final link in links) {
+        if (abort) return false;
+        if (link == null) continue;
+        final parsed = Server.parse(link);
+        if (parsed == null) continue;
+        _set('نت ملی: آزمون Core/TUN برای IP ${i + 1}/${hits.length} • ${hit.ip}:$port');
+        if (await _connectLoop(<Server>[parsed], trust: false)) {
+          final winner = current;
+          if (winner != null) _natAdd(winner);
+          return true;
         }
       }
     }
-    if (cands.isEmpty) {
-      _set('نت ملی: IP باز پیدا شد ولی هیچ SNI باز نگرفت ($label)');
-      return false;
-    }
-    _set('نت ملی: امتحان ${cands.length} آدرس ($label)…');
-    final ok = await _connectLoop(cands, trust: false);
-    if (ok) {
-      final w = current;
-      if (w != null) _natAdd(w);
-    }
-    return ok;
+    _set('نت ملی: تمام ${hits.length} پاسخ TCP بررسی شد؛ هیچ اتصال واقعی تأیید نشد');
+    return false;
   }
 }
 
