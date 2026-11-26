@@ -169,16 +169,6 @@ class KingVpnEngineCatalog {
         KingEngineCapability.udp, KingEngineCapability.trafficStatistics},
     ),
 
-    KingVpnEngineDescriptor(
-      id: 'psiphon',
-      name: 'Psiphon (conditional)',
-      kind: KingEngineKind.fullDeviceTunnel,
-      upstreamUrl: 'https://github.com/Psiphon-Labs/psiphon-tunnel-core',
-      integrationNote: 'GPL-3.0 core code may be reused only with full copyleft compliance. Psiphon service terms restrict network access to client apps published by Psiphon; do not connect KING VPN to that service or ship an integration for it without written authorization. This catalog entry is not an executable adapter.',
-      capabilities: {KingEngineCapability.ipv4, KingEngineCapability.ipv6,
-        KingEngineCapability.tcp, KingEngineCapability.udp,
-        KingEngineCapability.trafficStatistics},
-    ),
   ];
 }
 
