@@ -2674,5 +2674,44 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertLess(guard, save)
 
 
+    def test_vpn_backup_server_list_has_no_fixed_count_ceiling(self):
+        service = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
+        self.assertNotIn('MAX_BACKUPS', service)
+        self.assertIn('for (int i = 0; i < arr.length(); i++)', service)
+        self.assertIn('for (Srv b : backups)', service)
+
+
+    def test_dart_backup_payload_keeps_every_usable_server(self):
+        source = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        start = source.index('String _backupsJson(Server cur)')
+        end = source.index('\n  }', start)
+        body = source[start:end]
+        self.assertIn('if (identical(x, cur)) continue;', body)
+        self.assertNotIn('out.length >= 8', body)
+
+
+    def test_wireguard_profile_parser_validates_key_length_and_allowed_ip_prefix(self):
+        source = (ROOT / 'lib' / 'king_engine_sources.dart').read_text(encoding='utf-8')
+        start = source.index('bool _isWireGuardProfile(String value)')
+        end = source.index('bool _containsAmneziaParameters', start)
+        parser = source[start:end]
+        self.assertIn('base64.decode(base64.normalize(value)).length == 32', parser)
+        self.assertIn('InternetAddress.tryParse(parts[0])', parser)
+        self.assertIn('prefix > maxPrefix', parser)
+        self.assertIn('_isWireGuardKey(privateKey)', parser)
+        self.assertIn('_isWireGuardKey(publicKey)', parser)
+
+
+    def test_amneziawg_detector_covers_current_parameter_families(self):
+        source = (ROOT / 'lib' / 'king_engine_sources.dart').read_text(encoding='utf-8')
+        start = source.index('bool _containsAmneziaParameters')
+        end = source.index('\n\n', start)
+        detector = source[start:end]
+        self.assertIn('S[1-4]', detector)
+        self.assertIn('I[1-5]', detector)
+        self.assertIn('HeaderProtectionKey', detector)
+        self.assertIn('RandomTrailers', detector)
+
+
 if __name__ == '__main__':
     unittest.main()
