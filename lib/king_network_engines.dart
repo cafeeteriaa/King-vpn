@@ -1,18 +1,12 @@
 enum KingEngineRole {
   fullDeviceVpn,
-  overlayNetwork,
   localTransport,
-  browserNetwork,
-  externalService,
-  relayDirectory,
 }
 
 enum KingIntegrationState {
   integrated,
   integrationPathVerified,
   backendRequired,
-  externalClientRequired,
-  noPublicEmbeddingApiVerified,
   notAVpnEngine,
   sourceAndLicenseReviewRequired,
 }
@@ -85,64 +79,6 @@ class KingNetworkEngineCatalog {
       summary: 'موتور چندپروتکلی مستقل؛ نیازمند نسخه پین‌شده، بررسی GPL-3.0 و adapter اندروید است.',
       sourceUrl: 'https://github.com/SagerNet/sing-box', license: 'GPL-3.0',
       requiresSeparateVpnOwner: true,
-    ),
-    KingEngineDescriptor(
-      id: 'psiphon', name: 'Psiphon', role: KingEngineRole.fullDeviceVpn,
-      state: KingIntegrationState.sourceAndLicenseReviewRequired, priority: 5,
-      summary: 'کتابخانه رسمی Android AAR دارد، اما upstream آن GPL-3.0 است؛ ادغام فقط پس از تصمیم مجوز/انتشار، pin نسخه و طراحی adapter مجاز است.',
-      sourceUrl: 'https://github.com/Psiphon-Labs/psiphon-tunnel-core',
-      license: 'GPL-3.0', requiresSeparateVpnOwner: true,
-    ),
-    KingEngineDescriptor(
-      id: 'tor', name: 'Tor', role: KingEngineRole.overlayNetwork,
-      state: KingIntegrationState.sourceAndLicenseReviewRequired, priority: 25,
-      summary: 'شبکه ناشناس‌ساز و router است؛ SOCKS/bridge و bootstrap لازم دارد و به‌تنهایی full-device VPN محسوب نمی‌شود.',
-      sourceUrl: 'https://gitlab.torproject.org/tpo/core/tor',
-      license: 'BSD-3-Clause',
-    ),
-    KingEngineDescriptor(
-      id: 'vpn_gate', name: 'VPN Gate', role: KingEngineRole.relayDirectory,
-      state: KingIntegrationState.externalClientRequired, priority: 35,
-      summary: 'فهرست relay است، نه موتور واحد؛ برای هر ورودی باید کلاینت پروتکل سازگار مانند OpenVPN/SoftEther جداگانه داشته باشیم.',
-      sourceUrl: 'https://www.vpngate.net/',
-    ),
-    KingEngineDescriptor(
-      id: 'calyx_vpn', name: 'CalyxVPN', role: KingEngineRole.fullDeviceVpn,
-      state: KingIntegrationState.sourceAndLicenseReviewRequired, priority: 36,
-      summary: 'محصول VPN اندروید است؛ هسته قابل‌استفاده مجدد، نسخه نگهداری‌شده و مجوز اجزای همراه باید ممیزی شود.',
-      sourceUrl: 'https://github.com/CalyxOS',
-      requiresSeparateVpnOwner: true,
-    ),
-    KingEngineDescriptor(
-      id: 'cloudflare_warp', name: 'Cloudflare WARP', role: KingEngineRole.externalService,
-      state: KingIntegrationState.noPublicEmbeddingApiVerified, priority: 37,
-      summary: 'سرویس اختصاصی Cloudflare؛ ادغام فقط از SDK/API رسمی یا قرارداد partner مجاز است، نه API خصوصی کلاینت.',
-      sourceUrl: 'https://1.1.1.1/',
-    ),
-    KingEngineDescriptor(
-      id: 'lantern', name: 'Lantern', role: KingEngineRole.fullDeviceVpn,
-      state: KingIntegrationState.sourceAndLicenseReviewRequired, priority: 38,
-      summary: 'Lantern Core به‌صورت Go/gomobile AAR ساخته می‌شود، اما کد upstream GPL-3.0 است و سرویس VPN اختصاصی دارد؛ بررسی مجوز و جداسازی مالکیت TUN لازم است.',
-      sourceUrl: 'https://github.com/getlantern/lantern',
-      license: 'GPL-3.0', requiresSeparateVpnOwner: true,
-    ),
-    KingEngineDescriptor(
-      id: 'avira_phantom', name: 'Avira Phantom VPN', role: KingEngineRole.externalService,
-      state: KingIntegrationState.noPublicEmbeddingApiVerified, priority: 39,
-      summary: 'سرویس تجاری اختصاصی؛ بدون SDK/API مجاز یا قرارداد partner قابل‌ادغام به‌عنوان موتور نیست.',
-      sourceUrl: 'https://www.avira.com/',
-    ),
-    KingEngineDescriptor(
-      id: 'ceno', name: 'Ceno Browser', role: KingEngineRole.browserNetwork,
-      state: KingIntegrationState.notAVpnEngine, priority: 41,
-      summary: 'قابلیت مرورگر مبتنی بر Ouinet؛ فقط در محدوده مرورگر ادغام شود و به‌عنوان VPN تمام‌دستگاه معرفی نشود.',
-      sourceUrl: 'https://censorship.no/',
-    ),
-    KingEngineDescriptor(
-      id: 'i2p', name: 'I2P', role: KingEngineRole.overlayNetwork,
-      state: KingIntegrationState.sourceAndLicenseReviewRequired, priority: 42,
-      summary: 'شبکه overlay و router مستقل؛ باید چرخه router و رابط‌های SAM/I2CP/SOCKS ادغام شود، نه اینکه VPN تلقی شود.',
-      sourceUrl: 'https://geti2p.net/',
     ),
     KingEngineDescriptor(
       id: 'nthlink', name: 'nthLink / Leaf', role: KingEngineRole.fullDeviceVpn,
