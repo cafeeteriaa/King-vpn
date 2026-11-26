@@ -800,50 +800,58 @@ Future<String> _cfRead(Socket k, Duration t) async {
   try {
     await for (final c in k.timeout(t, onTimeout: (sink) => sink.close())) {
       data.addAll(c);
-      if (data.length > 1500) break;
     }
   } catch (e, stk) { logError(e, stk); }
   return utf8.decode(data, allowMalformed: true).toLowerCase();
 }
 
+bool isValidCloudflareTraceResponse(String response) {
+  final headerEnd = response.indexOf('\r\n\r\n');
+  if (headerEnd < 0) return false;
+  final headers = response.substring(0, headerEnd);
+  final lines = headers.split('\r\n');
+  if (lines.isEmpty ||
+      !RegExp(r'^HTTP/1\.[01] 200(?:\s|$)').hasMatch(lines.first)) {
+    return false;
+  }
+  final normalizedHeaders = headers.toLowerCase();
+  if (!normalizedHeaders.contains('server: cloudflare') ||
+      !normalizedHeaders.contains('cf-ray:')) {
+    return false;
+  }
+  final body = response.substring(headerEnd + 4);
+  final bodyLines = body.split(RegExp(r'\r?\n'));
+  bool hasField(String name) =>
+      bodyLines.any((line) => line.toLowerCase().startsWith('$name='));
+  return hasField('ip') && hasField('colo') && hasField('http');
+}
+
 Future<int?> _cfProbeMs(String ip, Duration t) async {
   final sw = Stopwatch()..start();
   Socket? raw;
-  Socket? k;
+  Socket? secure;
   try {
     raw = await Socket.connect(ip, 443, timeout: t);
-    k = await SecureSocket.secure(raw,
-            host: 'cloudflare.com',
-            onBadCertificate: (_) => true,
-            supportedProtocols: const ['http/1.1'])
-        .timeout(t);
-    k.write(
+    secure = await SecureSocket.secure(
+      raw,
+      host: 'cloudflare.com',
+      supportedProtocols: const ['http/1.1'],
+    ).timeout(t);
+    secure.write(
         'GET /cdn-cgi/trace HTTP/1.1\r\nHost: cloudflare.com\r\nConnection: close\r\n\r\n');
-    await k.flush();
-    final txt = await _cfRead(k, t);
+    await secure.flush();
+    final response = await _cfRead(secure, t);
     sw.stop();
-    if (txt.contains('cloudflare')) return sw.elapsedMilliseconds;
+    if (isValidCloudflareTraceResponse(response)) {
+      return sw.elapsedMilliseconds;
+    }
   } catch (e, stk) {
     logError(e, stk);
   } finally {
-    k?.destroy();
+    secure?.destroy();
     raw?.destroy();
   }
-  Socket? h;
-  try {
-    final sw2 = Stopwatch()..start();
-    h = await Socket.connect(ip, 80, timeout: t);
-    h.write(
-        'GET /cdn-cgi/trace HTTP/1.1\r\nHost: cloudflare.com\r\nConnection: close\r\n\r\n');
-    await h.flush();
-    final txt = await _cfRead(h, t);
-    sw2.stop();
-    if (txt.contains('cloudflare')) return sw2.elapsedMilliseconds + 40;
-  } catch (e, stk) {
-    logError(e, stk);
-  } finally {
-    h?.destroy();
-  }
+  // Plain HTTP/80 is not proof of Cloudflare identity and is not accepted.
   return null;
 }
 
@@ -857,7 +865,6 @@ Future<void> _doRefreshClean() async {
     final res = <CleanIp>[];
     var done = 0;
     await pool<String>(c, 20, (ip) async {
-      if (res.length >= 20) return;
       final ms = await _cfProbeMs(ip, const Duration(milliseconds: 3500));
       done++;
       if (ms != null) res.add(CleanIp(ip, ms));
@@ -866,9 +873,9 @@ Future<void> _doRefreshClean() async {
         cleanTick.value++;
       }
       await Future.delayed(const Duration(milliseconds: 20));
-    }).timeout(const Duration(seconds: 40), onTimeout: () {});
+    });
     res.sort((a, b) => a.ms.compareTo(b.ms));
-    cleanIps = res.take(20).toList();
+    cleanIps = res.toList(growable: false);
     cleanIpsAt = DateTime.now();
     cleanIpStatus = '${cleanIps.length} IP سالم از ${c.length} تست';
     await _saveCleanIps();
@@ -920,6 +927,12 @@ Future<void> _loadCleanIps() async {
 }
 
 Future<String?> pickCleanIp() async {
+  if (nationalMode) {
+    await natNationalIpMemLoad();
+    if (natNationalIpMem.isEmpty) return null;
+    final index = _cleanRot++ % natNationalIpMem.length;
+    return (natNationalIpMem[index]['ip'] ?? '').toString();
+  }
   if (!_cleanLoaded || _cleanOp != natOpKey) {
     _cleanLoaded = true;
     if (_cleanOp != natOpKey) {
@@ -929,25 +942,13 @@ Future<String?> pickCleanIp() async {
     _cleanOp = natOpKey;
     await _loadCleanIps();
   }
-  await goldLoad();
-  if (nationalMode) {
-    final g = goldIpList();
-    if (g.isNotEmpty) {
-      cleanIps = g;
-      final n = min(5, cleanIps.length);
-      return cleanIps[_cleanRot++ % n].ip;
-    }
-  }
   final stale = cleanIpsAt == null ||
-      DateTime.now().difference(cleanIpsAt!) > const Duration(hours: 6);
-  if (cleanIps.isEmpty) {
+      DateTime.now().difference(cleanIpsAt!) > const Duration(hours: 12);
+  if (cleanIps.isEmpty || stale) {
     await refreshCleanIps();
-  } else if (stale) {
-    refreshCleanIps();
   }
   if (cleanIps.isEmpty) return null;
-  final n = min(5, cleanIps.length);
-  return cleanIps[_cleanRot++ % n].ip;
+  return cleanIps[_cleanRot++ % cleanIps.length].ip;
 }
 
 const _iranMoreDomains = <String>[
