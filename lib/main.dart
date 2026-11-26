@@ -5990,7 +5990,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         fwUserValue = 3;
         indestructibleMode = true;
         muxConc = 32;
-        fragEnabled = false;
+        fragEnabled = true;
         muxEnabled = true;
         cleanIpMode = true;
         npvParse = true;
