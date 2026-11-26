@@ -70,6 +70,7 @@ part 'national_engine.dart'; // NNIE: هوشمندسازی حالت موجود �
 
 final KingWireGuardCore _kingWireGuardCore = KingWireGuardCore();
 bool _kingWireGuardActive = false;
+bool _kingWireGuardStopFailed = false;
 
 // One rewarded ad = one 4 hour session. When the 4 hours end the VPN is cut
 // and the next connect shows the ad again. Automatic server switches (bad
@@ -5938,6 +5939,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     // failovers right after a connect).
     _lastOwnStop = DateTime.now();
     _dropDeferred = false;
+    _kingWireGuardStopFailed = false;
     try {
       if (Platform.isAndroid && _kingWireGuardActive) {
         await _kingWireGuardCore.disconnect().timeout(const Duration(seconds: 8));
@@ -5946,7 +5948,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       }
       if (kOwnVpnService) await ownVpnStop(); // KINGVPN
       await v2ray.stopV2Ray().timeout(const Duration(seconds: 8), onTimeout: () {});
-    } catch (_swE) { _swl('_stopV2#1', _swE);}
+    } catch (_swE) {
+      if (_kingWireGuardActive) _kingWireGuardStopFailed = true;
+      _swl('_stopV2#1', _swE);
+    }
     finally {
       _lastOwnStop = DateTime.now();
       _dropDeferred = false;
@@ -5979,6 +5984,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     final wasUp = !wasWireGuardUp && (lastState == 'CONNECTED' || lastState == 'CONNECTING');
     if (wasUp) downSig = Completer<bool>();
     await _stopV2();
+    if (wasWireGuardUp && _kingWireGuardStopFailed) {
+      _staleCoreMayBeUp = true;
+      lastState = 'CONNECTED';
+      throw StateError('WireGuard did not confirm DOWN; refusing to start another VPN engine');
+    }
     var gotDown = wasWireGuardUp || !wasUp;
     if (wasUp && downSig != null) {
       // RARE BUG FIX: complete on timeout so a late DISCONNECTED cannot
@@ -8279,6 +8289,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       lastFail = 'اتصال توسط کاربر خواسته نشده بود';
       return false;
     }
+    if (_kingWireGuardActive && !s.wireGuard) {
+      lastFail = 'هستهٔ WireGuard هنوز فعال است؛ تا تأیید توقف، هستهٔ دیگری شروع نمی‌شود';
+      return false;
+    }
     if (s.wireGuard) {
       if (proxyOnly || proxyMode) { lastFail = 'WireGuard به تونل کامل VPN نیاز دارد و حالت پراکسی محلی ندارد'; return false; }
       if (abort || !wantVpn) return false;
@@ -8301,10 +8315,16 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         return true;
       } catch (wgError, wgStack) {
         logError(wgError, wgStack);
-        try { await _kingWireGuardCore.disconnect(); } catch (stopError, stopStack) { logError(stopError, stopStack); }
-        _kingWireGuardActive = false;
-        lastState = 'DISCONNECTED';
-        kVpnLastStateTop = 'DISCONNECTED';
+        var wgStopped = false;
+        try {
+          await _kingWireGuardCore.disconnect();
+          wgStopped = true;
+        } catch (stopError, stopStack) {
+          logError(stopError, stopStack);
+        }
+        _kingWireGuardActive = !wgStopped;
+        lastState = wgStopped ? 'DISCONNECTED' : 'CONNECTED';
+        kVpnLastStateTop = lastState;
         lastFail = 'WireGuard: $wgError';
         return false;
       }
