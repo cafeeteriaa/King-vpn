@@ -196,9 +196,6 @@ extension KingHealEngine on _HomePageState {
       } finally {
         healActive = false;
       }
-      await _healMem.remember(plan.$1, ok);
-      _healActStreak = ok ? 0 : _healActStreak + 1;
-
       // ----- ۴) تأیید -----
       _healPhase = _HealPhase.verify;
       await Future.delayed(const Duration(seconds: 2));
@@ -219,6 +216,10 @@ extension KingHealEngine on _HomePageState {
             );
       }
       final fixed = dataPlaneOk && stillBad.every((s) => s.severity < 5);
+      // Learn from verified tunnel recovery, not merely an action's return
+      // value (which may report CONNECTED while no traffic passes).
+      await _healMem.remember(plan.$1, fixed);
+      _healActStreak = fixed ? 0 : _healActStreak + 1;
 
       // ----- ۵) یادگیری + پیشنهاد آپدیت اگر ترمیم کافی نبود -----
       _healPhase = _HealPhase.learn;
