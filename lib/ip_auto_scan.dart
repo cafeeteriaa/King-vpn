@@ -100,12 +100,12 @@ Future<void> _ipAutoSave() async {
 /// خودکار فقط IPهای دقیقِ کانفیگ‌های موجود و سرورهای قبلاً موفق را بررسی می‌کند.
 /// پیمایش گسترده‌ی CIDRهای ISP/CDN برای اجرای خودکار مجاز نیست؛ اسکن دستی جداست.
 List<String> _ipAutoBlocks(Iterable<Server> knownServers) {
-  // Hard isolation: national candidates come only from the national scanner's
-  // verified memory/hits. Global candidates come only from the active global pool.
+  // Hard isolation: National Net IPs come only from the National Net scanner's
+  // verified memory/hits. Global IPs come only from the active global pool.
   final ips = <String>{};
   if (nationalMode) {
     ips
-      ..addAll(natIpMemHosts())
+      ..addAll(natNationalIpMemHosts())
       ..addAll(natScanHits);
   } else {
     for (final server in knownServers) {
@@ -227,6 +227,12 @@ extension IpAutoExt on _HomePageState {
   Future<bool> _ipAutoRunOnce(void Function(String) say, {bool manual = false}) async {
     final runNationalMode = nationalMode;
     bool halted() => _ipAutoHalt(modeSnapshot: runNationalMode);
+    if (halted()) return false;
+    if (runNationalMode) {
+      await natNationalIpMemLoad();
+    } else {
+      await natIpMemLoad();
+    }
     if (halted()) return false;
 
     // A national scan uses the national hot-source/template pipeline; it must
