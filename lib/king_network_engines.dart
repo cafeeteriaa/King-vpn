@@ -142,10 +142,10 @@ class KingNetworkEngineCatalog {
     ),
     KingEngineDescriptor(
       id: 'wireguard', name: 'WireGuard', role: KingEngineRole.fullDeviceVpn,
-      state: KingIntegrationState.sourceAndLicenseReviewRequired, priority: 110,
-      summary: 'تونل سبک و سریع؛ به سرور WireGuard و فایل .conf/کلیدهای معتبر نیاز دارد؛ در برابر مسدودسازی مستقیم به‌تنهایی مقاوم نیست.',
-      sourceUrl: 'https://github.com/WireGuard/wireguard-android',
-      license: 'Apache-2.0 (Android app; verify core)', requiresSeparateVpnOwner: true,
+      state: KingIntegrationState.integrationPathVerified, priority: 110,
+      summary: 'مسیر رسمی embedding اندروید با com.wireguard.android:tunnel نسخه 1.0.20260102 و GoBackend تأیید شده؛ GoBackend سرویس VpnService مستقل خود را راه‌اندازی می‌کند، بنابراین handoff سریالی و تأیید آزادشدن TUN پیش از اتصال Xray/موتور بعدی الزامی است. هنوز adapter اجرایی KING تکمیل نشده است.',
+      sourceUrl: 'https://www.wireguard.com/embedding/',
+      license: 'Apache-2.0', requiresSeparateVpnOwner: true,
     ),
   ];
 }
