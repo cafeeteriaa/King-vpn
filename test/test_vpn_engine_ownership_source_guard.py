@@ -62,8 +62,11 @@ class SingBoxIntegrationSourceGuard(unittest.TestCase):
         wgsrc = (ROOT / "android_src" / "KingWireGuardCore.kt").read_text()
         dart = (ROOT / "lib" / "king_sing_box_core.dart").read_text()
         self.assertIn('"king/vpn_engine_owner"', activity)
-        self.assertIn("SingBoxVpnService", xray)
-        self.assertIn("SingBoxVpnService", wgsrc)
+        self.assertIn("stopLibboxAndRelease(this, waitMs)", xray)
+        self.assertIn("stopLibboxAndRelease(appContext, 30_000L)", wgsrc)
+        coordinator = (ROOT / "android_src" / "KingVpnEngineCoordinator.kt").read_text()
+        self.assertIn("SingBoxVpnService::class.java", coordinator)
+        self.assertIn("ServiceStatus.Stopped", coordinator)
         self.assertIn("'engine': 'libbox'", dart)
         self.assertIn("waitForStatus", dart)
 
