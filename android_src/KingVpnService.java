@@ -691,6 +691,9 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
             }
         }
         if (!isCurrent(myAttempt)) return false;
+        if ("libbox".equals(KingVpnEngineCoordinator.currentOwner())) {
+            stopService(new Intent(this, com.qusadprod.sing_box.service.SingBoxVpnService.class));
+        }
         if ("wireguard".equals(KingVpnEngineCoordinator.currentOwner())) {
             try {
                 KingWireGuardCore.Companion.shared(this).disconnect();

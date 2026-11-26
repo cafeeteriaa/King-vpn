@@ -47,5 +47,32 @@ class VpnEngineOwnershipSourceGuard(unittest.TestCase):
         self.assertNotIn("requestStop(true)", method)
 
 
+
+class SingBoxIntegrationSourceGuard(unittest.TestCase):
+    def test_dependency_is_pinned_and_build_scripts_are_invoked(self):
+        workflow = (ROOT / ".github" / "workflows" / "build.yml").read_text()
+        dep = (ROOT / "tools" / "configure_sing_box_dependency.py").read_text()
+        self.assertIn("72f76fb714e07637a560774a7f2fdd3ae11884c4", dep)
+        self.assertIn("configure_sing_box_dependency.py", workflow)
+        self.assertIn("patch_sing_box_gradle.py", workflow)
+
+    def test_three_engine_handoff_is_wired(self):
+        activity = (ROOT / "android_src" / "MainActivity.kt").read_text()
+        xray = (ROOT / "android_src" / "KingVpnService.java").read_text()
+        wgsrc = (ROOT / "android_src" / "KingWireGuardCore.kt").read_text()
+        dart = (ROOT / "lib" / "king_sing_box_core.dart").read_text()
+        self.assertIn('"king/vpn_engine_owner"', activity)
+        self.assertIn("SingBoxVpnService", xray)
+        self.assertIn("SingBoxVpnService", wgsrc)
+        self.assertIn("'engine': 'libbox'", dart)
+        self.assertIn("waitForStatus", dart)
+
+    def test_libbox_page_is_reachable(self):
+        source = (ROOT / "lib" / "main.dart").read_text()
+        self.assertIn("king_sing_box_page.dart", source)
+        self.assertIn("KingSingBoxPage()", source)
+        self.assertIn("value: 'libbox'", source)
+
+
 if __name__ == "__main__":
     unittest.main()

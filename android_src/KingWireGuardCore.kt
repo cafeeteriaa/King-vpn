@@ -1,6 +1,7 @@
 package com.kingvpn.king_vpn
 
 import android.content.Context
+import android.content.Intent
 import android.net.VpnService
 import com.wireguard.android.backend.GoBackend
 import com.wireguard.android.backend.Tunnel
@@ -38,7 +39,10 @@ class KingWireGuardCore private constructor(context: Context) {
         if (KingVpnEngineCoordinator.currentOwner() == "xray") {
             KingVpnService.instance?.stopForEngineHandoff()
         }
-        check(KingVpnEngineCoordinator.acquire("wireguard", 30_000L)) {
+        if (KingVpnEngineCoordinator.currentOwner() == "libbox") {
+            appContext.stopService(Intent(appContext, com.qusadprod.sing_box.service.SingBoxVpnService::class.java))
+        }
+        check(KingVpnEngineCoordinator.acquire("wireguard", 30_000L))
             "Another KING VPN engine did not release the Android VPN slot"
         }
         try {
