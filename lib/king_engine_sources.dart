@@ -134,7 +134,7 @@ class KingServerPayloadParser {
 
     if (engineId == 'shroudly') {
       final proxyProfiles = <KingImportedServerProfile>[];
-      for (final line in value.split(RegExp(r'[\\r\\n]+'))) {
+      for (final line in value.split(RegExp(r'[\r\n]+'))) {
         final item = line.trim();
         final uri = Uri.tryParse(item);
         if (uri != null && const {'socks5', 'socks5h', 'http', 'https'}.contains(uri.scheme.toLowerCase()) && uri.host.isNotEmpty) {
