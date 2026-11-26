@@ -2165,7 +2165,7 @@ static void _resetCoreDeadStreak() { _atCoreDeadStreak = 0; }
   Future<void> _atItemPersonal() async {
     _scenario = 8;
     final name = _atItemNames[11];
-    await _atEnsureDisconnected();
+    await _atResetToGlobal();
     if (personalFolderCache.isEmpty && personal == null) {
       _itemResult[name] = '⏭ پوشهٔ سرور شخصی خالی است؛ تست مستقلی برای اجرا وجود ندارد';
       return;
