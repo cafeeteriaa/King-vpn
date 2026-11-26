@@ -5,9 +5,15 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class HealthyFolderPolicyTest(unittest.TestCase):
-    def test_capacity_is_fifty_thousand(self):
+    def test_healthy_folder_has_no_fixed_count_ceiling_or_eviction(self):
         source = (ROOT / "lib" / "main.dart").read_text(encoding="utf-8")
-        self.assertIn("static const int _resMax = 50000;", source)
+        start = source.index("void _resAdd(Server srv)")
+        end = source.index("// SRCSPLIT:", start)
+        block = source[start:end]
+        self.assertNotIn("_resMax", source)
+        self.assertNotIn("_resMap.length >=", block)
+        self.assertNotIn("oldest", block.lower())
+        self.assertIn("_resMap[srv.key] = e;", block)
 
     def test_healthy_folder_uses_app_private_file_snapshot(self):
         source = (ROOT / "lib" / "main.dart").read_text(encoding="utf-8")
