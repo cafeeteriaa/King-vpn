@@ -54,6 +54,16 @@ void main() {
       expect(events, ['connect:xray', 'disconnect:xray', 'connect:psiphon']);
     });
 
+    test('Xray remains primary even if adapters are supplied out of order', () async {
+      final events = <String>[];
+      final result = await KingAutoSwitchCoordinator(adapters: [
+        FakeAdapter(KingEngineId.psiphon, events: events),
+        FakeAdapter(KingEngineId.xray, events: events),
+      ]).connect();
+      expect(result.engine, KingEngineId.xray);
+      expect(events, ['connect:xray']);
+    });
+
     test('does not start unavailable engines', () async {
       final events = <String>[];
       final result = await KingAutoSwitchCoordinator(adapters: [
