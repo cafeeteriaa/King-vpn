@@ -5,6 +5,7 @@
 ## منابع upstream بررسی‌شده
 
 - مخزن Android رسمی: [amnezia-vpn/amneziawg-android](https://github.com/amnezia-vpn/amneziawg-android)، مجوز مخزن Apache-2.0.
+- commit بررسی‌شدهٔ مخزن: `ff15093bf3856fea0947923474870b86efb682f0`.
 - API JNI در `tunnel/src/main/java/org/amnezia/awg/GoBackend.java`:
   - `awgTurnOn(ifName, tunFd, settings)`
   - `awgTurnOff(handle)`
