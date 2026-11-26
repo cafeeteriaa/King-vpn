@@ -313,9 +313,9 @@ void main() {
     });
 
     test('recognizes OpenVPN, WireGuard and AmneziaWG profile files', () {
-      const ovpn = 'client\\nremote vpn.example.org 1194\\n';
-      const wg = '[Interface]\\nPrivateKey = key\\n[Peer]\\nPublicKey = key\\nEndpoint = vpn.example.org:51820\\n';
-      const awg = '[Interface]\\nPrivateKey = key\\nJc = 4\\n[Peer]\\nPublicKey = key\\nEndpoint = vpn.example.org:51820\\n';
+      const ovpn = 'client\\nproto udp\\nremote vpn.example.org 1194\\n';
+      const wg = '[Interface]\\nPrivateKey = key\\n[Peer]\\nPublicKey = key\\nAllowedIPs = 0.0.0.0/0\\nEndpoint = vpn.example.org:51820\\n';
+      const awg = '[Interface]\\nPrivateKey = key\\nJc = 4\\n[Peer]\\nPublicKey = key\\nAllowedIPs = 0.0.0.0/0\\nEndpoint = vpn.example.org:51820\\n';
       expect(parser.parse(engineId: KingEngineId.openVpn, payload: ovpn).single.format,
           KingServerConfigFormat.openVpnProfile);
       expect(parser.parse(engineId: KingEngineId.wireGuard, payload: wg).single.format,
