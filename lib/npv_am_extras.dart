@@ -2073,25 +2073,29 @@ void goldNoteServer(Server srv) {
 }
 
 // MANUALSCAN: اسکن دستی بازه‌ها با پیشرفت و نتیجه داخل خود دیالوگ (نه پیام پشت دیالوگ)
-Future<void> manualRangeScan(BuildContext context, List<String> userAddrs) async {
-  // Preserve separate global and National Net discovery inventories.
+Future<void> manualRangeScan(BuildContext context, List<String> userRanges) async {
   final scanNationalMode = nationalMode;
-  final shuffledUser = List<String>.of(userAddrs)..shuffle(Random());
-  final addressSet = <String>{...shuffledUser};
+  final ranges = userRanges.map((value) => value.trim()).where((value) => value.isNotEmpty).toList(growable: false);
+  if (ranges.isEmpty) return;
+
   if (scanNationalMode) {
     await natNationalIpMemLoad();
-    addressSet.addAll(natNationalIpMemHosts());
   } else {
     await goldLoad();
-    addressSet.addAll(goldIpList().map((entry) => entry.ip));
   }
-  final addrs = addressSet.toList(growable: false);
+  final extraIps = scanNationalMode
+      ? natNationalIpMemHosts().toList(growable: false)
+      : goldIpList().map((entry) => entry.ip).toList(growable: false);
+
   var cancelled = false;
   var finished = false;
   var done = 0;
   var hitsCount = 0;
-  var total = addrs.length;
+  var extraOffset = 0;
   var result = <NatIpHit>[];
+  final seenHits = <String>{};
+  final cursors = List<String>.filled(ranges.length, '0');
+  final completed = List<bool>.filled(ranges.length, false);
   var open = true;
   StateSetter? setS;
 
@@ -2113,7 +2117,7 @@ Future<void> manualRangeScan(BuildContext context, List<String> userAddrs) async
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text('آدرس‌ها: $done / $total   •   IP سالم: $hitsCount'),
+              Text('آدرس‌های بررسی‌شده: $done   •   IP سالم: $hitsCount'),
               if (!finished) ...[
                 const SizedBox(height: 10),
                 const LinearProgressIndicator(),
@@ -2121,12 +2125,12 @@ Future<void> manualRangeScan(BuildContext context, List<String> userAddrs) async
               if (finished && result.isEmpty)
                 const Padding(
                   padding: EdgeInsets.only(top: 10),
-                  child: Text('هیچ IP سالمی پیدا نشد.'),
+                  child: Text('هیچ IP سالمی پیدا نشد یا بازه‌ای معتبر نبود.'),
                 ),
               if (finished && result.isNotEmpty)
                 TextButton.icon(
                   onPressed: () => Clipboard.setData(ClipboardData(
-                      text: result.map((h) => '${h.ip}:443').join('\n'))),
+                      text: result.map((hit) => '${hit.ip}:443').join('\n'))),
                   icon: const Icon(Icons.copy, size: 16),
                   label: Text('کپی ${result.length} IP'),
                 ),
@@ -2135,8 +2139,8 @@ Future<void> manualRangeScan(BuildContext context, List<String> userAddrs) async
                   height: 260,
                   child: ListView(
                     children: [
-                      for (final h in result)
-                        Text('${h.ms} ms  •  ${h.ip}:443',
+                      for (final hit in result)
+                        Text('${hit.ms} ms  •  ${hit.ip}:443',
                             style: const TextStyle(
                                 fontSize: 12, fontFamily: 'monospace')),
                     ],
@@ -2154,8 +2158,8 @@ Future<void> manualRangeScan(BuildContext context, List<String> userAddrs) async
           if (finished && result.isNotEmpty)
             TextButton(
               onPressed: () async {
-                final t = result.map((h) => '${h.ip}:443').join('\n');
-                await Clipboard.setData(ClipboardData(text: t));
+                final text = result.map((hit) => '${hit.ip}:443').join('\n');
+                await Clipboard.setData(ClipboardData(text: text));
                 if (ctx.mounted) {
                   ScaffoldMessenger.of(ctx).showSnackBar(
                       SnackBar(content: Text('${result.length} IP کپی شد')));
@@ -2179,35 +2183,89 @@ Future<void> manualRangeScan(BuildContext context, List<String> userAddrs) async
   });
 
   try {
-    if (nationalMode) {
-      await natManualYield(shouldAbort: () => cancelled || !open);
+    if (scanNationalMode) {
+      await natManualYield(shouldAbort: () => cancelled || !open || nationalMode != scanNationalMode);
     }
-    // Do not start a scan if the user cancelled while waiting for the national scan.
-    if (!cancelled) {
-      result = await natScanIps(
-        addrs,
+    while (!cancelled && open && nationalMode == scanNationalMode) {
+      final batchSet = <String>{};
+      // Interleave saved inventory with explicit range batches; neither is truncated.
+      final savedTake = min(128, extraIps.length - extraOffset);
+      for (var index = 0; index < savedTake; index++) {
+        batchSet.add(extraIps[extraOffset++]);
+      }
+      final activeRanges = <int>[
+        for (var index = 0; index < ranges.length; index++)
+          if (!completed[index]) index,
+      ];
+      if (activeRanges.isNotEmpty && batchSet.length < 256) {
+        final perRange = max(1, (256 - batchSet.length) ~/ activeRanges.length);
+        for (final index in activeRanges) {
+          final previous = cursors[index];
+          final generated = natExpandAddressRangeBatch(
+            ranges[index],
+            cursor: previous,
+            limit: perRange,
+          );
+          if (generated.addresses.isEmpty) {
+            completed[index] = true;
+            continue;
+          }
+          batchSet.addAll(generated.addresses);
+          final oldCursor = BigInt.tryParse(previous) ?? BigInt.zero;
+          final nextCursor = BigInt.tryParse(generated.nextCursor) ?? BigInt.zero;
+          if (nextCursor <= oldCursor) {
+            completed[index] = true;
+          } else {
+            cursors[index] = generated.nextCursor;
+          }
+          if (batchSet.length >= 256) break;
+        }
+      }
+      if (batchSet.isEmpty) {
+        if (extraOffset >= extraIps.length && completed.every((value) => value)) break;
+        // Invalid ranges are marked complete above; do not spin on an empty batch.
+        if (activeRanges.isNotEmpty && completed.every((value) => value)) break;
+        break;
+      }
+
+      final batch = batchSet.toList(growable: false);
+      final batchHits = await natScanIps(
+        batch,
         concurrency: scanNationalMode ? kNatManualConc : natAdaptiveWorkers(),
         timeout: const Duration(milliseconds: 1500),
-        cancelled: () => cancelled || !open,
-        onProgress: (d, t, h) => upd(() {
-          done = d;
-          total = t;
-          hitsCount = h;
+        cancelled: () => cancelled || !open || nationalMode != scanNationalMode,
+        onProgress: (current, total, hits) => upd(() {
+          done = done + current;
+          hitsCount = result.length + hits;
         }),
       );
-      // Partial results remain visible, but a cancelled scan must not enter shared storage.
-      if (!cancelled && open && nationalMode == scanNationalMode) {
+      done += batch.length;
+      final newHits = <NatIpHit>[];
+      for (final hit in batchHits) {
+        if (seenHits.add(hit.ip)) {
+          result.add(hit);
+          newHits.add(hit);
+        }
+      }
+      hitsCount = result.length;
+
+      // Valid partial hits are retained even when the user stops the scan.
+      if (newHits.isNotEmpty && nationalMode == scanNationalMode) {
         if (scanNationalMode) {
-          for (final hit in result) {
+          for (final hit in newHits) {
             await natNationalIpMemSave(hit.ip, 443);
           }
         } else {
           await goldMergeIps(
-            [for (final hit in result) CleanIp(hit.ip, hit.ms, 443)],
-            shouldAbort: () => cancelled || !open,
+            [for (final hit in newHits) CleanIp(hit.ip, hit.ms, 443)],
+            shouldAbort: () => nationalMode != scanNationalMode,
           );
         }
       }
+      upd(() {
+        hitsCount = result.length;
+      });
+      if (cancelled || !open || nationalMode != scanNationalMode) break;
     }
   } catch (e, stk) {
     logError(e, stk);
