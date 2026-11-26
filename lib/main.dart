@@ -4874,6 +4874,7 @@ Map<String, String> _favsRef = {};
 bool inRowGid(Server s, String gid) {
   if (gid.startsWith('p:')) return s.personal;
   if (gid == 'f:wireguard') return s.wireGuard;
+  if (gid == 'f:mine') return !s.wireGuard && _favsRef.containsKey(s.key);
   if (gid.startsWith('f:')) return _favsRef.containsKey(s.key);
   if (gid.startsWith('s:')) {
     return gid.length > 2 && ownerOf(s) == gid.substring(2);
@@ -12733,7 +12734,7 @@ ListTile( // KINGEXTRAS row
                 ? await _connectLoop(_mineList().where((server) => server.wireGuard).toList())
                 : (row == 'f:mine')
                 // "my configs" row: they are connected directly, no search
-                ? await _connectLoop(_mineList())
+                ? await _connectLoop(_mineList().where((server) => !server.wireGuard).toList())
                 // پوشه‌ی «سرورهای شخصی»: تمام ورودی‌ها، با اولویت آخرین سرور موفق
                 : (row == 'f:pfolder')
                     ? await _connectLoop(personalFolderServers())
@@ -15848,7 +15849,7 @@ ListTile( // KINGEXTRAS row
         ? _personalShown
         : (personal == null ? [] : [personal!]); // PERSPAGE
     titles['p:personal'] = '🏠 سرور شخصی';
-    groups['f:mine'] = _mineList();
+    groups['f:mine'] = _mineList().where((server) => !server.wireGuard).toList();
     titles['f:mine'] = '📌 کانفیگ‌های من';
     groups['f:wireguard'] = _mineList().where((server) => server.wireGuard).toList();
     titles['f:wireguard'] = '🛡 هستهٔ مستقل WireGuard';
