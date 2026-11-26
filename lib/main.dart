@@ -7812,7 +7812,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     // its variants continue in the next pass (natCursorAdvance)
     final budget = multi ? natBudget(full: _resFull) : null;
     final bsw = Stopwatch()..start();
-    var genTried = 0;
+    var genCompleted = 0;
     var attempted = 0; // FIXFIRSTTO: اولین حالت واقعاً تست‌شده timeout کامل بگیرد
     var deadRun = 0; // DEADSRV-FIX: حالت‌های پیاپی بی‌پاسخ برای همین سرور
     // plain TCP check (once, lazily): when the port is closed, only variants
@@ -7848,9 +7848,12 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       final to = attempted == 0
           ? tt
           : Duration(seconds: min(tt.inSeconds, i > 60 ? 5 : (i > 12 ? 6 : 9)));
-      if (v >= _natBaseCount) genTried++;
       attempted++;
       final d = await _delayOnce(s, v, to, u);
+      // Advance only after the probe actually returns; a user/app cancellation
+      // during the in-flight probe must leave that variant for the next pass.
+      if (abort || !mounted) break;
+      if (v >= _natBaseCount) genCompleted++;
       // DEADSRV-FIX: هسته برای این سرور پیاپی جواب نمی‌دهد (مهلت تمام شد)؛
       // بعد از ۵ بار، بقیه‌ی حالت‌های همین سرور در این دور رد می‌شود
       if (d != null) {
@@ -7878,7 +7881,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         return d;
       }
     }
-    if (multi && genTried > 0) natCursorAdvance(s, genTried);
+    if (multi && genCompleted > 0) natCursorAdvance(s, genCompleted);
     if (s.isIp) natIpDeadRun.add('${s.host}|${s.port}'); // DEADRUN
     return null;
   }
