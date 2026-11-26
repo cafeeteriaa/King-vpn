@@ -2456,7 +2456,8 @@ class KingVpnSourceGuardTests(unittest.TestCase):
 
     def test_dns_scanner_uses_all_project_domains_and_saved_resolvers(self):
         dns = (ROOT / 'lib' / 'dns_scanner.dart').read_text(encoding='utf-8')
-        self.assertIn('List<String> dnsxAutoDomains() => dnsxFullDomains();', dns)
+        self.assertIn('List<String> dnsxAutoDomains({Iterable<Server> profileServers', dns)
+        self.assertIn('List<String> dnsxFullDomains({Iterable<Server> profileServers', dns)
         self.assertIn('...savedDns, ...(scanNationalMode ? kDnsxNationalDefaults : kDnsxDefaults)', dns)
         self.assertIn('final best = [for (final e in r) e.ip];', dns)
         self.assertNotIn('savedDns.take(40)', dns)
