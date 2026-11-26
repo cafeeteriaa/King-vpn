@@ -54,7 +54,7 @@ Future<void> _appendPersonalEventsUnlocked(
     final out = await file.open(mode: FileMode.append);
     try {
       for (final event in events) {
-        await out.writeString(jsonEncode(<String, Object>{
+        await out.writeString(jsonEncode(<String, Object?>{
           'v': 1,
           ...event,
           'at': DateTime.now().toUtc().toIso8601String(),
