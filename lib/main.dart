@@ -175,22 +175,13 @@ Future<void> _cpuTick() async {
 }
 // CONNWORK1: وقتی وصل هستیم، همه مسیرها (از جمله نت ملی) یکی‌یکی تست می‌کنند
 const int kStandbyWorkers = 1;
-// STANDBY20: وقتی وصلیم، جستجوی یکی‌یکی تا ۲۰ سرور سالم ادامه دارد؛ به ۲۰ که رسید خاموش
-// می‌شود و وقتی سالم‌ها زیر ۵ آمد دوباره خودکار روشن می‌شود
-const int kStandbyPause = 5; // هدف همیشگی: ۵ سرور سالم، از اولین جستجو تا آخر
-// STATE: بعد از اولین پرشدن، با هر بار زیر ۵ آمدن فقط تا ۵ سالم جستجو می‌شود و بعد می‌ایستد
-bool standbyFilled = false;
-int standbyGoal() => kStandbyPause; // ۵ سالم، همیشه
-// STANDBY-FIX: the search resumes as soon as the healthy count drops below 20 (it used
-// to wait until the count fell to 5, so with 7-8 healthy servers it never searched again)
-const int kStandbyResume = 5; // RESUME5: وقتی سالم‌ها زیر ۵ آمد جستجو دوباره روشن می‌شود
+// Background discovery has no healthy-server count ceiling. It continues through
+// the available inventory while connected, with adaptive concurrency and cancellation.
 // FG-TARGET: جستجوی اصلی (غیر ملی) تا این تعداد سرور سالم تست می‌کند
 const int kFgSearchTarget = 1; // V13: connect immediately on first healthy // FG5: تست سریع با ۵ سالم تمام می‌شود و وصل می‌شود
-// FASTONE: تست سریع (جستجوی اصلی) فقط یک دسته را کامل تست می‌کند. اگر آن دسته
-// حداقل یک سرور سالم داد، همان‌جا می‌ایستد. اگر نداد، دسته‌ی بعدی تا سقف «حداکثر
-// تعداد دسته در هر جستجو» (maxBatches) می‌آید. برای برگشت به رفتار قبلی عدد را بزرگ کن.
+// FASTONE: the first healthy result may connect immediately; when a batch has
+// no healthy result, discovery continues through the remaining inventory.
 const int kFastBatchesPerSearch = 1;
-bool standbyPaused = false;
 // FAST SEARCH: parallel ping tests (core delay test, no VPN toggling) used
 // when looking for the first healthy server (settings 1..8).
 int fastWorkers = 3; // FAST100 (تست همزمان جستجوی اول = ۳ پیش‌فرض)
@@ -7011,12 +7002,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           }
           return rdyFg >= 1 && pending.isEmpty;
         }
-        // STANDBY20: جستجوی پس‌زمینه وقتی وصل است در ۲۰ سرور سالم می‌ایستد
-        // STANDBY20 برای همه‌ی مسیرهای غیر ملی (جستجوی اول و پس‌زمینه): به ۲۰ سرور سالم که رسید ایست
-        if (!nationalMode &&
-            _usable().where((s) => !identical(s, current)).length >= standbyGoal()) {
-          return true;
-        }
         if (explore) return false;
         final ready = _ready(row);
         if (upServer != null) return true;
@@ -8119,10 +8104,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         r = 'settling<25s';
       } else if (rechecking) {
         r = 'rechecking=1';
-      } else if (standbyPaused && !nationalMode) {
-        // STANDBY-FIX: say why the search is held instead of printing a misleading OK
-        r = 'paused: ${kStandbyPause} سرور سالم جمع شد (زیر $kStandbyPause که شد دوباره می‌گردد)';
-      }
       final now = DateTime.now();
       if (r == _sbLast && now.difference(_sbAt) < const Duration(seconds: 90)) {
         return;
@@ -8183,28 +8164,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     }
     try {
       await _recheckStandby();
-      // STANDBY20: خاموش/روشن شدن خودکار بر اساس تعداد سرورهای سالم
-      final healthyNow = _usable().where((s) => !identical(s, current)).length;
-      // STANDBY-FIX: pause at 20 healthy, resume below 20 (no stuck pause at 7-8)
-      if (!nationalMode) {
-        if (healthyNow >= kStandbyPause) standbyFilled = true;
-        if (healthyNow >= standbyGoal()) {
-          standbyPaused = true; // پر است: هیچ تستی نزن
-        } else if (standbyFilled ? healthyNow < kStandbyResume : true) {
-          standbyPaused = false; // زیر ۵ (بعد از پرشدن) یا هنوز اولین پرشدن: بگرد
-        }
-      }
-      // V11: in national mode, only pause when the queue is fully empty.
-      if (nationalMode) {
-        standbyPaused = pending.isEmpty;
-      }
-      if (nationalMode) {
-        standbyPaused = pending.isEmpty;
-      }
-      if (standbyPaused && connected && !nationalMode) {
-        lastStandby = DateTime.now();
-        return;
-      }
       // CONTSEARCH: while connected the search for a replacement server always runs
       if (autoUpgrade || connected) {
         await _findGood(manualSpeedMax, bg: true, explore: true);
