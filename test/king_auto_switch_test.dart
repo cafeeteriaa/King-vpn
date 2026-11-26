@@ -153,9 +153,11 @@ void main() {
     test('contains the ten selected alternatives without Psiphon, VPN Gate, or Ceno', () {
       final catalog = KingNetworkEngineCatalog();
       final alternatives = catalog.all.where((engine) => engine.id != KingEngineId.xray);
-      expect(alternatives, hasLength(10));
+      expect(alternatives, hasLength(12));
       expect(alternatives.map((engine) => engine.id).toSet(), {
         KingEngineId.calyxVpn,
+        KingEngineId.riseupVpn,
+        KingEngineId.vpnBook,
         KingEngineId.nthLink,
         KingEngineId.tor,
         KingEngineId.i2p,
@@ -173,6 +175,14 @@ void main() {
             .map((engine) => engine.id).toList(),
         [KingEngineId.xray],
       );
+    });
+
+    test('keeps local DPI tools separate from full-device VPN engines', () {
+      final catalog = KingNetworkEngineCatalog();
+      expect(catalog[KingEngineId.byeDpi]?.role, KingEngineRole.localTransport);
+      expect(catalog[KingEngineId.powerTunnel]?.role, KingEngineRole.localTransport);
+      expect(catalog[KingEngineId.riseupVpn]?.requiresSeparateVpnOwner, isTrue);
+      expect(catalog[KingEngineId.vpnBook]?.requiresProviderBackend, isTrue);
     });
 
     test('allows future engines without a fixed inventory ceiling', () {
