@@ -29,6 +29,15 @@ class HealthyFolderPolicyTest(unittest.TestCase):
         self.assertIn("if (netDead)", body)
         self.assertIn("nothing is deleted when the whole network is down", body)
 
+    def test_small_inventory_outage_does_not_prune_all_entries(self):
+        source = (ROOT / "lib" / "main.dart").read_text(encoding="utf-8")
+        start = source.index("Future<void> _resDaily({bool force = false}) async {")
+        end = source.index("String _resAgo(", start)
+        body = source[start:end]
+        self.assertIn("if (tested > 0 && passed == 0)", body)
+        self.assertNotIn("tested >= 5 && passed == 0", body)
+        self.assertIn("for (final e in dead)", body)
+
 
 if __name__ == "__main__":
     unittest.main()

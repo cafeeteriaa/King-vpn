@@ -9938,8 +9938,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         }
         if (lost()) return;
       }
-      if (tested >= 5 && passed == 0) {
-        // everything failed: the network is the problem, not the servers
+      if (tested > 0 && passed == 0) {
+        // No endpoint succeeded, so there is no positive reachability evidence
+        // to justify pruning. This also protects small inventories (1-4 entries).
         _resHold = DateTime.now().add(const Duration(hours: 1));
         return;
       }

@@ -1,10 +1,11 @@
 # KING VPN Revision Ledger
 
-Current revision: 58
-Next revision: 59
+Current revision: 59
+Next revision: 60
 Repository: cafeeteriaa/King-vpn
-Revision branch: fix/revision-58-network-identity-fragmentation-20261126
-Revision PR: https://github.com/cafeeteriaa/King-vpn/pull/58
+Revision branch: fix/healthy-folder-small-sample-outage-20261126
+Parent revision branch: fix/revision-58-network-identity-fragmentation-20261126
+Revision PR: chained from PR #58; standalone PR not opened
 
 ## Revision history
 
@@ -31,6 +32,14 @@ Revision PR: https://github.com/cafeeteriaa/King-vpn/pull/58
 - Replaced random 28-IP-per-CIDR Cloudflare sampling with persistent per-range cursors, so the clean-IP scanner traverses each published IPv4 range in resumable batches without a daily quota.
 - Reused saved endpoint ports and domain hostnames from the active discovery mode only; DNS and SNI inventories now include the matching persisted host/domain history and matching profile-template inventory.
 - Increased the healthy-server folder capacity from 5,000 to 50,000, migrated its snapshot from SharedPreferences to an app-private atomic JSON file, and made its 48-hour recheck independent of National Net mode while retaining network-outage protection.
+
+### Revision 59 — preserve small healthy-server inventories during outages
+- Fixed a destructive edge case in `_resDaily`: the prior all-failed guard required at least five tested endpoints. With only one to four due entries, if every first and second-chance probe failed, the network-outage guard did not activate and the entries could be removed from the healthy folder.
+- The guard now preserves the inventory whenever at least one probe completed and no endpoint succeeded (`tested > 0 && passed == 0`). This is a fail-safe rule: without any positive reachability evidence, the app does not infer that every saved endpoint is dead.
+- Individual failed entries remain eligible for removal after the second chance only when the same maintenance round has at least one successful endpoint, providing positive evidence that the network is reachable.
+- Added a regression source guard for the one-to-four-entry case.
+- No IP Clean sources, CIDRs, address ranges, ports, scan cursors, or scan capabilities were changed.
+- Exact-head CI is pending; no device-level outage test has yet been run.
 
 ## Mandatory three-pass review protocol
 
