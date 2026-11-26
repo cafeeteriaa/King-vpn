@@ -546,8 +546,6 @@ bool speedTestBusy = false;
 int listRefreshMin = 180;
 int failMin = 90; // minutes a failed server is not tested again
 int recheckMin = 20; // minutes before a healthy server is pinged again
-int maxBatches = 8; // safety limit per search
-const standbyBatches = 12; // batches per standby search cycle
 const bgSearchOff = false; // RETRYPATCH // SPEEDSWITCHPATCH: no search while connected
 // while connected the tunnel is shared with the tests, so the batch is bigger
 // and the timeout longer (fewer false "dead" results). The healthy servers
@@ -558,7 +556,8 @@ int firstBatchSize = 100; // FAST100: دسته اول هم ۱۰۰تایی
 int fetchWorkers = 16;
 Duration fetchDeadline = const Duration(seconds: 60);
 int tcpWorkers = 20;
-int maxPerSource = 120;
+// Source parsing traverses each returned list completely; batch/network controls
+// are applied separately and never discard lines from an individual source.
 Duration tcpTimeout = const Duration(milliseconds: 3500);
 // TLS handshakes in the prefilter leaked sockets (crash, instant failures)
 const probeTls = false;
@@ -3816,7 +3815,7 @@ Future<int?> probe(Server s) async {
     final name = s.sni.isNotEmpty ? s.sni : s.host;
     if (s.tls && probeTls) {
       final sec = await SecureSocket.secure(sock,
-              host: name, onBadCertificate: (_) => true)
+              host: name)
           .timeout(tcpTimeout);
       sec.destroy();
     } else {
@@ -4773,7 +4772,8 @@ Future<List<Server>> fetchServers({bool Function()? stop, int? quickCap}) async 
         ..shuffle();
       var pn = 0;
       var okN = 0;
-      for (final l in lines.take(quickCap != null ? 30 : maxPerSource)) {
+      if (quickCap != null) dbg('quick source mode: parsing the complete returned list');
+      for (final l in lines) {
         final s = Server.parse(l);
         if (s != null) {
           s.src = u;
@@ -6138,12 +6138,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         failMin = 120;
         recheckMin = 30;
         tcpWorkers = 50;
-        maxPerSource = 100;
         fetchWorkers = 4;
         fetchDeadline = const Duration(seconds: 20);
         firstBatchSize = 100;
         standbyBatchSize = 30;
-        maxBatches = 5;
         watchFailLimit = 3;
         badPingLimit = 3;
         missLimit = 3;
@@ -7010,8 +7008,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           if (fastDelay) {
             // FASTONE: یک دسته کامل، و اگر سرور سالم داد همین‌جا تمام
             if (rdyFg >= 1 && fgBatchesDone >= kFastBatchesPerSearch) return true;
-            // سقف ایمنی: «حداکثر تعداد دسته در هر جستجو» واقعاً اعمال شود
-            if (fgBatchesDone >= maxBatches) return true;
           }
           return rdyFg >= 1 && pending.isEmpty;
         }
@@ -7084,13 +7080,12 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       final bgStart = DateTime.now(); // BGCAP: هر دور جستجوی پس‌زمینه حداکثر ۲۰ دقیقه
       // standby search: bigger batches (the tunnel is shared), the healthy
       // servers are re-checked every 25 tests and after every batch
-      final maxB = bg ? standbyBatches : 1000000; // RETRYPATCH
       while (!abort &&
           !(bg && (!connected || appGone)) &&
           !(bg && _bgYield) &&
           !enough() &&
           !(bg && DateTime.now().difference(bgStart) > const Duration(minutes: 20)) &&
-          batches < maxB) {
+          true) {
         // the whole list was tested: download a new one and go on (endless)
         if (pending.isEmpty && folderQ.isEmpty) {
           // V12: in national mode, two-pass search. When the queue empties,
@@ -7422,7 +7417,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     if (ipMode && !abort) {
       final top = (alive.toList()..sort(_cmpAlive))
           .where((s) => s.ipLink == null && !s.ipTried)
-          .take(40)
           .toList();
       await pool<Server>(top, 24, (s) async {
         s.ipTried = true;
@@ -10408,7 +10402,7 @@ ListTile( // KINGEXTRAS row
       final r = _natRank(b) - _natRank(a); // NATIONALPATCH
       return r != 0 ? r : bySpeedThenPing(a, b);
     });
-    final run = l.take(80).toList();
+    final run = l.toList();
     // NATFIRST: نت ملی همان لحظه‌ی اولین سرور سالم را وصل می‌کند؛ بقیه در پس‌زمینه گشته می‌شوند
     final need = nationalMode ? 1 : max(fastPickN, 6);
     final fsw = Stopwatch()..start();
@@ -10601,7 +10595,7 @@ ListTile( // KINGEXTRAS row
         for (final s in [...pending, ...natRestPending]) '${s.host}|${s.port}'
       };
       final items = <String>[];
-      for (final e in natIpMem.take(40)) {
+      for (final e in natIpMem) {
         final ip = '${e['ip']}';
         final port = (e['port'] as num?)?.toInt() ?? 0;
         if (InternetAddress.tryParse(ip) == null || port <= 0) continue;
@@ -10622,20 +10616,27 @@ ListTile( // KINGEXTRAS row
     }
   }
 
-  // IPهای بازِ پیداشده در بازه‌ها: با دو سرور نمونه کانفیگ ساخته و جلوی صف گذاشته می‌شود
+  // IPهای بازِ بازه‌ی صریح کاربر: همه‌ی قالب‌های موجود به‌صورت round-robin استفاده می‌شوند.
     Future<void> _natRangeAdd(List<String> items, {bool count = true}) async {
     if (items.isEmpty) return;
     for (final it in items) {
       natScanHits.add(it.split('|')[0]);
     }
-    final tpl = [...pending, ...natRestPending, ...natTemplateSeeds, ...good].take(2).toList();
+    final tpl = <Server>[];
+    final seenTemplates = <String>{};
+    for (final server in [...pending, ...natRestPending, ...natTemplateSeeds, ...good]) {
+      // Generic IP grafting is not valid for REALITY or Shadowsocks profiles.
+      if (server.reality || server.link.toLowerCase().startsWith('ss://')) continue;
+      if (seenTemplates.add(server.key)) tpl.add(server);
+    }
     if (tpl.isEmpty) {
-      dbg('V8: no template - skipping');
+      dbg('هیچ قالب سازگار برای IPهای باز موجود نیست');
       return;
     }
     final made = <Server>[];
-    final seenMade = <String>{}; // DEDUPE: IP تکراری در همین دسته حذف شود
-    final existingKeys = {for (final s in pending) s.key};
+    final seenMade = <String>{};
+    final existingKeys = {for (final server in [...pending, ...natRestPending]) server.key};
+    var templateCursor = natRangeTemplateCursor;
     for (final item in items) {
       final parts = item.split('|');
       if (parts.length < 2) continue;
@@ -10643,20 +10644,25 @@ ListTile( // KINGEXTRAS row
       final port = int.tryParse(parts[1].trim());
       if (port == null || port <= 0 || port > 65535) continue;
       if (InternetAddress.tryParse(ip) == null) continue;
-      for (final t in tpl) {
-        try {
-          final s = Server(_natSetPort(_natSetHost(t.link, ip, t.host), port), t.name, ip, port);
-          // DEDUPE: اگر این سرور قبلاً در صف یا همین دسته بوده، اضافه نشود
-          if (existingKeys.contains(s.key) || !seenMade.add(s.key)) continue;
-          made.add(s);
-        } catch (e, stk) { logError(e, stk); }
+      final template = tpl[templateCursor % tpl.length];
+      templateCursor++;
+      try {
+        final link = _natSetPort(
+          _natSetHost(template.link, ip, template.host),
+          port,
+        );
+        final server = Server(link, template.name, ip, port);
+        if (existingKeys.contains(server.key) || !seenMade.add(server.key)) continue;
+        made.add(server);
+      } catch (e, stk) {
+        logError(e, stk);
       }
     }
+    natRangeTemplateCursor = templateCursor % tpl.length;
     if (made.isEmpty) return;
     if (count) natIpFound += items.length;
     pending = [...made, ...pending];
-    // NATPENDCAP: pending بیش از ۳۰۰۰ نشود (حافظه و زمان دسته‌بندی)؛ انتهای صف حذف می‌شود
-    if (pending.length > 3000) pending.removeRange(3000, pending.length);
+    // No destructive queue truncation: every generated profile remains available.
     natRangeCursor = 0;
   }
 
