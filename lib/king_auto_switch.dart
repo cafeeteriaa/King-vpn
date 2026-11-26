@@ -4,7 +4,6 @@ import 'king_network_engines.dart';
 /// their own IDs and register descriptors without changing this type.
 abstract final class KingEngineId {
   static const xray = 'xray';
-  static const vpnGate = 'vpn_gate';
   static const calyxVpn = 'calyx_vpn';
   static const nthLink = 'nthlink';
   static const tor = 'tor';
@@ -13,7 +12,6 @@ abstract final class KingEngineId {
   static const cloudflareWarp = 'cloudflare_warp';
   static const aviraPhantom = 'avira_phantom';
   static const shroudly = 'shroudly';
-  static const ceno = 'ceno';
   static const byeDpi = 'byedpi';
   static const powerTunnel = 'powertunnel';
 }
