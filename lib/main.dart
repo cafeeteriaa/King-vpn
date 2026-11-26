@@ -2852,7 +2852,10 @@ String _reliableVpnCfg(String cfg) {
       }
       d['servers'] = merged;
     } else if (secureDns && !ultraMode && !indestructibleMode) {
-      d['servers'] = <dynamic>[
+      // Preserve explicit DNS servers from the imported profile. The curated
+      // resolvers are fallbacks, not a replacement for user-supplied settings.
+      final existingList = existing is List ? existing : const <dynamic>[];
+      final globalDefaults = <dynamic>[
         '1.1.1.1', '1.0.0.1', '8.8.8.8', '8.8.4.4',
         '9.9.9.9', '149.112.112.112', '208.67.222.222',
         '208.67.220.220', '94.140.14.14', '94.140.15.15',
@@ -2860,6 +2863,15 @@ String _reliableVpnCfg(String cfg) {
         'https://1.1.1.1/dns-query', 'https://8.8.8.8/dns-query',
         'https://9.9.9.9/dns-query', 'https://dns.adguard-dns.com/dns-query',
       ];
+      final merged = <dynamic>[];
+      final seenDns = <String>{};
+      for (final item in [...existingList, ...globalDefaults]) {
+        final value = item.toString().trim();
+        if (value.isNotEmpty && seenDns.add(value.toLowerCase())) {
+          merged.add(item);
+        }
+      }
+      d['servers'] = merged;
     }
     // UseIP = هم IPv4 و هم IPv6 (هر کدام در دسترس باشد)
     d['queryStrategy'] = 'UseIP';
