@@ -2358,12 +2358,14 @@ Future<List<String>> _natRangeScanStepBody({
       timeout: const Duration(milliseconds: 1500),
       cancelled: shouldAbort,
     );
-    if (shouldAbort() || scanExpired()) return const <String>[];
     for (final hit in hits) {
       out.add('${hit.ip}|$port');
     }
+    // Return partial hits on cancellation/explicit budget expiry, but do not
+    // commit the range cursor; the incomplete batch will be retried safely.
+    if (shouldAbort() || scanExpired()) return out;
   }
-  if (shouldAbort() || scanExpired()) return const <String>[];
+  if (shouldAbort() || scanExpired()) return out;
 
   // Commit only the cursor set belonging to the engine that completed.
   cursorStore
