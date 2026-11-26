@@ -2108,7 +2108,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         end = source.index('\n  }\n}', start)
         method = source[start:end]
         self.assertIn('var sheetOpen = true;', method)
-        load = method.index('final saved = await goldDnsList();')
+        load = method.index('final saved = scanNationalMode ? await natNationalDnsList() : await goldDnsList();')
         guard = method.index('if (!mounted || !sheetOpen) return;', load)
         reset = method.index('stopFlag = false;')
         self.assertLess(reset, load)
