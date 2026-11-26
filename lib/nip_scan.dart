@@ -429,12 +429,9 @@ extension NipHunt on _HomePageState {
         return false;
       }
 
-      final savedIps = <String>{
-        for (final entry in _goldIps.values) entry.ip,
-        ...natRelayHosts,
-      };
-      await goldLoad();
-      savedIps.addAll(<String>{for (final entry in _goldIps.values) entry.ip});
+      // National Net discovery reads only its own relay inventory and the
+      // endpoints present in National Net profiles; global Gold IPs stay isolated.
+      final savedIps = <String>{...natRelayHosts};
       for (final server in templates) {
         if (abort) return false;
         if (server.isIp) {
