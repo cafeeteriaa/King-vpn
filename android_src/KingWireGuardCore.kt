@@ -45,6 +45,9 @@ class KingWireGuardCore private constructor(context: Context) {
                 "libbox TUN handoff timed out before WireGuard start"
             }
         }
+        if (KingVpnEngineCoordinator.currentOwner() == "amneziawg") {
+            KingAmneziaWgCore.shared().disconnect()
+        }
         check(KingVpnEngineCoordinator.acquire("wireguard", 30_000L)) {
             "Another KING VPN engine did not release the Android VPN slot"
         }
