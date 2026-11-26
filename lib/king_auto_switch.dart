@@ -1,5 +1,3 @@
-import 'dart:async';
-
 enum KingEngineId { xray, psiphon }
 
 class KingEngineConnectResult {
@@ -95,7 +93,26 @@ class KingAutoSwitchCoordinator {
       try {
         final result = await adapter.connect();
         attempts.add(result);
-        if (result.healthy && await adapter.verifyTraffic()) {
+        if (_stoppedByUser || generation != _generation) {
+          await adapter.disconnect();
+          return KingAutoSwitchResult(
+            engine: null,
+            connected: false,
+            attempts: List.unmodifiable(attempts),
+            detail: 'Connection attempt cancelled',
+          );
+        }
+        final trafficOk = result.healthy && await adapter.verifyTraffic();
+        if (_stoppedByUser || generation != _generation) {
+          await adapter.disconnect();
+          return KingAutoSwitchResult(
+            engine: null,
+            connected: false,
+            attempts: List.unmodifiable(attempts),
+            detail: 'Connection attempt cancelled',
+          );
+        }
+        if (trafficOk) {
           _active = adapter;
           return KingAutoSwitchResult(
             engine: adapter.id,
