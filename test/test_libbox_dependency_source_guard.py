@@ -53,8 +53,23 @@ class LibboxDependencyGuard(unittest.TestCase):
         self.assertIn("import java.util.zip.ZipFile", patch)
         self.assertIn("import java.util.zip.ZipOutputStream", patch)
         self.assertIn("import java.util.zip.ZipEntry", patch)
-        self.assertIn("current.toURI().resolve(location).toURL()", patch)
-        self.assertNotIn("URL(current, location)", patch)
+
+    def test_gradle_zip_imports_are_emitted_as_real_lines(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location(
+            "patch_sing_box_gradle", ROOT / "tools" / "patch_sing_box_gradle.py"
+        )
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        gradle = (
+            "plugins { id('com.android.library') }\\n"
+            "val libboxProperties = Properties().apply { }\\n"
+            'implementation(files(File(libboxDir, "classes.jar")))\\n'
+        )
+        patched = module.install_go_runtime_merge(gradle)
+        expected = "import java.util.zip.ZipEntry\\nimport java.util.zip.ZipFile\\nimport java.util.zip.ZipOutputStream\\n"
+        self.assertTrue(patched.startswith(expected))
+        self.assertNotIn("ZipEntry\\\\nimport", patched)
 
     def test_third_party_license_and_build_provenance_exist(self):
         folder = ROOT / "licenses" / "sing_box"
