@@ -7,7 +7,7 @@ void main() {
     const approved = <String>{
       'xray', 'hysteria2', 'sing_box', 'nthlink', 'shroudly', 'byedpi',
       'powertunnel', 'amneziawg', 'openvpn', 'shadowsocks', 'openconnect',
-      'wireguard',
+      'wireguard', 'psiphon',
     };
     expect(catalog.all.map((engine) => engine.id).toSet(), approved);
     expect(catalog.all, hasLength(13));
