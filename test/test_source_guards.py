@@ -2681,5 +2681,14 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('for (Srv b : backups)', service)
 
 
+    def test_dart_backup_payload_keeps_every_usable_server(self):
+        source = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        start = source.index('String _backupsJson(Server cur)')
+        end = source.index('\n  }', start)
+        body = source[start:end]
+        self.assertIn('if (identical(x, cur)) continue;', body)
+        self.assertNotIn('out.length >= 8', body)
+
+
 if __name__ == '__main__':
     unittest.main()
