@@ -2405,6 +2405,8 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('List<String> natFrontSnis()', nip)
         self.assertIn('...kAutoSniDomains', nip)
         self.assertIn('...dnsxFullDomains()', nip)
+        self.assertIn('for (final sni in natFrontSnis())', nip)
+        self.assertIn('final workers = max(2, min(12, natAdaptiveWorkers()));', nip)
 
     def test_ip_grafting_preserves_host_and_the_actual_scanned_port(self):
         nip = (ROOT / 'lib' / 'nip_scan.dart').read_text(encoding='utf-8')
@@ -2449,6 +2451,12 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn('r.take(4)', dns)
         self.assertIn('...kDnsxGlobalDomains', dns)
         self.assertIn('...natIrDomains', dns)
+        self.assertIn('...natGlobalTemplateSeeds', dns)
+        self.assertIn('...natNationalTemplateSeeds', dns)
+        self.assertIn('server.sni', dns)
+        self.assertIn('server.host', dns)
+        self.assertIn('scanNationalMode ? await natNationalDnsList() : await goldDnsList()', dns)
+        self.assertIn('natNationalDnsSave', dns)
 
     def test_nip_scan_has_no_implicit_hit_or_time_ceiling_and_resolves_all_addresses(self):
         nip = (ROOT / 'lib' / 'nip_scan.dart').read_text(encoding='utf-8')
@@ -2718,6 +2726,19 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertLess(await_load, scan)
         self.assertLess(scan, unlock)
         self.assertIn('stop: () => stopFlag || !sheetOpen || nationalMode != scanNationalMode,', body)
+        self.assertIn('nationalModeSnapshot: scanNationalMode,', body)
+        self.assertIn('natNationalDnsList()', body)
+
+    def test_dns_wire_probe_accepts_ipv4_and_ipv6_resolvers(self):
+        source = (ROOT / 'lib' / 'nnie_core.dart').read_text(encoding='utf-8')
+        start = source.index('class NatDnsWireProbe')
+        end = source.index('class NatEndpointMemory', start)
+        body = source[start:end]
+        self.assertIn('final target = InternetAddress.tryParse(server);', body)
+        self.assertIn('target.type == InternetAddressType.IPv6', body)
+        self.assertIn('InternetAddress.anyIPv6', body)
+        self.assertIn('InternetAddress.anyIPv4', body)
+        self.assertNotIn('Resolver must be IPv4', body)
 
     def test_dns_probe_checks_cancellation_after_inter_batch_delay(self):
         dns = (ROOT / 'lib' / 'dns_scanner.dart').read_text(encoding='utf-8')
