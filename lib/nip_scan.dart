@@ -289,9 +289,15 @@ final List<String> natFrontSnis = <String>{
   'www.cloudflare.com',
   'speed.cloudflare.com',
   'one.one.one.one',
-  'www.aparat.com',
-  'www.digikala.com',
-  'divar.ir',
+  'cloudflare-dns.com',
+  'api.cloudflare.com',
+  'developers.cloudflare.com',
+  'support.cloudflare.com',
+  'blog.cloudflare.com',
+  'community.cloudflare.com',
+  'www.cloudflarestatus.com',
+  'radar.cloudflare.com',
+  'dash.cloudflare.com',
   ...kAutoSniDomains,
 }.where((value) =>
     value.trim().isNotEmpty && InternetAddress.tryParse(value.trim()) == null)
