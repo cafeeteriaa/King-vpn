@@ -143,13 +143,5 @@ class KingNetworkEngineCatalog {
       license: 'Apache-2.0', requiresSeparateVpnOwner: true,
     ),
 
-    KingEngineDescriptor(
-      id: 'psiphon', name: 'Psiphon (conditional)', role: KingEngineRole.fullDeviceVpn,
-      state: KingIntegrationState.sourceAndLicenseReviewRequired, priority: 120,
-      summary: 'کد tunnel core عمومی تحت GPL-3.0 است و استفاده از کد با رعایت کامل GPL می‌تواند بدون مجوز اختصاصی کپی‌رایت انجام شود؛ اما شرایط سرویس Psiphon اتصال کلاینت‌های ثالث را به شبکه Psiphon محدود می‌کند. تا اخذ مجوز کتبی برای سرویس، فقط بررسی/استفاده مستقل از کد مجاز و هیچ اتصال به شبکه Psiphon پیاده‌سازی نشود.',
-      sourceUrl: 'https://github.com/Psiphon-Labs/psiphon-tunnel-core',
-      license: 'GPL-3.0 (core; comply with copyleft)',
-      requiresProviderBackend: true, requiresSeparateVpnOwner: true,
-    ),
   ];
 }
