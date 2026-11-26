@@ -307,6 +307,10 @@ List<String> natFrontSnis() => <String>{
   'dash.cloudflare.com',
   ...kAutoSniDomains,
   ...dnsxFullDomains(),
+  if (nationalMode)
+    ...natNationalDomMem.map((entry) => (entry['h'] ?? '').toString())
+  else
+    ...natDomMem.map((entry) => (entry['h'] ?? '').toString()),
 }.where((value) =>
     value.trim().isNotEmpty && InternetAddress.tryParse(value.trim()) == null)
  .toList(growable: false);
@@ -333,6 +337,11 @@ Future<String?> nipFrontProbe(String ip, int port, String sni) async {
 
 Future<String?> nipFindFrontSni(
     String ip, int port, {bool Function()? stop}) async {
+  if (nationalMode) {
+    await natNationalDomMemLoad();
+  } else {
+    await natDomMemLoad();
+  }
   final names = natFrontSnis();
   final workers = max(2, min(12, natAdaptiveWorkers()));
   for (var offset = 0; offset < names.length; offset += workers) {
