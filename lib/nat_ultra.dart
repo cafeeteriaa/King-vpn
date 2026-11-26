@@ -2335,7 +2335,7 @@ String _natBigIntToIPv6(BigInt value) {
     final prefix = int.tryParse(parts[1]);
     if (ip == null || prefix == null) return (<String>[], cursorText);
     if (ip.type == InternetAddressType.IPv6) {
-      if (prefix < 32 || prefix > 128) return (<String>[], cursorText);
+      if (prefix < 0 || prefix > 128) return (<String>[], cursorText);
       final hostBits = 128 - prefix;
       final allMask = (BigInt.one << 128) - BigInt.one;
       final hostMask = (BigInt.one << hostBits) - BigInt.one;
@@ -2343,7 +2343,7 @@ String _natBigIntToIPv6(BigInt value) {
       return _natExpandIPv6Span(
           base, BigInt.one << hostBits, cursorText, maxPerBlock);
     }
-    if (prefix < 8 || prefix > 32) return (<String>[], cursorText);
+    if (prefix < 0 || prefix > 32) return (<String>[], cursorText);
     final base = _ipToInt(ip.address) & (0xffffffff << (32 - prefix));
     final span = 1 << (32 - prefix);
     final offset = (int.tryParse(cursorText) ?? 0) % span;
