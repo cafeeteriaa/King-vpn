@@ -1755,10 +1755,8 @@ Set<String> natIpMemHosts() => {for (final e in natIpMem) '${e['ip']}'};
 Future<void> natIpMemLoad() async {
   try {
     final p = await SharedPreferences.getInstance();
-    final file = await _natInventoryFile(_ipMemFileName);
-    final loaded = await file.exists()
-        ? await _natReadInventory(_ipMemFileName, 'ip')
-        : await _natMigrateLegacyInventory(p, _ipMemKey, _ipMemFileName, 'ip');
+    final loaded =
+        await _natMigrateLegacyInventory(p, _ipMemKey, _ipMemFileName, 'ip');
     natIpMem
       ..clear()
       ..addAll(loaded);
@@ -1779,10 +1777,8 @@ Set<String> natDomMemHosts() => {for (final e in natDomMem) '${e['h']}:${e['port
 Future<void> natDomMemLoad() async {
   try {
     final p = await SharedPreferences.getInstance();
-    final file = await _natInventoryFile(_domMemFileName);
-    final loaded = await file.exists()
-        ? await _natReadInventory(_domMemFileName, 'h')
-        : await _natMigrateLegacyInventory(p, _domMemKey, _domMemFileName, 'h');
+    final loaded =
+        await _natMigrateLegacyInventory(p, _domMemKey, _domMemFileName, 'h');
     natDomMem
       ..clear()
       ..addAll(loaded);
