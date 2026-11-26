@@ -2059,6 +2059,7 @@ Future<List<String>> _natDomainFirst(List<Server> known,
     {required int conc, bool Function()? stop}) async {
   final out = <String>[];
   if (!kNatIpScanOn || known.isEmpty) return out;
+  await natNationalDomMemLoad();
   bool cancelled() => stop?.call() ?? false;
   try {
     // Probe every distinct endpoint explicitly present in the supplied server
@@ -2069,6 +2070,12 @@ Future<List<String>> _natDomainFirst(List<Server> known,
       if (cancelled()) return const <String>[];
       final host = server.host.trim();
       final port = server.port;
+      if (host.isEmpty || port < 1 || port > 65535) continue;
+      (endpoints[host] ??= <int>{}).add(port);
+    }
+    for (final entry in natNationalDomMem) {
+      final host = (entry['h'] ?? '').toString().trim();
+      final port = (entry['port'] as num?)?.toInt() ?? 0;
       if (host.isEmpty || port < 1 || port > 65535) continue;
       (endpoints[host] ??= <int>{}).add(port);
     }
