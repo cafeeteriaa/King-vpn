@@ -14,6 +14,8 @@ def test_king_ai_research_storage_is_append_only_and_streamed():
     )[0]
 
     assert 'FileMode.append' in remember
+    assert 'FileLock.exclusive' in remember
+    assert 'file.path}.lock' in remember
     assert 'readAsLines' not in remember
     assert 'mergeKingAiResearchMemory' not in remember
     assert 'openRead()' in retrieve
