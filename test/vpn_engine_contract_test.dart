@@ -60,15 +60,16 @@ KingVpnEngineDescriptor descriptor(String id) => KingVpnEngineDescriptor(
 
 void main() {
   group('KingVpnEngineCatalog', () {
-    test('contains exactly the twelve approved KING VPN technologies', () {
+    test('contains twelve approved technologies plus conditional Psiphon', () {
       final catalog = KingVpnEngineCatalog();
       const approved = <String>{
         'xray', 'hysteria2', 'sing_box', 'nthlink', 'shroudly', 'byedpi',
         'powertunnel', 'amneziawg', 'openvpn', 'shadowsocks', 'openconnect',
-        'wireguard',
+        'wireguard', 'psiphon',
       };
       expect(catalog.all.map((engine) => engine.id).toSet(), approved);
-      expect(catalog.all, hasLength(12));
+      expect(catalog.all, hasLength(13));
+      expect(catalog['psiphon']!.integrationNote, contains('written authorization'));
     });
 
     test('allows registering additional discovered technologies', () {
