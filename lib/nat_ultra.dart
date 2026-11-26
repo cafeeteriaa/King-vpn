@@ -428,6 +428,7 @@ int natGrow(int n) {
   var added = 0;
   const fps = ['chrome', 'firefox', 'randomized', 'ios', 'android', 'safari', 'edge', 'random', 'qq', '360', 'hellogolang', 'hellochrome', 'hellofirefox', 'hellosafari', 'helloios', 'helloandroid', 'helloedge', 'hello360', 'helloqq', 'hellorandomized', 'hellorandomizedalpn', 'hellorandomizednoalpn'];
   const alpns = <String?>[null, 'h2', 'http/1.1', 'h2,http/1.1'];
+  final frontSnis = natFrontSnis();
   for (var i = 0; i < n; i++) {
     final fp = fps[rnd.nextInt(fps.length)];
     final alpn = alpns[rnd.nextInt(alpns.length)];
@@ -443,7 +444,7 @@ int natGrow(int n) {
     final v4 = rnd.nextBool();
     final tfo = rnd.nextBool();
     final keep = rnd.nextBool() ? rnd.nextInt(30) + 1 : null;
-    final sniSwap = rnd.nextBool() ? rnd.nextInt(natFrontSnis.length) : null;
+    final sniSwap = frontSnis.isNotEmpty ? (rnd.nextBool() ? rnd.nextInt(frontSnis.length) : null) : null;
     _natSpecs.add(_natMk(
       fp: fp, alpn: alpn, frag: frag, port: port, portIdx: portIdx,
       clean: clean, cleanIdx: cleanIdx, v4: v4, tfo: tfo, keep: keep, doh: doh,
@@ -1177,8 +1178,9 @@ Map? _natProxyOut(Map<String, dynamic> j) {
 // jitter, so the test and the real connection use identical byte counts.
 String _natApplySniSwap(String cfg, int sniIdx) {
   try {
-    if (sniIdx < 0 || sniIdx >= natFrontSnis.length) return cfg;
-    final sni = natFrontSnis[sniIdx];
+    final frontSnis = natFrontSnis();
+    if (sniIdx < 0 || sniIdx >= frontSnis.length) return cfg;
+    final sni = frontSnis[sniIdx];
     final j = jsonDecode(cfg);
     if (j is! Map<String, dynamic>) return cfg;
     final outs = (j['outbounds'] as List?) ?? <dynamic>[];
