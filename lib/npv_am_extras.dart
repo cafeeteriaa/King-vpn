@@ -792,7 +792,7 @@ Future<List<String>> _cleanCandidates() async {
     set.addAll(_cidrSample(c, 28, r).where(_cleanOk));
   }
   final l = set.toList()..shuffle(r);
-  return l.take(240).toList();
+  return l;
 }
 
 Future<String> _cfRead(Socket k, Duration t) async {
@@ -856,7 +856,6 @@ Future<void> _doRefreshClean() async {
     final res = <CleanIp>[];
     var done = 0;
     await pool<String>(c, 20, (ip) async {
-      if (res.length >= 20) return;
       final ms = await _cfProbeMs(ip, const Duration(milliseconds: 3500));
       done++;
       if (ms != null) res.add(CleanIp(ip, ms));
@@ -865,9 +864,9 @@ Future<void> _doRefreshClean() async {
         cleanTick.value++;
       }
       await Future.delayed(const Duration(milliseconds: 20));
-    }).timeout(const Duration(seconds: 40), onTimeout: () {});
+    });
     res.sort((a, b) => a.ms.compareTo(b.ms));
-    cleanIps = res.take(20).toList();
+    cleanIps = res.toList(growable: false);
     cleanIpsAt = DateTime.now();
     cleanIpStatus = '${cleanIps.length} IP سالم از ${c.length} تست';
     await _saveCleanIps();
