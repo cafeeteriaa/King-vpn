@@ -119,7 +119,22 @@ void main() {
         nextBatchSize: (previous, completed) => completed == 20 ? 30 : 25,
       );
       expect(seen, List<int>.generate(75, (i) => i));
-      expect(result, List<int>.generate(75, (i) => i * 2));
+      expect(result.map((item) => item.value).toList(), List<int>.generate(75, (i) => i * 2));
+    });
+
+    test('records a failed probe and continues through the inventory', () async {
+      final result = await KingAdaptiveBatchRunner.run<int, int>(
+        items: List<int>.generate(45, (i) => i),
+        initialBatchSize: 20,
+        probe: (item) async {
+          if (item == 7) throw StateError('probe failed');
+          return item;
+        },
+      );
+      expect(result, hasLength(45));
+      expect(result[7].succeeded, isFalse);
+      expect(result[7].error, isA<StateError>());
+      expect(result.where((item) => item.succeeded), hasLength(44));
     });
 
     test('rejects an invalid batch size', () async {
