@@ -17,7 +17,7 @@ class FakeAdapter implements KingConnectionAdapter {
   final bool startOk;
   bool trafficOk;
   final List<String>? events;
-  final Object? disconnectError;
+  Object? disconnectError;
   @override
   Future<KingEngineConnectResult> connect() async {
     events?.add('connect:$id');
@@ -146,6 +146,22 @@ void main() {
       ]).connect();
       expect(result.connected, isFalse);
       expect(result.engine, isNull);
+    });
+
+
+    test('recovery halts if active VPN owner cannot release TUN', () async {
+      final events = <String>[];
+      final xray = FakeAdapter(KingEngineId.xray, events: events);
+      final wireGuard = FakeAdapter(KingEngineId.wireGuard, events: events);
+      final coordinator = KingAutoSwitchCoordinator(adapters: [xray, wireGuard]);
+      expect((await coordinator.connect()).engine, KingEngineId.xray);
+      xray.trafficOk = false;
+      xray.disconnectError = StateError('release not confirmed');
+      final result = await coordinator.recoverFromTrafficFailure();
+      expect(result.connected, isFalse);
+      expect(result.engine, isNull);
+      expect(result.detail, contains('recovery halted'));
+      expect(events, ['connect:xray', 'disconnect:xray']);
     });
 
     test('recovers from failed active engine to next healthy engine', () async {
