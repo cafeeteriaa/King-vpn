@@ -11183,7 +11183,7 @@ ListTile( // KINGEXTRAS row
       protoSel
         ..clear()
         ..addAll((p.getStringList('protoSel') ?? const <String>[])
-            .where((v) => const ['vless', 'vmess', 'trojan', 'ss'].contains(v)));
+            .where((v) => const ['vless', 'vmess', 'trojan', 'ss', 'hysteria2', 'tuic'].contains(v)));
     } catch (e, st) { logError(e, st); }
   }
 
@@ -11466,7 +11466,7 @@ ListTile( // KINGEXTRAS row
           .replaceAll('وی مس', 'vmess')
           .replaceAll('وی‌لس', 'vless')
           .replaceAll('وی لس', 'vless');
-      const supportedProtocols = <String>['vless', 'vmess', 'trojan', 'ss'];
+      const supportedProtocols = <String>['vless', 'vmess', 'trojan', 'ss', 'hysteria2', 'tuic'];
       final selectedProtocols = supportedProtocols
           .where((p) => RegExp(r'\b' + p + r'\b').hasMatch(normalized))
           .toList();
