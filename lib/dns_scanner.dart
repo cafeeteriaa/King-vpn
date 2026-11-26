@@ -421,9 +421,7 @@ extension DnsxExt on _HomePageState {
                   .split(RegExp(r'[\s,]+'))
                   .map((s) => s.trim())
                   .where((s) =>
-                      s.isNotEmpty &&
-                      InternetAddress.tryParse(s)?.type ==
-                          InternetAddressType.IPv4)
+                      s.isNotEmpty && InternetAddress.tryParse(s) != null)
                   .toList();
               final saved = scanNationalMode ? await natNationalDnsList() : await goldDnsList();
               if (!mounted || !sheetOpen) return;
