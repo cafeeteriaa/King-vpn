@@ -2680,11 +2680,26 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn('if (x.mux) return false', nat)
         self.assertNotIn('if (x.noise) return false', nat)
         self.assertNotIn('cleanIdx = clean ? rnd.nextInt(10)', nat)
+        self.assertNotIn('maxTries: 6', main)
+        self.assertNotIn('maxTries: 3', main)
+        self.assertNotIn('.take(takeN)', main)
+        self.assertNotIn('winners.length >= 10', main)
+        self.assertNotIn('maxPerBlock: 128', main)
+        self.assertNotIn('blocks.length >= 200', main)
+        self.assertIn('final addresses = await _cleanCandidates();', main)
+        self.assertIn('goldCommitCleanCandidates()', main)
         self.assertNotIn('fragEnabled = false', main)
         self.assertIn('fragEnabled = true;', main)
         self.assertIn("'tag': 'frag-out'", extras)
         self.assertIn("sockopt['dialerProxy'] = 'frag-out';", extras)
         self.assertIn("'packets': 'tlshello'", extras)
+
+    def test_standalone_ip_expander_is_self_contained_and_supports_both_families(self):
+        scan = (ROOT / 'lib' / 'nat_ip_scan.dart').read_text(encoding='utf-8')
+        self.assertIn('_natExpandAddressRangeBatch(', scan)
+        self.assertIn('prefix < 0 || prefix > bits', scan)
+        self.assertIn('BigInt.one << hostBits', scan)
+        self.assertNotIn('natExpandAddressRangeBatch(', scan.replace('_natExpandAddressRangeBatch(', ''))
 
     def test_pilot_ip_ranges_are_resumable_without_the_old_256_total_cap(self):
         main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
