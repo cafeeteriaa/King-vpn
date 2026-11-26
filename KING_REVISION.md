@@ -84,3 +84,11 @@ Each numbered revision must be a substantial functional change and pass three se
 ## Numbering rule
 
 Increment the revision number by exactly one for each substantial edit set. Record the new number and its PR in this file. Do not change the revision number for routine CI reruns or review-only corrections within the same revision.
+ 
+### 62 — Evidence-weighted network diagnosis and safe auto-configuration
+- Replaced single-success boolean layer inference with multi-endpoint evidence counts across TCP, TLS/SNI, web, source mirrors and national-network probes.
+- Added explicit high/medium/low confidence and a human-readable evidence summary to each network verdict.
+- A single successful endpoint no longer proves that a network layer is broadly open; ambiguous samples are reported as inconclusive rather than “unfiltered”.
+- Low-confidence results cannot mutate saved Fragment, DNS, IP-mode or clean-IP settings. The user can still run diagnostics and inspect raw probe results.
+- Added source-guard coverage for probe groups, confidence handling, evidence reporting and the auto-configuration safety gate.
+- Verification: source committed; Python tests, Dart analysis, Flutter tests, Android build and real-device network checks have not yet been run for this revision.
