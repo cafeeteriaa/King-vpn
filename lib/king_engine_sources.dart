@@ -190,7 +190,11 @@ class KingServerPayloadParser {
       if (engineId == 'sing_box' && const {
         'direct', 'block', 'dns', 'selector', 'urltest', 'url_test',
       }.contains(type)) continue;
-      if (_supports(engineId, _engineForScheme(type))) supported.add(type);
+      if (!_supports(engineId, _engineForScheme(type))) continue;
+      if (engineId == 'sing_box' && !_hasUsableSingBoxEndpoint(type, outbound)) {
+        continue;
+      }
+      supported.add(type);
     }
     if (supported.isEmpty) return const [];
     final format = engineId == 'xray'
@@ -200,6 +204,18 @@ class KingServerPayloadParser {
       engineId: engineId, format: format, raw: payload, sourceId: sourceId,
       name: 'JSON profile (${supported.join(', ')})',
     )];
+  }
+
+  bool _hasUsableSingBoxEndpoint(String type, Map outbound) {
+    if (type == 'wireguard') {
+      final peers = outbound['peers'];
+      return peers is List && peers.isNotEmpty;
+    }
+    final server = outbound['server'];
+    final rawPort = outbound['server_port'];
+    final port = rawPort is int ? rawPort : int.tryParse('$rawPort');
+    return server is String && server.trim().isNotEmpty &&
+        port != null && port > 0 && port <= 65535;
   }
 
   String _decodeIfBase64(String input) {
