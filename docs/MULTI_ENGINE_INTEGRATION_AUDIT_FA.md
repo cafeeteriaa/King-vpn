@@ -26,7 +26,7 @@
 | OpenVPN | full-device | OpenVPN 3 یک C++ class library با API دارد | ساخت NDK/JNI، مدیریت credentials/certificates و TUN lifecycle؛ از ics-openvpn به‌عنوان کتابخانه استفاده نشود چون نگهدارنده صریحاً هدف library بودن را رد کرده و GPL دارد |
 | Shadowsocks | full-device با TUN adapter | هسته Shadowsocks و پیاده‌سازی Android | پروژه shadowsocks-android اعلام کرده core برای استفاده مجدد عمومی طراحی نشده؛ باید core مستقل قابل‌استفاده و مجوز آن انتخاب شود |
 | OpenConnect | full-device | libopenconnect و کلاینت Android متن‌باز | JNI/NDK، گواهی و MFA، و بازبینی نگهداری پروژه Android؛ نیازمند gateway سازگار |
-| WireGuard | full-device | کتابخانه رسمی tunnel در Maven Central و GoBackend | اضافه‌کردن dependency، service lifecycle، import و parse امن .conf و آزمون واقعی |
+| WireGuard | full-device | کتابخانه رسمی `com.wireguard.android:tunnel:1.0.20260102` و `GoBackend`؛ مجوز Apache-2.0 | مسیر embedding رسمی تأیید شده، اما GoBackend سرویس `GoBackend.VpnService` مستقل خود را با `startService` راه می‌اندازد؛ اتصال آن به KING نیازمند handoff سریالی، تأیید پایان سرویس و آزادشدن TUN، import/parse امن `.conf` و آزمون واقعی است؛ adapter هنوز فعال نیست |
 
 ## منابع فنی upstream
 
@@ -43,6 +43,8 @@
 - Shadowsocks Android: https://github.com/shadowsocks/shadowsocks-android
 - OpenConnect Android: https://github.com/cernekee/ics-openconnect
 - WireGuard Android/tunnel: https://git.zx2c4.com/wireguard-android/
+- WireGuard embedding documentation: https://www.wireguard.com/embedding/
+- WireGuard Tunnel Maven Central artifact: https://central.sonatype.com/artifact/com.wireguard.android/tunnel/1.0.20260102
 
 ## وضعیت پیاده‌سازی مخزن
 
@@ -51,7 +53,7 @@
 - `king_auto_switch.dart`: هماهنگ‌کننده Dart؛ اکنون فقط adapterهایی با نقش full-device را وارد چرخه سوئیچ می‌کند.
 - سوئیچ failover اکنون در صورت شکست teardown موتور قبلی متوقف می‌شود؛ تا وقتی آزادشدن TUN تأیید نشده موتور بعدی شروع نمی‌شود.
 - ابزارهای local DPI از چرخه VPN مستقل جدا شده‌اند.
-- فقط Xray در وضعیت integrated است. سایر گزینه‌ها هنوز adapter عملیاتی کامل ندارند.
+- فقط Xray در وضعیت integrated است. WireGuard اکنون از نظر مسیر رسمی embedding به `integrationPathVerified` ارتقا یافته، اما adapter اجرایی KING هنوز تکمیل نشده و نباید آماده اتصال نمایش داده شود. سایر گزینه‌ها هنوز adapter عملیاتی کامل ندارند.
 - اجرای CI و تست دستگاه برای هر موتور باید قبل از ارتقای وضعیت آن به integrated انجام شود.
 
 ## مراحل پذیرش هر موتور
