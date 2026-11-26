@@ -15140,7 +15140,7 @@ ListTile( // KINGEXTRAS row
             maxLines: 6,
             decoration: const InputDecoration(
                 hintText:
-                    'هر خط یک کانفیگ (vmess / vless / trojan / ss)\nمتن اضافه دور لینک مهم نیست'),
+                    'هر خط یک کانفیگ (vmess / vless / trojan / ss)\nمتن اضافه دور لینک مهم نیست • WireGuard: کل فایل [Interface] و [Peer] را یک‌جا وارد کن'),
           ),
           actions: [
             TextButton(
