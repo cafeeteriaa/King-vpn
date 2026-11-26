@@ -13,6 +13,7 @@ class KingHealDurableLearningTests(unittest.TestCase):
         self.assertIn("king_heal_learning.jsonl", memory)
         self.assertIn("FileMode.append", memory)
         self.assertIn("FileLock.exclusive", memory)
+        self.assertIn("_knownActions.contains(action)", memory)
         self.assertIn("file.openRead()", memory)
         self.assertIn("await for (final line in", memory)
         self.assertNotIn("readAsLines", memory)
