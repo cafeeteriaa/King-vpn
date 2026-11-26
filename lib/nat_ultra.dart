@@ -2169,7 +2169,8 @@ List<String> _getCfIps({
     if (ip == null || prefix == null) return (<String>[], 0);
     if (ip.type == InternetAddressType.IPv6) {
       if (prefix != 128) return (<String>[], 0);
-      return (<String>[ip.address], 0);
+      if (cursor >= 1) return (<String>[], 1);
+      return (<String>[ip.address], 1);
     }
     if (prefix < 8 || prefix > 32) return (<String>[], 0);
     final base = _ipToInt(ip.address) & (0xffffffff << (32 - prefix));
@@ -2191,7 +2192,10 @@ List<String> _getCfIps({
   } else {
     final ip = InternetAddress.tryParse(item.trim());
     if (ip == null) return (<String>[], 0);
-    if (ip.type == InternetAddressType.IPv6) return (<String>[ip.address], 0);
+    if (ip.type == InternetAddressType.IPv6) {
+      if (cursor >= 1) return (<String>[], 1);
+      return (<String>[ip.address], 1);
+    }
     startIp = ip.address;
     span = 1;
   }
