@@ -14615,7 +14615,7 @@ ListTile( // KINGEXTRAS row
     // REPORTFIX2: فقط وقتی واقعاً می‌تواند کاذب نباشد (پیش‌زمینه، بدون تعویض/تست/بازبینی، و جستجو متوقف‌شده نباشد)
     _insWarn('standby', connected && autoUpgrade && !bgDisabled && upAge > 360 &&
         inForeground && !busy && !switching && !upBusy && !rechecking &&
-        !standbyPaused && !_acquiring &&
+        !_acquiring &&
         now.difference(lastStandbyTry).inSeconds > 360 && !searching, 0,
         'جستجوی پس‌زمینه بیش از ۶ دقیقه اجرا نشده', every: 600);
   }
