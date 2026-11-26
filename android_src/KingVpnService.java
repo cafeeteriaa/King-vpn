@@ -35,6 +35,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -235,10 +236,34 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
         submit(this::stopEverything);
     }
 
-    /** Stop Xray for a handoff without treating the handoff as a user data reset. */
-    public void stopForEngineHandoff() {
+    /**
+     * Stop Xray for an engine handoff and wait until the native core and TUN
+     * have been verified stopped and the coordinator ownership is released.
+     * This method is called from a background thread, never the Android main thread.
+     */
+    public boolean stopForEngineHandoff(long timeoutMs) {
+        if (android.os.Looper.myLooper() == android.os.Looper.getMainLooper()) {
+            throw new IllegalStateException("Xray handoff must not block the Android main thread");
+        }
         requestStop(false);
-        submit(this::stopEverything);
+        CountDownLatch completed = new CountDownLatch(1);
+        submit(() -> {
+            try {
+                stopEverything();
+            } finally {
+                completed.countDown();
+            }
+        });
+        try {
+            if (!completed.await(Math.max(0L, timeoutMs), TimeUnit.MILLISECONDS)) {
+                Log.w(TAG, "Xray handoff timed out while waiting for verified native stop");
+                return false;
+            }
+        } catch (InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
+            return false;
+        }
+        return !"xray".equals(KingVpnEngineCoordinator.currentOwner());
     }
 
     private static class Srv {
