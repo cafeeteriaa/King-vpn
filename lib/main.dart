@@ -12181,6 +12181,15 @@ ListTile( // KINGEXTRAS row
           if (next >= idxs.length || cancelled()) return;
           final i = idxs[next++];
           final s = list[i];
+          if (s.wireGuard) {
+            if (i < rows.length) rows[i].ping = -3; // handshake/data-plane is measured by its own engine on connect
+            doneCount++;
+            if (doneCount % 128 == 0 || doneCount == list.length) {
+              _personalRows.value = List<_PRow>.of(rows);
+              _set('آزمون سرورهای شخصی: $doneCount/${list.length} • پینگ مستقیم و هسته‌ای');
+            }
+            continue;
+          }
           int? d;
           try {
             // V7: پینگ از داخل هسته (همان تست تأییدشده‌ی سرورهای عمومی) به‌جای TCP مستقیم.
@@ -12213,7 +12222,7 @@ ListTile( // KINGEXTRAS row
     _personalRows.value = List<_PRow>.of(rows);
     _set('پینگ سرورهای شخصی: $doneCount/${list.length} • سالم: ${ok.length}');
     if (cancelled()) return ok;
-    final failed = [for (var i = 0; i < list.length; i++) if (!ok.containsKey(list[i].link)) i];
+    final failed = [for (var i = 0; i < list.length; i++) if (!list[i].wireGuard && !ok.containsKey(list[i].link)) i];
     if (failed.isNotEmpty) {
       await Future<void>.delayed(const Duration(seconds: 2));
       doneCount = list.length - failed.length;
@@ -12257,12 +12266,14 @@ ListTile( // KINGEXTRAS row
     // PERSPING: پینگ واقعی تمام سرورهای پوشه؛ فقط سالم‌ها وارد ترتیب اتصال می‌شوند
     final okMap = await _personalPingAll(list, shouldCancel: shouldCancel);
     final okList = [for (final s in order) if (okMap.containsKey(s.link)) s];
-    // PERSLOWEST: فقط کمترین پینگ تعیین‌کننده است؛ آخرین سرور موفق فقط در برابر پینگ مساوی جلو می‌افتد
+    // PERSLOWEST: pingable engines are ranked by real core delay; WireGuard
+    // profiles remain in the list and are handshake-tested only when connected.
     okList.sort((a, b) {
       final c = okMap[a.link]!.compareTo(okMap[b.link]!);
       if (c != 0) return c;
       return (a.link == lg ? 0 : 1).compareTo(b.link == lg ? 0 : 1);
     });
+    okList.addAll(order.where((server) => server.wireGuard && !okMap.containsKey(server.link)));
     // V6: اگر پینگ همه‌ی سرورها شکست خورد (مسیر مستقیم DNS در نت ملی)، به‌جای خطا،
     // همان ترتیب پوشه امتحان می‌شود؛ هر سرور با اتصال واقعی و تست ترافیک بررسی می‌شود.
     _personalRanked = okList.isEmpty && order.isNotEmpty ? List<Server>.of(order) : okList;
@@ -12358,7 +12369,7 @@ ListTile( // KINGEXTRAS row
                                     height: 16,
                                     child: CircularProgressIndicator(
                                         strokeWidth: 2))
-                                : Text(p == -2 ? '—' : (p < 0 ? '✗' : '${p}ms')),
+                                : Text(p == -3 ? 'آزمون اتصال' : (p == -2 ? '—' : (p < 0 ? '✗' : '${p}ms'))),
                           );
                         },
                       ),
