@@ -26,6 +26,8 @@ Revision PR: https://github.com/cafeeteriaa/King-vpn/pull/58
 - TLS/SNI checks use certificate validation. DNS target domains are built dynamically from the complete static project inventory plus hostnames and SNI values from active/global/National Net profile templates; the SNI scanner consumes that live domain inventory in cancellable adaptive batches.
 - Fragmentation is no longer silently disabled by global, pilot, turbo or personal connection paths. One app-owned frag outbound is wired to every TLS/REALITY proxy outbound; stale references are removed when the user disables the setting.
 - Added tests for IPv4/IPv6 cursor batches, Cloudflare trace identity validation, multiple TLS outbounds and fragment cleanup.
+- Restored previously retired Fragment/Android fingerprint variants, removed the generated DPI matrix and learning/cursor map ceilings, and enabled fragmentation by default for fresh installs.
+- Removed the Gold daily probe quota, the eight-hour National Net loop stop and ASN prefetch count truncation. The independent Pilot scanner now accepts IPv4/IPv6 CIDRs and address ranges and resumes from persisted cursors instead of stopping after 256 addresses.
 
 ## Mandatory three-pass review protocol
 
@@ -43,8 +45,8 @@ Each numbered revision must be a substantial functional change and pass three se
 
 - No fixed total inventory ceiling is applied to stored resources or completed discoveries.
 - Per-call scan batches, adaptive concurrency and background pacing are retained to protect device/network stability; cursors continue across batches.
-- Extremely broad public-network ranges are not expanded: IPv4 prefixes broader than /8 and IPv6 prefixes broader than /32 are rejected. Explicit narrower CIDRs and address ranges are cursor-resumable.
-- The Gold active-probe daily budget remains 250,000 probes. It limits probe rate, not stored inventory; records are retained without pruning.
+- Explicit user-supplied IPv4/IPv6 CIDRs and address ranges are expanded through resumable cursor batches; the scanner does not materialize the entire address space in memory at once.
+- Batch size, worker concurrency and background pacing remain resource controls. They do not impose a total address, result, or daily-probe ceiling.
 
 ## Numbering rule
 
