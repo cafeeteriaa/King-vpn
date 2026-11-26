@@ -1,7 +1,7 @@
 # KING VPN Revision Ledger
 
-Current revision: 59
-Next revision: 60
+Current revision: 60
+Next revision: 61
 Repository: cafeeteriaa/King-vpn
 Revision branch: fix/revision-58-network-identity-fragmentation-20261126
 Revision PR: https://github.com/cafeeteriaa/King-vpn/pull/58
@@ -40,6 +40,14 @@ Revision PR: https://github.com/cafeeteriaa/King-vpn/pull/58
 - Added Dart tests for 750+ stored rows, duplicate URL refresh, malformed records and untrusted domains, plus Python source guards for append-only/streaming production paths.
 - Pull request: https://github.com/cafeeteriaa/King-vpn/pull/58
 - Verification: pending CI for this revision; no Dart/Android success is claimed until the workflow completes.
+
+### 60 — Persistent KING HEAL learning and verified-outcome feedback
+- Replaced process-only heal action counters with an append-only JSONL event journal in the app support directory. Historical outcomes survive app restarts and have no total-entry ceiling.
+- Journal replay is incremental; malformed/torn rows are skipped without discarding later valid records. Writes are serialized in-process and coordinated with an exclusive OS file lock.
+- The learning loop now records the verified repair result after the data-plane check, rather than trusting an action's early return value (which could say CONNECTED while tunneled traffic is still broken).
+- Removed the unused in-memory recent-event list so journal growth does not create a second unbounded RAM history.
+- Added Python source-guard tests for persistence, streaming replay, lock usage, restore-before-planning, and verified-outcome ordering.
+- Verification: CI pending for this commit; no Dart/Android success is claimed before the workflow completes.
 
 ## Mandatory three-pass review protocol
 
