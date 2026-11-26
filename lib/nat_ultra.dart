@@ -2341,11 +2341,8 @@ String _natBigIntToIPv6(BigInt value) {
   return (<String>[ip.address], '0');
 }
 
-// فیکس ۳: ساخت رشته‌های IP (صدها هزار تا چند میلیون) از ترد UI به isolate منتقل شد.
-// args: {cfIpsBatch:int, blocks:List<String>, nationalMode:bool,
-//        liveRanges:List<String>, cursors:Map<String,int>}
-// خروجی: {'addrs': List<String>, 'cursors': Map<String,int>} — cursor به‌روزشده باید
-// به ترد اصلی برگردد چون isolate نسخه‌ی کپی را تغییر می‌دهد (بدون آن اسکن هر دور از اول شروع می‌شد).
+// Generate one exact, resumable address batch in an isolate. Cursors are
+// string-backed so IPv6 BigInt offsets survive isolate transfer without overflow.
 Map<String, dynamic> _genAddrsIso(Map<String, dynamic> args) {
   final int cfIpsBatch = args['cfIpsBatch'] as int;
   final List<String> blocks = List<String>.from(args['blocks'] as List);
@@ -2356,16 +2353,16 @@ Map<String, dynamic> _genAddrsIso(Map<String, dynamic> args) {
       entry.key.toString(): entry.value.toString(),
   };
   final addrs = <String>[];
-  // NATMEM: هر بلوک حداکثر ۲۵۶ آدرس پراکنده و کل فهرست سقف دارد. قبلاً هر بلوک تا ۶۵۵۳۶ آدرس
-  // و فهرست ISP حدود ۲۸۰۰ بلوک داشت، یعنی ده‌ها میلیون رشته در isolate و فقط ۶۰۰۰ تای آن استفاده می‌شد.
+  // addressBatchSize is a per-call work batch, not an inventory ceiling.
+  // The caller probes every emitted address before committing these cursors.
   final requestedBatch = args['addressBatchSize'] as int?;
   final cap = requestedBatch == null
       ? max(cfIpsBatch * 4, 20000)
       : max(0, requestedBatch);
   void addBlocks() {
     if (blocks.isEmpty) return;
-    // Rotate across the entire CIDR/range catalog; otherwise a capped list
-    // repeatedly expands only its first ~N blocks and starves the rest.
+    // Rotate across the entire CIDR/range catalog so every configured
+    // block advances over successive completed batches.
     final start = (int.tryParse(cursors['__block_cursor'] ?? '0') ?? 0) % blocks.length;
     var processed = 0;
     for (var offset = 0; offset < blocks.length; offset++) {
