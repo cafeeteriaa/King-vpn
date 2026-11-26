@@ -15,6 +15,8 @@ class LibboxDependencyGuard(unittest.TestCase):
         self.assertIn('AGP_VERSION = "9.3.1"', patch)
         self.assertIn('KOTLIN_VERSION = "2.4.20"', patch)
         self.assertIn("minSdk = 24", patch)
+        self.assertIn('LIBBOX_ARTIFACT_VERSION = "1.14.4-lx.25"', patch)
+        self.assertIn('LIBBOX_ARTIFACT_SHA256 = "8f25b6600b2f1f1104636c9cb92941c756a6322e1f2ce0e5e97b9a6bc41d3bba"', patch)
 
 
     def test_dependency_inserter_handles_dev_dependencies_and_is_idempotent(self):
@@ -105,13 +107,33 @@ class LibboxDependencyGuard(unittest.TestCase):
         )
         self.assertEqual(upgraded.count("val libboxGoCompileJar ="), 1)
 
+    def test_latest_libbox_release_pin_rewrites_all_artifact_properties(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location(
+            "patch_sing_box_gradle", ROOT / "tools" / "patch_sing_box_gradle.py"
+        )
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        original = (
+            "version=1.14.4\n"
+            "sha256=d5511581e6275f10683f57bc8e7263badfa48c720d5d04acc741549fe6a66bae\n"
+            "baseUrl=https://github.com/QUSAD-prod/sing_box/releases/download/libbox-v{version}\n"
+        )
+        pinned = module.pin_latest_libbox_artifact(original)
+        self.assertIn("version=1.14.4-lx.25", pinned)
+        self.assertIn("sha256=8f25b6600b2f1f1104636c9cb92941c756a6322e1f2ce0e5e97b9a6bc41d3bba", pinned)
+        self.assertEqual(pinned.count("version="), 1)
+        self.assertEqual(pinned.count("sha256="), 1)
+        self.assertEqual(pinned.count("baseUrl="), 1)
+
     def test_third_party_license_and_build_provenance_exist(self):
         folder = ROOT / "licenses" / "sing_box"
         for name in ("LICENSE", "THIRD_PARTY_NOTICES.md", "SING_BOX_CORE_LICENSE", "BUILD_PROVENANCE.md"):
             self.assertTrue((folder / name).is_file())
         provenance = (folder / "BUILD_PROVENANCE.md").read_text()
         self.assertIn("1.14.4", provenance)
-        self.assertIn("d5511581e6275f10683f57bc8e7263badfa48c720d5d04acc741549fe6a66bae", provenance)
+        self.assertIn("1.14.4-lx.25", provenance)
+        self.assertIn("8f25b6600b2f1f1104636c9cb92941c756a6322e1f2ce0e5e97b9a6bc41d3bba", provenance)
 
 if __name__ == "__main__":
     unittest.main()
