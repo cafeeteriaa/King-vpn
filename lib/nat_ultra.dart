@@ -1677,9 +1677,7 @@ const String _domMemFileName = 'king_vpn_domain_inventory.jsonl';
 final List<Map<String, dynamic>> natIpMem = [];
 final Set<String> natIpDeadRun = {};
 List<String> natRanges = [];
-int natRangeCursor = 0; // generic range cursor
 int natRangeTemplateCursor = 0; // round-robin through every compatible profile template
-int _natConfiguredRangeCursor = 0; // isolated National Net user-range cursor
 DateTime natRangeLast = DateTime.fromMillisecondsSinceEpoch(0);
 
 Future<void> _natInventoryWriteQueue = Future<void>.value();
@@ -1768,8 +1766,6 @@ Future<void> natIpMemLoad() async {
         .split(RegExp(r'[\r\n,; ]+'))
         .where((x) => x.contains('/') || x.contains('-'))
         .toList();
-    _natConfiguredRangeCursor =
-        (p.getInt('natConfiguredRangeCursor') ?? 0).clamp(0, 1 << 31).toInt();
   } catch (e, stk) {
     logError(e, stk);
   }
@@ -1831,41 +1827,14 @@ Future<void> natIpMemSave(String ip, int port) async {
 
 const int natDelaySecs = 14;
 
-/// Next bounded sample from the National Net engine's own user-configured
-/// ranges. This cursor and range inventory are not shared with generic scanners.
-({List<String> addresses, int nextCursor}) _natConfiguredRangeBatch(int limit) {
-  if (limit <= 0 || natRanges.isEmpty) {
-    return (addresses: const <String>[], nextCursor: _natConfiguredRangeCursor);
-  }
-  final candidates = <String>{};
-  for (final range in natRanges.take(128)) {
-    final remaining = limit * 4 - candidates.length;
-    if (remaining <= 0) break;
-    candidates.addAll(natExpandAny(range, maxPerBlock: remaining));
-  }
-  if (candidates.isEmpty) {
-    return (addresses: const <String>[], nextCursor: _natConfiguredRangeCursor);
-  }
-  final values = candidates.toList(growable: false);
-  final start = _natConfiguredRangeCursor % values.length;
-  final count = min(limit, values.length).toInt();
-  final out = <String>[
-    for (var i = 0; i < count; i++) values[(start + i) % values.length],
-  ];
-  // The caller commits this cursor only after the corresponding scan completes.
-  return (addresses: out, nextCursor: (start + count) % values.length);
-}
-
 Future<void> natRangesSave(String text) async {
   natRanges = text
       .split(RegExp(r'[\r\n,; ]+'))
       .where((x) => x.contains('/') || x.contains('-'))
       .toList();
-  _natConfiguredRangeCursor = 0;
   try {
     final p = await SharedPreferences.getInstance();
     await p.setString(_rangeKey, natRanges.join('\n'));
-    await p.setInt('natConfiguredRangeCursor', 0);
   } catch (e, stk) {
     logError(e, stk);
   }
@@ -2131,7 +2100,8 @@ List<Server> natTemplateSeeds = [];
 // V7: IP scanning is required by v7 (Layer 1 filter = IP/Port). Set to true.
 bool kNatIpScanOn = true;
 
-final Map<String, int> _cfRangeCursors = {};
+final Map<String, int> _cfRangeCursors = {}; // generic/global scan cursor inventory
+final Map<String, int> _natNationalRangeCursors = {}; // isolated National Net cursor inventory
 List<String> _getCfIps({
   int batchSize = 160000,
   // فیکس ۳: داخل isolate مقدار سراسری‌ها (بازه‌های زنده و cursorها) وجود ندارد؛ از
