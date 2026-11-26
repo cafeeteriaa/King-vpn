@@ -15818,7 +15818,7 @@ ListTile( // KINGEXTRAS row
         rows.add(_personalHeader());
         rows.add(rowHeader(
             'f:pfolder',
-            '🗂 سرورهای شخصی • ${personalFolderCache.isEmpty ? 'خالی — سرور اضافه کن یا با ساخت خودکار کلودفلر بساز' : '${personalFolderCache.length} سرور • بزن تا ۱۰۰ تا پینگ و به بهترینش وصل شود'}'));
+            '🗂 سرورهای شخصی • ${personalFolderCache.isEmpty ? 'خالی — سرور اضافه کن یا با ساخت خودکار کلودفلر بساز' : '${personalFolderCache.length} سرور • بزن تا همه پینگ شوند و بهترین سرور انتخاب شود'}'));
         rows.add(tgProxyRow(context));
       } else if (g == 'f:mine') {
         rows.add(rowHeader(
