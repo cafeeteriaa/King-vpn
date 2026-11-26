@@ -3730,6 +3730,9 @@ class Server {
           link = alt;
         }
       }
+      if (link.toLowerCase().startsWith('hy2://')) {
+        link = 'hysteria2://${link.substring(6)}';
+      }
       final l = link.toLowerCase();
       if (!(l.startsWith('vmess://') ||
           l.startsWith('vless://') ||
