@@ -2833,21 +2833,17 @@ class KingVpnSourceGuardTests(unittest.TestCase):
     def test_manual_range_scan_honors_cancel_during_national_yield(self):
         source = (ROOT / 'lib' / 'npv_am_extras.dart').read_text(encoding='utf-8')
         start = source.index('Future<void> manualRangeScan(')
-        end = source.index('\n}', start)
+        end = source.index('Future<void> goldMergeIps(', start)
         body = source[start:end]
-        wait = body.index('await natManualYield(shouldAbort: () => cancelled || !open);')
-        before_scan = body.index('if (!cancelled) {', wait)
-        scan = body.index('result = await natScanIps(', before_scan)
-        after_scan = body.index('if (!cancelled && open && nationalMode == scanNationalMode)', scan)
-        national_persist = body.index('await natNationalIpMemSave(', after_scan)
-        global_persist = body.index('await goldMergeIps(', after_scan)
-        self.assertLess(wait, before_scan)
-        self.assertLess(before_scan, scan)
-        self.assertLess(scan, after_scan)
-        self.assertLess(after_scan, national_persist)
-        self.assertLess(after_scan, global_persist)
-        self.assertIn('cancelled: () => cancelled || !open,', body)
-
+        wait = body.index('await natManualYield(shouldAbort: () => cancelled || !open || nationalMode != scanNationalMode);')
+        loop = body.index('while (!cancelled && open && nationalMode == scanNationalMode)', wait)
+        scan = body.index('final batchHits = await natScanIps(', loop)
+        stop = body.index('cancelled: () => cancelled || !open || nationalMode != scanNationalMode,', scan)
+        persist = body.index('if (newHits.isNotEmpty && nationalMode == scanNationalMode)', scan)
+        self.assertLess(wait, loop)
+        self.assertLess(loop, scan)
+        self.assertLess(scan, stop)
+        self.assertLess(stop, persist)
 
     def test_manual_range_scan_close_cancels_scan_and_blocks_late_persistence(self):
         source = (ROOT / 'lib' / 'npv_am_extras.dart').read_text(encoding='utf-8')
