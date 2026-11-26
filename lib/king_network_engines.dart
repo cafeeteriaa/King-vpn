@@ -128,7 +128,7 @@ class KingNetworkEngineCatalog {
       state: KingIntegrationState.sourceAndLicenseReviewRequired,
       priority: 50,
       summary: 'شبکه پوششی با پراکسی‌های محلی؛ برای تونل‌کردن کل دستگاه به پل TUN جداگانه نیاز دارد.',
-      sourceUrl: 'https://github.com/i2p/i2p.i2p',
+      sourceUrl: 'https://github.com/i2p/i2p.android.base',
       requiresSeparateVpnOwner: true,
     ),
     KingEngineDescriptor(
@@ -184,7 +184,7 @@ class KingNetworkEngineCatalog {
       state: KingIntegrationState.sourceAndLicenseReviewRequired,
       priority: 110,
       summary: 'لایه محلی دورزدن DPI؛ به‌تنهایی ارائه‌دهنده VPN یا شبکه سرور راه‌دور نیست.',
-      sourceUrl: 'https://github.com/',
+      sourceUrl: 'https://github.com/romanvht/byebyedpi',
     ),
     KingEngineDescriptor(
       id: 'powertunnel',
@@ -193,7 +193,8 @@ class KingNetworkEngineCatalog {
       state: KingIntegrationState.sourceAndLicenseReviewRequired,
       priority: 120,
       summary: 'پراکسی/لایه ضد DPI؛ می‌تواند در کنار موتور تونل بررسی شود، نه به‌عنوان سرویس VPN مستقل.',
-      sourceUrl: 'https://github.com/krlvm/PowerTunnel',
+      sourceUrl: 'https://github.com/krlvm/PowerTunnel-Android',
+      license: 'GPL-3.0-only; upstream repository states Google Play redistribution requires permission',
     ),
   ];
 }
