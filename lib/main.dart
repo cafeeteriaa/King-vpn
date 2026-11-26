@@ -12065,7 +12065,7 @@ ListTile( // KINGEXTRAS row
 
   Future<void>? _personalPrep;
   /// PERSLIVE: ردیف‌های لیست شخصی؛ در مسیر فعلی ping=-2 یعنی عمداً بدون تست مستقیم
-  /// PERSPAGE: تا ۵۰ سرور پوشه‌ی شخصی که روی صفحه‌ی اصلی (ردیف «سرور شخصی») با پینگ نشان داده می‌شوند
+  /// PERSPAGE: سرورهای پوشه‌ی شخصی که روی صفحه‌ی اصلی (ردیف «سرور شخصی») با پینگ نشان داده می‌شوند
   List<Server> _personalShown = <Server>[];
   final ValueNotifier<List<_PRow>> _personalRows = ValueNotifier<List<_PRow>>(<_PRow>[]);
   int _personalTotalInFolder = 0;
@@ -12121,12 +12121,12 @@ ListTile( // KINGEXTRAS row
         }
       }
       // مشکل ۷: تعداد کارگرها با سقف گیت هماهنگ است
-      final nW = min(8, max(1, _delayGate.max));
+      final nW = max(1, _delayGate.max);
       await Future.wait([for (var k = 0; k < nW; k++) worker()]);
     }
     await pass([for (var i = 0; i < list.length; i++) i]);
     final failed = [for (var i = 0; i < list.length; i++) if (!ok.containsKey(list[i].link)) i];
-    if (failed.isNotEmpty && failed.length < list.length) {
+    if (failed.isNotEmpty) {
       await Future<void>.delayed(const Duration(seconds: 2));
       doneCount = list.length - failed.length;
       await pass(failed);
@@ -12136,7 +12136,7 @@ ListTile( // KINGEXTRAS row
   }
 
   /// PERSNOPING (قدیمی): تست پینگ سرورهای شخصی قبلاً حذف شده بود.
-  /// فقط لیست پوشه (تا ۵۰ تای اول) روی صفحه می‌آید و ترتیب اتصال همان ترتیب پوشه است
+  /// تمام ورودی‌های پوشه در فهرست شخصی قرار می‌گیرند و ترتیب اتصال همان ترتیب پوشه است
   /// (آخرین سرور سالم اول). هر سرور با تست واقعی هسته امتحان می‌شود؛ اگر خراب بود، بعدی.
   Future<void> _personalPrepWork() async {
     if (busy || searching || _natKeepOn || _natRangeScanBusy) {
@@ -12149,7 +12149,7 @@ ListTile( // KINGEXTRAS row
     final folderCount = personalFolderCache.length;
     final seen = <String>{};
     final list = <Server>[
-      for (final s in personalFolderServers(max: kPersonalShowCap))
+      for (final s in personalFolderServers())
         if (seen.add(s.link)) s,
     ];
     _personalTotalInFolder = folderCount;
@@ -12161,7 +12161,7 @@ ListTile( // KINGEXTRAS row
       final i = order.indexWhere((x) => x.link == lg);
       if (i > 0) order.insert(0, order.removeAt(i));
     }
-    // PERSPING: پینگ واقعی همین ۱۰۰ سرور؛ فقط سالم‌ها وارد ترتیب اتصال می‌شوند
+    // PERSPING: پینگ واقعی تمام سرورهای پوشه؛ فقط سالم‌ها وارد ترتیب اتصال می‌شوند
     final okMap = await _personalPingAll(list);
     final okList = [for (final s in order) if (okMap.containsKey(s.link)) s];
     // PERSLOWEST: فقط کمترین پینگ تعیین‌کننده است؛ آخرین سرور موفق فقط در برابر پینگ مساوی جلو می‌افتد
@@ -12657,7 +12657,7 @@ ListTile( // KINGEXTRAS row
                 ? await _connectLoop(_mineList())
                 // پوشه‌ی «سرورهای شخصی»: حداکثر ۵۰ سرور، با ترتیب پوشه و آخرین سرور موفق در اولویت
                 : (row == 'f:pfolder')
-                    ? await _connectLoop(personalFolderServers(max: kPersonalShowCap))
+                    ? await _connectLoop(personalFolderServers())
                 // DSGETTER: از مقدار مؤثر
                 : await _acquire(strictRow: row != null, speed: effAutoSpeed);
         // AUTONET: the tapped mode found nothing -> the app picks the best
