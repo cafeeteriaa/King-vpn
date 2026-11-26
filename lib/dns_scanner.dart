@@ -36,9 +36,9 @@ const List<String> kDnsxNationalProbeDomains = <String>[
   'www.digikala.com',
 ];
 
-/// دامنه‌های اسکن خودکار پس‌زمینه (کوچک، تا نت ملی بی‌جهت بار نشود)
-List<String> dnsxAutoDomains() =>
-    nationalMode ? kDnsxNationalProbeDomains : const ['google.com'];
+/// Complete project domain inventory for automatic and manual DNS checks.
+/// The scanner batches requests and supports cancellation instead of dropping domains.
+List<String> dnsxAutoDomains() => dnsxFullDomains();
 
 /// تبدیل فهرست‌های پروژه (مثل `domain:divar.ir`) به نام میزبان ساده
 List<String> _dnsxHostsFrom(Iterable<String> src) {
@@ -313,7 +313,7 @@ Future<void> dnsxAutoPick({bool Function()? stop}) async {
     if (now - last < gapMs) return;
     final savedDns = await goldDnsList();
     if (nationalMode != scanNationalMode) return;
-    final list = {...savedDns.take(40), ...(scanNationalMode ? kDnsxNationalDefaults : kDnsxDefaults)}.toList();
+    final list = {...savedDns, ...(scanNationalMode ? kDnsxNationalDefaults : kDnsxDefaults)}.toList();
     // کامل: همه‌ی دامنه‌های پروژه، با فاصله‌ی ۱۵۰ میلی‌ثانیه بین بسته‌ها
     final r = await dnsxScan(
       list,
@@ -331,7 +331,7 @@ Future<void> dnsxAutoPick({bool Function()? stop}) async {
       final saved = await goldAddDns(r, shouldAbort: shouldAbort);
       if (!saved || shouldAbort()) return;
     }
-    final best = [for (final e in r.take(4)) e.ip];
+    final best = [for (final e in r) e.ip];
     await p.setStringList('dnsx_best_v1_$sfx', best);
     if (shouldAbort()) return;
     await p.setInt('dnsx_at_v1_$sfx', now);
