@@ -45,7 +45,7 @@ class FreshResourceStore {
   /// Accept supported importable V2Ray URI schemes without an arbitrary
   /// per-link size ceiling. Unsupported schemes remain rejected.
   static String? normalizeLink(String value) {
-    final link = value.trim().replaceAll('\\r', '');
+    final link = value.trim().replaceAll('\r', '');
     if (link.isEmpty) return null;
     final lower = link.toLowerCase();
     if (!(lower.startsWith('vless://') ||
@@ -105,7 +105,7 @@ class FreshResourceStore {
     final file = await _configFile();
     await _writeAtomically(
       file,
-      normalized.join('\\n') + (normalized.isEmpty ? '' : '\\n'),
+      normalized.join('\n') + (normalized.isEmpty ? '' : '\n'),
     );
 
     final metadata = File('${(await directory()).path}/$_metadataFileName');
