@@ -1830,56 +1830,6 @@ Future<void> natIpMemSave(String ip, int port) async {
 }
 
 const int natDelaySecs = 14;
-final List<Map<String, dynamic>> natDomMem = [];
-
-Set<String> natDomMemHosts() => {for (final e in natDomMem) '${e['h']}:${e['port']}'};
-
-Future<void> natDomMemLoad() async {
-  try {
-    final p = await SharedPreferences.getInstance();
-    final s = p.getString(_domMemKey);
-    if (s != null) {
-      natDomMem
-        ..clear()
-        ..addAll((jsonDecode(s) as List).cast<Map<String, dynamic>>());
-      final cutoff = DateTime.now()
-          .subtract(const Duration(days: 14))
-          .millisecondsSinceEpoch;
-      natDomMem.removeWhere((e) => ((e['t'] as num?)?.toInt() ?? 0) < cutoff);
-    }
-  } catch (e, stk) {
-    logError(e, stk);
-  }
-}
-
-Future<void> natDomMemSave(String host, int port) async {
-  natDomMem.removeWhere((e) => e['h'] == host && e['port'] == port);
-  natDomMem.insert(0, {'h': host, 'port': port, 't': DateTime.now().millisecondsSinceEpoch});
-  if (natDomMem.length > _domMemMax) {
-    natDomMem.removeRange(_domMemMax, natDomMem.length);
-  }
-  try {
-    final p = await SharedPreferences.getInstance();
-    await p.setString(_domMemKey, jsonEncode(natDomMem));
-  } catch (e, stk) {
-    logError(e, stk);
-  }
-}
-
-Future<void> natIpMemSave(String ip, int port) async {
-  natIpMem.removeWhere((e) => e['ip'] == ip && e['port'] == port);
-  natIpMem.insert(0, {'ip': ip, 'port': port, 't': DateTime.now().millisecondsSinceEpoch});
-  if (natIpMem.length > _ipMemMax) {
-    natIpMem.removeRange(_ipMemMax, natIpMem.length);
-  }
-  try {
-    final p = await SharedPreferences.getInstance();
-    await p.setString(_ipMemKey, jsonEncode(natIpMem));
-  } catch (e, stk) {
-    logError(e, stk);
-  }
-}
-
 
 /// Next bounded sample from the National Net engine's own user-configured
 /// ranges. This cursor and range inventory are not shared with generic scanners.
