@@ -899,6 +899,7 @@ Future<void> _doRefreshClean() async {
       }
       await Future.delayed(const Duration(milliseconds: 20));
     });
+    await goldCommitCleanCandidates();
     res.sort((a, b) => a.ms.compareTo(b.ms));
     cleanIps = res.toList(growable: false);
     cleanIpsAt = DateTime.now();
@@ -906,6 +907,7 @@ Future<void> _doRefreshClean() async {
     await _saveCleanIps();
     await goldMergeIps(res);
   } catch (e, stk) {
+    goldDiscardCleanCandidates();
     logError(e, stk);
     cleanIpStatus = 'خطا در دریافت IP';
   }
