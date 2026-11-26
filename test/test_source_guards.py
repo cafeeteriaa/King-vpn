@@ -2532,7 +2532,8 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('final slice = (generated[\'addrs\'] as List).cast<String>();', nat)
         self.assertIn('BigInt _natIPv6ToBigInt', nat)
         self.assertIn('_natExpandIPv6Span', nat)
-        self.assertIn('prefix < 32 || prefix > 128', nat)
+        self.assertIn('prefix < 0 || prefix > 128', nat)
+        self.assertIn('prefix < 0 || prefix > 32', nat)
         self.assertIn('Map<String, String> _natNationalRangeCursors', nat)
 
     def test_hot_source_inventory_is_disk_streamed_without_entry_ceilings(self):
