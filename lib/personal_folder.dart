@@ -100,9 +100,11 @@ Future<void> _replayPersonalJournal(File file) async {
 }
 
 /// پوشه و آخرین سرور سالم را از ژورنال دیسکی می‌خواند و SharedPreferences قدیمی را مهاجرت می‌دهد.
-Future<void> loadPersonalFolder() {
-  if (_personalFolderLoaded) return Future<void>.value();
-  return _personalFolderLoadTask ??= _serializePersonalMutation(() async {
+Future<void> loadPersonalFolder() async {
+  if (_personalFolderLoaded) return;
+  final active = _personalFolderLoadTask;
+  if (active != null) return active;
+  final task = _serializePersonalMutation(() async {
     try {
       personalFolderCache = <String>[];
       _personalFolderIndex.clear();
@@ -113,10 +115,11 @@ Future<void> loadPersonalFolder() {
       final p = await SharedPreferences.getInstance();
       final legacy = p.getStringList(_kPersonalFolderPref) ?? const <String>[];
       final migrate = <String>[];
+      final migrateSeen = <String>{};
       for (final raw in legacy) {
         final value = raw.trim();
         if (value.isNotEmpty && !_personalFolderIndex.contains(value) &&
-            !migrate.contains(value)) {
+            migrateSeen.add(value)) {
           migrate.add(value);
         }
       }
@@ -134,11 +137,17 @@ Future<void> loadPersonalFolder() {
       _personalFolderLoaded = true;
     } catch (e, stk) {
       errJournalAdd(e, st: stk, kind: 'PERSONAL-FOLDER');
-      // Keep retry possible if storage could not be read.
       _personalFolderLoaded = false;
       rethrow;
     }
   });
+  _personalFolderLoadTask = task;
+  try {
+    await task;
+  } catch (_) {
+    _personalFolderLoadTask = null;
+    rethrow;
+  }
 }
 
 /// ثبت می‌کند کدام سرور وصل شد.
