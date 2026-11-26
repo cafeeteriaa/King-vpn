@@ -2805,18 +2805,16 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertLess(persist_guard, persist)
         self.assertLess(persist, abort)
 
-    def test_gold_merge_ips_checks_abort_after_preferences_before_cache_mutation(self):
+    def test_gold_merge_ips_checks_abort_before_atomic_file_mutation(self):
         source = (ROOT / 'lib' / 'npv_am_extras.dart').read_text(encoding='utf-8')
         start = source.index('Future<void> goldMergeIps(')
         end = source.index('\nFuture<Map<String, int?>> _goldProbe', start)
         body = source[start:end]
         load = body.index('await goldLoad();')
-        prefs = body.index('await SharedPreferences.getInstance();')
-        abort = body.index('if (shouldAbort?.call() ?? false) return;', prefs)
+        abort = body.index('if (shouldAbort?.call() ?? false) return;', load)
         mutation = body.index('_goldIps[c.ip] =')
-        write = body.index('await _goldWrite(p);')
-        self.assertLess(load, prefs)
-        self.assertLess(prefs, abort)
+        write = body.index('await _goldWrite();')
+        self.assertLess(load, abort)
         self.assertLess(abort, mutation)
         self.assertLess(mutation, write)
 
