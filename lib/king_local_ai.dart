@@ -1655,7 +1655,7 @@ was tested unless supplied evidence proves it. Keep the answer concise and usefu
       // Advisory OS lock coordinates the foreground isolate with WorkManager;
       // the Future queue alone is isolate-local.
       lockFile = await File('${file.path}.lock').open(mode: FileMode.append);
-      await lockFile.lock(FileLock.exclusive);
+      await lockFile!.lock(FileLock.exclusive);
       locked = true;
       final payload = valid.map(jsonEncode).join('\\n') + '\\n';
       await file.writeAsString(payload, mode: FileMode.append, flush: true);
