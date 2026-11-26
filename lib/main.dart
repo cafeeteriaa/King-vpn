@@ -6483,10 +6483,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       final p = await SharedPreferences.getInstance();
       await p.setStringList(
           'list_cache',
-          (fetchedAll.toList()..shuffle())
-              .take(3000)
-              .map((s) => '${s.src ?? ''}\t${s.link}')
-              .toList());
+          fetchedAll.map((s) => '${s.src ?? ''}\t${s.link}').toList());
       await p.setInt('list_time', DateTime.now().millisecondsSinceEpoch);
     } catch (e, stk) {
       logError(e, stk);
@@ -10474,9 +10471,6 @@ ListTile( // KINGEXTRAS row
     if (add.isEmpty) return;
     // فیکس ۱۶: درج درجا و حذف انتهای لیست (بدون ساخت دو لیست تازه)
     pending.insertAll(0, add);
-    if (pending.length > 1200) {
-      pending.removeRange(1200, pending.length); // بدون allocation
-    }
     _set('نت ملی: ${add.length} کانفیگ از پوشه‌ها به صف اضافه شد');
   }
 
