@@ -11439,8 +11439,8 @@ ListTile( // KINGEXTRAS row
           conc: natAdaptiveWorkers(),
           stop: () => abort || nationalMode != runNationalMode,
           );
+      if (nationalMode == runNationalMode) await _natRangeAdd(ips);
       if (abort || nationalMode != runNationalMode) return;
-      await _natRangeAdd(ips);
     } catch (e, stk) {
       logError(e, stk);
     }
@@ -11498,8 +11498,8 @@ ListTile( // KINGEXTRAS row
             [...pending, ...natRestPending],
             conc: natAdaptiveWorkers(),
             stop: () => abort || modeChanged());
+        if (nationalMode == runNationalMode) await _natRangeAdd(domHits);
         if (abort || modeChanged()) return;
-        await _natRangeAdd(domHits);
       }
       final hasTpl = pending.isNotEmpty || natRestPending.isNotEmpty ||
           natNationalTemplateSeeds.isNotEmpty || good.isNotEmpty;
