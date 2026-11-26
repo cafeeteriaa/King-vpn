@@ -2172,8 +2172,8 @@ static void _resetCoreDeadStreak() { _atCoreDeadStreak = 0; }
     }
 
     _set('آماده‌سازی مستقل پوشهٔ سرورهای شخصی…');
-    _personalPrewarm();
-    await personalFolderConnect();
+    _personalPrewarm(shouldCancel: () => _abortRequested);
+    await personalFolderConnect(shouldCancel: () => _abortRequested);
 
     if (_abortRequested) {
       _itemResult[name] = '⏹ آزمون سرور شخصی با درخواست توقف متوقف شد';
