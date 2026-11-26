@@ -2559,6 +2559,9 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn('dnsL.take(200)', gold)
         self.assertNotIn('want: 1000', gold)
         self.assertNotIn('budget: Duration(minutes: userAddrs.length', gold)
+        self.assertNotIn('kGoldDailyProbes', gold)
+        self.assertNotIn('_goldBudgetLeft', gold)
+        self.assertNotIn('.take(left < 240 ? left : 240)', gold)
         self.assertNotIn('timeout(const Duration(minutes: 2)', gold)
         self.assertIn('v.testAt = nowMs;', gold)
         self.assertIn('await _goldWrite();', gold)
@@ -2622,6 +2625,34 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('natNationalIpMemLoad()', picker)
         self.assertNotIn('goldIpList()', picker)
         self.assertNotIn('cleanIps', picker[:picker.index('if (!_cleanLoaded')])
+
+    def test_dpi_matrix_and_fragmentation_have_no_hidden_variant_ceiling(self):
+        nat = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
+        main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        extras = (ROOT / 'lib' / 'npv_am_extras.dart').read_text(encoding='utf-8')
+        self.assertNotIn('_natSpecs.length > 500000', nat)
+        self.assertNotIn('_natCursor.length > 4000', nat)
+        self.assertNotIn('natDimWins.length > 6000', nat)
+        self.assertNotIn('natVar.length > 4000', nat)
+        self.assertNotIn('natRetired(v)', nat)
+        self.assertNotIn('natVariantCooling(v)', nat)
+        self.assertNotIn('fragEnabled = false', main)
+        self.assertIn('fragEnabled = true;', main)
+        self.assertIn("'tag': 'frag-out'", extras)
+        self.assertIn("sockopt['dialerProxy'] = 'frag-out';", extras)
+        self.assertIn("'packets': 'tlshello'", extras)
+
+    def test_pilot_ip_ranges_are_resumable_without_the_old_256_total_cap(self):
+        main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        start = main.index('Future<void> _pilotScanOnly()')
+        end = main.index('String? _smartCountryCode(String command)', start)
+        scan = main[start:end]
+        self.assertIn('natExpandAddressRangeBatch(', scan)
+        self.assertIn("'king_pilot_ip_cursors_v1'", scan)
+        self.assertIn('while (active.isNotEmpty && !_pilotRangeCancelRequested)', scan)
+        self.assertNotIn('_pilotExpandRanges', main)
+        self.assertNotIn('targets.length', scan)
+        self.assertNotIn('out.length < 256', main)
 
     def test_matrix_order_is_not_truncated_by_the_old_5000_variant_ceiling(self):
         main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
