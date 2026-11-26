@@ -39,5 +39,30 @@ class PersonalFolderUnboundedInventoryTests(unittest.TestCase):
         self.assertIn("server.personal = true", source)
 
 
+
+    def test_personal_ping_and_failover_cover_every_entry(self):
+        source = (ROOT / "lib" / "main.dart").read_text(encoding="utf-8")
+        self.assertIn("gen != _personalPingGen || autoTestAbortRequested", source)
+        self.assertIn("doneCount % 128 == 0 || doneCount == list.length", source)
+        self.assertIn("for (var index = i; index < _personalRanked.length; index++)", source)
+        self.assertNotIn("_personalConnectAt(i + 1)", source)
+
+    def test_personal_inventory_is_not_duplicated_in_preferences(self):
+        source = (ROOT / "lib" / "main.dart").read_text(encoding="utf-8")
+        self.assertNotIn("setStringList('personal_shown_v1'", source)
+        self.assertIn("p.remove('personal_shown_v1')", source)
+        self.assertIn("rowSaved == 'p:personal'", source)
+
+    def test_busy_wrapper_has_no_global_operation_deadline(self):
+        source = (ROOT / "lib" / "main.dart").read_text(encoding="utf-8")
+        self.assertNotIn("hardLimit", source)
+        self.assertNotIn("idle-or-hard-cap", source)
+
+    def test_auto_test_has_a_separate_personal_server_stage(self):
+        source = (ROOT / "lib" / "auto_test.dart").read_text(encoding="utf-8")
+        self.assertIn("Future<void> _atItemPersonal()", source)
+        self.assertIn("(_atItemNames[11], _atItemPersonal)", source)
+        self.assertIn("connRow == 'p:personal'", source)
+
 if __name__ == "__main__":
     unittest.main()
