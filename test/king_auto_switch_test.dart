@@ -317,11 +317,13 @@ void main() {
 
     test('imports all valid OpenVPN variants from the official VPN Gate CSV directory', () {
       const ovpn = 'client\nproto udp\nremote vpn.example.org 1194\n';
+      const tcpOvpn = 'client\nproto tcp\nremote vpn.example.org 443\n';
       final encoded = base64Encode(utf8.encode(ovpn));
+      final tcpEncoded = base64Encode(utf8.encode(tcpOvpn));
       final payload = [
         '#vpn_servers',
         '#HostName,IP,OpenVPN_ConfigData_Base64,OpenVPN_ConfigData_Base64_UDP,OpenVPN_ConfigData_Base64_TCP',
-        '"Relay, Amsterdam",203.0.113.10,$encoded,,$encoded',
+        '"Relay, Amsterdam",203.0.113.10,$encoded,$encoded,$tcpEncoded',
         'invalid,203.0.113.11,not-base64,,',
       ].join('\n');
       final profiles = parser.parse(
@@ -329,11 +331,15 @@ void main() {
         payload: payload,
         sourceId: 'vpn_gate_official_directory',
       );
-      expect(profiles, hasLength(1));
-      expect(profiles.single.format, KingServerConfigFormat.openVpnProfile);
-      expect(profiles.single.sourceId, 'vpn_gate_official_directory');
-      expect(profiles.single.name, contains('Relay, Amsterdam'));
-      expect(profiles.single.raw, ovpn);
+      expect(profiles, hasLength(2));
+      expect(profiles.every((profile) =>
+          profile.format == KingServerConfigFormat.openVpnProfile), isTrue);
+      expect(profiles.every((profile) =>
+          profile.sourceId == 'vpn_gate_official_directory'), isTrue);
+      expect(profiles.every((profile) =>
+          profile.name!.contains('Relay, Amsterdam')), isTrue);
+      expect(profiles.map((profile) => profile.raw).toSet(),
+          {ovpn, tcpOvpn});
     });
 
     test('refreshes OpenVPN relay profiles through the normal source-sync pipeline', () async {
