@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter_test/flutter_test.dart';
 import '../lib/vpn_engine_contract.dart';
 
@@ -182,14 +183,65 @@ void main() {
     test('rejects concurrent lifecycle transitions', () async {
       final coordinator = KingVpnEngineCoordinator();
       final adapter = FakeEngineAdapter(descriptor('slow'));
-      coordinator.registerAdapter(adapter);
-      await coordinator.start(
+      final enteredAvailability = Completer<void>();
+      final releaseAvailability = Completer<void>();
+
+      final blockingAdapter = _BlockingAvailabilityAdapter(
+        adapter,
+        enteredAvailability,
+        releaseAvailability,
+      );
+      coordinator.registerAdapter(blockingAdapter);
+
+      final startFuture = coordinator.start(
         'slow',
         const KingEngineStartRequest(configuration: 'opaque'),
       );
+      await enteredAvailability.future;
+      expect(coordinator.transitioning, isTrue);
+      await expectLater(coordinator.stopActive(), throwsStateError);
+
+      releaseAvailability.complete();
+      expect((await startFuture).operational, isTrue);
       await coordinator.stopActive();
       expect(coordinator.activeEngineId, isNull);
-      expect(adapter.calls.last, 'stop');
     });
   });
+}
+
+class _BlockingAvailabilityAdapter implements KingVpnEngineAdapter {
+  _BlockingAvailabilityAdapter(
+    this.delegate,
+    this.entered,
+    this.release,
+  );
+
+  final FakeEngineAdapter delegate;
+  final Completer<void> entered;
+  final Completer<void> release;
+
+  @override
+  KingEngineDescriptor get descriptor => delegate.descriptor;
+
+  @override
+  Future<bool> isAvailable() async {
+    if (!entered.isCompleted) entered.complete();
+    await release.future;
+    return true;
+  }
+
+  @override
+  Future<void> prepare() => delegate.prepare();
+
+  @override
+  Future<void> start(KingEngineStartRequest request) => delegate.start(request);
+
+  @override
+  Future<KingEngineHealth> checkHealth() => delegate.checkHealth();
+
+  @override
+  Future<void> stop() => delegate.stop();
+
+  @override
+  Future<void> dispose() => delegate.dispose();
 }
