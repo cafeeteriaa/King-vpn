@@ -2674,5 +2674,12 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertLess(guard, save)
 
 
+    def test_vpn_backup_server_list_has_no_fixed_count_ceiling(self):
+        service = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
+        self.assertNotIn('MAX_BACKUPS', service)
+        self.assertIn('for (int i = 0; i < arr.length(); i++)', service)
+        self.assertIn('for (Srv b : backups)', service)
+
+
 if __name__ == '__main__':
     unittest.main()
