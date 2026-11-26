@@ -31,6 +31,22 @@ void main() {
       expect(await natScanIps(['127.0.0.1'], port: 65536), isEmpty);
     });
 
+    test('scan without explicit hit or time limits checks the full supplied list', () async {
+      final listener = await ServerSocket.bind(InternetAddress.anyIPv4, 0);
+      try {
+        final hits = await natScanIps(
+          ['127.0.0.1', '127.0.0.1'],
+          port: listener.port,
+          concurrency: 1,
+          timeout: const Duration(seconds: 1),
+        );
+        expect(hits, hasLength(2));
+        expect(hits.map((hit) => hit.ip), everyElement('127.0.0.1'));
+      } finally {
+        await listener.close();
+      }
+    });
+
     test('adaptive concurrency always returns a bounded integer', () {
       expect(natAdaptiveConcurrency(0), isA<int>());
       expect(natAdaptiveConcurrency(0), inInclusiveRange(8, 64));
