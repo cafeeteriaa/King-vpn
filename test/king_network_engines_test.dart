@@ -2,37 +2,19 @@ import 'package:flutter_test/flutter_test.dart';
 import '../lib/king_network_engines.dart';
 
 void main() {
-  test('catalog includes every requested technology without misclassifying its role', () {
+  test('catalog contains exactly the twelve approved KING VPN technologies', () {
     final catalog = KingNetworkEngineCatalog();
-    const requested = <String>[
-      'psiphon',
-      'tor',
-      'vpn_gate',
-      'nthlink',
-      'calyx_vpn',
-      'cloudflare_warp',
-      'lantern',
-      'avira_phantom',
-      'shroudly',
-      'ceno',
-      'byedpi',
-      'powertunnel',
-      'i2p',
-    ];
-
-    for (final id in requested) {
-      expect(catalog[id], isNotNull, reason: 'Missing requested technology: $id');
+    const approved = <String>{
+      'xray', 'hysteria2', 'sing_box', 'nthlink', 'shroudly', 'byedpi',
+      'powertunnel', 'amneziawg', 'openvpn', 'shadowsocks', 'openconnect',
+      'wireguard',
+    };
+    expect(catalog.all.map((engine) => engine.id).toSet(), approved);
+    expect(catalog.all, hasLength(12));
+    expect(catalog['xray']!.state, KingIntegrationState.integrated);
+    for (final id in ['shroudly', 'byedpi', 'powertunnel']) {
+      expect(catalog[id]!.role, KingEngineRole.localTransport);
     }
-
-    expect(catalog['vpn_gate']!.role, KingEngineRole.relayDirectory);
-    expect(catalog['tor']!.role, KingEngineRole.overlayNetwork);
-    expect(catalog['i2p']!.role, KingEngineRole.overlayNetwork);
-    expect(catalog['ceno']!.role, KingEngineRole.browserNetwork);
-    expect(catalog['shroudly']!.role, KingEngineRole.localTransport);
-    expect(catalog['byedpi']!.role, KingEngineRole.localTransport);
-    expect(catalog['powertunnel']!.role, KingEngineRole.localTransport);
-    expect(catalog['cloudflare_warp']!.role, KingEngineRole.externalService);
-    expect(catalog['avira_phantom']!.role, KingEngineRole.externalService);
   });
 
   test('catalog remains extensible and rejects duplicate IDs', () {
