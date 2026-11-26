@@ -5,6 +5,7 @@ import 'king_ai_console.dart';
 import 'king_chat_page.dart';
 import 'king_wireguard_page.dart';
 import 'king_sing_box_page.dart';
+import 'config_lab_page.dart';
 import 'king_sing_box_core.dart';
 import 'king_ai_background.dart';
 import 'king_ai_owner_auth.dart';
@@ -16165,6 +16166,11 @@ ListTile( // KINGEXTRAS row
                   builder: (_) => const KingWireGuardPage(),
                 ));
               }
+              if (v == 'configlab') {
+                Navigator.of(context).push(MaterialPageRoute<void>(
+                  builder: (_) => const KingConfigLabPage(),
+                ));
+              }
               if (v == 'libbox') {
                 Navigator.of(context).push(MaterialPageRoute<void>(
                   builder: (_) => const KingSingBoxPage(),
@@ -16221,6 +16227,7 @@ ListTile( // KINGEXTRAS row
               PopupMenuItem(value: 'apps', child: Text('برنامه‌های خارج از VPN')),
               PopupMenuItem(value: 'wireguard', child: Text('هستهٔ مستقل WireGuard')),
               PopupMenuItem(value: 'libbox', child: Text('هستهٔ مستقل چندپروتکلی libbox')),
+              PopupMenuItem(value: 'configlab', child: Text('آزمایشگاه اسکن و ساخت کانفیگ')),
               PopupMenuItem(value: 'kingchat', child: Text('گفت‌وگوی آزاد صوتی و متنی با کینگ')),
               PopupMenuItem(value: 'kingai', child: Text('هوش مصنوعی مهندس محلی')),
               PopupMenuItem(value: 'set', child: Text('تنظیمات تست')),
