@@ -800,7 +800,6 @@ Future<String> _cfRead(Socket k, Duration t) async {
   try {
     await for (final c in k.timeout(t, onTimeout: (sink) => sink.close())) {
       data.addAll(c);
-      if (data.length > 1500) break;
     }
   } catch (e, stk) { logError(e, stk); }
   return utf8.decode(data, allowMalformed: true).toLowerCase();
