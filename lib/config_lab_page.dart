@@ -20,6 +20,7 @@ class _KingConfigLabPageState extends State<KingConfigLabPage> {
   late final TextEditingController _host;
   late final TextEditingController _path;
   final List<KingConfigProbe> _probes = [];
+  final List<KingConfigVariant> _variants = [];
   String _status = 'یک کانفیگ VLESS، VMess یا Trojan وارد کنید.';
   String _generated = '';
   bool _busy = false;
@@ -57,6 +58,7 @@ class _KingConfigLabPageState extends State<KingConfigLabPage> {
     setState(() {
       _busy = true;
       _probes.clear();
+      _variants.clear();
       _status = 'در حال بررسی DNS، TCP و TLS مقصد همین کانفیگ…';
     });
     try {
@@ -67,12 +69,36 @@ class _KingConfigLabPageState extends State<KingConfigLabPage> {
         additionalSni: [_sni.text, _host.text].where((s) => s.trim().isNotEmpty),
         additionalPorts: ports == null ? const [] : [ports],
       );
+      final dnsHits = results
+          .where((r) => r.kind == KingConfigProbeKind.dns && r.success)
+          .expand((r) => r.detail.split(','))
+          .where((v) => v.trim().isNotEmpty)
+          .toSet();
+      final portHits = results
+          .where((r) => r.kind == KingConfigProbeKind.tcp && r.success)
+          .map((r) => int.tryParse(r.value.split(':').last))
+          .whereType<int>()
+          .toSet();
+      final sniHits = results
+          .where((r) => r.kind == KingConfigProbeKind.tls && r.success)
+          .map((r) => r.value.split('SNI=').last)
+          .where((v) => v.isNotEmpty)
+          .toSet();
+      final variants = const KingConfigAutoScanner().buildVariants(
+        doc,
+        addresses: dnsHits,
+        ports: portHits,
+        snis: sniHits,
+      );
       if (!mounted) return;
       setState(() {
         _probes
           ..clear()
           ..addAll(results);
-        _status = 'بررسی تمام شد: ${results.where((r) => r.success).length} نتیجهٔ موفق از ${results.length} آزمایش. موفقیت TLS یا TCP به‌تنهایی به معنی اتصال VPN نیست.';
+        _variants
+          ..clear()
+          ..addAll(variants);
+        _status = 'بررسی تمام شد: ${results.where((r) => r.success).length} نتیجهٔ موفق از ${results.length} آزمایش؛ ${variants.length} نسخهٔ آزمایشی کانفیگ ساخته شد. هیچ نسخه‌ای تا تأیید اتصال واقعی، سالم محسوب نمی‌شود.';
       });
     } catch (e) {
       if (!mounted) return;
@@ -184,6 +210,23 @@ class _KingConfigLabPageState extends State<KingConfigLabPage> {
           ),
           const SizedBox(height: 8),
           Text(_status),
+          if (_variants.isNotEmpty) ...[
+            const SizedBox(height: 12),
+            const Text('نسخه‌های آزمایشی ساخته‌شده', style: TextStyle(fontWeight: FontWeight.bold)),
+            const Text('این نسخه‌ها فقط برای آزمایش‌اند؛ پاسخ TCP/TLS تضمین‌کنندهٔ عبور ترافیک از تونل نیست.'),
+            for (final variant in _variants)
+              Card(
+                child: ListTile(
+                  title: Text(variant.label),
+                  subtitle: Text(variant.config, maxLines: 2, overflow: TextOverflow.ellipsis),
+                  trailing: IconButton(
+                    tooltip: 'کپی کانفیگ',
+                    icon: const Icon(Icons.copy),
+                    onPressed: () => Clipboard.setData(ClipboardData(text: variant.config)),
+                  ),
+                ),
+              ),
+          ],
           for (final probe in _probes)
             ListTile(
               dense: true,
