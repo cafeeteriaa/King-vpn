@@ -1,7 +1,7 @@
 # KING VPN Revision Ledger
 
-Current revision: 64
-Next revision: 65
+Current revision: 66
+Next revision: 67
 Repository: cafeeteriaa/King-vpn
 Revision branch: fix/revision-58-network-identity-fragmentation-20261126
 Revision PR: https://github.com/cafeeteriaa/King-vpn/pull/58
@@ -122,7 +122,7 @@ Increment the revision number by exactly one for each substantial edit set. Reco
 - Kept personal-server records outside the shared healthy-server inventory and independent from Online/Offline source queues.
 - Review 1 (architecture/behavior): completed — full-folder traversal and personal/online/offline isolation checked.
 - Review 2 (persistence/concurrency): completed — legacy migration, serialized journal writes, append/remove replay and failure handling checked. The compatibility cache is still materialized in memory; a lazy/paged index is a required follow-up before claiming multi-million-entry memory scalability.
-- Review 3 (compatibility/verification): pending current CI run #3773; no Dart/Flutter/Android success is claimed until it completes.
+- Review 3 (compatibility/verification): pending CI run #45784287277 on source commit `e7247343b25e36bec8c24f165e2454bf2b49754d`; no Dart/Flutter/Android success is claimed until it completes.
 
 
 ### 66 — Native failover inventory: uncapped transfer and durable JSONL recovery
@@ -132,5 +132,6 @@ Increment the revision number by exactly one for each substantial edit set. Reco
 - Added `test/test_native_failover_durability.py` for no-cap, durable-write, migration and explicit-stop invariants.
 - Review 1 (Dart/native parity and failover traversal): completed.
 - Review 2 (durability, atomic publication, migration and stop semantics): completed.
-- Review 3 (Android compile/runtime and full CI): pending. CI must pass before declaring the revision complete.
+- Review 3 (Android compile/runtime and full CI): pending CI run #45784287277 on source commit `e7247343b25e36bec8c24f165e2454bf2b49754d`.
+- Additional correction after review: only explicit user stop (`ACTION_STOP` / app stop) clears the native durable inventory. `onDestroy`, `onRevoke`, malformed starts and failed connection attempts preserve it for a later resume; each new start resets the prior explicit-stop marker.
 - Scalability caveat: the failover list is still passed through the Android Intent as JSON and held in the native in-memory list while connected. The fixed count cap is gone, but very large inventories still need a file-path handoff and disk-backed cursor before they can be called multi-million-scale or Binder-safe.
