@@ -336,6 +336,25 @@ void main() {
       expect(profiles.single.raw, ovpn);
     });
 
+    test('refreshes OpenVPN relay profiles through the normal source-sync pipeline', () async {
+      const ovpn = 'client\\nproto tcp\\nremote relay.example.org 443\\n';
+      final encoded = base64Encode(utf8.encode(ovpn));
+      final csv = [
+        '#vpn_servers',
+        '#HostName,IP,OpenVPN_ConfigData_Base64,OpenVPN_ConfigData_Base64_UDP,OpenVPN_ConfigData_Base64_TCP',
+        'relay,198.51.100.8,,$encoded,',
+      ].join('\\n');
+      final sync = KingServerSourceSync(fetchText: (url) async {
+        expect(url, 'https://www.vpngate.net/api/iphone/');
+        return csv;
+      });
+      final result = await sync.refresh(KingEngineId.openVpn);
+      expect(result.failures, isEmpty);
+      expect(result.profiles, hasLength(1));
+      expect(result.profiles.single.engineId, KingEngineId.openVpn);
+      expect(result.profiles.single.raw, ovpn);
+    });
+
     test('registers VPN Gate as a live OpenVPN relay directory source', () {
       final sources = KingEngineServerSourceCatalog.forEngine(KingEngineId.openVpn);
       final source = sources.singleWhere((item) => item.id == 'vpn_gate_official_directory');
