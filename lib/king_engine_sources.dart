@@ -296,17 +296,17 @@ class KingServerPayloadParser {
   }
 
   bool _isWireGuardProfile(String value) {
-    // Parse sections line-by-line. A multiline regex using \\s* at section
-    // boundaries can consume newlines and match an empty section body.
+    // Parse sections line-by-line. Regex section boundaries using \s* can
+    // consume newlines and accidentally match an empty section body.
     String? section;
     final interfaceLines = <String>[];
     final peerLines = <String>[];
-    for (final rawLine in value.split(RegExp(r'[\\r\\n]+'))) {
+    for (final rawLine in value.split(RegExp(r'[\r\n]+'))) {
       final line = rawLine.trim();
       if (line.isEmpty || line.startsWith('#') || line.startsWith(';')) {
         continue;
       }
-      final header = RegExp(r'^\\[([^\\]]+)\\]$').firstMatch(line);
+      final header = RegExp(r'^\[([^\]]+)\]$').firstMatch(line);
       if (header != null) {
         section = header.group(1)!.trim().toLowerCase();
         continue;
@@ -317,26 +317,26 @@ class KingServerPayloadParser {
         peerLines.add(line);
       }
     }
-    final interface = interfaceLines.join('\\n');
-    final peer = peerLines.join('\\n');
+    final interface = interfaceLines.join('\n');
+    final peer = peerLines.join('\n');
     final privateKey = RegExp(
-      r'^\\s*PrivateKey\\s*=\\s*([^\\s#;]+)',
+      r'^\s*PrivateKey\s*=\s*([^\s#;]+)',
       multiLine: true,
       caseSensitive: false,
     ).firstMatch(interface)?.group(1);
     final publicKey = RegExp(
-      r'^\\s*PublicKey\\s*=\\s*([^\\s#;]+)',
+      r'^\s*PublicKey\s*=\s*([^\s#;]+)',
       multiLine: true,
       caseSensitive: false,
     ).firstMatch(peer)?.group(1);
     final endpoint = RegExp(
-      r'^\\s*Endpoint\\s*=\\s*(\\[[0-9a-fA-F:]+\\]|[^:\\s]+):(\\d{1,5})\\s*(?:[#;].*)?$',
+      r'^\s*Endpoint\s*=\s*(\[[0-9a-fA-F:]+\]|[^:\s]+):(\d{1,5})\s*(?:[#;].*)?$',
       multiLine: true,
       caseSensitive: false,
     ).firstMatch(peer);
     final port = int.tryParse(endpoint?.group(2) ?? '');
     final allowedIpLine = RegExp(
-      r'^\\s*AllowedIPs\\s*=\\s*([^\\r\\n#;]+)',
+      r'^\s*AllowedIPs\s*=\s*([^\r\n#;]+)',
       multiLine: true,
       caseSensitive: false,
     ).firstMatch(peer)?.group(1);
@@ -355,11 +355,11 @@ class KingServerPayloadParser {
     }
 
     final endpointHost = endpoint.group(1)!.replaceAll(
-      RegExp(r'^\\[|\\]$'),
+      RegExp(r'^\[|\]$'),
       '',
     );
     if (endpointHost.isEmpty ||
-        endpointHost.contains(RegExp(r'\\s')) ||
+        endpointHost.contains(RegExp(r'\s')) ||
         endpointHost.contains('/') ||
         endpointHost.contains('@')) {
       return false;
