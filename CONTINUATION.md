@@ -14,6 +14,10 @@
 - All valid personal entries are now passed to the existing personal-only ping/connect path; personal servers remain isolated from public/healthy server pools.
 - Updated source guards and Persian UI wording.
 
+## Revision 62 changes
+- Serialized personal-folder load/add/remove/last-good operations through one async mutation queue to prevent overlapping SharedPreferences snapshot writes from losing updates.
+- Added a source guard for serialized mutation entry points.
+
 ## Remaining work and validation
 - SharedPreferences string-list storage and the in-memory personalFolderCache remain. This is not yet a file-backed, memory-bounded inventory; design and migrate transactionally before claiming very-large-folder readiness.
 - Exact-head CI, Flutter tests, Dart analysis, Android build, and device tests are pending.
