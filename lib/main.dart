@@ -9632,7 +9632,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   bool _resBusy = false, _resDirty = false, _resNext = false, _resSaving = false;
   DateTime? _resHold, _resLast, _resUi;
   int _resDone = 0, _resTotal = 0;
-  static const int _resMax = 50000; // ظرفیت پوشه سرورهای سالم: پنجاه‌هزار
   static const Duration _resEvery = Duration(hours: 48); // FOLDERS: تست خودکار هر ۴۸ ساعت
   int _resMergeCursor = 0; // FOLDERS: چرخش سهم سرورهای سالم در صف نت ملی
   bool _resFull = false; // second-chance pass: every variant
@@ -9647,7 +9646,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   Map<String, Object?> _resSnapshot() => <String, Object?>{
         'schema': 2,
         'last': _resLast?.millisecondsSinceEpoch,
-        'capacity': _resMax,
         'items': _resMap.values
             .map((e) => <String, Object?>{
                   'l': e.link,
@@ -9750,19 +9748,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       } else {
         final c = Server.parse(srv.link);
         if (c == null) return;
-        if (_resMap.length >= _resMax) {
-          // full: the entry verified the longest ago makes room
-          String? oldK;
-          DateTime? oldT;
-          _resMap.forEach((k, v) {
-            final t = v.checked ?? v.added;
-            if (oldT == null || t.isBefore(oldT!)) {
-              oldT = t;
-              oldK = k;
-            }
-          });
-          if (oldK != null) _resMap.remove(oldK);
-        }
         c.ping = srv.ping;
         final e = _NatResItem(srv.link, c, now);
         e.checked = now;
