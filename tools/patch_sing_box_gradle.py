@@ -15,7 +15,20 @@ MIRRORS = (
     'maven { url = uri("https://maven.aliyun.com/repository/central/") }',
     'maven { url = uri("https://maven.aliyun.com/repository/gradle-plugin/") }',
 )
+# Exact gomobile bridge classes reported by the Android Gradle duplicate-class
+# check for the pinned libbox and existing libv2ray artifacts. Keep the
+# libv2ray copy as the process-wide bridge; upstream layout changes hard-fail.
 GO_RUNTIME_COLLISIONS = (
+    "go/Seq.class",
+    "go/Seq$GoObject.class",
+    "go/Seq$GoRef.class",
+    "go/Seq$GoRefQueue.class",
+    "go/Seq$GoRefQueue$1.class",
+    "go/Seq$Proxy.class",
+    "go/Seq$Ref.class",
+    "go/Seq$RefMap.class",
+    "go/Seq$RefTracker.class",
+    "go/Universe.class",
     "go/Universe$proxyerror.class",
     "go/error.class",
 )
@@ -73,7 +86,20 @@ val prepareLibboxGoRuntimeJar = tasks.register("prepareLibboxGoRuntimeJar") {
     doLast {
         val output = libboxGoRuntimeJar.get().asFile
         output.parentFile.mkdirs()
-        val collisions = setOf("go/Universe\$proxyerror.class", "go/error.class")
+        val collisions = setOf(
+            "go/Seq.class",
+            "go/Seq\$GoObject.class",
+            "go/Seq\$GoRef.class",
+            "go/Seq\$GoRefQueue.class",
+            "go/Seq\$GoRefQueue\$1.class",
+            "go/Seq\$Proxy.class",
+            "go/Seq\$Ref.class",
+            "go/Seq\$RefMap.class",
+            "go/Seq\$RefTracker.class",
+            "go/Universe.class",
+            "go/Universe\$proxyerror.class",
+            "go/error.class"
+        )
         val found = mutableSetOf<String>()
         ZipFile(original).use { source ->
             ZipOutputStream(output.outputStream().buffered()).use { target ->
