@@ -2399,8 +2399,10 @@ class KingVpnSourceGuardTests(unittest.TestCase):
     def test_sni_probes_reject_ip_literals_and_invalid_certificates(self):
         nip = (ROOT / 'lib' / 'nip_scan.dart').read_text(encoding='utf-8')
         auto = (ROOT / 'lib' / 'auto_scanners.dart').read_text(encoding='utf-8')
-        self.assertNotIn('onBadCertificate: (_) => true', nip)
-        self.assertNotIn('onBadCertificate: (_) => true', auto)
+        main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        extras = (ROOT / 'lib' / 'npv_am_extras.dart').read_text(encoding='utf-8')
+        for source in (nip, auto, main, extras):
+            self.assertNotIn('onBadCertificate: (_) => true', source)
         self.assertIn('InternetAddress.tryParse(sni.trim()) != null', nip)
         self.assertIn('InternetAddress.tryParse(value.trim()) == null', nip)
         self.assertIn('final List<String> natFrontSnis', nip)
@@ -2464,6 +2466,35 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         resolver = nip[resolver_start:resolver_end]
         self.assertIn('InternetAddress.lookup(host)', resolver)
         self.assertIn('out.addAll(addresses.map', resolver)
+
+    def test_full_ip_inventory_is_not_truncated_in_the_server_pipeline(self):
+        main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        ip_start = main.index('if (ipMode && !abort)')
+        ip_end = main.index('return alive;', ip_start)
+        self.assertNotIn('.take(40)', main[ip_start:ip_end])
+        saved_start = main.index('Future<void> _checkSaved()')
+        saved_end = main.index('Future<void> _natMemoryReuse()', saved_start)
+        self.assertNotIn('take(80)', main[saved_start:saved_end])
+        memory_start = saved_end
+        memory_end = main.index('Future<void> _natRangeAdd(', memory_start)
+        self.assertNotIn('take(40)', main[memory_start:memory_end])
+        range_start = memory_end
+        range_end = main.index('void _userListsDialog(', range_start)
+        range_add = main[range_start:range_end]
+        self.assertNotIn('.take(2)', range_add)
+        self.assertNotIn('pending.length > 3000', range_add)
+        self.assertIn('natRangeTemplateCursor', range_add)
+        self.assertIn('for (final server in [...pending, ...natRestPending, ...natTemplateSeeds, ...good])', range_add)
+        self.assertNotIn('maxPerSource', main)
+
+    def test_search_does_not_stop_after_a_fixed_batch_count(self):
+        main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        self.assertNotIn('maxBatches', main)
+        self.assertNotIn('standbyBatches', main)
+        self.assertNotIn('batches < maxB', main)
+        self.assertIn('while (!abort &&', main)
+        self.assertIn('quick source mode: parsing the complete returned list', main)
+        self.assertIn('for (final l in lines)', main)
 
     def test_matrix_order_is_not_truncated_by_the_old_5000_variant_ceiling(self):
         main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
