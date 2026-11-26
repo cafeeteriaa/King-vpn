@@ -8693,9 +8693,13 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     if (_listPartial) unawaited(_fetchFullListBg());
     // IP کارا به حافظه (هم در نت جهانی و هم در نت ملی؛ دفعه‌ی بعد اول از همین‌ها استفاده می‌شود)
     if (InternetAddress.tryParse(s.host) != null) {
-      unawaited(natIpMemSave(s.host, s.port));
+      unawaited(nationalMode
+          ? natNationalIpMemSave(s.host, s.port)
+          : natIpMemSave(s.host, s.port));
     } else if (nationalMode) {
-      unawaited(natDomMemSave(s.host, s.port)); // NATDOM: دامنه‌ی موفق در نت ملی
+      unawaited(natNationalDomMemSave(s.host, s.port));
+    } else {
+      unawaited(natDomMemSave(s.host, s.port));
     }
     s.miss = 0; // BADCFG: only an end-to-end connection resets health
     softFailN.remove(s.key);
@@ -10552,8 +10556,9 @@ ListTile( // KINGEXTRAS row
       final have = {
         for (final s in [...pending, ...natRestPending]) '${s.host}|${s.port}'
       };
+      await natNationalIpMemLoad();
       final items = <String>[];
-      for (final e in natIpMem) {
+      for (final e in natNationalIpMem) {
         final ip = '${e['ip']}';
         final port = (e['port'] as num?)?.toInt() ?? 0;
         if (InternetAddress.tryParse(ip) == null || port <= 0) continue;
@@ -10562,8 +10567,12 @@ ListTile( // KINGEXTRAS row
         items.add('$ip|$port');
       }
       if (items.isEmpty) return;
-      if (natTemplateSeeds.isEmpty) {
-        natTemplateSeeds = await natHotNext(800, fetch: false);
+      if (natNationalTemplateSeeds.isEmpty) {
+        natNationalTemplateSeeds = [
+          ...good,
+          ...pending,
+          ...natRestPending,
+        ];
       }
       final before = pending.length;
       await _natRangeAdd(items, count: false);
@@ -10582,7 +10591,7 @@ ListTile( // KINGEXTRAS row
     }
     final tpl = <Server>[];
     final seenTemplates = <String>{};
-    for (final server in [...pending, ...natRestPending, ...natTemplateSeeds, ...good]) {
+    for (final server in [...pending, ...natRestPending, ...natCurrentTemplateSeeds(), ...good]) {
       // Generic IP grafting is not valid for REALITY or Shadowsocks profiles.
       if (server.reality || server.link.toLowerCase().startsWith('ss://')) continue;
       if (seenTemplates.add(server.key)) tpl.add(server);
@@ -11501,7 +11510,7 @@ ListTile( // KINGEXTRAS row
         await _natRangeAdd(domHits);
       }
       final hasTpl = pending.isNotEmpty || natRestPending.isNotEmpty ||
-          natTemplateSeeds.isNotEmpty || good.isNotEmpty;
+          natNationalTemplateSeeds.isNotEmpty || good.isNotEmpty;
       if (runNationalMode && !abort && !ipWaiting && pending.isEmpty && hasTpl) {
         final ips = await natRangeScanStep(
             known: [...pending, ...natRestPending],
@@ -12524,7 +12533,7 @@ ListTile( // KINGEXTRAS row
         if (nationalMode) {
           if (pending.isEmpty) await _natMergeCache();
           final hasTpl = pending.isNotEmpty || natRestPending.isNotEmpty ||
-              natTemplateSeeds.isNotEmpty || good.isNotEmpty;
+              natNationalTemplateSeeds.isNotEmpty || good.isNotEmpty;
           if (pending.isEmpty && hasTpl) {
             await _natMemoryReuse();
             await _natPrescan();
