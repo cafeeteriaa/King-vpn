@@ -33,8 +33,12 @@ class BlockingAdapter implements KingConnectionAdapter {
   String get id => delegate.id;
   @override
   bool get available => delegate.available;
+  int _connectCalls = 0;
   @override
-  Future<KingEngineConnectResult> connect() => started.future;
+  Future<KingEngineConnectResult> connect() {
+    if (_connectCalls++ == 0) return started.future;
+    return delegate.connect();
+  }
   @override
   Future<bool> verifyTraffic() => delegate.verifyTraffic();
   @override
@@ -86,6 +90,33 @@ void main() {
       expect(result.connected, isFalse);
       expect(result.engine, isNull);
       expect(events, ['disconnect:xray', 'disconnect:xray']);
+    });
+
+    test('waits for cancelled startup teardown before reconnecting', () async {
+      final started = Completer<KingEngineConnectResult>();
+      final events = <String>[];
+      final adapter = FakeAdapter(KingEngineId.xray, events: events);
+      final coordinator = KingAutoSwitchCoordinator(adapters: [
+        BlockingAdapter(adapter, started),
+      ]);
+      final first = coordinator.connect();
+      await Future<void>.delayed(Duration.zero);
+      await coordinator.disconnect();
+      final second = coordinator.connect();
+      started.complete(const KingEngineConnectResult(
+        started: true,
+        trafficVerified: true,
+      ));
+      final cancelled = await first;
+      final reconnected = await second;
+      expect(cancelled.connected, isFalse);
+      expect(reconnected.connected, isTrue);
+      expect(reconnected.engine, KingEngineId.xray);
+      expect(events, [
+        'disconnect:xray',
+        'disconnect:xray',
+        'connect:xray',
+      ]);
     });
 
     test('rejects duplicate adapter identifiers', () {
