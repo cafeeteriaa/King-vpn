@@ -1817,8 +1817,14 @@ Future<void> _goldIpStep() async {
     await goldCommitCleanCandidates();
     return;
   }
-  final r = await _goldProbe(batch);
-  await goldCommitCleanCandidates();
+  late final Map<String, int?> r;
+  try {
+    r = await _goldProbe(batch);
+    await goldCommitCleanCandidates();
+  } catch (_) {
+    goldDiscardCleanCandidates();
+    rethrow;
+  }
   var found = 0;
   for (final ip in batch) {
     final ms = r[ip];
