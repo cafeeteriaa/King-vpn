@@ -80,6 +80,31 @@ void main() {
               'sockopt': <String, dynamic>{},
             },
           },
+          <String, dynamic>{
+            'tag': 'proxy-reality',
+            'protocol': 'vless',
+            'settings': <String, dynamic>{
+              'vnext': <dynamic>[
+                <String, dynamic>{
+                  'address': 'reality.example.test',
+                  'port': 443,
+                  'users': <dynamic>[
+                    <String, dynamic>{'id': '00000000-0000-4000-8000-000000000003'},
+                  ],
+                },
+              ],
+            },
+            'streamSettings': <String, dynamic>{
+              'network': 'tcp',
+              'security': 'reality',
+              'realitySettings': <String, dynamic>{
+                'serverName': 'reality.example.test',
+                'publicKey': 'test-public-key',
+                'shortId': 'abcd',
+              },
+              'sockopt': <String, dynamic>{},
+            },
+          },
         ],
         'routing': <String, dynamic>{'rules': <dynamic>[]},
       });
@@ -98,6 +123,12 @@ void main() {
       final secondSockopt =
           (secondProxy['streamSettings'] as Map)['sockopt'] as Map;
       expect(secondSockopt['dialerProxy'], 'frag-out');
+      final realityProxy = outbounds.firstWhere(
+        (entry) => entry is Map && entry['tag'] == 'proxy-reality',
+      ) as Map;
+      final realitySockopt =
+          (realityProxy['streamSettings'] as Map)['sockopt'] as Map;
+      expect(realitySockopt['dialerProxy'], 'frag-out');
 
       final fragmentOutbound = outbounds.firstWhere(
         (entry) => entry is Map && entry['tag'] == 'frag-out',
