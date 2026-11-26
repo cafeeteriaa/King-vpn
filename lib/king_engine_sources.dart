@@ -250,7 +250,8 @@ class KingServerPayloadParser {
   }
 
   bool _isWireGuardProfile(String value) {
-    final normalized = value.replaceAll(RegExp(r'(?m)\s+#.*
+    final normalized = value.replaceAll(RegExp(r'(?m)[ \t]+#.*$'), '');
+    final interface = RegExp(
       r'(?ims)^\s*\[Interface\]\s*(.*?)^(?=\s*\[|\s*$)',
     ).firstMatch(normalized)?.group(1) ?? '';
     final peer = RegExp(
@@ -261,7 +262,43 @@ class KingServerPayloadParser {
     final publicKey = RegExp(r'(?im)^\s*PublicKey\s*=\s*([^\s#]+)')
         .firstMatch(peer)?.group(1);
     final endpoint = RegExp(
-      r'(?im)^\s*Endpoint\s*=\s*(\[[0-9a-fA-F:]+\]|[^:\s]+):(\d{1,5})\s*
+      r'(?im)^\s*Endpoint\s*=\s*(\[[0-9a-fA-F:]+\]|[^:\s]+):(\d{1,5})\s*$',
+    ).firstMatch(peer);
+    final host = endpoint?.group(1);
+    final port = int.tryParse(endpoint?.group(2) ?? '');
+    final allowedIps = RegExp(r'(?im)^\s*AllowedIPs\s*=\s*(.+)$')
+        .firstMatch(peer)?.group(1);
+    return _isWireGuardKey(privateKey) &&
+        _isWireGuardKey(publicKey) &&
+        host != null && host.isNotEmpty &&
+        port != null && port > 0 && port <= 65535 &&
+        _hasValidWireGuardAllowedIps(allowedIps);
+  }
+
+  bool _isWireGuardKey(String? value) {
+    if (value == null || value.isEmpty) return false;
+    try {
+      return base64.decode(base64.normalize(value)).length == 32;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  bool _hasValidWireGuardAllowedIps(String? value) {
+    if (value == null || value.trim().isEmpty) return false;
+    final entries = value.split(',');
+    if (entries.isEmpty) return false;
+    for (final entry in entries) {
+      final parts = entry.trim().split('/');
+      if (parts.length != 2) return false;
+      final address = InternetAddress.tryParse(parts[0]);
+      final prefix = int.tryParse(parts[1]);
+      if (address == null || prefix == null) return false;
+      final maxPrefix = address.type == InternetAddressType.IPv4 ? 32 : 128;
+      if (prefix < 0 || prefix > maxPrefix) return false;
+    }
+    return true;
+  }
 
   bool _containsAmneziaParameters(String value) =>
       RegExp(r'(?im)^\s*(Jc|Jmin|Jmax|S1|S2|H1|H2|H3|H4)\s*=').hasMatch(value);
