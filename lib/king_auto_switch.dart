@@ -58,7 +58,13 @@ class KingAutoSwitchCoordinator {
     KingNetworkEngineCatalog? catalog,
   }) {
     final registry = catalog ?? KingNetworkEngineCatalog();
-    final indexed = adapters.asMap().entries.toList()
+    final eligible = adapters.where((adapter) {
+      final role = registry[adapter.id]?.role;
+      // Local DPI/proxy modules are composed inside a tunnel; they must never
+      // be treated as independent Android VPN owners.
+      return role == KingEngineRole.fullDeviceVpn;
+    }).toList(growable: false);
+    final indexed = eligible.asMap().entries.toList()
       ..sort((a, b) {
         final byPriority = registry.priorityOf(a.value.id)
             .compareTo(registry.priorityOf(b.value.id));
@@ -115,7 +121,15 @@ class KingAutoSwitchCoordinator {
       final previous = _active;
       _active = null;
       if (previous != null) {
-        try { await previous.disconnect(); } catch (_) {}
+        try {
+          await previous.disconnect();
+        } catch (error) {
+          return KingAutoSwitchResult(
+            engine: null, connected: false,
+            attempts: List.unmodifiable(attempts),
+            detail: 'Previous VPN owner did not confirm TUN release; failover halted: $error',
+          );
+        }
       }
       _starting = adapter;
       try {
@@ -144,7 +158,15 @@ class KingAutoSwitchCoordinator {
             trafficVerified: false, detail: error.toString()));
       }
       if (identical(_starting, adapter)) _starting = null;
-      try { await adapter.disconnect(); } catch (_) {}
+      try {
+        await adapter.disconnect();
+      } catch (error) {
+        return KingAutoSwitchResult(
+          engine: null, connected: false,
+          attempts: List.unmodifiable(attempts),
+          detail: 'Engine teardown failed; next VPN owner was not started: $error',
+        );
+      }
     }
     return KingAutoSwitchResult(engine: null, connected: false,
         attempts: List.unmodifiable(attempts),
