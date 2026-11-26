@@ -354,35 +354,35 @@ for name in ('build.gradle', 'build.gradle.kts'):
         # WireGuard is an independent userspace tunnel engine (libwg-go).
         if 'com.wireguard.android:tunnel' not in g:
             if name.endswith('.kts'):
-                dep_text = '\\n    implementation("com.wireguard.android:tunnel:1.0.20260102")\\n    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.0.3")\\n'
-                dep_block = re.search(r'dependencies\\s*\\{', g)
+                dep_text = '\n    implementation("com.wireguard.android:tunnel:1.0.20260102")\n    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.0.3")\n'
+                dep_block = re.search(r'dependencies\s*\{', g)
                 if dep_block:
                     g = g[:dep_block.end()] + dep_text + g[dep_block.end():]
                 else:
-                    g += '\\ndependencies {\\n' + dep_text + '}\\n'
-                compile_block = re.search(r'compileOptions\\s*\\{', g)
+                    g += '\ndependencies {\n' + dep_text + '}\n'
+                compile_block = re.search(r'compileOptions\s*\{', g)
                 if not compile_block:
                     raise SystemExit('HARD FAIL: app Gradle has no compileOptions block for WireGuard desugaring')
                 close = g.find('}', compile_block.end())
                 if close < 0:
                     raise SystemExit('HARD FAIL: malformed compileOptions block')
                 if 'isCoreLibraryDesugaringEnabled' not in g[compile_block.end():close]:
-                    g = g[:close] + '\\n        isCoreLibraryDesugaringEnabled = true\\n    ' + g[close:]
+                    g = g[:close] + '\n        isCoreLibraryDesugaringEnabled = true\n    ' + g[close:]
             else:
-                dep_text = "\\n    implementation 'com.wireguard.android:tunnel:1.0.20260102'\\n    coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.0.3'\\n"
-                dep_block = re.search(r'dependencies\\s*\\{', g)
+                dep_text = "\n    implementation 'com.wireguard.android:tunnel:1.0.20260102'\n    coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.0.3'\n"
+                dep_block = re.search(r'dependencies\s*\{', g)
                 if dep_block:
                     g = g[:dep_block.end()] + dep_text + g[dep_block.end():]
                 else:
-                    g += "\\ndependencies {\\n" + dep_text + "}\\n"
-                compile_block = re.search(r'compileOptions\\s*\\{', g)
+                    g += "\ndependencies {\n" + dep_text + "}\n"
+                compile_block = re.search(r'compileOptions\s*\{', g)
                 if not compile_block:
                     raise SystemExit('HARD FAIL: app Gradle has no compileOptions block for WireGuard desugaring')
                 close = g.find('}', compile_block.end())
                 if close < 0:
                     raise SystemExit('HARD FAIL: malformed compileOptions block')
                 if 'coreLibraryDesugaringEnabled' not in g[compile_block.end():close]:
-                    g = g[:close] + '\\n        coreLibraryDesugaringEnabled true\\n    ' + g[close:]
+                    g = g[:close] + '\n        coreLibraryDesugaringEnabled true\n    ' + g[close:]
         open(gp, 'w', encoding='utf-8').write(g)
 
 # Do not inject ndk.abiFilters when the Flutter build uses --split-per-abi.
