@@ -10975,7 +10975,7 @@ ListTile( // KINGEXTRAS row
         TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('بستن')),
         FilledButton(onPressed: () async {
           if (!_pilotRangesValid(c.text)) {
-            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('یکی از بازه‌ها نامعتبر است؛ هر خط باید IPv4 یا CIDR معتبر /24 تا /32 باشد.')));
+            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('یکی از بازه‌ها نامعتبر است؛ هر خط باید IP، CIDR یا بازهٔ معتبر IPv4/IPv6 باشد.')));
             return;
           }
           _pilotRanges = c.text.split(String.fromCharCode(10)).map((v) => v.trim()).where((v) => v.isNotEmpty).toList();
