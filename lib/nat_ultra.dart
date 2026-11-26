@@ -2271,6 +2271,12 @@ String _natBigIntToIPv6(BigInt value) {
   return (out, ((offset + BigInt.from(count)) % span).toString());
 }
 
+({List<String> addresses, String nextCursor}) natExpandAddressRangeBatch(
+    String range, {String cursor = '0', int limit = 256}) {
+  final result = _natExpandAnyCursor(range, cursor, limit);
+  return (addresses: result.$1, nextCursor: result.$2);
+}
+
 // Cursor-aware expansion for IPv4 and IPv6 CIDRs/ranges. BigInt-backed IPv6
 // cursors allow explicit /64 and larger address spaces to progress without overflow.
 (List<String>, String) _natExpandAnyCursor(
