@@ -982,20 +982,27 @@ String _natSetPort(String link, int port) {
 
 String _natSetHost(String link, String ip, String host) {
   try {
+    // An IP literal is a transport address, never a TLS SNI or HTTP Host name.
+    final safeHost = _nipHostnameOrEmpty(host);
     if (link.toLowerCase().startsWith('vmess://')) {
-      var b = natB64Normalize(link.substring(8));
+      final b = natB64Normalize(link.substring(8));
       final j = jsonDecode(utf8.decode(base64.decode(b)));
       j['add'] = ip;
-      if ((j['sni'] ?? '').toString().isEmpty) j['sni'] = host;
-      if ((j['host'] ?? '').toString().isEmpty && j['net'] == 'ws') {
-        j['host'] = host;
+      if ((j['sni'] ?? '').toString().isEmpty && safeHost.isNotEmpty) {
+        j['sni'] = safeHost;
+      }
+      if ((j['host'] ?? '').toString().isEmpty &&
+          j['net'] == 'ws' && safeHost.isNotEmpty) {
+        j['host'] = safeHost;
       }
       return 'vmess://${base64.encode(utf8.encode(jsonEncode(j)))}';
     }
     final u = Uri.parse(link);
     final q = Map<String, String>.from(u.queryParameters);
-    if ((q['sni'] ?? '').isEmpty) q['sni'] = host;
-    if (q['type'] == 'ws' && (q['host'] ?? '').isEmpty) q['host'] = host;
+    if ((q['sni'] ?? '').isEmpty && safeHost.isNotEmpty) q['sni'] = safeHost;
+    if (q['type'] == 'ws' && (q['host'] ?? '').isEmpty && safeHost.isNotEmpty) {
+      q['host'] = safeHost;
+    }
     return u.replace(host: ip, queryParameters: q).toString();
   } catch (e, stk) {
     logError(e, stk);
