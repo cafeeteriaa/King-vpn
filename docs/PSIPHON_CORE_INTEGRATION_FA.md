@@ -23,7 +23,7 @@ Psiphon بهترین گزینهٔ فعلی برای مسیر «VPN ضدسانس�
 - commit هسته: `66e249dde58a8f90fed17d3773d987942f100425`
 - مخزن Android Maven library، tag: `v2.0.43`
 - commit مخزن Android library: `7ba832f9d693b69889e6c1582dac2d3e5b51e6ad`
-- مختصات AAR رسمی: `ca.psiphon:psiphontunnel:2.0.42`
+- مختصات AAR رسمی: `ca.psiphon:psiphontunnel:2.0.43`
 - مخزن Maven نسخه‌دار: `https://raw.githubusercontent.com/Psiphon-Labs/psiphon-tunnel-core-Android-library/v2.0.43`
 - SHA-1 منتشرشده برای AAR: `c5adb96568633b828c9d9e9d88d98a32fe3f89ca`
 - SHA-256 آرشیو رسمی Android Library در release: `6ad02dfa8fd98173f6aaaf89258b3eb69953c81ab61b1f32604bd2c2f68750b5`
