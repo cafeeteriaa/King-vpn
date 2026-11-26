@@ -27,7 +27,7 @@
 |---|---|---|---|
 | Psiphon | Independent circumvention tunnel core | Official Android AAR/Maven artifact and source-build path; bridge native lifecycle and proxy/TUN handling to the shared service | GPL-3.0 upstream; integration requires explicit license/distribution compatibility review before bundling; not integrated |
 | Tor | Anonymity network and Tor client/router | Evaluate Tor Android implementation or Arti via Rust JNI; bootstrap/bridge/transport lifecycle and local SOCKS/DNS interface | Arti Android guide states Rust API/bindings are not stable/provided and JNI bindings must be written; overlay router, not a full-device VPN; not integrated |
-| VPN Gate | Public relay directory, not a single VPN protocol | Directory discovery plus SoftEther, OpenVPN or SSTP client adapters; do not rely on legacy Android L2TP/IPsec on modern Android | Multiple protocol adapters required; not integrated |
+| VPN Gate | Public relay directory, not a single VPN protocol | Official CSV endpoint is registered and parsed into validated OpenVPN UDP/TCP profiles; SoftEther/SSTP still need their own adapters | Directory ingestion implemented and covered by unit tests; OpenVPN runtime adapter/device validation remains separate and incomplete |
 | nthLink | VPN app/framework built around Leaf and nthlink-outline SDKs | Reuse audited Android modules or Leaf/Outline core; backend/config functions and lifecycle adapter need implementation | Open-source Android framework exists; not integrated |
 | CalyxVPN | Android VPN product/client, not automatically a reusable engine | Audit its current source, tunnel backend and licenses; reuse protocol cores rather than transplanting the whole app | Source/SDK suitability not yet verified |
 | Cloudflare WARP | Cloudflare-managed consumer/Zero Trust tunnel service | Verify current partner SDK/API and commercial authorization; do not imitate private client APIs or scrape credentials | No embeddable public Android SDK verified in this discovery |
@@ -38,6 +38,9 @@
 | ByeDPI | Android DPI circumvention app using native/proxy/TUN techniques | Audit its Android VpnService and native core; integrate only through a single-TUN-compatible adapter | Standalone Android implementation exists; not integrated |
 | PowerTunnel | Local proxy/DPI utility with Android VPN mode | Audit SDK, NetGuard/TunProxy dependency, plugin APIs and distribution permissions | Android project documents GPL-3.0 and a Play Store permission restriction; no reuse until rights are cleared |
 | I2P | Independent anonymous overlay/router network | Embed Java I2P router or use Android router service; implement lifecycle, storage, SAM/I2CP/ SOCKS interfaces and resource policy | Embedding is possible in Java, but upstream notes Android service-library work; not integrated |
+
+
+- VPN Gate's official `https://www.vpngate.net/api/iphone/` CSV directory is now registered for OpenVPN source refresh. The parser handles the `#HostName` header, quoted CSV fields, all published Base64 OpenVPN profile variants, malformed rows, duplicate profiles and OpenVPN syntax validation. This is directory ingestion only; it does not itself supply an OpenVPN runtime or establish a tunnel.
 
 ## Evidence and important compatibility notes
 
