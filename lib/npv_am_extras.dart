@@ -1997,12 +1997,18 @@ void goldNoteServer(Server srv) {
 
 // MANUALSCAN: اسکن دستی بازه‌ها با پیشرفت و نتیجه داخل خود دیالوگ (نه پیام پشت دیالوگ)
 Future<void> manualRangeScan(BuildContext context, List<String> userAddrs) async {
-  // FOLDERHELP: IPهای تمیز پوشه اول تست می‌شوند (کمک پوشه به اسکن بازه، در نت ملی و عادی)
-  await goldLoad();
-  // RANGEFIX: بازه‌ی کاربر اول می‌آید تا با سقف زمان کوتاه هرگز کنار گذاشته نشود
-  // RANGEFIX: بازه‌ی کاربر اول و با ترتیب تصادفی (تا بازه‌ی بزرگ در سقف زمان کل بازه را پوشش دهد)
+  // Preserve separate global and National Net discovery inventories.
+  final scanNationalMode = nationalMode;
   final shuffledUser = List<String>.of(userAddrs)..shuffle(Random());
-  final addrs = {...shuffledUser, for (final c in goldIpList()) c.ip}.toList();
+  final addressSet = <String>{...shuffledUser};
+  if (scanNationalMode) {
+    await natNationalIpMemLoad();
+    addressSet.addAll(natNationalIpMemHosts());
+  } else {
+    await goldLoad();
+    addressSet.addAll(goldIpList().map((entry) => entry.ip));
+  }
+  final addrs = addressSet.toList(growable: false);
   var cancelled = false;
   var finished = false;
   var done = 0;
@@ -2103,10 +2109,7 @@ Future<void> manualRangeScan(BuildContext context, List<String> userAddrs) async
     if (!cancelled) {
       result = await natScanIps(
         addrs,
-        want: 1000,
-        concurrency: nationalMode ? kNatManualConc : natAdaptiveWorkers(),
-        // RANGEFIX: بازه‌ی کوچک ۲ دقیقه؛ بازه‌ی بزرگ (بیش از ۴۰۹۶ IP) ۸ دقیقه
-        budget: Duration(minutes: userAddrs.length > 4096 ? 8 : 2),
+        concurrency: scanNationalMode ? kNatManualConc : natAdaptiveWorkers(),
         timeout: const Duration(milliseconds: 1500),
         cancelled: () => cancelled || !open,
         onProgress: (d, t, h) => upd(() {
@@ -2116,11 +2119,17 @@ Future<void> manualRangeScan(BuildContext context, List<String> userAddrs) async
         }),
       );
       // Partial results remain visible, but a cancelled scan must not enter shared storage.
-      if (!cancelled && open) {
-        await goldMergeIps(
-          [for (final h in result) CleanIp(h.ip, h.ms, 443)],
-          shouldAbort: () => cancelled || !open,
-        );
+      if (!cancelled && open && nationalMode == scanNationalMode) {
+        if (scanNationalMode) {
+          for (final hit in result) {
+            await natNationalIpMemSave(hit.ip, 443);
+          }
+        } else {
+          await goldMergeIps(
+            [for (final hit in result) CleanIp(hit.ip, hit.ms, 443)],
+            shouldAbort: () => cancelled || !open,
+          );
+        }
       }
     }
   } catch (e, stk) {
