@@ -1782,7 +1782,13 @@ Future<void> _goldIpStep() async {
   final batch = cands
       .where((ip) => !_goldIps.containsKey(ip))
       .toList();
-  if (batch.isEmpty) return;
+  if (batch.isEmpty) {
+    _goldCleanRangeCursors
+      ..clear()
+      ..addAll(_goldPendingCleanCursors);
+    _goldCleanRangeIndex = _goldPendingCleanRangeIndex;
+    return;
+  }
   final r = await _goldProbe(batch);
   _goldCleanRangeCursors
     ..clear()
