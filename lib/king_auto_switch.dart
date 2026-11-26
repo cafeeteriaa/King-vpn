@@ -87,16 +87,23 @@ class KingAutoSwitchCoordinator {
 
   String? get activeEngine => _active?.id;
 
-  Future<KingAutoSwitchResult> connect() {
+  Future<KingAutoSwitchResult> connect() async {
     final pending = _flight;
-    if (pending != null) return pending;
+    if (pending != null) {
+      if (!_stoppedByUser) return pending;
+      // A new start after Stop waits for the cancelled native startup to finish
+      // tearing down; this prevents two VPN owners from racing for Android's TUN.
+      await pending;
+      return connect();
+    }
     _stoppedByUser = false;
     final generation = ++_generation;
-    final future = _connectInOrder(generation, _adapters);
-    _flight = future;
-    return future.whenComplete(() {
-      if (identical(_flight, future)) _flight = null;
+    late final Future<KingAutoSwitchResult> tracked;
+    tracked = _connectInOrder(generation, _adapters).whenComplete(() {
+      if (identical(_flight, tracked)) _flight = null;
     });
+    _flight = tracked;
+    return tracked;
   }
 
   Future<KingAutoSwitchResult> _connectInOrder(
@@ -179,11 +186,12 @@ class KingAutoSwitchCoordinator {
   Future<KingAutoSwitchResult> recoverFromTrafficFailure() {
     final pending = _flight;
     if (pending != null) return pending;
-    final future = _recoverFromTrafficFailure();
-    _flight = future;
-    return future.whenComplete(() {
-      if (identical(_flight, future)) _flight = null;
+    late final Future<KingAutoSwitchResult> tracked;
+    tracked = _recoverFromTrafficFailure().whenComplete(() {
+      if (identical(_flight, tracked)) _flight = null;
     });
+    _flight = tracked;
+    return tracked;
   }
 
   Future<KingAutoSwitchResult> _recoverFromTrafficFailure() async {
