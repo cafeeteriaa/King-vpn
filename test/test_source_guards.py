@@ -2423,6 +2423,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('sanitizeCfg(withIranRouting(withNpvAmCore(c)))', main)
         self.assertIn("if (dp != null && !tags.contains(dp))", main)
         self.assertIn("so['dialerProxy'] = 'frag-out';", nat)
+        self.assertIn("outs.removeWhere((entry) => entry is Map && entry['tag'] == 'frag-out');", extras)
         self.assertIn("'tag': 'frag-out'", nat)
         self.assertIn("if (fragEnabled && st is Map", extras)
         self.assertIn("'packets': 'tlshello'", extras)
@@ -2447,6 +2448,22 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn('r.take(4)', dns)
         self.assertIn('...kDnsxGlobalDomains', dns)
         self.assertIn('...natIrDomains', dns)
+
+    def test_nip_scan_has_no_implicit_hit_or_time_ceiling_and_resolves_all_addresses(self):
+        nip = (ROOT / 'lib' / 'nip_scan.dart').read_text(encoding='utf-8')
+        start = nip.index('Future<List<NipHit>> nipScan(')
+        end = nip.index('/// فهرست بلوک‌های IPv4 ایران', start)
+        scan = nip[start:end]
+        self.assertIn('int? want,', scan)
+        self.assertIn('Duration? budget,', scan)
+        self.assertNotIn('Duration(minutes: 2)', scan)
+        self.assertIn('if (budget != null && elapsed.elapsed >= budget)', scan)
+        self.assertIn('if (cancelled != null && cancelled())', scan)
+        resolver_start = nip.index('Future<List<String>> nipResolveAll(')
+        resolver_end = nip.index('/// بلوک‌های هاست یک IP', resolver_start)
+        resolver = nip[resolver_start:resolver_end]
+        self.assertIn('InternetAddress.lookup(host)', resolver)
+        self.assertIn('out.addAll(addresses.map', resolver)
 
     def test_matrix_order_is_not_truncated_by_the_old_5000_variant_ceiling(self):
         main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
