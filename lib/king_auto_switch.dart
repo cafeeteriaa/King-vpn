@@ -80,6 +80,7 @@ class KingAutoSwitchCoordinator {
   final List<KingConnectionAdapter> _adapters;
   final KingNetworkEngineCatalog catalog;
   KingConnectionAdapter? _active;
+  KingConnectionAdapter? _starting;
   Future<KingAutoSwitchResult>? _flight;
   int _generation = 0;
   bool _stoppedByUser = false;
@@ -122,6 +123,7 @@ class KingAutoSwitchCoordinator {
         } catch (_) {}
       }
 
+      _starting = adapter;
       try {
         final result = await adapter.connect();
         attempts.add(result);
@@ -145,6 +147,7 @@ class KingAutoSwitchCoordinator {
           );
         }
         if (trafficOk) {
+          _starting = null;
           _active = adapter;
           return KingAutoSwitchResult(
             engine: adapter.id,
@@ -153,12 +156,14 @@ class KingAutoSwitchCoordinator {
           );
         }
       } catch (error) {
+        if (identical(_starting, adapter)) _starting = null;
         attempts.add(KingEngineConnectResult(
           started: false,
           trafficVerified: false,
           detail: error.toString(),
         ));
       }
+      if (identical(_starting, adapter)) _starting = null;
       try {
         await adapter.disconnect();
       } catch (_) {}
@@ -236,8 +241,13 @@ class KingAutoSwitchCoordinator {
     _stoppedByUser = true;
     ++_generation;
     final active = _active;
+    final starting = _starting;
     _active = null;
+    _starting = null;
     if (active != null) await active.disconnect();
+    if (starting != null && !identical(starting, active)) {
+      await starting.disconnect();
+    }
   }
 }
 
