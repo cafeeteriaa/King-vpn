@@ -241,15 +241,18 @@ extension IpAutoExt on _HomePageState {
         final nationalSeeds = await natHotNext(50, fetch: false);
         if (halted()) return false;
         if (nationalSeeds.isNotEmpty) {
-          natTemplateSeeds = nationalSeeds.take(2).toList();
-          pool = [...nationalSeeds, ...good, ...pending];
+          natNationalTemplateSeeds = [
+            ...natNationalTemplateSeeds,
+            ...nationalSeeds,
+          ];
+          pool = [...natNationalTemplateSeeds];
         } else {
-          pool = <Server>[...natTemplateSeeds, ...good, ...pending];
+          pool = <Server>[...natNationalTemplateSeeds];
         }
       } catch (e, stk) {
         logError(e, stk);
         if (halted()) return false;
-        pool = <Server>[...natTemplateSeeds, ...good, ...pending];
+        pool = <Server>[...natNationalTemplateSeeds];
       }
     } else {
       say('دریافت سرور نمونه از منابع جهانی...');
