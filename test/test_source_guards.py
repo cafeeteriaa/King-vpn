@@ -2344,34 +2344,31 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('cancelled: stop,', dns)
         self.assertIn('if (stop != null && stop()) return null;', dns)
 
-    def test_nat_domain_first_discards_partial_results_after_cancel_or_deadline(self):
+    def test_nat_domain_first_scans_the_full_configured_endpoint_inventory(self):
         source = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
         start = source.index('Future<List<String>> _natDomainFirst(')
         end = source.index('Future<List<String>> natDeviceHosts()', start)
         body = source[start:end]
-        self.assertIn('final scanClock = Stopwatch()..start();', body)
-        self.assertIn('const scanBudget = Duration(seconds: 45);', body)
-        self.assertLess(body.index('final scanClock'), body.index('for (final entry in endpoints.entries)'))
-        lookup = body.index('await safeLookup(entry.key)')
-        lookup_guard = body.index('if (cancelled()) return const <String>[];', lookup)
-        self.assertLess(lookup, lookup_guard)
-        self.assertIn('bool expired() => scanClock.elapsed >= scanBudget;', body)
-        scan = body.index('final hits = await natScanIps(')
+        self.assertNotIn('scanBudget', body)
+        self.assertNotIn('known.take(1200)', body)
+        self.assertIn('for (final server in known)', body)
+        self.assertIn('for (final address in addresses)', body)
+        self.assertIn('await safeLookup(entry.key)', body)
+        self.assertIn('final hits = await natScanIps(', body)
         self.assertIn('cancelled: cancelled,', body)
-        discard = body.index('if (cancelled())', scan)
-        append = body.index('out.add(', discard)
-        self.assertLess(scan, discard)
-        self.assertLess(discard, append)
-        self.assertIn('return const <String>[];', body[discard:append])
-        self.assertGreaterEqual(body.count('if (cancelled())'), 5)
-        self.assertIn('if (cancelled()) return const <String>[];', body[body.index('} catch (e, stk)'):])
+        self.assertNotIn('want: 50', body)
+        self.assertNotIn('Duration(seconds: 5)', body)
+        self.assertNotIn('address.type != InternetAddressType.IPv4', body)
+        self.assertIn('return const <String>[];', body)
 
-    def test_nat_ip_scan_never_exceeds_requested_hit_limit_under_concurrency(self):
+    def test_nat_ip_scan_only_applies_explicit_hit_and_time_limits(self):
         source = (ROOT / 'lib' / 'nat_ip_scan.dart').read_text(encoding='utf-8')
         start = source.index('Future<List<NatIpHit>> natScanIps(')
         body = source[start:]
-        self.assertIn('if (ips.isEmpty || want <= 0) return <NatIpHit>[];', body)
-        self.assertIn('if (ms != null && hits.length < want)', body)
+        self.assertIn('if (ips.isEmpty || (want != null && want <= 0))', body)
+        self.assertIn('if (want != null && hits.length >= want)', body)
+        self.assertIn('if (budget != null && elapsed.elapsed >= budget)', body)
+        self.assertIn('if (ms != null && (want == null || hits.length < want))', body)
 
     def test_auto_sni_scan_uses_shared_scanner_lock(self):
         source = (ROOT / 'lib' / 'auto_scanners.dart').read_text(encoding='utf-8')
@@ -2384,17 +2381,58 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertLess(body.index('dnsxManualBusy = true;'), body.index('await goldLoad();'))
         self.assertLess(body.index('_autoScanRunning = false;'), body.index('dnsxManualBusy = false;'))
 
-    def test_auto_sni_scan_has_a_hard_total_time_budget(self):
+    def test_auto_sni_scan_uses_complete_inventory_without_fixed_deadline(self):
         source = (ROOT / 'lib' / 'auto_scanners.dart').read_text(encoding='utf-8')
         start = source.index('Future<void> autoScanRun(')
         end = source.index('Future<void> autoScanSheet(', start)
         body = source[start:end]
-        self.assertIn('const scanBudget = Duration(minutes: 3);', body)
-        self.assertIn('final scanClock = Stopwatch()..start();', body)
-        self.assertIn('bool timedOut() => scanClock.elapsed >= scanBudget;', body)
-        self.assertIn('|| timedOut();', body)
+        self.assertNotIn('scanBudget', body)
+        self.assertNotIn('timedOut()', body)
+        self.assertIn('for (final entry in _goldIps.values)', body)
+        self.assertIn('...kAutoSniDomains', body)
+        self.assertIn('...natFrontSnis', body)
+        self.assertIn('for (final p in ports)', body)
         self.assertIn('shouldAbort: () => cancelled(),', body)
-        self.assertIn('مهلت سه‌دقیقه‌ای اسکن تمام شد', body)
+        self.assertNotIn('kAutoIpLimit', body)
+        self.assertNotIn('kAutoFallbackIps', body)
+
+    def test_sni_probes_reject_ip_literals_and_invalid_certificates(self):
+        nip = (ROOT / 'lib' / 'nip_scan.dart').read_text(encoding='utf-8')
+        auto = (ROOT / 'lib' / 'auto_scanners.dart').read_text(encoding='utf-8')
+        self.assertNotIn('onBadCertificate: (_) => true', nip)
+        self.assertNotIn('onBadCertificate: (_) => true', auto)
+        self.assertIn('InternetAddress.tryParse(sni.trim()) != null', nip)
+        self.assertIn('InternetAddress.tryParse(value.trim()) == null', nip)
+        self.assertIn('final List<String> natFrontSnis', nip)
+        self.assertIn('...kAutoSniDomains', nip)
+
+    def test_ip_grafting_preserves_host_and_the_actual_scanned_port(self):
+        nip = (ROOT / 'lib' / 'nip_scan.dart').read_text(encoding='utf-8')
+        self.assertIn('String? nipSwapLink(Server t, String ip, {int? port})', nip)
+        self.assertIn("j['port'] = port.toString();", nip)
+        self.assertIn('u.replace(host: ip, port: port ??', nip)
+        self.assertIn('String? nipSwapSni(Server t, String ip, String sni, {int? port})', nip)
+        self.assertIn('!t.tls || t.reality', nip)
+        self.assertIn('|| server.reality', nip)
+
+    def test_fragmentation_reaches_the_real_core_config_and_survives_sanitization(self):
+        main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        nat = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
+        extras = (ROOT / 'lib' / 'npv_am_extras.dart').read_text(encoding='utf-8')
+        self.assertIn('final base = natCfg(s, nv, reuse: true)', main)
+        self.assertIn('sanitizeCfg(withIranRouting(withNpvAmCore(c)))', main)
+        self.assertIn("if (dp != null && !tags.contains(dp))", main)
+        self.assertIn("so['dialerProxy'] = 'frag-out';", nat)
+        self.assertIn("'tag': 'frag-out'", nat)
+        self.assertIn("if (fragEnabled && st is Map", extras)
+        self.assertIn("'packets': 'tlshello'", extras)
+
+    def test_matrix_order_is_not_truncated_by_the_old_5000_variant_ceiling(self):
+        main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        nat = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
+        self.assertNotIn('natMaxVariants', main)
+        self.assertNotIn('natMaxVariants', nat)
+        self.assertIn('_natOrder(s, full: _resFull).where((v) => v != 0)', main)
 
     def test_auto_sni_scan_aborts_when_network_mode_changes_mid_run(self):
         source = (ROOT / 'lib' / 'auto_scanners.dart').read_text(encoding='utf-8')
@@ -2405,7 +2443,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         first_await = body.index('await goldLoad();')
         self.assertLess(snapshot, first_await)
         self.assertIn('bool cancelled() =>', body)
-        self.assertIn('_autoScanStop || vpnActive() || vpnWanted() || nationalMode != scanNationalMode || timedOut();', body)
+        self.assertIn('_autoScanStop || vpnActive() || vpnWanted() || nationalMode != scanNationalMode;', body)
         self.assertIn('await goldAddScans(', body)
         self.assertIn('shouldAbort: () => cancelled(),', body)
         self.assertNotIn('if (_autoScanStop)', body)
@@ -2421,7 +2459,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         start = source.index('Future<void> autoScanRun(')
         end = source.index('Future<void> autoScanSheet(', start)
         body = source[start:end]
-        self.assertIn('_autoScanStop || vpnActive() || vpnWanted() || nationalMode != scanNationalMode || timedOut();', body)
+        self.assertIn('_autoScanStop || vpnActive() || vpnWanted() || nationalMode != scanNationalMode;', body)
         self.assertIn('با شروع اتصال VPN، اسکن برای جلوگیری از تداخل متوقف شد', body)
         self.assertIn('shouldAbort: () => cancelled(),', body)
 
