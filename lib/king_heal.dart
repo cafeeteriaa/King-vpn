@@ -127,6 +127,7 @@ class _HealMemory {
     }
   }
 
+  // Laplace-smoothed success estimate: sparse history stays conservative.
   double score(String action, {String context = ''}) {
     final totalWins = wins[action] ?? 0;
     final totalFails = fails[action] ?? 0;
