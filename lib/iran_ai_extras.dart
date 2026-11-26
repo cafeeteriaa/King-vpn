@@ -2656,7 +2656,6 @@ extension HomeExtras on _HomePageState {
         'offlineOnly': offlineOnly,
         'minSpeedKB': minSpeedKB,
         'firstBatchSize': firstBatchSize,
-        'maxBatches': maxBatches,
         'ipMode': ipMode,
         'iranRoute': iranRoute,
         'autoUpgrade': autoUpgrade,
@@ -2701,7 +2700,6 @@ extension HomeExtras on _HomePageState {
     if (!_pilotUserTouched.contains('offlineOnly')) offlineOnly = s['offlineOnly'] as bool;
     if (!_pilotUserTouched.contains('minSpeedKB')) minSpeedKB = s['minSpeedKB'] as int;
     if (!_pilotUserTouched.contains('firstBatchSize')) firstBatchSize = s['firstBatchSize'] as int? ?? firstBatchSize;
-    if (!_pilotUserTouched.contains('maxBatches')) maxBatches = s['maxBatches'] as int? ?? maxBatches;
     if (!_pilotUserTouched.contains('ipMode')) ipMode = s['ipMode'] as bool? ?? ipMode;
     if (!_pilotUserTouched.contains('iranRoute')) iranRoute = s['iranRoute'] as bool? ?? iranRoute;
     if (!_pilotUserTouched.contains('autoUpgrade')) autoUpgrade = s['autoUpgrade'] as bool? ?? autoUpgrade;
@@ -2751,11 +2749,6 @@ extension HomeExtras on _HomePageState {
 
 
 // NUMPATCH ======================= عددهای قابل تنظیم =======================
-// first search (used by patch_fast.py): it stops at the FIRST healthy server
-// (for the web-reachability row: the first verified endpoint). Safety: after [firstCapSec]
-// seconds it goes on with the ones found.
-int firstCapSec = 15; // BEST: کمی بیشتر برای پیدا کردن سرور سالم
-
 // the AI assistant must not change these
 // AI may change every number (no locked keys)
 const aiLockedNums = <String>{};
@@ -2802,14 +2795,12 @@ final List<NumOpt> numOpts = [
     recheckMin = v;
     recheckAfter = Duration(minutes: v);
   }),
-  // ----- 12 new options -----
+  // ----- additional options -----
   NumOpt('tcpWorkers', 'پیش‌فیلتر TCP همزمان', 1, 200, 60, 200, true,
       () => tcpWorkers, (v) => tcpWorkers = v),
   NumOpt('tcpTimeout', 'تایم‌اوت TCP (دهم ثانیه)', 1, 300, 35, 300, true,
       () => tcpTimeout.inMilliseconds ~/ 100,
       (v) => tcpTimeout = Duration(milliseconds: v * 100)),
-  NumOpt('maxPerSource', 'حداکثر سرور از هر منبع', 1, 500, 120, 500, true,
-      () => maxPerSource, (v) => maxPerSource = v),
   NumOpt('fetchWorkers', 'دانلود همزمان لیست‌ها', 1, 20, 8, 20, true,
       () => fetchWorkers, (v) => fetchWorkers = v),
   NumOpt('fetchDeadline', 'مهلت دانلود لیست‌ها (ثانیه)', 5, 120, 45, 120, true,
@@ -2819,8 +2810,6 @@ final List<NumOpt> numOpts = [
       () => firstBatchSize, (v) => firstBatchSize = v),
   NumOpt('standbyBatchSize', 'اندازه دسته (وقتی وصل است)', 1, 300, 40, 300,
       true, () => standbyBatchSize, (v) => standbyBatchSize = v),
-  NumOpt('maxBatches', 'حداکثر تعداد دسته در هر جستجو', 1, 50, 8, 50, true,
-      () => maxBatches, (v) => maxBatches = v),
   NumOpt('watchFailLimit', 'تعداد پینگ ناموفق تا تعویض', 1, 10, 3, 10, true,
       () => watchFailLimit, (v) => watchFailLimit = v),
   NumOpt('badPingLimit', 'تعداد پینگ بد تا تعویض', 1, 10, 3, 10, true,
@@ -2829,9 +2818,6 @@ final List<NumOpt> numOpts = [
       () => missLimit, (v) => missLimit = v),
   NumOpt('watchEvery', 'فاصله‌ی چک اتصال (ثانیه)', 5, 300, 30, 300, true,
       () => watchEvery.inSeconds, (v) => watchEvery = Duration(seconds: v)),
-  // ----- first search: time cap -----
-  NumOpt('firstCapSec', 'سقف زمان جستجوی اول (ثانیه)', 5, 120, 15, 120, true,
-      () => firstCapSec, (v) => firstCapSec = v),
 ];
 
 // یک‌بار: همگام‌سازی با پروفایل BEST (اگر قبلاً فقط batch300 اعمال شده بود)
@@ -3043,17 +3029,14 @@ extension NumHomeExtras on _HomePageState {
       'batch': 300,
       'tcpWorkers': 20,
       'tcpTimeout': 150,
-      'maxPerSource': 200,
       'fetchWorkers': 8,
       'fetchDeadline': 60,
       'firstBatchSize': 200,
       'standbyBatchSize': 100,
-      'maxBatches': 10,
       'watchFailLimit': 10,
       'badPingLimit': 10,
       'missLimit': 10,
       'watchEvery': 180,
-      'firstCapSec': 30,
       'speedTopN': 10,
     };
     for (final o in numOpts) {
@@ -3118,17 +3101,14 @@ const Map<String, int> _tunedNums = {
   'recheckMin': 20,
   'tcpWorkers': 60,
   'tcpTimeout': 35,
-  'maxPerSource': 120,
   'fetchWorkers': 6,
   'fetchDeadline': 25,
   'firstBatchSize': 50,
   'standbyBatchSize': 40,
-  'maxBatches': 8,
   'watchFailLimit': 3,
   'badPingLimit': 3,
   'missLimit': 3,
   'watchEvery': 30,
-  'firstCapSec': 15,
 };
 
 // v2/v3/v4: همان BEST تا نسخه‌های قدیمی هم یکدست شوند
@@ -3168,15 +3148,12 @@ const Map<String, int> _tunedNums2 = {
   'recheckMin': 20,
   'tcpWorkers': 60,
   'tcpTimeout': 35,
-  'maxPerSource': 120,
   'fetchWorkers': 6,
   'fetchDeadline': 25,
   'firstBatchSize': 50,
   'standbyBatchSize': 40,
-  'maxBatches': 8,
   'watchFailLimit': 3,
   'badPingLimit': 3,
-  'firstCapSec': 15,
 };
 
 const Map<String, dynamic> _tunedSettings3 = {
@@ -3217,8 +3194,6 @@ const Map<String, int> _tunedNums3 = {
   'fetchWorkers': 6,
   'firstBatchSize': 50,
   'standbyBatchSize': 40,
-  'maxBatches': 8,
-  'firstCapSec': 15,
 };
 
 // settings saved by an older build get the tuned values ONCE; after that the
@@ -3428,7 +3403,7 @@ Iterable<String> _allTouchKeys() => <String>[
       'tcpTimeout', 'batchSize', 'badPingMs', 'watchFailLimit', 'speedTopN',
       'muxConc', 'ultraMode', 'indestructibleMode', 'fragEnabled', 'proxyMode',
       'turboSpeed', 'muxEnabled', 'autoSpeed', 'autoCycle', 'savedFirst',
-      'offlineOnly', 'minSpeedKB', 'firstBatchSize', 'maxBatches', 'ipMode',
+      
       'iranRoute', 'autoUpgrade', 'fastDelay', 'badPingSwitch', 'cleanIpMode',
       'smartOrder', 'protoSel', 'numValues',
       ...numOpts.map((o) => _numVarName(o.id)),
