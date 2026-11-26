@@ -126,7 +126,7 @@ Future<void> autoScanRun(void Function(String) say,
     }.toList()..sort();
     final sniDomains = <String>{
       ...kAutoSniDomains,
-      ...natFrontSnis,
+      ...natFrontSnis(),
     }.toList(growable: false);
     say('بررسی کامل موجودی: ${ips.length} IP • ${sniDomains.length} نام SNI • ${ports.length} پورت');
     // SNI: خروجی خود دامنه‌هاست. هر دامنه یک بار؛ به محض یک IP سالم، همان دامنه ثبت می‌شود
