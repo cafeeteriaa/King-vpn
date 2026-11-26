@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:king_vpn/king_auto_switch.dart';
 import 'package:king_vpn/king_network_engines.dart';
+import 'package:king_vpn/king_proxy_sources.dart';
 
 class FakeAdapter implements KingConnectionAdapter {
   FakeAdapter(this.id, {this.available = true, this.startOk = true,
@@ -175,6 +176,16 @@ void main() {
             .map((engine) => engine.id).toList(),
         [KingEngineId.xray],
       );
+    });
+
+    test('provides 50 shared online feeds and offline import paths for Hysteria2 and sing-box', () {
+      expect(KingProxySourceCatalog.online, hasLength(50));
+      expect(KingProxySourceCatalog.online.map((s) => s.url).toSet(), hasLength(50));
+      expect(KingProxySourceCatalog.forHysteria2(), hasLength(50));
+      expect(KingProxySourceCatalog.forHysteria2().every(
+        (s) => s.protocols == KingProxyProtocolFilter.hysteria2), isTrue);
+      expect(KingProxySourceCatalog.forSingBox(), hasLength(50));
+      expect(KingProxySourceCatalog.offline, hasLength(8));
     });
 
     test('keeps local DPI tools separate from full-device VPN engines', () {
