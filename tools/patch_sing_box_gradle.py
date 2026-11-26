@@ -61,7 +61,28 @@ def add_mirrors(text, scope):
 def install_go_runtime_merge(gradle_text):
     marker = "val libboxProperties = Properties().apply {"
     if "prepareLibboxGoRuntimeJar" in gradle_text:
-        return gradle_text
+        if (
+            "libboxGoCompileJar" in gradle_text
+            and "compileOnly(files(libboxGoCompileJar)" in gradle_text
+        ):
+            return gradle_text
+        # Pub caches can retain a Gradle file patched by an earlier CI run.
+        # Replace that older single-output task instead of silently reusing it.
+        task_start = gradle_text.find(
+            "// Both libbox and the existing Xray/V2Ray AAR ship gomobile's shared"
+        )
+        marker_pos = gradle_text.find(marker)
+        if task_start < 0 or marker_pos < task_start:
+            raise SystemExit("HARD FAIL: stale or malformed libbox runtime patch")
+        gradle_text = gradle_text[:task_start] + gradle_text[marker_pos:]
+        old_patched = 'implementation(files(libboxGoRuntimeJar).builtBy(prepareLibboxGoRuntimeJar))'
+        if gradle_text.count(old_patched) != 1:
+            raise SystemExit("HARD FAIL: cannot migrate stale libbox runtime dependency")
+        gradle_text = gradle_text.replace(
+            old_patched,
+            'implementation(files(File(libboxDir, "classes.jar")))',
+            1,
+        )
     required_imports = (
         "import java.util.zip.ZipEntry",
         "import java.util.zip.ZipFile",
