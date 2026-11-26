@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Pin the reviewed libbox Flutter plugin in the generated Android host."""
 from pathlib import Path
+import re
 import sys
 
 PLUGIN_URL = "https://github.com/QUSAD-prod/sing_box.git"
@@ -21,9 +22,12 @@ def main():
         if block not in source:
             raise SystemExit("HARD FAIL: sing_box exists but is not pinned to reviewed commit")
     else:
-        if source.count("dependencies:\n") != 1:
-            raise SystemExit("HARD FAIL: expected one dependencies block")
-        pubspec.write_text(source.replace("dependencies:\n", "dependencies:\n" + block, 1), encoding="utf-8")
+        matches = list(re.finditer(r"(?m)^dependencies:[ \t]*$", source))
+        if len(matches) != 1:
+            raise SystemExit(f"HARD FAIL: expected one top-level dependencies block, found {len(matches)}")
+        match = matches[0]
+        source = source[:match.end()] + "\n" + block.rstrip("\n") + source[match.end():]
+        pubspec.write_text(source, encoding="utf-8")
     print(f"OK: sing_box pinned to {PLUGIN_REF}")
 
 if __name__ == "__main__":
