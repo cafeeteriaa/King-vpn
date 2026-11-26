@@ -1,7 +1,7 @@
 # KING VPN Revision Ledger
 
-Current revision: 61
-Next revision: 62
+Current revision: 62
+Next revision: 63
 Repository: cafeeteriaa/King-vpn
 Revision branch: fix/revision-58-network-identity-fragmentation-20261126
 Revision PR: https://github.com/cafeeteriaa/King-vpn/pull/58
