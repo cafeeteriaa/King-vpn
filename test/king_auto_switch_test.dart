@@ -315,6 +315,35 @@ void main() {
       expect(parsed.single.format, KingServerConfigFormat.singBoxJson);
     });
 
+    test('imports all valid OpenVPN variants from the official VPN Gate CSV directory', () {
+      const ovpn = 'client\\nproto udp\\nremote vpn.example.org 1194\\n';
+      final encoded = base64Encode(utf8.encode(ovpn));
+      final payload = [
+        '#vpn_servers',
+        '#HostName,IP,OpenVPN_ConfigData_Base64,OpenVPN_ConfigData_Base64_UDP,OpenVPN_ConfigData_Base64_TCP',
+        '"Relay, Amsterdam",203.0.113.10,$encoded,,$encoded',
+        'invalid,203.0.113.11,not-base64,,',
+      ].join('\\n');
+      final profiles = parser.parse(
+        engineId: KingEngineId.openVpn,
+        payload: payload,
+        sourceId: 'vpn_gate_official_directory',
+      );
+      expect(profiles, hasLength(1));
+      expect(profiles.single.format, KingServerConfigFormat.openVpnProfile);
+      expect(profiles.single.sourceId, 'vpn_gate_official_directory');
+      expect(profiles.single.name, contains('Relay, Amsterdam'));
+      expect(profiles.single.raw, ovpn);
+    });
+
+    test('registers VPN Gate as a live OpenVPN relay directory source', () {
+      final sources = KingEngineServerSourceCatalog.forEngine(KingEngineId.openVpn);
+      final source = sources.singleWhere((item) => item.id == 'vpn_gate_official_directory');
+      expect(source.url, 'https://www.vpngate.net/api/iphone/');
+      expect(source.kind, KingServerSourceKind.publicSubscription);
+      expect(source.formats, contains(KingServerConfigFormat.openVpnProfile));
+    });
+
     test('recognizes OpenVPN, WireGuard and AmneziaWG profile files', () {
       const ovpn = 'client\nproto udp\nremote vpn.example.org 1194\n';
       final privateKey = base64Encode(List<int>.filled(32, 7));
