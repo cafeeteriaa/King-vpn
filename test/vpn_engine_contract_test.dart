@@ -60,26 +60,15 @@ KingVpnEngineDescriptor descriptor(String id) => KingVpnEngineDescriptor(
 
 void main() {
   group('KingVpnEngineCatalog', () {
-    test('contains the complete requested technology inventory', () {
+    test('contains exactly the twelve approved KING VPN technologies', () {
       final catalog = KingVpnEngineCatalog();
-      for (final id in <String>[
-        'psiphon',
-        'tor',
-        'vpn_gate',
-        'nthlink',
-        'calyx_vpn',
-        'cloudflare_warp',
-        'lantern',
-        'avira_phantom',
-        'shroudly',
-        'ceno',
-        'byedpi',
-        'powertunnel',
-        'i2p',
-      ]) {
-        expect(catalog[id], isNotNull, reason: 'Missing $id');
-      }
-      expect(catalog.all.length, greaterThanOrEqualTo(13));
+      const approved = <String>{
+        'xray', 'hysteria2', 'sing_box', 'nthlink', 'shroudly', 'byedpi',
+        'powertunnel', 'amneziawg', 'openvpn', 'shadowsocks', 'openconnect',
+        'wireguard',
+      };
+      expect(catalog.all.map((engine) => engine.id).toSet(), approved);
+      expect(catalog.all, hasLength(12));
     });
 
     test('allows registering additional discovered technologies', () {
@@ -91,7 +80,7 @@ void main() {
     test('rejects duplicate identifiers rather than silently replacing them', () {
       final catalog = KingVpnEngineCatalog();
       expect(
-        () => catalog.register(descriptor('psiphon')),
+        () => catalog.register(descriptor('xray')),
         throwsStateError,
       );
     });
@@ -102,7 +91,7 @@ void main() {
       final coordinator = KingVpnEngineCoordinator();
       await expectLater(
         coordinator.start(
-          'psiphon',
+          'hysteria2',
           const KingEngineStartRequest(configuration: 'opaque'),
         ),
         throwsStateError,
@@ -123,7 +112,7 @@ void main() {
       coordinator.registerAdapter(adapter);
 
       final session = await coordinator.start(
-        'psiphon',
+        'hysteria2',
         const KingEngineStartRequest(configuration: 'opaque'),
       );
 
