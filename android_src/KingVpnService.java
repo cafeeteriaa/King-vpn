@@ -229,7 +229,7 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
 
     /** جدید: stop requested by the app while it is in the background. */
     public void stopFromApp() {
-        requestStop();
+        requestStop(true);
         submit(this::stopEverything);
     }
 
@@ -269,7 +269,7 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
             if (!startForegroundSafe("در حال بازیابی اتصال…")) {
                 lastError = "Unable to enter foreground mode during VPN service recovery";
                 Log.e(TAG, lastError);
-                requestStop();
+                requestStop(false);
                 submit(this::stopEverything);
                 return START_NOT_STICKY;
             }
@@ -283,7 +283,7 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
             // ACTION_STOP may itself arrive through startForegroundService; satisfy the
             // same deadline before asynchronous shutdown work is queued.
             startForegroundSafe("در حال قطع اتصال…");
-            requestStop();
+            requestStop(true);
             submit(this::stopEverything);
             return START_NOT_STICKY;
         }
@@ -298,7 +298,7 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
             // جدید: startForegroundService requires startForeground() within 5 s, or Android
             // kills the process with ForegroundServiceDidNotStartInTimeException.
             updateNotification("خطا: تنظیمات سرور خالی است");
-            requestStop();
+            requestStop(false);
             submit(this::stopEverything);
             return START_NOT_STICKY;
         }
@@ -318,7 +318,7 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
             lastError = "Unable to enter foreground mode; VPN startup was refused";
             Log.e(TAG, lastError);
             emit("FAILED", lastError, activeAttemptId);
-            requestStop();
+            requestStop(false);
             submit(this::stopEverything);
             return START_NOT_STICKY;
         }
@@ -412,8 +412,8 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
      * Non-blocking half of a stop. Safe to call on the main thread: it only sets
      * flags and cancels the running attempt. The real work runs on the worker.
      */
-    private void requestStop() {
-        userStopped = true;
+    private void requestStop(boolean explicitUserStop) {
+        if (explicitUserStop) userStopped = true;
         stopping = true;
         active = false;
         retryWaiting = false;
@@ -1058,7 +1058,12 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
                 Log.w(TAG, "core busy in a previous attempt; leaving it to that attempt");
                 lastError = "core busy from a previous attempt";
             }
-            clearState();
+            if (userStopped) {
+                clearState();
+            } else if (!servers.isEmpty()) {
+                // Preserve failover inventory across process/service teardown and failed attempts.
+                saveState();
+            }
             servers.clear();
             try {
                 stopForeground(true);
@@ -1240,7 +1245,7 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
     @Override
     public void onRevoke() {
         // Another VPN took over: stop our core and free the TUN, without blocking the main thread.
-        requestStop();
+        requestStop(false);
         submit(this::stopEverything);
     }
 
@@ -1248,7 +1253,7 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
     public void onDestroy() {
         if (instance == this) instance = null; // جدید
         stopWatchdog();
-        requestStop();
+        requestStop(false);
         ScheduledExecutorService sch = scheduler; // جدید: close the scheduler thread for good
         scheduler = null;
         if (sch != null) sch.shutdownNow();
