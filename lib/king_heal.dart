@@ -179,7 +179,8 @@ extension KingHealEngine on _HomePageState {
   /// نقطهٔ ورود اصلی — از واچ‌داگ، خلبان، و بعد از خطا
   /// نسخهٔ تهاجمی: سریع‌تر حس می‌کند، زودتر وارد عمل می‌شود، کمتر صبر می‌کند
   Future<void> kingSelfHeal({String reason = ''}) async {
-    if (!mounted || kingHealBusy.value) return; // حقیقی: جلوگیری از هم‌پوشانی چرخه‌های ترمیم
+    // Until the multi-core coordinator lands, legacy repair actions must not mutate a WireGuard session as if it were Xray.
+    if (!mounted || kingHealBusy.value || _kingWireGuardActive) return; // حقیقی: جلوگیری از هم‌پوشانی چرخه‌های ترمیم
     final now = DateTime.now();
     // فاصلهٔ بین چرخه‌ها کمتر شد (۸ → ۴ ثانیه)
     if (_healLastRun != null &&
