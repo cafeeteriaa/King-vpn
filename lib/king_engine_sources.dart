@@ -175,6 +175,7 @@ class KingServerPayloadParser {
   List<KingImportedServerProfile> _parseJson(
     String engineId, String payload, String sourceId,
   ) {
+    if (engineId != 'xray' && engineId != 'sing_box') return const [];
     if (!payload.startsWith('{') && !payload.startsWith('[')) return const [];
     dynamic decoded;
     try { decoded = jsonDecode(payload); } catch (_) { return const []; }
