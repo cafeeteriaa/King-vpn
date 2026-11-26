@@ -203,7 +203,14 @@ class KingAutoSwitchCoordinator {
           attempts: const [], detail: 'Active engine remains healthy');
     }
     _active = null;
-    try { await active.disconnect(); } catch (_) {}
+    try {
+      await active.disconnect();
+    } catch (error) {
+      return KingAutoSwitchResult(
+        engine: null, connected: false, attempts: const [],
+        detail: 'Active VPN owner did not confirm TUN release; recovery halted: $error',
+      );
+    }
     if (_stoppedByUser || generationAtStart != _generation) {
       return const KingAutoSwitchResult(engine: null, connected: false,
           attempts: [], detail: 'Connection attempt cancelled');
