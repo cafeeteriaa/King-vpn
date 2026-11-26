@@ -18,7 +18,8 @@ class VpnEngineOwnershipSourceGuard(unittest.TestCase):
         start = source.index("backend.setState(tunnel, Tunnel.State.UP, config)")
         self.assertLess(acquire, start)
         self.assertIn('KingVpnEngineCoordinator.release("wireguard")', source)
-        self.assertIn("KingVpnService.instance?.stopForEngineHandoff()", source)
+        self.assertIn("KingVpnService.instance?.stopForEngineHandoff(30_000L) == true", source)
+        self.assertIn("completed.await(Math.max(0L, timeoutMs), TimeUnit.MILLISECONDS)", (ROOT / "android_src" / "KingVpnService.java").read_text())
         self.assertIn("backend.getState(tunnel) == Tunnel.State.DOWN", source)
         self.assertIn("getOrNull() == Tunnel.State.DOWN", source)
         self.assertNotIn("getOrNull() != Tunnel.State.UP", source)
@@ -44,6 +45,8 @@ class VpnEngineOwnershipSourceGuard(unittest.TestCase):
         end = source.index("\n    }", start)
         method = source[start:end]
         self.assertIn("requestStop(false)", method)
+        self.assertIn("CountDownLatch completed", method)
+        self.assertIn("return !\"xray\".equals(KingVpnEngineCoordinator.currentOwner())", method)
         self.assertNotIn("requestStop(true)", method)
 
 
