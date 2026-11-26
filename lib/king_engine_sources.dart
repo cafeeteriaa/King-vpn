@@ -148,6 +148,35 @@ class KingServerPayloadParser {
       if (proxyProfiles.isNotEmpty) return List.unmodifiable(proxyProfiles);
     }
 
+    // Hysteria 2 share links are parsed explicitly before the generic
+    // multi-protocol path so URI authority/auth data is retained verbatim.
+    if (engineId == 'hysteria2' || engineId == 'sing_box') {
+      final hysteriaProfiles = <KingImportedServerProfile>[];
+      final hysteriaSeen = <String>{};
+      for (final line in value.split(RegExp(r'[\\r\\n]+'))) {
+        final item = line.trim();
+        if (item.isEmpty || item.startsWith('#') || item.startsWith(';')) continue;
+        final uri = Uri.tryParse(item);
+        final scheme = uri?.scheme.toLowerCase();
+        if (uri == null || !const {'hy2', 'hysteria2'}.contains(scheme) ||
+            uri.host.isEmpty || uri.port < 1 || uri.port > 65535) {
+          continue;
+        }
+        final profile = KingImportedServerProfile(
+          engineId: engineId,
+          format: KingServerConfigFormat.hysteria2Uri,
+          raw: item,
+          sourceId: sourceId,
+        );
+        if (hysteriaSeen.add(profile.fingerprint)) {
+          hysteriaProfiles.add(profile);
+        }
+      }
+      if (hysteriaProfiles.isNotEmpty) {
+        return List.unmodifiable(hysteriaProfiles);
+      }
+    }
+
     final found = <KingImportedServerProfile>[];
     final seen = <String>{};
     for (final line in value.split(RegExp(r'[\r\n]+'))) {
