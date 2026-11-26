@@ -43,7 +43,7 @@ class KingWireGuardCore private constructor(context: Context) {
                 "libbox TUN handoff timed out before WireGuard start"
             }
         }
-        check(KingVpnEngineCoordinator.acquire("wireguard", 30_000L))
+        check(KingVpnEngineCoordinator.acquire("wireguard", 30_000L)) {
             "Another KING VPN engine did not release the Android VPN slot"
         }
         try {
