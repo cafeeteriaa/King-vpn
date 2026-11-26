@@ -28,7 +28,11 @@ class KingConfigDocument {
       throw FormatException('Unsupported editable share-link protocol: $scheme');
     }
     if (scheme == 'vmess') {
-      var payload = raw.substring(marker + 3).split('#').first.split('?').first;
+      final encodedBody = raw.substring(marker + 3);
+      final hashAt = encodedBody.indexOf('#');
+      final fragment = hashAt < 0 ? '' : encodedBody.substring(hashAt + 1);
+      var payload = (hashAt < 0 ? encodedBody : encodedBody.substring(0, hashAt))
+          .split('?').first;
       payload = payload.replaceAll('-', '+').replaceAll('_', '/');
       while (payload.length % 4 != 0) {
         payload += '=';
@@ -37,7 +41,10 @@ class KingConfigDocument {
       if (decoded is! Map) throw const FormatException('Invalid VMess JSON');
       return KingConfigDocument._(
         scheme,
-        Map<String, dynamic>.from(decoded),
+        <String, dynamic>{
+          ...Map<String, dynamic>.from(decoded),
+          '_kingFragment': fragment,
+        },
         raw,
       );
     }
@@ -123,8 +130,12 @@ class KingConfigDocument {
 
   String toShareLink() {
     if (protocol == 'vmess') {
-      final bytes = utf8.encode(jsonEncode(_values));
-      return 'vmess://${base64Url.encode(bytes).replaceAll('=', '')}';
+      final jsonValues = Map<String, dynamic>.from(_values)
+        ..remove('_kingFragment');
+      final bytes = utf8.encode(jsonEncode(jsonValues));
+      final encoded = base64Url.encode(bytes).replaceAll('=', '');
+      final fragment = (_values['_kingFragment'] ?? '').toString();
+      return 'vmess://$encoded${fragment.isEmpty ? '' : '#$fragment'}';
     }
     final query = Map<String, String>.from(_values['_query'] as Map);
     final uri = Uri(
@@ -303,29 +314,49 @@ class KingConfigAutoScanner {
   }) {
     final variants = <KingConfigVariant>[];
     final seen = <String>{config.originalLink};
-    void add(String label, Map<String, Object?> changes) {
-      try {
-        final link = config.withOverrides(changes).toShareLink();
-        if (seen.add(link)) {
-          variants.add(KingConfigVariant(
-            label: label,
-            config: link,
-            probes: const [],
-          ));
-        }
-      } on FormatException {
-        // Unsupported field/protocol combinations are not emitted.
-      }
-    }
+    final addressOptions = <String?>[
+      null,
+      ...addresses.map((e) => e.trim()).where((e) => e.isNotEmpty).toSet(),
+    ];
+    final portOptions = <int?>[
+      null,
+      ...ports.where((e) => e >= 1 && e <= 65535).toSet(),
+    ];
+    final sniOptions = <String?>[
+      null,
+      ...snis.map((e) => e.trim()).where((e) => e.isNotEmpty).toSet(),
+    ];
 
-    for (final address in addresses) {
-      add('Address $address', {'address': address});
-    }
-    for (final port in ports) {
-      add('Port $port', {'port': port});
-    }
-    for (final sni in snis) {
-      add('SNI $sni', {'sni': sni});
+    // Full Cartesian combinations are retained; no arbitrary variant-count
+    // ceiling silently discards a tested combination.
+    for (final address in addressOptions) {
+      for (final port in portOptions) {
+        for (final sni in sniOptions) {
+          if (address == null && port == null && sni == null) continue;
+          final changes = <String, Object?>{
+            if (address != null) 'address': address,
+            if (port != null) 'port': port,
+            if (sni != null) 'sni': sni,
+          };
+          try {
+            final link = config.withOverrides(changes).toShareLink();
+            if (seen.add(link)) {
+              final label = [
+                if (address != null) 'Address $address',
+                if (port != null) 'Port $port',
+                if (sni != null) 'SNI $sni',
+              ].join(' + ');
+              variants.add(KingConfigVariant(
+                label: label,
+                config: link,
+                probes: const [],
+              ));
+            }
+          } on FormatException {
+            // Unsupported field/protocol combinations are not emitted.
+          }
+        }
+      }
     }
     return variants;
   }
