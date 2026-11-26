@@ -745,35 +745,14 @@ bool _cleanOk(String ip) {
   return a != null && a.type == InternetAddressType.IPv4 && !_privateIp(a);
 }
 
-List<String> _cidrSample(String cidr, int n, Random r) {
-  final p = cidr.split('/');
-  if (p.length != 2) return const [];
-  final a = InternetAddress.tryParse(p[0]);
-  final bits = int.tryParse(p[1]);
-  if (a == null ||
-      a.type != InternetAddressType.IPv4 ||
-      bits == null ||
-      bits < 8 ||
-      bits > 32) {
-    return const [];
-  }
-  final b = a.rawAddress;
-  final base = (b[0] << 24) | (b[1] << 16) | (b[2] << 8) | b[3];
-  final span = 1 << (32 - bits);
-  final mask = (0xFFFFFFFF << (32 - bits)) & 0xFFFFFFFF;
-  final net = base & mask;
-  final out = <String>[];
-  for (var i = 0; i < n; i++) {
-    final off = span <= 2 ? 0 : 1 + r.nextInt(span - 2);
-    final v = net + off;
-    out.add('${(v >> 24) & 255}.${(v >> 16) & 255}.${(v >> 8) & 255}.${v & 255}');
-  }
-  return out;
-}
+final Map<String, String> _goldCleanRangeCursors = <String, String>{};
+int _goldCleanRangeIndex = 0;
+Map<String, String> _goldPendingCleanCursors = <String, String>{};
+int _goldPendingCleanRangeIndex = 0;
 
+/// Generate one resumable page across the complete live Cloudflare IPv4 range
+/// inventory. Each page advances cursors only after its probes finish.
 Future<List<String>> _cleanCandidates() async {
-  final r = Random();
-  final set = <String>{};
   var ranges = List<String>.of(_cfRanges);
   try {
     final res = await http
@@ -782,17 +761,48 @@ Future<List<String>> _cleanCandidates() async {
     if (res.statusCode == 200) {
       final live = res.body
           .split(RegExp(r'[\r\n]+'))
-          .map((e) => e.trim())
-          .where((e) => e.contains('/'))
+          .map((value) => value.trim())
+          .where((value) => value.contains('/'))
           .toList();
-      if (live.length >= 5) ranges = live;
+      if (live.isNotEmpty) ranges = live;
     }
-  } catch (e, stk) { logError(e, stk); }
-  for (final c in ranges) {
-    set.addAll(_cidrSample(c, 28, r).where(_cleanOk));
+  } catch (e, stk) {
+    logError(e, stk);
   }
-  final l = set.toList()..shuffle(r);
-  return l;
+
+  ranges = ranges.toSet().toList(growable: false);
+  if (ranges.isEmpty) return <String>[];
+  final staged = Map<String, String>.of(_goldCleanRangeCursors);
+  final found = <String>{};
+  final start = _goldCleanRangeIndex % ranges.length;
+  final perRange = max(1, (240 / ranges.length).ceil());
+  for (var offset = 0; offset < ranges.length; offset++) {
+    final index = (start + offset) % ranges.length;
+    final range = ranges[index];
+    final cursor = staged[range] ?? '0';
+    final page = natExpandAddressRangeBatch(
+      range,
+      cursor: cursor,
+      limit: perRange,
+    );
+    for (final ip in page.addresses) {
+      if (_cleanOk(ip)) found.add(ip);
+    }
+    staged[range] = page.nextCursor;
+  }
+
+  _goldPendingCleanCursors = staged;
+  _goldPendingCleanRangeIndex = (start + 1) % ranges.length;
+  final result = found.toList(growable: false);
+  if (result.isEmpty) {
+    // No public IPv4 address was emitted in this page, so its cursors can be
+    // committed immediately without waiting for a network probe.
+    _goldCleanRangeCursors
+      ..clear()
+      ..addAll(staged);
+    _goldCleanRangeIndex = _goldPendingCleanRangeIndex;
+  }
+  return result;
 }
 
 Future<String> _cfRead(Socket k, Duration t) async {
@@ -1555,6 +1565,13 @@ Future<void> _goldLoadOnce() async {
       _goldScan[e.key.toString()] = [for (final x in (e.value as List)) x.toString()];
     }
     _goldCnt = (m['cnt'] as num? ?? 0).toInt();
+    _goldCleanRangeCursors
+      ..clear()
+      ..addAll({
+        for (final entry in (m['cleanCursors'] as Map? ?? const {}).entries)
+          entry.key.toString(): entry.value.toString(),
+      });
+    _goldCleanRangeIndex = (m['cleanRangeIndex'] as num? ?? 0).toInt();
     if (!await file.exists()) {
       await _goldWrite();
       final prefs = await SharedPreferences.getInstance();
@@ -1578,6 +1595,8 @@ String _goldEncode() => jsonEncode({
       'dns': [for (final e in _goldDns.entries) [e.key, e.value]],
       'scan': _goldScan,
       'cnt': _goldCnt,
+      'cleanCursors': _goldCleanRangeCursors,
+      'cleanRangeIndex': _goldCleanRangeIndex,
     });
 
 Future<void> _goldWriteQueue = Future<void>.value();
@@ -1765,6 +1784,10 @@ Future<void> _goldIpStep() async {
       .toList();
   if (batch.isEmpty) return;
   final r = await _goldProbe(batch);
+  _goldCleanRangeCursors
+    ..clear()
+    ..addAll(_goldPendingCleanCursors);
+  _goldCleanRangeIndex = _goldPendingCleanRangeIndex;
   var found = 0;
   for (final ip in batch) {
     final ms = r[ip];
