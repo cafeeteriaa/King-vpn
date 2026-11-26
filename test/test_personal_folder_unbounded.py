@@ -11,7 +11,7 @@ class PersonalFolderUnboundedInventoryTests(unittest.TestCase):
         self.assertNotIn("kPersonalShowCap", source)
         self.assertNotIn("length >=", source)
         self.assertIn("personal_servers.jsonl", source)
-        self.assertIn("capacity", source)
+        self.assertIn("سقف تعداد", source)
 
     def test_journal_supports_incremental_add_remove_and_legacy_migration(self):
         source = (ROOT / "lib" / "personal_folder.dart").read_text(encoding="utf-8")
