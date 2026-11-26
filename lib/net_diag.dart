@@ -143,7 +143,7 @@ Future<_DiagItem> _diagHttp(String label, String url, _DiagGroup group) async {
     return _DiagItem(label, res.statusCode > 0, sw.elapsedMilliseconds, group);
   } catch (e, stk) {
     logError(e, stk);
-    return _DiagItem(label, false, sw.elapsedMilliseconds, _DiagGroup.tls);
+    return _DiagItem(label, false, sw.elapsedMilliseconds, group);
   } finally {
     c.close(force: true);
   }
@@ -156,13 +156,15 @@ Future<_DiagItem> _diagTls(String label, String ip, String sni) async {
   Socket? raw;
   try {
     raw = await Socket.connect(ip, 443, timeout: const Duration(seconds: 4));
+    // This probe measures TLS handshake/SNI reachability only; it sends no
+    // application data, so certificate trust is intentionally not its signal.
     k = await SecureSocket.secure(raw,
-            host: sni)
+            host: sni, onBadCertificate: (_) => true)
         .timeout(const Duration(seconds: 5));
     return _DiagItem(label, true, sw.elapsedMilliseconds, _DiagGroup.tls);
   } catch (e, stk) {
     logError(e, stk);
-    return _DiagItem(label, false, sw.elapsedMilliseconds, group);
+    return _DiagItem(label, false, sw.elapsedMilliseconds, _DiagGroup.tls);
   } finally {
     k?.destroy();
     raw?.destroy();
@@ -245,19 +247,17 @@ Future<String> netDiagnose() async {
   }
   b.writeln();
 
-  bool any(int a, int z) {
-    for (var i = a; i <= z; i++) {
-      if (r[i].ok) return true;
-    }
-    return false;
-  }
+  bool anyGroup(_DiagGroup group) =>
+      r.any((probe) => probe.group == group && probe.ok);
 
-  final tcp = any(0, 4);
-  final tls = any(5, 8);
-  final web = any(9, 13);
-  final srcRaw = r[14].ok;
-  final srcMir = any(15, 17);
-  final home = any(18, 20);
+  final tcp = anyGroup(_DiagGroup.tcp);
+  final tls = anyGroup(_DiagGroup.tls);
+  final web = anyGroup(_DiagGroup.web);
+  final srcRaw = r.any((probe) => probe.label == 'GitHub raw' && probe.ok);
+  final srcMir = r.any((probe) =>
+      probe.group == _DiagGroup.sources &&
+      probe.label != 'GitHub raw' && probe.ok);
+  final home = anyGroup(_DiagGroup.national);
 
   // Classification is evidence-weighted. A single reachable endpoint must
   // not be treated as proof that an entire network layer is open or blocked.
