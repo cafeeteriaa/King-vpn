@@ -1677,6 +1677,8 @@ const String _natNationalIpMemKey = 'natNationalIpMem';
 const String _natNationalDomMemKey = 'natNationalDomMem';
 const String _natNationalIpMemFileName = 'king_vpn_national_ip_inventory.jsonl';
 const String _natNationalDomMemFileName = 'king_vpn_national_domain_inventory.jsonl';
+const String _natNationalDnsMemKey = 'natNationalDnsMem';
+const String _natNationalDnsFileName = 'king_vpn_national_dns_inventory.jsonl';
 
 final List<Map<String, dynamic>> natIpMem = [];
 final Set<String> natIpDeadRun = {};
@@ -1760,6 +1762,63 @@ Set<String> natIpMemHosts() => {for (final e in natIpMem) '${e['ip']}'};
 // writes the global clean-IP inventory.
 final List<Map<String, dynamic>> natNationalIpMem = [];
 final List<Map<String, dynamic>> natNationalDomMem = [];
+final List<Map<String, dynamic>> natNationalDnsMem = [];
+
+Future<void> natNationalDnsLoad() async {
+  try {
+    final prefs = await SharedPreferences.getInstance();
+    final file = await _natInventoryFile(_natNationalDnsFileName);
+    if (!await file.exists()) {
+      final legacy = prefs.getStringList(_natNationalDnsMemKey) ?? <String>[];
+      for (final value in legacy) {
+        final ip = value.trim();
+        if (InternetAddress.tryParse(ip) == null) continue;
+        await _natAppendInventoryRecord(_natNationalDnsFileName, {
+          'ip': ip,
+          'port': 53,
+          't': DateTime.now().millisecondsSinceEpoch,
+        });
+      }
+      if (legacy.isNotEmpty) await prefs.remove(_natNationalDnsMemKey);
+    }
+    final loaded = await _natReadInventory(_natNationalDnsFileName, 'ip');
+    natNationalDnsMem
+      ..clear()
+      ..addAll(loaded);
+  } catch (e, stk) {
+    logError(e, stk);
+  }
+}
+
+Future<List<String>> natNationalDnsList() async {
+  await natNationalDnsLoad();
+  return [for (final entry in natNationalDnsMem) '${entry['ip']}'];
+}
+
+Future<void> natNationalDnsSave(
+  Iterable<String> addresses, {
+  bool Function()? shouldAbort,
+}) async {
+  await natNationalDnsLoad();
+  for (final value in addresses) {
+    if (shouldAbort?.call() ?? false) return;
+    final ip = value.trim();
+    if (InternetAddress.tryParse(ip) == null) continue;
+    final row = <String, dynamic>{
+      'ip': ip,
+      'port': 53,
+      't': DateTime.now().millisecondsSinceEpoch,
+    };
+    natNationalDnsMem.removeWhere((entry) => entry['ip'] == ip);
+    natNationalDnsMem.insert(0, row);
+    try {
+      await _natAppendInventoryRecord(_natNationalDnsFileName, row);
+    } catch (e, stk) {
+      logError(e, stk);
+    }
+  }
+}
+
 
 Set<String> natNationalIpMemHosts() =>
     {for (final entry in natNationalIpMem) '${entry['ip']}'};
