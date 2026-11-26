@@ -2660,6 +2660,18 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn('goldIpList()', picker)
         self.assertNotIn('cleanIps', picker[:picker.index('if (!_cleanLoaded')])
 
+    def test_live_cdn_range_refresh_keeps_all_provider_ranges_and_partial_results(self):
+        source = (ROOT / 'lib' / 'npv_am_extras.dart').read_text(encoding='utf-8')
+        start = source.index('Future<void> refreshCdnRanges()')
+        end = source.index('String? _npvOutboundLink', start)
+        refresh = source[start:end]
+        self.assertIn('Future<void> pull(String label, List<String> fallback,', refresh)
+        self.assertIn('got = await fetch().timeout(const Duration(seconds: 30));', refresh)
+        self.assertIn('merged.addAll(got.where((range) => range.contains(\'/\')));', refresh)
+        self.assertNotIn('got.take(cap)', refresh)
+        self.assertNotIn('List<String> fallback, int cap', refresh)
+        self.assertNotIn('got.length < 3', refresh)
+
     def test_national_fragmentation_covers_every_tls_and_reality_proxy_without_tls_downgrade(self):
         nat = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
         start = nat.index('String _natFrag(')
