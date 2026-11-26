@@ -33,9 +33,6 @@ import 'online_count.dart'; // ONLINECOUNT: شمارش کاربران آنلای
 import 'nnie_core.dart'; // NNIE: کد خالص و قابل تست
 import 'own_vpn.dart'; // KINGVPN: سرویس VPN خودمان (پیش‌فرض خاموش)
 import 'king_wireguard_core.dart'; // independent WireGuard bridge
-
-final KingWireGuardCore _kingWireGuardCore = KingWireGuardCore();
-bool _kingWireGuardActive = false;
 import 'package:crypto/crypto.dart'; // فیکس ۱: sha256 برای APK آپدیت
 import 'package:flutter_secure_storage/flutter_secure_storage.dart'; // فیکس ۲: کلیدهای AI
 import 'package:speech_to_text/speech_to_text.dart' as stt;
@@ -70,6 +67,9 @@ part 'ultimate_extras.dart';
 part 'auto_test.dart';
 part 'net_state.dart';
 part 'national_engine.dart'; // NNIE: هوشمندسازی حالت موجود نت ملی، بدون دکمه جدید
+
+final KingWireGuardCore _kingWireGuardCore = KingWireGuardCore();
+bool _kingWireGuardActive = false;
 
 // One rewarded ad = one 4 hour session. When the 4 hours end the VPN is cut
 // and the next connect shows the ad again. Automatic server switches (bad
