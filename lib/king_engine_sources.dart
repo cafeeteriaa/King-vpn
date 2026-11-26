@@ -250,6 +250,6369 @@ class KingServerPayloadParser {
   }
 
   bool _isWireGuardProfile(String value) {
+    final normalized = value.replaceAll(RegExp(r'(?m)\s+#.*
+      r'(?ims)^\s*\[Interface\]\s*(.*?)^(?=\s*\[|\s*$)',
+    ).firstMatch(normalized)?.group(1) ?? '';
+    final peer = RegExp(
+      r'(?ims)^\s*\[Peer\]\s*(.*?)^(?=\s*\[|\s*$)',
+    ).firstMatch(normalized)?.group(1) ?? '';
+    final privateKey = RegExp(r'(?im)^\s*PrivateKey\s*=\s*([^\s#]+)')
+        .firstMatch(interface)?.group(1);
+    final publicKey = RegExp(r'(?im)^\s*PublicKey\s*=\s*([^\s#]+)')
+        .firstMatch(peer)?.group(1);
+    final endpoint = RegExp(
+      r'(?im)^\s*Endpoint\s*=\s*(\[[0-9a-fA-F:]+\]|[^:\s]+):(\d{1,5})\s*
+
+  bool _containsAmneziaParameters(String value) =>
+      RegExp(r'(?im)^\s*(Jc|Jmin|Jmax|S1|S2|H1|H2|H3|H4)\s*=').hasMatch(value);
+
+  bool _isHttpsEndpoint(String value) {
+    final uri = Uri.tryParse(value);
+    return uri != null && uri.scheme.toLowerCase() == 'https' && uri.host.isNotEmpty;
+  }
+
+  String _engineForScheme(String scheme) => switch (scheme) {
+    'hysteria2' || 'hy2' => 'hysteria2',
+    'ss' || 'shadowsocks' => 'shadowsocks',
+    'vless' || 'vmess' || 'trojan' => 'xray',
+    'wireguard' => 'wireguard',
+    _ => scheme,
+  };
+
+  bool _supports(String requested, String detected) {
+    if (requested == detected) return true;
+    if (requested == 'sing_box') {
+      return const {'xray', 'hysteria2', 'shadowsocks', 'wireguard'}.contains(detected);
+    }
+    if (requested == 'xray') return detected == 'xray';
+    return false;
+  }
+}
+
+/// Fetches only HTTPS sources, keeps TLS verification enabled, and leaves
+/// source failures isolated so one dead feed cannot discard successful feeds.
+class KingHttpSourceFetcher {
+  KingHttpSourceFetcher({HttpClient? client, this.timeout = const Duration(seconds: 35)})
+      : _client = client ?? HttpClient();
+
+  final HttpClient _client;
+  final Duration timeout;
+
+  Future<String> fetch(String sourceUrl) async {
+    final uri = Uri.parse(sourceUrl);
+    if (uri.scheme.toLowerCase() != 'https' || uri.host.isEmpty ||
+        uri.userInfo.isNotEmpty || uri.hasFragment) {
+      throw const FormatException(
+        'Only absolute HTTPS source URLs without credentials or fragments are accepted',
+      );
+    }
+    final request = await _client.getUrl(uri).timeout(timeout);
+    request.headers.set(HttpHeaders.acceptHeader, 'text/plain, application/json, */*');
+    request.headers.set(HttpHeaders.userAgentHeader, 'KING-VPN-SourceSync/1.0');
+    final response = await request.close().timeout(timeout);
+    // HttpClient follows redirects by default. A trusted HTTPS feed must never
+    // be silently downgraded to cleartext during that redirect chain.
+    for (final redirect in response.redirects) {
+      final target = redirect.location.hasScheme
+          ? redirect.location
+          : uri.resolveUri(redirect.location);
+      if (target.scheme.toLowerCase() != 'https' ||
+          target.host.isEmpty ||
+          target.userInfo.isNotEmpty) {
+        await response.drain<void>();
+        throw const FormatException(
+          'Source redirect must remain an absolute HTTPS URL without credentials',
+        );
+      }
+    }
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      await response.drain<void>();
+      throw HttpException('Source returned HTTP ${response.statusCode}', uri: uri);
+    }
+    return response.transform(utf8.decoder).join().timeout(timeout);
+  }
+
+  void close({bool force = false}) => _client.close(force: force);
+}
+
+class KingServerSourceFailure {
+  const KingServerSourceFailure(this.sourceId, this.message);
+  final String sourceId;
+  final String message;
+}
+
+class KingServerSyncResult {
+  const KingServerSyncResult({
+    required this.engineId,
+    required this.profiles,
+    required this.failures,
+  });
+  final String engineId;
+  final List<KingImportedServerProfile> profiles;
+  final List<KingServerSourceFailure> failures;
+}
+
+/// Source refresh is exhaustive over the registered source iterable. There is
+/// no fixed source-count or profile-count ceiling; results are deduplicated by
+/// exact engine/format/payload identity. Provider outages never erase old data.
+class KingServerSourceSync {
+  KingServerSourceSync({
+    required this.fetchText,
+    KingServerPayloadParser? parser,
+  }) : _parser = parser ?? KingServerPayloadParser();
+
+  final Future<String> Function(String url) fetchText;
+  final KingServerPayloadParser _parser;
+
+  Future<KingServerSyncResult> refresh(String engineId) async {
+    final sources = KingEngineServerSourceCatalog.forEngine(engineId);
+    final profiles = <KingImportedServerProfile>[];
+    final fingerprints = <String>{};
+    final failures = <KingServerSourceFailure>[];
+
+    for (final source in sources) {
+      try {
+        final payload = await fetchText(source.url);
+        if (source.kind == KingServerSourceKind.generatedDirectory) {
+          final directory = jsonDecode(payload);
+          if (directory is! List) {
+            throw const FormatException('Generated directory response is not a JSON list');
+          }
+          for (final entry in directory) {
+            if (entry is! Map) continue;
+            final name = (entry['name'] ?? '').toString();
+            final downloadUrl = (entry['download_url'] ?? '').toString();
+            final downloadUri = Uri.tryParse(downloadUrl);
+            if (!name.toLowerCase().endsWith('.ovpn') ||
+                downloadUri == null ||
+                downloadUri.scheme.toLowerCase() != 'https' ||
+                downloadUri.host.isEmpty ||
+                downloadUri.userInfo.isNotEmpty ||
+                downloadUri.hasFragment) {
+              continue;
+            }
+            final config = await fetchText(downloadUri.toString());
+            final parsed = _parser.parse(
+              engineId: engineId, payload: config, sourceId: source.id,
+            );
+            for (final profile in parsed) {
+              if (fingerprints.add(profile.fingerprint)) profiles.add(profile);
+            }
+          }
+        } else {
+          final parsed = _parser.parse(
+            engineId: engineId, payload: payload, sourceId: source.id,
+          );
+          for (final profile in parsed) {
+            if (fingerprints.add(profile.fingerprint)) profiles.add(profile);
+          }
+        }
+      } catch (error) {
+        failures.add(KingServerSourceFailure(source.id, error.toString()));
+      }
+    }
+    return KingServerSyncResult(
+      engineId: engineId,
+      profiles: List.unmodifiable(profiles),
+      failures: List.unmodifiable(failures),
+    );
+  }
+}
+
+
+/// Schedules refreshes at the fastest cadence explicitly published by the
+/// sources for each engine. Unknown cadences are never guessed. Call
+/// refreshNow once on app startup, then start periodic refreshes.
+class KingServerSourceRefreshScheduler {
+  KingServerSourceRefreshScheduler({
+    required this.sync,
+    required this.onResult,
+  });
+
+  final KingServerSourceSync sync;
+  final Future<void> Function(KingServerSyncResult result) onResult;
+  final Map<String, Timer> _timers = {};
+  final Map<String, Future<KingServerSyncResult>> _inFlight = {};
+  bool _disposed = false;
+
+  void start({Iterable<String>? engineIds}) {
+    if (_disposed) throw StateError('Refresh scheduler is disposed');
+    final ids = engineIds ??
+        KingEngineServerSourceCatalog.online.expand((s) => s.engineIds).toSet();
+    for (final engineId in ids) {
+      final intervals = KingEngineServerSourceCatalog.forEngine(engineId)
+          .map(intervalForSource)
+          .whereType<Duration>()
+          .toList(growable: false);
+      if (intervals.isEmpty || _timers.containsKey(engineId)) continue;
+      intervals.sort((a, b) => a.compareTo(b));
+      final interval = intervals.first;
+      _timers[engineId] = Timer.periodic(interval, (_) {
+        unawaited(refreshNow(engineId).then(onResult).catchError((Object _) {}));
+      });
+    }
+  }
+
+  Future<KingServerSyncResult> refreshNow(String engineId) {
+    if (_disposed) {
+      return Future.error(StateError('Refresh scheduler is disposed'));
+    }
+    final active = _inFlight[engineId];
+    if (active != null) return active;
+    late final Future<KingServerSyncResult> tracked;
+    tracked = sync.refresh(engineId).whenComplete(() {
+      if (identical(_inFlight[engineId], tracked)) _inFlight.remove(engineId);
+    });
+    _inFlight[engineId] = tracked;
+    return tracked;
+  }
+
+  static Duration? intervalForSource(KingEngineServerSource source) {
+    final cadence = source.updateCadence?.trim().toLowerCase();
+    if (cadence == null || cadence.isEmpty) return null;
+    if (cadence == 'daily') return const Duration(days: 1);
+    if (cadence == 'hourly') return const Duration(hours: 1);
+    final match = RegExp(
+      r'^(\d+)\s*(m|min|mins|minute|minutes|h|hr|hrs|hour|hours)$',
+    ).firstMatch(cadence);
+    if (match == null) return null;
+    final amount = int.tryParse(match.group(1)!);
+    if (amount == null || amount <= 0) return null;
+    final unit = match.group(2)!;
+    return unit.startsWith('m')
+        ? Duration(minutes: amount)
+        : Duration(hours: amount);
+  }
+
+  void dispose() {
+    if (_disposed) return;
+    _disposed = true;
+    for (final timer in _timers.values) {
+      timer.cancel();
+    }
+    _timers.clear();
+  }
+}
+
+/// Protocol-aware sources. A source is never assigned to an engine merely
+/// because its URL is reachable; its published formats must match.
+class KingEngineServerSourceCatalog {
+  static const List<KingEngineServerSource> online = [
+    KingEngineServerSource(
+      id: 'morpheusadam_hysteria2',
+      name: 'morpheusadam v2ray-config',
+      url: 'https://raw.githubusercontent.com/morpheusadam/v2ray-config/main/subs/bundles/hysteria2.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.mixedShareLinks},
+      engineIds: {'hysteria2', 'sing_box'},
+      updateCadence: 'daily',
+      notes: 'Dedicated Hysteria2 URI bundle; publisher rebuilds protocol bundles daily.',
+    ),
+    KingEngineServerSource(
+      id: 'morpheusadam_shadowsocks',
+      name: 'morpheusadam Shadowsocks feed',
+      url: 'https://raw.githubusercontent.com/morpheusadam/v2ray-config/main/subs/bundles/shadowsocks.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.shadowsocksUri},
+      engineIds: {'shadowsocks', 'sing_box'},
+      updateCadence: 'daily',
+      notes: 'Only Shadowsocks-compatible entries should be retained by the parser.',
+    ),
+    KingEngineServerSource(
+      id: 'morpheusadam_wireguard',
+      name: 'morpheusadam WireGuard bundle',
+      url: 'https://raw.githubusercontent.com/morpheusadam/v2ray-config/main/subs/bundles/wireguard.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.mixedShareLinks},
+      engineIds: {'wireguard', 'sing_box'},
+      updateCadence: 'daily',
+      notes: 'Dedicated WireGuard bundle; entries require protocol-specific parsing and endpoint verification.',
+    ),
+    KingEngineServerSource(
+      id: 'radikal_hysteria2',
+      name: '0xRadikal Hysteria2',
+      url: 'https://raw.githubusercontent.com/0xRadikal/Free-v2ray-Configs/main/protocols/hysteria2.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.hysteria2Uri},
+      engineIds: {'hysteria2', 'sing_box'},
+      updateCadence: '15m',
+      notes: 'Publisher advertises a 15-minute update cycle; live repository activity was observed within minutes of this audit.',
+    ),
+    KingEngineServerSource(
+      id: 'radikal_singbox',
+      name: '0xRadikal sing-box JSON',
+      url: 'https://raw.githubusercontent.com/0xRadikal/Free-v2ray-Configs/main/all/singbox.json',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.singBoxJson},
+      engineIds: {'sing_box'},
+      updateCadence: 'hourly',
+      notes: 'Publisher advertises a 15-minute update cycle; JSON contains multiple proxy outbounds including Hysteria2 and Shadowsocks.',
+    ),
+    KingEngineServerSource(
+      id: 'mohammadaz2_shadowsocks',
+      name: 'mohammadaz2 hourly Shadowsocks',
+      url: 'https://raw.githubusercontent.com/mohammadaz2/v2rayConfigsForYou/main/sub/ss.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.shadowsocksUri},
+      engineIds: {'shadowsocks', 'sing_box'},
+      updateCadence: 'hourly',
+      notes: 'Repository documents hourly scraping and TCP reachability validation; latest repository update observed on 2026-11-26.',
+    ),
+    KingEngineServerSource(
+      id: 'radikal_shadowsocks',
+      name: '0xRadikal Shadowsocks',
+      url: 'https://raw.githubusercontent.com/0xRadikal/Free-v2ray-Configs/main/protocols/shadowsocks.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.shadowsocksUri},
+      engineIds: {'shadowsocks', 'sing_box'},
+      updateCadence: 'hourly',
+      notes: 'Publisher advertises a 15-minute update cycle; protocol-specific plain-text feed.',
+    ),
+    KingEngineServerSource(
+      id: 'shatak_hysteria2_ae',
+      name: 'ShatakVPN Hysteria2 AE',
+      url: 'https://raw.githubusercontent.com/ShatakVPN/ConfigForge-V2Ray/main/configs/ae/hysteria2.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.hysteria2Uri},
+      engineIds: {'hysteria2', 'sing_box'},
+      updateCadence: 'daily',
+      notes: 'Repository automation published a fresh commit within the last day; this country feed was fetched and parsed as Hysteria2 URIs.',
+    ),
+    KingEngineServerSource(
+      id: 'shatak_shadowsocks',
+      name: 'ShatakVPN Shadowsocks',
+      url: 'https://raw.githubusercontent.com/ShatakVPN/ConfigForge-V2Ray/main/configs/shadowsocks.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.shadowsocksUri},
+      engineIds: {'shadowsocks', 'sing_box'},
+      updateCadence: 'daily',
+      notes: 'Repository automation published a fresh commit within the last day; dedicated Shadowsocks feed.',
+    ),
+    KingEngineServerSource(
+      id: 'tendream_hysteria2',
+      name: '10Dream Hysteria2 Base64',
+      url: 'https://raw.githubusercontent.com/10Dream/sub-mod/main/sub/base64/10ium-VpnClashFaCollector-hysteria2.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.mixedShareLinks},
+      engineIds: {'hysteria2', 'sing_box'},
+      updateCadence: 'daily',
+      notes: 'Repository automation published a fresh commit within the last day; payload is Base64-encoded Hysteria2 links.',
+    ),
+  ];
+
+  static const List<KingOfflineImportKind> offline = KingOfflineImportKind.values;
+
+  static List<KingEngineServerSource> forEngine(String engineId) {
+    final sources = <KingEngineServerSource>[
+      ...online.where((source) => source.engineIds.contains(engineId)),
+    ];
+    if (engineId == 'xray') {
+      sources.addAll(KingProxySourceCatalog.online.map((source) =>
+        KingEngineServerSource(
+          id: source.id,
+          name: 'Xray public feed ${source.id}',
+          url: source.url,
+          kind: KingServerSourceKind.publicSubscription,
+          formats: const {KingServerConfigFormat.mixedShareLinks},
+          engineIds: const {'xray'},
+          notes: 'Legacy Xray-compatible feed; payload must be parsed and validated.',
+        )));
+    }
+    return List.unmodifiable(sources);
+  }
+
+  static List<KingProxySource> xrayFeeds() => KingProxySourceCatalog.online;
+
+  static bool needsUserOrProviderServer(String engineId) => const {
+    'nthlink', 'amneziawg', 'openconnect', 'wireguard',
+  }.contains(engineId);
+
+  static bool isLocalOnly(String engineId) => const {
+    'shroudly', 'byedpi', 'powertunnel',
+  }.contains(engineId);
+}
+)
+        .firstMatch(cadence);
+    if (match == null) return null;
+    final amount = int.tryParse(match.group(1)!);
+    if (amount == null || amount <= 0) return null;
+    final unit = match.group(2)!;
+    if (unit.startsWith('m')) return Duration(minutes: amount);
+    if (unit.startsWith('h')) return Duration(hours: amount);
+    return null;
+  }
+
+  void dispose() {
+    if (_disposed) return;
+    _disposed = true;
+    for (final timer in _timers.values) {
+      timer.cancel();
+    }
+    _timers.clear();
+  }
+}
+
+/// Protocol-aware sources. A source is never assigned to an engine merely
+/// because its URL is reachable; its published formats must match.
+class KingEngineServerSourceCatalog {
+  static const List<KingEngineServerSource> online = [
+    KingEngineServerSource(
+      id: 'morpheusadam_hysteria2',
+      name: 'morpheusadam v2ray-config',
+      url: 'https://raw.githubusercontent.com/morpheusadam/v2ray-config/main/subs/bundles/hysteria2.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.mixedShareLinks},
+      engineIds: {'hysteria2', 'sing_box'},
+      updateCadence: 'daily',
+      notes: 'Dedicated Hysteria2 URI bundle; publisher rebuilds protocol bundles daily.',
+    ),
+    KingEngineServerSource(
+      id: 'morpheusadam_shadowsocks',
+      name: 'morpheusadam Shadowsocks feed',
+      url: 'https://raw.githubusercontent.com/morpheusadam/v2ray-config/main/subs/bundles/shadowsocks.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.shadowsocksUri},
+      engineIds: {'shadowsocks', 'sing_box'},
+      updateCadence: 'daily',
+      notes: 'Only Shadowsocks-compatible entries should be retained by the parser.',
+    ),
+    KingEngineServerSource(
+      id: 'morpheusadam_wireguard',
+      name: 'morpheusadam WireGuard bundle',
+      url: 'https://raw.githubusercontent.com/morpheusadam/v2ray-config/main/subs/bundles/wireguard.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.mixedShareLinks},
+      engineIds: {'wireguard', 'sing_box'},
+      updateCadence: 'daily',
+      notes: 'Dedicated WireGuard bundle; entries require protocol-specific parsing and endpoint verification.',
+    ),
+    KingEngineServerSource(
+      id: 'radikal_hysteria2',
+      name: '0xRadikal Hysteria2',
+      url: 'https://raw.githubusercontent.com/0xRadikal/Free-v2ray-Configs/main/protocols/hysteria2.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.hysteria2Uri},
+      engineIds: {'hysteria2', 'sing_box'},
+      updateCadence: '15m',
+      notes: 'Publisher advertises a 15-minute update cycle; live repository activity was observed within minutes of this audit.',
+    ),
+    KingEngineServerSource(
+      id: 'radikal_singbox',
+      name: '0xRadikal sing-box JSON',
+      url: 'https://raw.githubusercontent.com/0xRadikal/Free-v2ray-Configs/main/all/singbox.json',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.singBoxJson},
+      engineIds: {'sing_box'},
+      updateCadence: 'hourly',
+      notes: 'Publisher advertises a 15-minute update cycle; JSON contains multiple proxy outbounds including Hysteria2 and Shadowsocks.',
+    ),
+    KingEngineServerSource(
+      id: 'radikal_shadowsocks',
+      name: '0xRadikal Shadowsocks',
+      url: 'https://raw.githubusercontent.com/0xRadikal/Free-v2ray-Configs/main/protocols/shadowsocks.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.shadowsocksUri},
+      engineIds: {'shadowsocks', 'sing_box'},
+      updateCadence: 'hourly',
+      notes: 'Publisher advertises a 15-minute update cycle; protocol-specific plain-text feed.',
+    ),
+    KingEngineServerSource(
+      id: 'shatak_hysteria2_ae',
+      name: 'ShatakVPN Hysteria2 AE',
+      url: 'https://raw.githubusercontent.com/ShatakVPN/ConfigForge-V2Ray/main/configs/ae/hysteria2.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.hysteria2Uri},
+      engineIds: {'hysteria2', 'sing_box'},
+      updateCadence: 'daily',
+      notes: 'Repository automation published a fresh commit within the last day; this country feed was fetched and parsed as Hysteria2 URIs.',
+    ),
+    KingEngineServerSource(
+      id: 'shatak_shadowsocks',
+      name: 'ShatakVPN Shadowsocks',
+      url: 'https://raw.githubusercontent.com/ShatakVPN/ConfigForge-V2Ray/main/configs/shadowsocks.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.shadowsocksUri},
+      engineIds: {'shadowsocks', 'sing_box'},
+      updateCadence: 'daily',
+      notes: 'Repository automation published a fresh commit within the last day; dedicated Shadowsocks feed.',
+    ),
+    KingEngineServerSource(
+      id: 'tendream_hysteria2',
+      name: '10Dream Hysteria2 Base64',
+      url: 'https://raw.githubusercontent.com/10Dream/sub-mod/main/sub/base64/10ium-VpnClashFaCollector-hysteria2.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.mixedShareLinks},
+      engineIds: {'hysteria2', 'sing_box'},
+      updateCadence: 'daily',
+      notes: 'Repository automation published a fresh commit within the last day; payload is Base64-encoded Hysteria2 links.',
+    ),
+  ];
+
+  static const List<KingOfflineImportKind> offline = KingOfflineImportKind.values;
+
+  static List<KingEngineServerSource> forEngine(String engineId) {
+    final sources = <KingEngineServerSource>[
+      ...online.where((source) => source.engineIds.contains(engineId)),
+    ];
+    if (engineId == 'xray') {
+      sources.addAll(KingProxySourceCatalog.online.map((source) =>
+        KingEngineServerSource(
+          id: source.id,
+          name: 'Xray public feed ${source.id}',
+          url: source.url,
+          kind: KingServerSourceKind.publicSubscription,
+          formats: const {KingServerConfigFormat.mixedShareLinks},
+          engineIds: const {'xray'},
+          notes: 'Legacy Xray-compatible feed; payload must be parsed and validated.',
+        )));
+    }
+    return List.unmodifiable(sources);
+  }
+
+  static List<KingProxySource> xrayFeeds() => KingProxySourceCatalog.online;
+
+  static bool needsUserOrProviderServer(String engineId) => const {
+    'nthlink', 'amneziawg', 'openconnect', 'wireguard',
+  }.contains(engineId);
+
+  static bool isLocalOnly(String engineId) => const {
+    'shroudly', 'byedpi', 'powertunnel',
+  }.contains(engineId);
+}
+).hasMatch(value);
+    final hasRemote = RegExp(
+      r'(?im)^\s*remote\s+([A-Za-z0-9._:-]+)\s+(\\d{1,5})(?:\\s|$)',
+    ).allMatches(value).any((match) {
+      final port = int.tryParse(match.group(2) ?? '');
+      return port != null && port > 0 && port <= 65535;
+    });
+    final hasTransport = RegExp(
+      r'(?im)^\\s*proto\\s+(udp|udp4|udp6|tcp|tcp4|tcp6)(?:-client)?\\s*
+
+  bool _containsAmneziaParameters(String value) =>
+      RegExp(r'(?im)^\s*(Jc|Jmin|Jmax|S1|S2|H1|H2|H3|H4)\s*=').hasMatch(value);
+
+  bool _isHttpsEndpoint(String value) {
+    final uri = Uri.tryParse(value);
+    return uri != null && uri.scheme.toLowerCase() == 'https' && uri.host.isNotEmpty;
+  }
+
+  String _engineForScheme(String scheme) => switch (scheme) {
+    'hysteria2' || 'hy2' => 'hysteria2',
+    'ss' || 'shadowsocks' => 'shadowsocks',
+    'vless' || 'vmess' || 'trojan' => 'xray',
+    'wireguard' => 'wireguard',
+    _ => scheme,
+  };
+
+  bool _supports(String requested, String detected) {
+    if (requested == detected) return true;
+    if (requested == 'sing_box') {
+      return const {'xray', 'hysteria2', 'shadowsocks', 'wireguard'}.contains(detected);
+    }
+    if (requested == 'xray') return detected == 'xray';
+    return false;
+  }
+}
+
+/// Fetches only HTTPS sources, keeps TLS verification enabled, and leaves
+/// source failures isolated so one dead feed cannot discard successful feeds.
+class KingHttpSourceFetcher {
+  KingHttpSourceFetcher({HttpClient? client, this.timeout = const Duration(seconds: 35)})
+      : _client = client ?? HttpClient();
+
+  final HttpClient _client;
+  final Duration timeout;
+
+  Future<String> fetch(String sourceUrl) async {
+    final uri = Uri.parse(sourceUrl);
+    if (uri.scheme.toLowerCase() != 'https' || uri.host.isEmpty ||
+        uri.userInfo.isNotEmpty || uri.hasFragment) {
+      throw const FormatException(
+        'Only absolute HTTPS source URLs without credentials or fragments are accepted',
+      );
+    }
+    final request = await _client.getUrl(uri).timeout(timeout);
+    request.headers.set(HttpHeaders.acceptHeader, 'text/plain, application/json, */*');
+    request.headers.set(HttpHeaders.userAgentHeader, 'KING-VPN-SourceSync/1.0');
+    final response = await request.close().timeout(timeout);
+    // HttpClient follows redirects by default. A trusted HTTPS feed must never
+    // be silently downgraded to cleartext during that redirect chain.
+    for (final redirect in response.redirects) {
+      final target = redirect.location.hasScheme
+          ? redirect.location
+          : uri.resolveUri(redirect.location);
+      if (target.scheme.toLowerCase() != 'https' ||
+          target.host.isEmpty ||
+          target.userInfo.isNotEmpty) {
+        await response.drain<void>();
+        throw const FormatException(
+          'Source redirect must remain an absolute HTTPS URL without credentials',
+        );
+      }
+    }
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      await response.drain<void>();
+      throw HttpException('Source returned HTTP ${response.statusCode}', uri: uri);
+    }
+    return response.transform(utf8.decoder).join().timeout(timeout);
+  }
+
+  void close({bool force = false}) => _client.close(force: force);
+}
+
+class KingServerSourceFailure {
+  const KingServerSourceFailure(this.sourceId, this.message);
+  final String sourceId;
+  final String message;
+}
+
+class KingServerSyncResult {
+  const KingServerSyncResult({
+    required this.engineId,
+    required this.profiles,
+    required this.failures,
+  });
+  final String engineId;
+  final List<KingImportedServerProfile> profiles;
+  final List<KingServerSourceFailure> failures;
+}
+
+/// Source refresh is exhaustive over the registered source iterable. There is
+/// no fixed source-count or profile-count ceiling; results are deduplicated by
+/// exact engine/format/payload identity. Provider outages never erase old data.
+class KingServerSourceSync {
+  KingServerSourceSync({
+    required this.fetchText,
+    KingServerPayloadParser? parser,
+  }) : _parser = parser ?? KingServerPayloadParser();
+
+  final Future<String> Function(String url) fetchText;
+  final KingServerPayloadParser _parser;
+
+  Future<KingServerSyncResult> refresh(String engineId) async {
+    final sources = KingEngineServerSourceCatalog.forEngine(engineId);
+    final profiles = <KingImportedServerProfile>[];
+    final fingerprints = <String>{};
+    final failures = <KingServerSourceFailure>[];
+
+    for (final source in sources) {
+      try {
+        final payload = await fetchText(source.url);
+        if (source.kind == KingServerSourceKind.generatedDirectory) {
+          final directory = jsonDecode(payload);
+          if (directory is! List) {
+            throw const FormatException('Generated directory response is not a JSON list');
+          }
+          for (final entry in directory) {
+            if (entry is! Map) continue;
+            final name = (entry['name'] ?? '').toString();
+            final downloadUrl = (entry['download_url'] ?? '').toString();
+            final downloadUri = Uri.tryParse(downloadUrl);
+            if (!name.toLowerCase().endsWith('.ovpn') ||
+                downloadUri == null ||
+                downloadUri.scheme.toLowerCase() != 'https' ||
+                downloadUri.host.isEmpty ||
+                downloadUri.userInfo.isNotEmpty ||
+                downloadUri.hasFragment) {
+              continue;
+            }
+            final config = await fetchText(downloadUri.toString());
+            final parsed = _parser.parse(
+              engineId: engineId, payload: config, sourceId: source.id,
+            );
+            for (final profile in parsed) {
+              if (fingerprints.add(profile.fingerprint)) profiles.add(profile);
+            }
+          }
+        } else {
+          final parsed = _parser.parse(
+            engineId: engineId, payload: payload, sourceId: source.id,
+          );
+          for (final profile in parsed) {
+            if (fingerprints.add(profile.fingerprint)) profiles.add(profile);
+          }
+        }
+      } catch (error) {
+        failures.add(KingServerSourceFailure(source.id, error.toString()));
+      }
+    }
+    return KingServerSyncResult(
+      engineId: engineId,
+      profiles: List.unmodifiable(profiles),
+      failures: List.unmodifiable(failures),
+    );
+  }
+}
+
+
+/// Schedules refreshes at the fastest cadence explicitly published by the
+/// sources for each engine. Unknown cadences are never guessed. Call
+/// refreshNow once on app startup, then start periodic refreshes.
+class KingServerSourceRefreshScheduler {
+  KingServerSourceRefreshScheduler({
+    required this.sync,
+    required this.onResult,
+  });
+
+  final KingServerSourceSync sync;
+  final Future<void> Function(KingServerSyncResult result) onResult;
+  final Map<String, Timer> _timers = {};
+  final Map<String, Future<KingServerSyncResult>> _inFlight = {};
+  bool _disposed = false;
+
+  void start({Iterable<String>? engineIds}) {
+    if (_disposed) throw StateError('Refresh scheduler is disposed');
+    final ids = engineIds ??
+        KingEngineServerSourceCatalog.online.expand((s) => s.engineIds).toSet();
+    for (final engineId in ids) {
+      final intervals = KingEngineServerSourceCatalog.forEngine(engineId)
+          .map(intervalForSource)
+          .whereType<Duration>()
+          .toList(growable: false);
+      if (intervals.isEmpty || _timers.containsKey(engineId)) continue;
+      intervals.sort((a, b) => a.compareTo(b));
+      final interval = intervals.first;
+      _timers[engineId] = Timer.periodic(interval, (_) {
+        unawaited(refreshNow(engineId).then(onResult).catchError((Object _) {}));
+      });
+    }
+  }
+
+  Future<KingServerSyncResult> refreshNow(String engineId) {
+    if (_disposed) {
+      return Future.error(StateError('Refresh scheduler is disposed'));
+    }
+    final active = _inFlight[engineId];
+    if (active != null) return active;
+    late final Future<KingServerSyncResult> tracked;
+    tracked = sync.refresh(engineId).whenComplete(() {
+      if (identical(_inFlight[engineId], tracked)) _inFlight.remove(engineId);
+    });
+    _inFlight[engineId] = tracked;
+    return tracked;
+  }
+
+  static Duration? intervalForSource(KingEngineServerSource source) {
+    final cadence = source.updateCadence?.trim().toLowerCase();
+    if (cadence == null || cadence.isEmpty) return null;
+    if (cadence == 'daily') return const Duration(days: 1);
+    if (cadence == 'hourly') return const Duration(hours: 1);
+    final match = RegExp(
+      r'^(\d+)\s*(m|min|mins|minute|minutes|h|hr|hrs|hour|hours)$',
+    ).firstMatch(cadence);
+    if (match == null) return null;
+    final amount = int.tryParse(match.group(1)!);
+    if (amount == null || amount <= 0) return null;
+    final unit = match.group(2)!;
+    return unit.startsWith('m')
+        ? Duration(minutes: amount)
+        : Duration(hours: amount);
+  }
+
+  void dispose() {
+    if (_disposed) return;
+    _disposed = true;
+    for (final timer in _timers.values) {
+      timer.cancel();
+    }
+    _timers.clear();
+  }
+}
+
+/// Protocol-aware sources. A source is never assigned to an engine merely
+/// because its URL is reachable; its published formats must match.
+class KingEngineServerSourceCatalog {
+  static const List<KingEngineServerSource> online = [
+    KingEngineServerSource(
+      id: 'morpheusadam_hysteria2',
+      name: 'morpheusadam v2ray-config',
+      url: 'https://raw.githubusercontent.com/morpheusadam/v2ray-config/main/subs/bundles/hysteria2.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.mixedShareLinks},
+      engineIds: {'hysteria2', 'sing_box'},
+      updateCadence: 'daily',
+      notes: 'Dedicated Hysteria2 URI bundle; publisher rebuilds protocol bundles daily.',
+    ),
+    KingEngineServerSource(
+      id: 'morpheusadam_shadowsocks',
+      name: 'morpheusadam Shadowsocks feed',
+      url: 'https://raw.githubusercontent.com/morpheusadam/v2ray-config/main/subs/bundles/shadowsocks.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.shadowsocksUri},
+      engineIds: {'shadowsocks', 'sing_box'},
+      updateCadence: 'daily',
+      notes: 'Only Shadowsocks-compatible entries should be retained by the parser.',
+    ),
+    KingEngineServerSource(
+      id: 'morpheusadam_wireguard',
+      name: 'morpheusadam WireGuard bundle',
+      url: 'https://raw.githubusercontent.com/morpheusadam/v2ray-config/main/subs/bundles/wireguard.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.mixedShareLinks},
+      engineIds: {'wireguard', 'sing_box'},
+      updateCadence: 'daily',
+      notes: 'Dedicated WireGuard bundle; entries require protocol-specific parsing and endpoint verification.',
+    ),
+    KingEngineServerSource(
+      id: 'radikal_hysteria2',
+      name: '0xRadikal Hysteria2',
+      url: 'https://raw.githubusercontent.com/0xRadikal/Free-v2ray-Configs/main/protocols/hysteria2.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.hysteria2Uri},
+      engineIds: {'hysteria2', 'sing_box'},
+      updateCadence: '15m',
+      notes: 'Publisher advertises a 15-minute update cycle; live repository activity was observed within minutes of this audit.',
+    ),
+    KingEngineServerSource(
+      id: 'radikal_singbox',
+      name: '0xRadikal sing-box JSON',
+      url: 'https://raw.githubusercontent.com/0xRadikal/Free-v2ray-Configs/main/all/singbox.json',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.singBoxJson},
+      engineIds: {'sing_box'},
+      updateCadence: 'hourly',
+      notes: 'Publisher advertises a 15-minute update cycle; JSON contains multiple proxy outbounds including Hysteria2 and Shadowsocks.',
+    ),
+    KingEngineServerSource(
+      id: 'mohammadaz2_shadowsocks',
+      name: 'mohammadaz2 hourly Shadowsocks',
+      url: 'https://raw.githubusercontent.com/mohammadaz2/v2rayConfigsForYou/main/sub/ss.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.shadowsocksUri},
+      engineIds: {'shadowsocks', 'sing_box'},
+      updateCadence: 'hourly',
+      notes: 'Repository documents hourly scraping and TCP reachability validation; latest repository update observed on 2026-11-26.',
+    ),
+    KingEngineServerSource(
+      id: 'radikal_shadowsocks',
+      name: '0xRadikal Shadowsocks',
+      url: 'https://raw.githubusercontent.com/0xRadikal/Free-v2ray-Configs/main/protocols/shadowsocks.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.shadowsocksUri},
+      engineIds: {'shadowsocks', 'sing_box'},
+      updateCadence: 'hourly',
+      notes: 'Publisher advertises a 15-minute update cycle; protocol-specific plain-text feed.',
+    ),
+    KingEngineServerSource(
+      id: 'shatak_hysteria2_ae',
+      name: 'ShatakVPN Hysteria2 AE',
+      url: 'https://raw.githubusercontent.com/ShatakVPN/ConfigForge-V2Ray/main/configs/ae/hysteria2.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.hysteria2Uri},
+      engineIds: {'hysteria2', 'sing_box'},
+      updateCadence: 'daily',
+      notes: 'Repository automation published a fresh commit within the last day; this country feed was fetched and parsed as Hysteria2 URIs.',
+    ),
+    KingEngineServerSource(
+      id: 'shatak_shadowsocks',
+      name: 'ShatakVPN Shadowsocks',
+      url: 'https://raw.githubusercontent.com/ShatakVPN/ConfigForge-V2Ray/main/configs/shadowsocks.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.shadowsocksUri},
+      engineIds: {'shadowsocks', 'sing_box'},
+      updateCadence: 'daily',
+      notes: 'Repository automation published a fresh commit within the last day; dedicated Shadowsocks feed.',
+    ),
+    KingEngineServerSource(
+      id: 'tendream_hysteria2',
+      name: '10Dream Hysteria2 Base64',
+      url: 'https://raw.githubusercontent.com/10Dream/sub-mod/main/sub/base64/10ium-VpnClashFaCollector-hysteria2.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.mixedShareLinks},
+      engineIds: {'hysteria2', 'sing_box'},
+      updateCadence: 'daily',
+      notes: 'Repository automation published a fresh commit within the last day; payload is Base64-encoded Hysteria2 links.',
+    ),
+  ];
+
+  static const List<KingOfflineImportKind> offline = KingOfflineImportKind.values;
+
+  static List<KingEngineServerSource> forEngine(String engineId) {
+    final sources = <KingEngineServerSource>[
+      ...online.where((source) => source.engineIds.contains(engineId)),
+    ];
+    if (engineId == 'xray') {
+      sources.addAll(KingProxySourceCatalog.online.map((source) =>
+        KingEngineServerSource(
+          id: source.id,
+          name: 'Xray public feed ${source.id}',
+          url: source.url,
+          kind: KingServerSourceKind.publicSubscription,
+          formats: const {KingServerConfigFormat.mixedShareLinks},
+          engineIds: const {'xray'},
+          notes: 'Legacy Xray-compatible feed; payload must be parsed and validated.',
+        )));
+    }
+    return List.unmodifiable(sources);
+  }
+
+  static List<KingProxySource> xrayFeeds() => KingProxySourceCatalog.online;
+
+  static bool needsUserOrProviderServer(String engineId) => const {
+    'nthlink', 'amneziawg', 'openconnect', 'wireguard',
+  }.contains(engineId);
+
+  static bool isLocalOnly(String engineId) => const {
+    'shroudly', 'byedpi', 'powertunnel',
+  }.contains(engineId);
+}
+)
+        .firstMatch(cadence);
+    if (match == null) return null;
+    final amount = int.tryParse(match.group(1)!);
+    if (amount == null || amount <= 0) return null;
+    final unit = match.group(2)!;
+    if (unit.startsWith('m')) return Duration(minutes: amount);
+    if (unit.startsWith('h')) return Duration(hours: amount);
+    return null;
+  }
+
+  void dispose() {
+    if (_disposed) return;
+    _disposed = true;
+    for (final timer in _timers.values) {
+      timer.cancel();
+    }
+    _timers.clear();
+  }
+}
+
+/// Protocol-aware sources. A source is never assigned to an engine merely
+/// because its URL is reachable; its published formats must match.
+class KingEngineServerSourceCatalog {
+  static const List<KingEngineServerSource> online = [
+    KingEngineServerSource(
+      id: 'morpheusadam_hysteria2',
+      name: 'morpheusadam v2ray-config',
+      url: 'https://raw.githubusercontent.com/morpheusadam/v2ray-config/main/subs/bundles/hysteria2.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.mixedShareLinks},
+      engineIds: {'hysteria2', 'sing_box'},
+      updateCadence: 'daily',
+      notes: 'Dedicated Hysteria2 URI bundle; publisher rebuilds protocol bundles daily.',
+    ),
+    KingEngineServerSource(
+      id: 'morpheusadam_shadowsocks',
+      name: 'morpheusadam Shadowsocks feed',
+      url: 'https://raw.githubusercontent.com/morpheusadam/v2ray-config/main/subs/bundles/shadowsocks.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.shadowsocksUri},
+      engineIds: {'shadowsocks', 'sing_box'},
+      updateCadence: 'daily',
+      notes: 'Only Shadowsocks-compatible entries should be retained by the parser.',
+    ),
+    KingEngineServerSource(
+      id: 'morpheusadam_wireguard',
+      name: 'morpheusadam WireGuard bundle',
+      url: 'https://raw.githubusercontent.com/morpheusadam/v2ray-config/main/subs/bundles/wireguard.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.mixedShareLinks},
+      engineIds: {'wireguard', 'sing_box'},
+      updateCadence: 'daily',
+      notes: 'Dedicated WireGuard bundle; entries require protocol-specific parsing and endpoint verification.',
+    ),
+    KingEngineServerSource(
+      id: 'radikal_hysteria2',
+      name: '0xRadikal Hysteria2',
+      url: 'https://raw.githubusercontent.com/0xRadikal/Free-v2ray-Configs/main/protocols/hysteria2.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.hysteria2Uri},
+      engineIds: {'hysteria2', 'sing_box'},
+      updateCadence: '15m',
+      notes: 'Publisher advertises a 15-minute update cycle; live repository activity was observed within minutes of this audit.',
+    ),
+    KingEngineServerSource(
+      id: 'radikal_singbox',
+      name: '0xRadikal sing-box JSON',
+      url: 'https://raw.githubusercontent.com/0xRadikal/Free-v2ray-Configs/main/all/singbox.json',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.singBoxJson},
+      engineIds: {'sing_box'},
+      updateCadence: 'hourly',
+      notes: 'Publisher advertises a 15-minute update cycle; JSON contains multiple proxy outbounds including Hysteria2 and Shadowsocks.',
+    ),
+    KingEngineServerSource(
+      id: 'radikal_shadowsocks',
+      name: '0xRadikal Shadowsocks',
+      url: 'https://raw.githubusercontent.com/0xRadikal/Free-v2ray-Configs/main/protocols/shadowsocks.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.shadowsocksUri},
+      engineIds: {'shadowsocks', 'sing_box'},
+      updateCadence: 'hourly',
+      notes: 'Publisher advertises a 15-minute update cycle; protocol-specific plain-text feed.',
+    ),
+    KingEngineServerSource(
+      id: 'shatak_hysteria2_ae',
+      name: 'ShatakVPN Hysteria2 AE',
+      url: 'https://raw.githubusercontent.com/ShatakVPN/ConfigForge-V2Ray/main/configs/ae/hysteria2.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.hysteria2Uri},
+      engineIds: {'hysteria2', 'sing_box'},
+      updateCadence: 'daily',
+      notes: 'Repository automation published a fresh commit within the last day; this country feed was fetched and parsed as Hysteria2 URIs.',
+    ),
+    KingEngineServerSource(
+      id: 'shatak_shadowsocks',
+      name: 'ShatakVPN Shadowsocks',
+      url: 'https://raw.githubusercontent.com/ShatakVPN/ConfigForge-V2Ray/main/configs/shadowsocks.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.shadowsocksUri},
+      engineIds: {'shadowsocks', 'sing_box'},
+      updateCadence: 'daily',
+      notes: 'Repository automation published a fresh commit within the last day; dedicated Shadowsocks feed.',
+    ),
+    KingEngineServerSource(
+      id: 'tendream_hysteria2',
+      name: '10Dream Hysteria2 Base64',
+      url: 'https://raw.githubusercontent.com/10Dream/sub-mod/main/sub/base64/10ium-VpnClashFaCollector-hysteria2.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.mixedShareLinks},
+      engineIds: {'hysteria2', 'sing_box'},
+      updateCadence: 'daily',
+      notes: 'Repository automation published a fresh commit within the last day; payload is Base64-encoded Hysteria2 links.',
+    ),
+  ];
+
+  static const List<KingOfflineImportKind> offline = KingOfflineImportKind.values;
+
+  static List<KingEngineServerSource> forEngine(String engineId) {
+    final sources = <KingEngineServerSource>[
+      ...online.where((source) => source.engineIds.contains(engineId)),
+    ];
+    if (engineId == 'xray') {
+      sources.addAll(KingProxySourceCatalog.online.map((source) =>
+        KingEngineServerSource(
+          id: source.id,
+          name: 'Xray public feed ${source.id}',
+          url: source.url,
+          kind: KingServerSourceKind.publicSubscription,
+          formats: const {KingServerConfigFormat.mixedShareLinks},
+          engineIds: const {'xray'},
+          notes: 'Legacy Xray-compatible feed; payload must be parsed and validated.',
+        )));
+    }
+    return List.unmodifiable(sources);
+  }
+
+  static List<KingProxySource> xrayFeeds() => KingProxySourceCatalog.online;
+
+  static bool needsUserOrProviderServer(String engineId) => const {
+    'nthlink', 'amneziawg', 'openconnect', 'wireguard',
+  }.contains(engineId);
+
+  static bool isLocalOnly(String engineId) => const {
+    'shroudly', 'byedpi', 'powertunnel',
+  }.contains(engineId);
+}
+,
+    ).hasMatch(value);
+    return hasClientMode && hasRemote && hasTransport;
+  }
+
+  bool _isWireGuardProfile(String value) {
+    final interface = RegExp(
+      r'(?ims)^\\s*\\[Interface\\]\\s*(.*?)^(?=\\s*\\[|\\s*$)',
+    ).firstMatch(value)?.group(1) ?? '';
+    final peer = RegExp(
+      r'(?ims)^\\s*\\[Peer\\]\\s*(.*?)^(?=\\s*\\[|\\s*$)',
+    ).firstMatch(value)?.group(1) ?? '';
+    final privateKey = RegExp(r'(?im)^\\s*PrivateKey\\s*=\\s*([^\\s#]+)')
+        .firstMatch(interface)?.group(1);
+    final publicKey = RegExp(r'(?im)^\\s*PublicKey\\s*=\\s*([^\\s#]+)')
+        .firstMatch(peer)?.group(1);
+    final endpoint = RegExp(
+      r'(?im)^\\s*Endpoint\\s*=\\s*(?:\\[[0-9a-f:]+\\]|[^:\\s]+):(\\d{1,5})\\s*
+
+  bool _containsAmneziaParameters(String value) =>
+      RegExp(r'(?im)^\s*(Jc|Jmin|Jmax|S1|S2|H1|H2|H3|H4)\s*=').hasMatch(value);
+
+  bool _isHttpsEndpoint(String value) {
+    final uri = Uri.tryParse(value);
+    return uri != null && uri.scheme.toLowerCase() == 'https' && uri.host.isNotEmpty;
+  }
+
+  String _engineForScheme(String scheme) => switch (scheme) {
+    'hysteria2' || 'hy2' => 'hysteria2',
+    'ss' || 'shadowsocks' => 'shadowsocks',
+    'vless' || 'vmess' || 'trojan' => 'xray',
+    'wireguard' => 'wireguard',
+    _ => scheme,
+  };
+
+  bool _supports(String requested, String detected) {
+    if (requested == detected) return true;
+    if (requested == 'sing_box') {
+      return const {'xray', 'hysteria2', 'shadowsocks', 'wireguard'}.contains(detected);
+    }
+    if (requested == 'xray') return detected == 'xray';
+    return false;
+  }
+}
+
+/// Fetches only HTTPS sources, keeps TLS verification enabled, and leaves
+/// source failures isolated so one dead feed cannot discard successful feeds.
+class KingHttpSourceFetcher {
+  KingHttpSourceFetcher({HttpClient? client, this.timeout = const Duration(seconds: 35)})
+      : _client = client ?? HttpClient();
+
+  final HttpClient _client;
+  final Duration timeout;
+
+  Future<String> fetch(String sourceUrl) async {
+    final uri = Uri.parse(sourceUrl);
+    if (uri.scheme.toLowerCase() != 'https' || uri.host.isEmpty ||
+        uri.userInfo.isNotEmpty || uri.hasFragment) {
+      throw const FormatException(
+        'Only absolute HTTPS source URLs without credentials or fragments are accepted',
+      );
+    }
+    final request = await _client.getUrl(uri).timeout(timeout);
+    request.headers.set(HttpHeaders.acceptHeader, 'text/plain, application/json, */*');
+    request.headers.set(HttpHeaders.userAgentHeader, 'KING-VPN-SourceSync/1.0');
+    final response = await request.close().timeout(timeout);
+    // HttpClient follows redirects by default. A trusted HTTPS feed must never
+    // be silently downgraded to cleartext during that redirect chain.
+    for (final redirect in response.redirects) {
+      final target = redirect.location.hasScheme
+          ? redirect.location
+          : uri.resolveUri(redirect.location);
+      if (target.scheme.toLowerCase() != 'https' ||
+          target.host.isEmpty ||
+          target.userInfo.isNotEmpty) {
+        await response.drain<void>();
+        throw const FormatException(
+          'Source redirect must remain an absolute HTTPS URL without credentials',
+        );
+      }
+    }
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      await response.drain<void>();
+      throw HttpException('Source returned HTTP ${response.statusCode}', uri: uri);
+    }
+    return response.transform(utf8.decoder).join().timeout(timeout);
+  }
+
+  void close({bool force = false}) => _client.close(force: force);
+}
+
+class KingServerSourceFailure {
+  const KingServerSourceFailure(this.sourceId, this.message);
+  final String sourceId;
+  final String message;
+}
+
+class KingServerSyncResult {
+  const KingServerSyncResult({
+    required this.engineId,
+    required this.profiles,
+    required this.failures,
+  });
+  final String engineId;
+  final List<KingImportedServerProfile> profiles;
+  final List<KingServerSourceFailure> failures;
+}
+
+/// Source refresh is exhaustive over the registered source iterable. There is
+/// no fixed source-count or profile-count ceiling; results are deduplicated by
+/// exact engine/format/payload identity. Provider outages never erase old data.
+class KingServerSourceSync {
+  KingServerSourceSync({
+    required this.fetchText,
+    KingServerPayloadParser? parser,
+  }) : _parser = parser ?? KingServerPayloadParser();
+
+  final Future<String> Function(String url) fetchText;
+  final KingServerPayloadParser _parser;
+
+  Future<KingServerSyncResult> refresh(String engineId) async {
+    final sources = KingEngineServerSourceCatalog.forEngine(engineId);
+    final profiles = <KingImportedServerProfile>[];
+    final fingerprints = <String>{};
+    final failures = <KingServerSourceFailure>[];
+
+    for (final source in sources) {
+      try {
+        final payload = await fetchText(source.url);
+        if (source.kind == KingServerSourceKind.generatedDirectory) {
+          final directory = jsonDecode(payload);
+          if (directory is! List) {
+            throw const FormatException('Generated directory response is not a JSON list');
+          }
+          for (final entry in directory) {
+            if (entry is! Map) continue;
+            final name = (entry['name'] ?? '').toString();
+            final downloadUrl = (entry['download_url'] ?? '').toString();
+            final downloadUri = Uri.tryParse(downloadUrl);
+            if (!name.toLowerCase().endsWith('.ovpn') ||
+                downloadUri == null ||
+                downloadUri.scheme.toLowerCase() != 'https' ||
+                downloadUri.host.isEmpty ||
+                downloadUri.userInfo.isNotEmpty ||
+                downloadUri.hasFragment) {
+              continue;
+            }
+            final config = await fetchText(downloadUri.toString());
+            final parsed = _parser.parse(
+              engineId: engineId, payload: config, sourceId: source.id,
+            );
+            for (final profile in parsed) {
+              if (fingerprints.add(profile.fingerprint)) profiles.add(profile);
+            }
+          }
+        } else {
+          final parsed = _parser.parse(
+            engineId: engineId, payload: payload, sourceId: source.id,
+          );
+          for (final profile in parsed) {
+            if (fingerprints.add(profile.fingerprint)) profiles.add(profile);
+          }
+        }
+      } catch (error) {
+        failures.add(KingServerSourceFailure(source.id, error.toString()));
+      }
+    }
+    return KingServerSyncResult(
+      engineId: engineId,
+      profiles: List.unmodifiable(profiles),
+      failures: List.unmodifiable(failures),
+    );
+  }
+}
+
+
+/// Schedules refreshes at the fastest cadence explicitly published by the
+/// sources for each engine. Unknown cadences are never guessed. Call
+/// refreshNow once on app startup, then start periodic refreshes.
+class KingServerSourceRefreshScheduler {
+  KingServerSourceRefreshScheduler({
+    required this.sync,
+    required this.onResult,
+  });
+
+  final KingServerSourceSync sync;
+  final Future<void> Function(KingServerSyncResult result) onResult;
+  final Map<String, Timer> _timers = {};
+  final Map<String, Future<KingServerSyncResult>> _inFlight = {};
+  bool _disposed = false;
+
+  void start({Iterable<String>? engineIds}) {
+    if (_disposed) throw StateError('Refresh scheduler is disposed');
+    final ids = engineIds ??
+        KingEngineServerSourceCatalog.online.expand((s) => s.engineIds).toSet();
+    for (final engineId in ids) {
+      final intervals = KingEngineServerSourceCatalog.forEngine(engineId)
+          .map(intervalForSource)
+          .whereType<Duration>()
+          .toList(growable: false);
+      if (intervals.isEmpty || _timers.containsKey(engineId)) continue;
+      intervals.sort((a, b) => a.compareTo(b));
+      final interval = intervals.first;
+      _timers[engineId] = Timer.periodic(interval, (_) {
+        unawaited(refreshNow(engineId).then(onResult).catchError((Object _) {}));
+      });
+    }
+  }
+
+  Future<KingServerSyncResult> refreshNow(String engineId) {
+    if (_disposed) {
+      return Future.error(StateError('Refresh scheduler is disposed'));
+    }
+    final active = _inFlight[engineId];
+    if (active != null) return active;
+    late final Future<KingServerSyncResult> tracked;
+    tracked = sync.refresh(engineId).whenComplete(() {
+      if (identical(_inFlight[engineId], tracked)) _inFlight.remove(engineId);
+    });
+    _inFlight[engineId] = tracked;
+    return tracked;
+  }
+
+  static Duration? intervalForSource(KingEngineServerSource source) {
+    final cadence = source.updateCadence?.trim().toLowerCase();
+    if (cadence == null || cadence.isEmpty) return null;
+    if (cadence == 'daily') return const Duration(days: 1);
+    if (cadence == 'hourly') return const Duration(hours: 1);
+    final match = RegExp(
+      r'^(\d+)\s*(m|min|mins|minute|minutes|h|hr|hrs|hour|hours)$',
+    ).firstMatch(cadence);
+    if (match == null) return null;
+    final amount = int.tryParse(match.group(1)!);
+    if (amount == null || amount <= 0) return null;
+    final unit = match.group(2)!;
+    return unit.startsWith('m')
+        ? Duration(minutes: amount)
+        : Duration(hours: amount);
+  }
+
+  void dispose() {
+    if (_disposed) return;
+    _disposed = true;
+    for (final timer in _timers.values) {
+      timer.cancel();
+    }
+    _timers.clear();
+  }
+}
+
+/// Protocol-aware sources. A source is never assigned to an engine merely
+/// because its URL is reachable; its published formats must match.
+class KingEngineServerSourceCatalog {
+  static const List<KingEngineServerSource> online = [
+    KingEngineServerSource(
+      id: 'morpheusadam_hysteria2',
+      name: 'morpheusadam v2ray-config',
+      url: 'https://raw.githubusercontent.com/morpheusadam/v2ray-config/main/subs/bundles/hysteria2.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.mixedShareLinks},
+      engineIds: {'hysteria2', 'sing_box'},
+      updateCadence: 'daily',
+      notes: 'Dedicated Hysteria2 URI bundle; publisher rebuilds protocol bundles daily.',
+    ),
+    KingEngineServerSource(
+      id: 'morpheusadam_shadowsocks',
+      name: 'morpheusadam Shadowsocks feed',
+      url: 'https://raw.githubusercontent.com/morpheusadam/v2ray-config/main/subs/bundles/shadowsocks.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.shadowsocksUri},
+      engineIds: {'shadowsocks', 'sing_box'},
+      updateCadence: 'daily',
+      notes: 'Only Shadowsocks-compatible entries should be retained by the parser.',
+    ),
+    KingEngineServerSource(
+      id: 'morpheusadam_wireguard',
+      name: 'morpheusadam WireGuard bundle',
+      url: 'https://raw.githubusercontent.com/morpheusadam/v2ray-config/main/subs/bundles/wireguard.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.mixedShareLinks},
+      engineIds: {'wireguard', 'sing_box'},
+      updateCadence: 'daily',
+      notes: 'Dedicated WireGuard bundle; entries require protocol-specific parsing and endpoint verification.',
+    ),
+    KingEngineServerSource(
+      id: 'radikal_hysteria2',
+      name: '0xRadikal Hysteria2',
+      url: 'https://raw.githubusercontent.com/0xRadikal/Free-v2ray-Configs/main/protocols/hysteria2.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.hysteria2Uri},
+      engineIds: {'hysteria2', 'sing_box'},
+      updateCadence: '15m',
+      notes: 'Publisher advertises a 15-minute update cycle; live repository activity was observed within minutes of this audit.',
+    ),
+    KingEngineServerSource(
+      id: 'radikal_singbox',
+      name: '0xRadikal sing-box JSON',
+      url: 'https://raw.githubusercontent.com/0xRadikal/Free-v2ray-Configs/main/all/singbox.json',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.singBoxJson},
+      engineIds: {'sing_box'},
+      updateCadence: 'hourly',
+      notes: 'Publisher advertises a 15-minute update cycle; JSON contains multiple proxy outbounds including Hysteria2 and Shadowsocks.',
+    ),
+    KingEngineServerSource(
+      id: 'mohammadaz2_shadowsocks',
+      name: 'mohammadaz2 hourly Shadowsocks',
+      url: 'https://raw.githubusercontent.com/mohammadaz2/v2rayConfigsForYou/main/sub/ss.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.shadowsocksUri},
+      engineIds: {'shadowsocks', 'sing_box'},
+      updateCadence: 'hourly',
+      notes: 'Repository documents hourly scraping and TCP reachability validation; latest repository update observed on 2026-11-26.',
+    ),
+    KingEngineServerSource(
+      id: 'radikal_shadowsocks',
+      name: '0xRadikal Shadowsocks',
+      url: 'https://raw.githubusercontent.com/0xRadikal/Free-v2ray-Configs/main/protocols/shadowsocks.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.shadowsocksUri},
+      engineIds: {'shadowsocks', 'sing_box'},
+      updateCadence: 'hourly',
+      notes: 'Publisher advertises a 15-minute update cycle; protocol-specific plain-text feed.',
+    ),
+    KingEngineServerSource(
+      id: 'shatak_hysteria2_ae',
+      name: 'ShatakVPN Hysteria2 AE',
+      url: 'https://raw.githubusercontent.com/ShatakVPN/ConfigForge-V2Ray/main/configs/ae/hysteria2.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.hysteria2Uri},
+      engineIds: {'hysteria2', 'sing_box'},
+      updateCadence: 'daily',
+      notes: 'Repository automation published a fresh commit within the last day; this country feed was fetched and parsed as Hysteria2 URIs.',
+    ),
+    KingEngineServerSource(
+      id: 'shatak_shadowsocks',
+      name: 'ShatakVPN Shadowsocks',
+      url: 'https://raw.githubusercontent.com/ShatakVPN/ConfigForge-V2Ray/main/configs/shadowsocks.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.shadowsocksUri},
+      engineIds: {'shadowsocks', 'sing_box'},
+      updateCadence: 'daily',
+      notes: 'Repository automation published a fresh commit within the last day; dedicated Shadowsocks feed.',
+    ),
+    KingEngineServerSource(
+      id: 'tendream_hysteria2',
+      name: '10Dream Hysteria2 Base64',
+      url: 'https://raw.githubusercontent.com/10Dream/sub-mod/main/sub/base64/10ium-VpnClashFaCollector-hysteria2.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.mixedShareLinks},
+      engineIds: {'hysteria2', 'sing_box'},
+      updateCadence: 'daily',
+      notes: 'Repository automation published a fresh commit within the last day; payload is Base64-encoded Hysteria2 links.',
+    ),
+  ];
+
+  static const List<KingOfflineImportKind> offline = KingOfflineImportKind.values;
+
+  static List<KingEngineServerSource> forEngine(String engineId) {
+    final sources = <KingEngineServerSource>[
+      ...online.where((source) => source.engineIds.contains(engineId)),
+    ];
+    if (engineId == 'xray') {
+      sources.addAll(KingProxySourceCatalog.online.map((source) =>
+        KingEngineServerSource(
+          id: source.id,
+          name: 'Xray public feed ${source.id}',
+          url: source.url,
+          kind: KingServerSourceKind.publicSubscription,
+          formats: const {KingServerConfigFormat.mixedShareLinks},
+          engineIds: const {'xray'},
+          notes: 'Legacy Xray-compatible feed; payload must be parsed and validated.',
+        )));
+    }
+    return List.unmodifiable(sources);
+  }
+
+  static List<KingProxySource> xrayFeeds() => KingProxySourceCatalog.online;
+
+  static bool needsUserOrProviderServer(String engineId) => const {
+    'nthlink', 'amneziawg', 'openconnect', 'wireguard',
+  }.contains(engineId);
+
+  static bool isLocalOnly(String engineId) => const {
+    'shroudly', 'byedpi', 'powertunnel',
+  }.contains(engineId);
+}
+)
+        .firstMatch(cadence);
+    if (match == null) return null;
+    final amount = int.tryParse(match.group(1)!);
+    if (amount == null || amount <= 0) return null;
+    final unit = match.group(2)!;
+    if (unit.startsWith('m')) return Duration(minutes: amount);
+    if (unit.startsWith('h')) return Duration(hours: amount);
+    return null;
+  }
+
+  void dispose() {
+    if (_disposed) return;
+    _disposed = true;
+    for (final timer in _timers.values) {
+      timer.cancel();
+    }
+    _timers.clear();
+  }
+}
+
+/// Protocol-aware sources. A source is never assigned to an engine merely
+/// because its URL is reachable; its published formats must match.
+class KingEngineServerSourceCatalog {
+  static const List<KingEngineServerSource> online = [
+    KingEngineServerSource(
+      id: 'morpheusadam_hysteria2',
+      name: 'morpheusadam v2ray-config',
+      url: 'https://raw.githubusercontent.com/morpheusadam/v2ray-config/main/subs/bundles/hysteria2.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.mixedShareLinks},
+      engineIds: {'hysteria2', 'sing_box'},
+      updateCadence: 'daily',
+      notes: 'Dedicated Hysteria2 URI bundle; publisher rebuilds protocol bundles daily.',
+    ),
+    KingEngineServerSource(
+      id: 'morpheusadam_shadowsocks',
+      name: 'morpheusadam Shadowsocks feed',
+      url: 'https://raw.githubusercontent.com/morpheusadam/v2ray-config/main/subs/bundles/shadowsocks.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.shadowsocksUri},
+      engineIds: {'shadowsocks', 'sing_box'},
+      updateCadence: 'daily',
+      notes: 'Only Shadowsocks-compatible entries should be retained by the parser.',
+    ),
+    KingEngineServerSource(
+      id: 'morpheusadam_wireguard',
+      name: 'morpheusadam WireGuard bundle',
+      url: 'https://raw.githubusercontent.com/morpheusadam/v2ray-config/main/subs/bundles/wireguard.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.mixedShareLinks},
+      engineIds: {'wireguard', 'sing_box'},
+      updateCadence: 'daily',
+      notes: 'Dedicated WireGuard bundle; entries require protocol-specific parsing and endpoint verification.',
+    ),
+    KingEngineServerSource(
+      id: 'radikal_hysteria2',
+      name: '0xRadikal Hysteria2',
+      url: 'https://raw.githubusercontent.com/0xRadikal/Free-v2ray-Configs/main/protocols/hysteria2.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.hysteria2Uri},
+      engineIds: {'hysteria2', 'sing_box'},
+      updateCadence: '15m',
+      notes: 'Publisher advertises a 15-minute update cycle; live repository activity was observed within minutes of this audit.',
+    ),
+    KingEngineServerSource(
+      id: 'radikal_singbox',
+      name: '0xRadikal sing-box JSON',
+      url: 'https://raw.githubusercontent.com/0xRadikal/Free-v2ray-Configs/main/all/singbox.json',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.singBoxJson},
+      engineIds: {'sing_box'},
+      updateCadence: 'hourly',
+      notes: 'Publisher advertises a 15-minute update cycle; JSON contains multiple proxy outbounds including Hysteria2 and Shadowsocks.',
+    ),
+    KingEngineServerSource(
+      id: 'radikal_shadowsocks',
+      name: '0xRadikal Shadowsocks',
+      url: 'https://raw.githubusercontent.com/0xRadikal/Free-v2ray-Configs/main/protocols/shadowsocks.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.shadowsocksUri},
+      engineIds: {'shadowsocks', 'sing_box'},
+      updateCadence: 'hourly',
+      notes: 'Publisher advertises a 15-minute update cycle; protocol-specific plain-text feed.',
+    ),
+    KingEngineServerSource(
+      id: 'shatak_hysteria2_ae',
+      name: 'ShatakVPN Hysteria2 AE',
+      url: 'https://raw.githubusercontent.com/ShatakVPN/ConfigForge-V2Ray/main/configs/ae/hysteria2.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.hysteria2Uri},
+      engineIds: {'hysteria2', 'sing_box'},
+      updateCadence: 'daily',
+      notes: 'Repository automation published a fresh commit within the last day; this country feed was fetched and parsed as Hysteria2 URIs.',
+    ),
+    KingEngineServerSource(
+      id: 'shatak_shadowsocks',
+      name: 'ShatakVPN Shadowsocks',
+      url: 'https://raw.githubusercontent.com/ShatakVPN/ConfigForge-V2Ray/main/configs/shadowsocks.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.shadowsocksUri},
+      engineIds: {'shadowsocks', 'sing_box'},
+      updateCadence: 'daily',
+      notes: 'Repository automation published a fresh commit within the last day; dedicated Shadowsocks feed.',
+    ),
+    KingEngineServerSource(
+      id: 'tendream_hysteria2',
+      name: '10Dream Hysteria2 Base64',
+      url: 'https://raw.githubusercontent.com/10Dream/sub-mod/main/sub/base64/10ium-VpnClashFaCollector-hysteria2.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.mixedShareLinks},
+      engineIds: {'hysteria2', 'sing_box'},
+      updateCadence: 'daily',
+      notes: 'Repository automation published a fresh commit within the last day; payload is Base64-encoded Hysteria2 links.',
+    ),
+  ];
+
+  static const List<KingOfflineImportKind> offline = KingOfflineImportKind.values;
+
+  static List<KingEngineServerSource> forEngine(String engineId) {
+    final sources = <KingEngineServerSource>[
+      ...online.where((source) => source.engineIds.contains(engineId)),
+    ];
+    if (engineId == 'xray') {
+      sources.addAll(KingProxySourceCatalog.online.map((source) =>
+        KingEngineServerSource(
+          id: source.id,
+          name: 'Xray public feed ${source.id}',
+          url: source.url,
+          kind: KingServerSourceKind.publicSubscription,
+          formats: const {KingServerConfigFormat.mixedShareLinks},
+          engineIds: const {'xray'},
+          notes: 'Legacy Xray-compatible feed; payload must be parsed and validated.',
+        )));
+    }
+    return List.unmodifiable(sources);
+  }
+
+  static List<KingProxySource> xrayFeeds() => KingProxySourceCatalog.online;
+
+  static bool needsUserOrProviderServer(String engineId) => const {
+    'nthlink', 'amneziawg', 'openconnect', 'wireguard',
+  }.contains(engineId);
+
+  static bool isLocalOnly(String engineId) => const {
+    'shroudly', 'byedpi', 'powertunnel',
+  }.contains(engineId);
+}
+,
+    ).firstMatch(peer)?.group(1);
+    final allowedIps = RegExp(r'(?im)^\\s*AllowedIPs\\s*=\\s*\\S+')
+        .hasMatch(peer);
+    final port = int.tryParse(endpoint ?? '');
+    return privateKey != null && privateKey.isNotEmpty &&
+        publicKey != null && publicKey.isNotEmpty &&
+        port != null && port > 0 && port <= 65535 && allowedIps;
+  }
+
+  bool _containsAmneziaParameters(String value) =>
+      RegExp(r'(?im)^\s*(Jc|Jmin|Jmax|S1|S2|H1|H2|H3|H4)\s*=').hasMatch(value);
+
+  bool _isHttpsEndpoint(String value) {
+    final uri = Uri.tryParse(value);
+    return uri != null && uri.scheme.toLowerCase() == 'https' && uri.host.isNotEmpty;
+  }
+
+  String _engineForScheme(String scheme) => switch (scheme) {
+    'hysteria2' || 'hy2' => 'hysteria2',
+    'ss' || 'shadowsocks' => 'shadowsocks',
+    'vless' || 'vmess' || 'trojan' => 'xray',
+    'wireguard' => 'wireguard',
+    _ => scheme,
+  };
+
+  bool _supports(String requested, String detected) {
+    if (requested == detected) return true;
+    if (requested == 'sing_box') {
+      return const {'xray', 'hysteria2', 'shadowsocks', 'wireguard'}.contains(detected);
+    }
+    if (requested == 'xray') return detected == 'xray';
+    return false;
+  }
+}
+
+/// Fetches only HTTPS sources, keeps TLS verification enabled, and leaves
+/// source failures isolated so one dead feed cannot discard successful feeds.
+class KingHttpSourceFetcher {
+  KingHttpSourceFetcher({HttpClient? client, this.timeout = const Duration(seconds: 35)})
+      : _client = client ?? HttpClient();
+
+  final HttpClient _client;
+  final Duration timeout;
+
+  Future<String> fetch(String sourceUrl) async {
+    final uri = Uri.parse(sourceUrl);
+    if (uri.scheme.toLowerCase() != 'https' || uri.host.isEmpty ||
+        uri.userInfo.isNotEmpty || uri.hasFragment) {
+      throw const FormatException(
+        'Only absolute HTTPS source URLs without credentials or fragments are accepted',
+      );
+    }
+    final request = await _client.getUrl(uri).timeout(timeout);
+    request.headers.set(HttpHeaders.acceptHeader, 'text/plain, application/json, */*');
+    request.headers.set(HttpHeaders.userAgentHeader, 'KING-VPN-SourceSync/1.0');
+    final response = await request.close().timeout(timeout);
+    // HttpClient follows redirects by default. A trusted HTTPS feed must never
+    // be silently downgraded to cleartext during that redirect chain.
+    for (final redirect in response.redirects) {
+      final target = redirect.location.hasScheme
+          ? redirect.location
+          : uri.resolveUri(redirect.location);
+      if (target.scheme.toLowerCase() != 'https' ||
+          target.host.isEmpty ||
+          target.userInfo.isNotEmpty) {
+        await response.drain<void>();
+        throw const FormatException(
+          'Source redirect must remain an absolute HTTPS URL without credentials',
+        );
+      }
+    }
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      await response.drain<void>();
+      throw HttpException('Source returned HTTP ${response.statusCode}', uri: uri);
+    }
+    return response.transform(utf8.decoder).join().timeout(timeout);
+  }
+
+  void close({bool force = false}) => _client.close(force: force);
+}
+
+class KingServerSourceFailure {
+  const KingServerSourceFailure(this.sourceId, this.message);
+  final String sourceId;
+  final String message;
+}
+
+class KingServerSyncResult {
+  const KingServerSyncResult({
+    required this.engineId,
+    required this.profiles,
+    required this.failures,
+  });
+  final String engineId;
+  final List<KingImportedServerProfile> profiles;
+  final List<KingServerSourceFailure> failures;
+}
+
+/// Source refresh is exhaustive over the registered source iterable. There is
+/// no fixed source-count or profile-count ceiling; results are deduplicated by
+/// exact engine/format/payload identity. Provider outages never erase old data.
+class KingServerSourceSync {
+  KingServerSourceSync({
+    required this.fetchText,
+    KingServerPayloadParser? parser,
+  }) : _parser = parser ?? KingServerPayloadParser();
+
+  final Future<String> Function(String url) fetchText;
+  final KingServerPayloadParser _parser;
+
+  Future<KingServerSyncResult> refresh(String engineId) async {
+    final sources = KingEngineServerSourceCatalog.forEngine(engineId);
+    final profiles = <KingImportedServerProfile>[];
+    final fingerprints = <String>{};
+    final failures = <KingServerSourceFailure>[];
+
+    for (final source in sources) {
+      try {
+        final payload = await fetchText(source.url);
+        if (source.kind == KingServerSourceKind.generatedDirectory) {
+          final directory = jsonDecode(payload);
+          if (directory is! List) {
+            throw const FormatException('Generated directory response is not a JSON list');
+          }
+          for (final entry in directory) {
+            if (entry is! Map) continue;
+            final name = (entry['name'] ?? '').toString();
+            final downloadUrl = (entry['download_url'] ?? '').toString();
+            final downloadUri = Uri.tryParse(downloadUrl);
+            if (!name.toLowerCase().endsWith('.ovpn') ||
+                downloadUri == null ||
+                downloadUri.scheme.toLowerCase() != 'https' ||
+                downloadUri.host.isEmpty ||
+                downloadUri.userInfo.isNotEmpty ||
+                downloadUri.hasFragment) {
+              continue;
+            }
+            final config = await fetchText(downloadUri.toString());
+            final parsed = _parser.parse(
+              engineId: engineId, payload: config, sourceId: source.id,
+            );
+            for (final profile in parsed) {
+              if (fingerprints.add(profile.fingerprint)) profiles.add(profile);
+            }
+          }
+        } else {
+          final parsed = _parser.parse(
+            engineId: engineId, payload: payload, sourceId: source.id,
+          );
+          for (final profile in parsed) {
+            if (fingerprints.add(profile.fingerprint)) profiles.add(profile);
+          }
+        }
+      } catch (error) {
+        failures.add(KingServerSourceFailure(source.id, error.toString()));
+      }
+    }
+    return KingServerSyncResult(
+      engineId: engineId,
+      profiles: List.unmodifiable(profiles),
+      failures: List.unmodifiable(failures),
+    );
+  }
+}
+
+
+/// Schedules refreshes at the fastest cadence explicitly published by the
+/// sources for each engine. Unknown cadences are never guessed. Call
+/// refreshNow once on app startup, then start periodic refreshes.
+class KingServerSourceRefreshScheduler {
+  KingServerSourceRefreshScheduler({
+    required this.sync,
+    required this.onResult,
+  });
+
+  final KingServerSourceSync sync;
+  final Future<void> Function(KingServerSyncResult result) onResult;
+  final Map<String, Timer> _timers = {};
+  final Map<String, Future<KingServerSyncResult>> _inFlight = {};
+  bool _disposed = false;
+
+  void start({Iterable<String>? engineIds}) {
+    if (_disposed) throw StateError('Refresh scheduler is disposed');
+    final ids = engineIds ??
+        KingEngineServerSourceCatalog.online.expand((s) => s.engineIds).toSet();
+    for (final engineId in ids) {
+      final intervals = KingEngineServerSourceCatalog.forEngine(engineId)
+          .map(intervalForSource)
+          .whereType<Duration>()
+          .toList(growable: false);
+      if (intervals.isEmpty || _timers.containsKey(engineId)) continue;
+      intervals.sort((a, b) => a.compareTo(b));
+      final interval = intervals.first;
+      _timers[engineId] = Timer.periodic(interval, (_) {
+        unawaited(refreshNow(engineId).then(onResult).catchError((Object _) {}));
+      });
+    }
+  }
+
+  Future<KingServerSyncResult> refreshNow(String engineId) {
+    if (_disposed) {
+      return Future.error(StateError('Refresh scheduler is disposed'));
+    }
+    final active = _inFlight[engineId];
+    if (active != null) return active;
+    late final Future<KingServerSyncResult> tracked;
+    tracked = sync.refresh(engineId).whenComplete(() {
+      if (identical(_inFlight[engineId], tracked)) _inFlight.remove(engineId);
+    });
+    _inFlight[engineId] = tracked;
+    return tracked;
+  }
+
+  static Duration? intervalForSource(KingEngineServerSource source) {
+    final cadence = source.updateCadence?.trim().toLowerCase();
+    if (cadence == null || cadence.isEmpty) return null;
+    if (cadence == 'daily') return const Duration(days: 1);
+    if (cadence == 'hourly') return const Duration(hours: 1);
+    final match = RegExp(
+      r'^(\d+)\s*(m|min|mins|minute|minutes|h|hr|hrs|hour|hours)$',
+    ).firstMatch(cadence);
+    if (match == null) return null;
+    final amount = int.tryParse(match.group(1)!);
+    if (amount == null || amount <= 0) return null;
+    final unit = match.group(2)!;
+    return unit.startsWith('m')
+        ? Duration(minutes: amount)
+        : Duration(hours: amount);
+  }
+
+  void dispose() {
+    if (_disposed) return;
+    _disposed = true;
+    for (final timer in _timers.values) {
+      timer.cancel();
+    }
+    _timers.clear();
+  }
+}
+
+/// Protocol-aware sources. A source is never assigned to an engine merely
+/// because its URL is reachable; its published formats must match.
+class KingEngineServerSourceCatalog {
+  static const List<KingEngineServerSource> online = [
+    KingEngineServerSource(
+      id: 'morpheusadam_hysteria2',
+      name: 'morpheusadam v2ray-config',
+      url: 'https://raw.githubusercontent.com/morpheusadam/v2ray-config/main/subs/bundles/hysteria2.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.mixedShareLinks},
+      engineIds: {'hysteria2', 'sing_box'},
+      updateCadence: 'daily',
+      notes: 'Dedicated Hysteria2 URI bundle; publisher rebuilds protocol bundles daily.',
+    ),
+    KingEngineServerSource(
+      id: 'morpheusadam_shadowsocks',
+      name: 'morpheusadam Shadowsocks feed',
+      url: 'https://raw.githubusercontent.com/morpheusadam/v2ray-config/main/subs/bundles/shadowsocks.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.shadowsocksUri},
+      engineIds: {'shadowsocks', 'sing_box'},
+      updateCadence: 'daily',
+      notes: 'Only Shadowsocks-compatible entries should be retained by the parser.',
+    ),
+    KingEngineServerSource(
+      id: 'morpheusadam_wireguard',
+      name: 'morpheusadam WireGuard bundle',
+      url: 'https://raw.githubusercontent.com/morpheusadam/v2ray-config/main/subs/bundles/wireguard.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.mixedShareLinks},
+      engineIds: {'wireguard', 'sing_box'},
+      updateCadence: 'daily',
+      notes: 'Dedicated WireGuard bundle; entries require protocol-specific parsing and endpoint verification.',
+    ),
+    KingEngineServerSource(
+      id: 'radikal_hysteria2',
+      name: '0xRadikal Hysteria2',
+      url: 'https://raw.githubusercontent.com/0xRadikal/Free-v2ray-Configs/main/protocols/hysteria2.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.hysteria2Uri},
+      engineIds: {'hysteria2', 'sing_box'},
+      updateCadence: '15m',
+      notes: 'Publisher advertises a 15-minute update cycle; live repository activity was observed within minutes of this audit.',
+    ),
+    KingEngineServerSource(
+      id: 'radikal_singbox',
+      name: '0xRadikal sing-box JSON',
+      url: 'https://raw.githubusercontent.com/0xRadikal/Free-v2ray-Configs/main/all/singbox.json',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.singBoxJson},
+      engineIds: {'sing_box'},
+      updateCadence: 'hourly',
+      notes: 'Publisher advertises a 15-minute update cycle; JSON contains multiple proxy outbounds including Hysteria2 and Shadowsocks.',
+    ),
+    KingEngineServerSource(
+      id: 'mohammadaz2_shadowsocks',
+      name: 'mohammadaz2 hourly Shadowsocks',
+      url: 'https://raw.githubusercontent.com/mohammadaz2/v2rayConfigsForYou/main/sub/ss.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.shadowsocksUri},
+      engineIds: {'shadowsocks', 'sing_box'},
+      updateCadence: 'hourly',
+      notes: 'Repository documents hourly scraping and TCP reachability validation; latest repository update observed on 2026-11-26.',
+    ),
+    KingEngineServerSource(
+      id: 'radikal_shadowsocks',
+      name: '0xRadikal Shadowsocks',
+      url: 'https://raw.githubusercontent.com/0xRadikal/Free-v2ray-Configs/main/protocols/shadowsocks.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.shadowsocksUri},
+      engineIds: {'shadowsocks', 'sing_box'},
+      updateCadence: 'hourly',
+      notes: 'Publisher advertises a 15-minute update cycle; protocol-specific plain-text feed.',
+    ),
+    KingEngineServerSource(
+      id: 'shatak_hysteria2_ae',
+      name: 'ShatakVPN Hysteria2 AE',
+      url: 'https://raw.githubusercontent.com/ShatakVPN/ConfigForge-V2Ray/main/configs/ae/hysteria2.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.hysteria2Uri},
+      engineIds: {'hysteria2', 'sing_box'},
+      updateCadence: 'daily',
+      notes: 'Repository automation published a fresh commit within the last day; this country feed was fetched and parsed as Hysteria2 URIs.',
+    ),
+    KingEngineServerSource(
+      id: 'shatak_shadowsocks',
+      name: 'ShatakVPN Shadowsocks',
+      url: 'https://raw.githubusercontent.com/ShatakVPN/ConfigForge-V2Ray/main/configs/shadowsocks.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.shadowsocksUri},
+      engineIds: {'shadowsocks', 'sing_box'},
+      updateCadence: 'daily',
+      notes: 'Repository automation published a fresh commit within the last day; dedicated Shadowsocks feed.',
+    ),
+    KingEngineServerSource(
+      id: 'tendream_hysteria2',
+      name: '10Dream Hysteria2 Base64',
+      url: 'https://raw.githubusercontent.com/10Dream/sub-mod/main/sub/base64/10ium-VpnClashFaCollector-hysteria2.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.mixedShareLinks},
+      engineIds: {'hysteria2', 'sing_box'},
+      updateCadence: 'daily',
+      notes: 'Repository automation published a fresh commit within the last day; payload is Base64-encoded Hysteria2 links.',
+    ),
+  ];
+
+  static const List<KingOfflineImportKind> offline = KingOfflineImportKind.values;
+
+  static List<KingEngineServerSource> forEngine(String engineId) {
+    final sources = <KingEngineServerSource>[
+      ...online.where((source) => source.engineIds.contains(engineId)),
+    ];
+    if (engineId == 'xray') {
+      sources.addAll(KingProxySourceCatalog.online.map((source) =>
+        KingEngineServerSource(
+          id: source.id,
+          name: 'Xray public feed ${source.id}',
+          url: source.url,
+          kind: KingServerSourceKind.publicSubscription,
+          formats: const {KingServerConfigFormat.mixedShareLinks},
+          engineIds: const {'xray'},
+          notes: 'Legacy Xray-compatible feed; payload must be parsed and validated.',
+        )));
+    }
+    return List.unmodifiable(sources);
+  }
+
+  static List<KingProxySource> xrayFeeds() => KingProxySourceCatalog.online;
+
+  static bool needsUserOrProviderServer(String engineId) => const {
+    'nthlink', 'amneziawg', 'openconnect', 'wireguard',
+  }.contains(engineId);
+
+  static bool isLocalOnly(String engineId) => const {
+    'shroudly', 'byedpi', 'powertunnel',
+  }.contains(engineId);
+}
+)
+        .firstMatch(cadence);
+    if (match == null) return null;
+    final amount = int.tryParse(match.group(1)!);
+    if (amount == null || amount <= 0) return null;
+    final unit = match.group(2)!;
+    if (unit.startsWith('m')) return Duration(minutes: amount);
+    if (unit.startsWith('h')) return Duration(hours: amount);
+    return null;
+  }
+
+  void dispose() {
+    if (_disposed) return;
+    _disposed = true;
+    for (final timer in _timers.values) {
+      timer.cancel();
+    }
+    _timers.clear();
+  }
+}
+
+/// Protocol-aware sources. A source is never assigned to an engine merely
+/// because its URL is reachable; its published formats must match.
+class KingEngineServerSourceCatalog {
+  static const List<KingEngineServerSource> online = [
+    KingEngineServerSource(
+      id: 'morpheusadam_hysteria2',
+      name: 'morpheusadam v2ray-config',
+      url: 'https://raw.githubusercontent.com/morpheusadam/v2ray-config/main/subs/bundles/hysteria2.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.mixedShareLinks},
+      engineIds: {'hysteria2', 'sing_box'},
+      updateCadence: 'daily',
+      notes: 'Dedicated Hysteria2 URI bundle; publisher rebuilds protocol bundles daily.',
+    ),
+    KingEngineServerSource(
+      id: 'morpheusadam_shadowsocks',
+      name: 'morpheusadam Shadowsocks feed',
+      url: 'https://raw.githubusercontent.com/morpheusadam/v2ray-config/main/subs/bundles/shadowsocks.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.shadowsocksUri},
+      engineIds: {'shadowsocks', 'sing_box'},
+      updateCadence: 'daily',
+      notes: 'Only Shadowsocks-compatible entries should be retained by the parser.',
+    ),
+    KingEngineServerSource(
+      id: 'morpheusadam_wireguard',
+      name: 'morpheusadam WireGuard bundle',
+      url: 'https://raw.githubusercontent.com/morpheusadam/v2ray-config/main/subs/bundles/wireguard.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.mixedShareLinks},
+      engineIds: {'wireguard', 'sing_box'},
+      updateCadence: 'daily',
+      notes: 'Dedicated WireGuard bundle; entries require protocol-specific parsing and endpoint verification.',
+    ),
+    KingEngineServerSource(
+      id: 'radikal_hysteria2',
+      name: '0xRadikal Hysteria2',
+      url: 'https://raw.githubusercontent.com/0xRadikal/Free-v2ray-Configs/main/protocols/hysteria2.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.hysteria2Uri},
+      engineIds: {'hysteria2', 'sing_box'},
+      updateCadence: '15m',
+      notes: 'Publisher advertises a 15-minute update cycle; live repository activity was observed within minutes of this audit.',
+    ),
+    KingEngineServerSource(
+      id: 'radikal_singbox',
+      name: '0xRadikal sing-box JSON',
+      url: 'https://raw.githubusercontent.com/0xRadikal/Free-v2ray-Configs/main/all/singbox.json',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.singBoxJson},
+      engineIds: {'sing_box'},
+      updateCadence: 'hourly',
+      notes: 'Publisher advertises a 15-minute update cycle; JSON contains multiple proxy outbounds including Hysteria2 and Shadowsocks.',
+    ),
+    KingEngineServerSource(
+      id: 'radikal_shadowsocks',
+      name: '0xRadikal Shadowsocks',
+      url: 'https://raw.githubusercontent.com/0xRadikal/Free-v2ray-Configs/main/protocols/shadowsocks.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.shadowsocksUri},
+      engineIds: {'shadowsocks', 'sing_box'},
+      updateCadence: 'hourly',
+      notes: 'Publisher advertises a 15-minute update cycle; protocol-specific plain-text feed.',
+    ),
+    KingEngineServerSource(
+      id: 'shatak_hysteria2_ae',
+      name: 'ShatakVPN Hysteria2 AE',
+      url: 'https://raw.githubusercontent.com/ShatakVPN/ConfigForge-V2Ray/main/configs/ae/hysteria2.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.hysteria2Uri},
+      engineIds: {'hysteria2', 'sing_box'},
+      updateCadence: 'daily',
+      notes: 'Repository automation published a fresh commit within the last day; this country feed was fetched and parsed as Hysteria2 URIs.',
+    ),
+    KingEngineServerSource(
+      id: 'shatak_shadowsocks',
+      name: 'ShatakVPN Shadowsocks',
+      url: 'https://raw.githubusercontent.com/ShatakVPN/ConfigForge-V2Ray/main/configs/shadowsocks.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.shadowsocksUri},
+      engineIds: {'shadowsocks', 'sing_box'},
+      updateCadence: 'daily',
+      notes: 'Repository automation published a fresh commit within the last day; dedicated Shadowsocks feed.',
+    ),
+    KingEngineServerSource(
+      id: 'tendream_hysteria2',
+      name: '10Dream Hysteria2 Base64',
+      url: 'https://raw.githubusercontent.com/10Dream/sub-mod/main/sub/base64/10ium-VpnClashFaCollector-hysteria2.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.mixedShareLinks},
+      engineIds: {'hysteria2', 'sing_box'},
+      updateCadence: 'daily',
+      notes: 'Repository automation published a fresh commit within the last day; payload is Base64-encoded Hysteria2 links.',
+    ),
+  ];
+
+  static const List<KingOfflineImportKind> offline = KingOfflineImportKind.values;
+
+  static List<KingEngineServerSource> forEngine(String engineId) {
+    final sources = <KingEngineServerSource>[
+      ...online.where((source) => source.engineIds.contains(engineId)),
+    ];
+    if (engineId == 'xray') {
+      sources.addAll(KingProxySourceCatalog.online.map((source) =>
+        KingEngineServerSource(
+          id: source.id,
+          name: 'Xray public feed ${source.id}',
+          url: source.url,
+          kind: KingServerSourceKind.publicSubscription,
+          formats: const {KingServerConfigFormat.mixedShareLinks},
+          engineIds: const {'xray'},
+          notes: 'Legacy Xray-compatible feed; payload must be parsed and validated.',
+        )));
+    }
+    return List.unmodifiable(sources);
+  }
+
+  static List<KingProxySource> xrayFeeds() => KingProxySourceCatalog.online;
+
+  static bool needsUserOrProviderServer(String engineId) => const {
+    'nthlink', 'amneziawg', 'openconnect', 'wireguard',
+  }.contains(engineId);
+
+  static bool isLocalOnly(String engineId) => const {
+    'shroudly', 'byedpi', 'powertunnel',
+  }.contains(engineId);
+}
+,
+    ).firstMatch(peer);
+    final host = endpoint?.group(1);
+    final port = int.tryParse(endpoint?.group(2) ?? '');
+    final allowedIps = RegExp(r'(?im)^\s*AllowedIPs\s*=\s*(.+)
+
+  bool _containsAmneziaParameters(String value) =>
+      RegExp(r'(?im)^\s*(Jc|Jmin|Jmax|S1|S2|H1|H2|H3|H4)\s*=').hasMatch(value);
+
+  bool _isHttpsEndpoint(String value) {
+    final uri = Uri.tryParse(value);
+    return uri != null && uri.scheme.toLowerCase() == 'https' && uri.host.isNotEmpty;
+  }
+
+  String _engineForScheme(String scheme) => switch (scheme) {
+    'hysteria2' || 'hy2' => 'hysteria2',
+    'ss' || 'shadowsocks' => 'shadowsocks',
+    'vless' || 'vmess' || 'trojan' => 'xray',
+    'wireguard' => 'wireguard',
+    _ => scheme,
+  };
+
+  bool _supports(String requested, String detected) {
+    if (requested == detected) return true;
+    if (requested == 'sing_box') {
+      return const {'xray', 'hysteria2', 'shadowsocks', 'wireguard'}.contains(detected);
+    }
+    if (requested == 'xray') return detected == 'xray';
+    return false;
+  }
+}
+
+/// Fetches only HTTPS sources, keeps TLS verification enabled, and leaves
+/// source failures isolated so one dead feed cannot discard successful feeds.
+class KingHttpSourceFetcher {
+  KingHttpSourceFetcher({HttpClient? client, this.timeout = const Duration(seconds: 35)})
+      : _client = client ?? HttpClient();
+
+  final HttpClient _client;
+  final Duration timeout;
+
+  Future<String> fetch(String sourceUrl) async {
+    final uri = Uri.parse(sourceUrl);
+    if (uri.scheme.toLowerCase() != 'https' || uri.host.isEmpty ||
+        uri.userInfo.isNotEmpty || uri.hasFragment) {
+      throw const FormatException(
+        'Only absolute HTTPS source URLs without credentials or fragments are accepted',
+      );
+    }
+    final request = await _client.getUrl(uri).timeout(timeout);
+    request.headers.set(HttpHeaders.acceptHeader, 'text/plain, application/json, */*');
+    request.headers.set(HttpHeaders.userAgentHeader, 'KING-VPN-SourceSync/1.0');
+    final response = await request.close().timeout(timeout);
+    // HttpClient follows redirects by default. A trusted HTTPS feed must never
+    // be silently downgraded to cleartext during that redirect chain.
+    for (final redirect in response.redirects) {
+      final target = redirect.location.hasScheme
+          ? redirect.location
+          : uri.resolveUri(redirect.location);
+      if (target.scheme.toLowerCase() != 'https' ||
+          target.host.isEmpty ||
+          target.userInfo.isNotEmpty) {
+        await response.drain<void>();
+        throw const FormatException(
+          'Source redirect must remain an absolute HTTPS URL without credentials',
+        );
+      }
+    }
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      await response.drain<void>();
+      throw HttpException('Source returned HTTP ${response.statusCode}', uri: uri);
+    }
+    return response.transform(utf8.decoder).join().timeout(timeout);
+  }
+
+  void close({bool force = false}) => _client.close(force: force);
+}
+
+class KingServerSourceFailure {
+  const KingServerSourceFailure(this.sourceId, this.message);
+  final String sourceId;
+  final String message;
+}
+
+class KingServerSyncResult {
+  const KingServerSyncResult({
+    required this.engineId,
+    required this.profiles,
+    required this.failures,
+  });
+  final String engineId;
+  final List<KingImportedServerProfile> profiles;
+  final List<KingServerSourceFailure> failures;
+}
+
+/// Source refresh is exhaustive over the registered source iterable. There is
+/// no fixed source-count or profile-count ceiling; results are deduplicated by
+/// exact engine/format/payload identity. Provider outages never erase old data.
+class KingServerSourceSync {
+  KingServerSourceSync({
+    required this.fetchText,
+    KingServerPayloadParser? parser,
+  }) : _parser = parser ?? KingServerPayloadParser();
+
+  final Future<String> Function(String url) fetchText;
+  final KingServerPayloadParser _parser;
+
+  Future<KingServerSyncResult> refresh(String engineId) async {
+    final sources = KingEngineServerSourceCatalog.forEngine(engineId);
+    final profiles = <KingImportedServerProfile>[];
+    final fingerprints = <String>{};
+    final failures = <KingServerSourceFailure>[];
+
+    for (final source in sources) {
+      try {
+        final payload = await fetchText(source.url);
+        if (source.kind == KingServerSourceKind.generatedDirectory) {
+          final directory = jsonDecode(payload);
+          if (directory is! List) {
+            throw const FormatException('Generated directory response is not a JSON list');
+          }
+          for (final entry in directory) {
+            if (entry is! Map) continue;
+            final name = (entry['name'] ?? '').toString();
+            final downloadUrl = (entry['download_url'] ?? '').toString();
+            final downloadUri = Uri.tryParse(downloadUrl);
+            if (!name.toLowerCase().endsWith('.ovpn') ||
+                downloadUri == null ||
+                downloadUri.scheme.toLowerCase() != 'https' ||
+                downloadUri.host.isEmpty ||
+                downloadUri.userInfo.isNotEmpty ||
+                downloadUri.hasFragment) {
+              continue;
+            }
+            final config = await fetchText(downloadUri.toString());
+            final parsed = _parser.parse(
+              engineId: engineId, payload: config, sourceId: source.id,
+            );
+            for (final profile in parsed) {
+              if (fingerprints.add(profile.fingerprint)) profiles.add(profile);
+            }
+          }
+        } else {
+          final parsed = _parser.parse(
+            engineId: engineId, payload: payload, sourceId: source.id,
+          );
+          for (final profile in parsed) {
+            if (fingerprints.add(profile.fingerprint)) profiles.add(profile);
+          }
+        }
+      } catch (error) {
+        failures.add(KingServerSourceFailure(source.id, error.toString()));
+      }
+    }
+    return KingServerSyncResult(
+      engineId: engineId,
+      profiles: List.unmodifiable(profiles),
+      failures: List.unmodifiable(failures),
+    );
+  }
+}
+
+
+/// Schedules refreshes at the fastest cadence explicitly published by the
+/// sources for each engine. Unknown cadences are never guessed. Call
+/// refreshNow once on app startup, then start periodic refreshes.
+class KingServerSourceRefreshScheduler {
+  KingServerSourceRefreshScheduler({
+    required this.sync,
+    required this.onResult,
+  });
+
+  final KingServerSourceSync sync;
+  final Future<void> Function(KingServerSyncResult result) onResult;
+  final Map<String, Timer> _timers = {};
+  final Map<String, Future<KingServerSyncResult>> _inFlight = {};
+  bool _disposed = false;
+
+  void start({Iterable<String>? engineIds}) {
+    if (_disposed) throw StateError('Refresh scheduler is disposed');
+    final ids = engineIds ??
+        KingEngineServerSourceCatalog.online.expand((s) => s.engineIds).toSet();
+    for (final engineId in ids) {
+      final intervals = KingEngineServerSourceCatalog.forEngine(engineId)
+          .map(intervalForSource)
+          .whereType<Duration>()
+          .toList(growable: false);
+      if (intervals.isEmpty || _timers.containsKey(engineId)) continue;
+      intervals.sort((a, b) => a.compareTo(b));
+      final interval = intervals.first;
+      _timers[engineId] = Timer.periodic(interval, (_) {
+        unawaited(refreshNow(engineId).then(onResult).catchError((Object _) {}));
+      });
+    }
+  }
+
+  Future<KingServerSyncResult> refreshNow(String engineId) {
+    if (_disposed) {
+      return Future.error(StateError('Refresh scheduler is disposed'));
+    }
+    final active = _inFlight[engineId];
+    if (active != null) return active;
+    late final Future<KingServerSyncResult> tracked;
+    tracked = sync.refresh(engineId).whenComplete(() {
+      if (identical(_inFlight[engineId], tracked)) _inFlight.remove(engineId);
+    });
+    _inFlight[engineId] = tracked;
+    return tracked;
+  }
+
+  static Duration? intervalForSource(KingEngineServerSource source) {
+    final cadence = source.updateCadence?.trim().toLowerCase();
+    if (cadence == null || cadence.isEmpty) return null;
+    if (cadence == 'daily') return const Duration(days: 1);
+    if (cadence == 'hourly') return const Duration(hours: 1);
+    final match = RegExp(
+      r'^(\d+)\s*(m|min|mins|minute|minutes|h|hr|hrs|hour|hours)$',
+    ).firstMatch(cadence);
+    if (match == null) return null;
+    final amount = int.tryParse(match.group(1)!);
+    if (amount == null || amount <= 0) return null;
+    final unit = match.group(2)!;
+    return unit.startsWith('m')
+        ? Duration(minutes: amount)
+        : Duration(hours: amount);
+  }
+
+  void dispose() {
+    if (_disposed) return;
+    _disposed = true;
+    for (final timer in _timers.values) {
+      timer.cancel();
+    }
+    _timers.clear();
+  }
+}
+
+/// Protocol-aware sources. A source is never assigned to an engine merely
+/// because its URL is reachable; its published formats must match.
+class KingEngineServerSourceCatalog {
+  static const List<KingEngineServerSource> online = [
+    KingEngineServerSource(
+      id: 'morpheusadam_hysteria2',
+      name: 'morpheusadam v2ray-config',
+      url: 'https://raw.githubusercontent.com/morpheusadam/v2ray-config/main/subs/bundles/hysteria2.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.mixedShareLinks},
+      engineIds: {'hysteria2', 'sing_box'},
+      updateCadence: 'daily',
+      notes: 'Dedicated Hysteria2 URI bundle; publisher rebuilds protocol bundles daily.',
+    ),
+    KingEngineServerSource(
+      id: 'morpheusadam_shadowsocks',
+      name: 'morpheusadam Shadowsocks feed',
+      url: 'https://raw.githubusercontent.com/morpheusadam/v2ray-config/main/subs/bundles/shadowsocks.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.shadowsocksUri},
+      engineIds: {'shadowsocks', 'sing_box'},
+      updateCadence: 'daily',
+      notes: 'Only Shadowsocks-compatible entries should be retained by the parser.',
+    ),
+    KingEngineServerSource(
+      id: 'morpheusadam_wireguard',
+      name: 'morpheusadam WireGuard bundle',
+      url: 'https://raw.githubusercontent.com/morpheusadam/v2ray-config/main/subs/bundles/wireguard.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.mixedShareLinks},
+      engineIds: {'wireguard', 'sing_box'},
+      updateCadence: 'daily',
+      notes: 'Dedicated WireGuard bundle; entries require protocol-specific parsing and endpoint verification.',
+    ),
+    KingEngineServerSource(
+      id: 'radikal_hysteria2',
+      name: '0xRadikal Hysteria2',
+      url: 'https://raw.githubusercontent.com/0xRadikal/Free-v2ray-Configs/main/protocols/hysteria2.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.hysteria2Uri},
+      engineIds: {'hysteria2', 'sing_box'},
+      updateCadence: '15m',
+      notes: 'Publisher advertises a 15-minute update cycle; live repository activity was observed within minutes of this audit.',
+    ),
+    KingEngineServerSource(
+      id: 'radikal_singbox',
+      name: '0xRadikal sing-box JSON',
+      url: 'https://raw.githubusercontent.com/0xRadikal/Free-v2ray-Configs/main/all/singbox.json',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.singBoxJson},
+      engineIds: {'sing_box'},
+      updateCadence: 'hourly',
+      notes: 'Publisher advertises a 15-minute update cycle; JSON contains multiple proxy outbounds including Hysteria2 and Shadowsocks.',
+    ),
+    KingEngineServerSource(
+      id: 'mohammadaz2_shadowsocks',
+      name: 'mohammadaz2 hourly Shadowsocks',
+      url: 'https://raw.githubusercontent.com/mohammadaz2/v2rayConfigsForYou/main/sub/ss.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.shadowsocksUri},
+      engineIds: {'shadowsocks', 'sing_box'},
+      updateCadence: 'hourly',
+      notes: 'Repository documents hourly scraping and TCP reachability validation; latest repository update observed on 2026-11-26.',
+    ),
+    KingEngineServerSource(
+      id: 'radikal_shadowsocks',
+      name: '0xRadikal Shadowsocks',
+      url: 'https://raw.githubusercontent.com/0xRadikal/Free-v2ray-Configs/main/protocols/shadowsocks.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.shadowsocksUri},
+      engineIds: {'shadowsocks', 'sing_box'},
+      updateCadence: 'hourly',
+      notes: 'Publisher advertises a 15-minute update cycle; protocol-specific plain-text feed.',
+    ),
+    KingEngineServerSource(
+      id: 'shatak_hysteria2_ae',
+      name: 'ShatakVPN Hysteria2 AE',
+      url: 'https://raw.githubusercontent.com/ShatakVPN/ConfigForge-V2Ray/main/configs/ae/hysteria2.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.hysteria2Uri},
+      engineIds: {'hysteria2', 'sing_box'},
+      updateCadence: 'daily',
+      notes: 'Repository automation published a fresh commit within the last day; this country feed was fetched and parsed as Hysteria2 URIs.',
+    ),
+    KingEngineServerSource(
+      id: 'shatak_shadowsocks',
+      name: 'ShatakVPN Shadowsocks',
+      url: 'https://raw.githubusercontent.com/ShatakVPN/ConfigForge-V2Ray/main/configs/shadowsocks.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.shadowsocksUri},
+      engineIds: {'shadowsocks', 'sing_box'},
+      updateCadence: 'daily',
+      notes: 'Repository automation published a fresh commit within the last day; dedicated Shadowsocks feed.',
+    ),
+    KingEngineServerSource(
+      id: 'tendream_hysteria2',
+      name: '10Dream Hysteria2 Base64',
+      url: 'https://raw.githubusercontent.com/10Dream/sub-mod/main/sub/base64/10ium-VpnClashFaCollector-hysteria2.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.mixedShareLinks},
+      engineIds: {'hysteria2', 'sing_box'},
+      updateCadence: 'daily',
+      notes: 'Repository automation published a fresh commit within the last day; payload is Base64-encoded Hysteria2 links.',
+    ),
+  ];
+
+  static const List<KingOfflineImportKind> offline = KingOfflineImportKind.values;
+
+  static List<KingEngineServerSource> forEngine(String engineId) {
+    final sources = <KingEngineServerSource>[
+      ...online.where((source) => source.engineIds.contains(engineId)),
+    ];
+    if (engineId == 'xray') {
+      sources.addAll(KingProxySourceCatalog.online.map((source) =>
+        KingEngineServerSource(
+          id: source.id,
+          name: 'Xray public feed ${source.id}',
+          url: source.url,
+          kind: KingServerSourceKind.publicSubscription,
+          formats: const {KingServerConfigFormat.mixedShareLinks},
+          engineIds: const {'xray'},
+          notes: 'Legacy Xray-compatible feed; payload must be parsed and validated.',
+        )));
+    }
+    return List.unmodifiable(sources);
+  }
+
+  static List<KingProxySource> xrayFeeds() => KingProxySourceCatalog.online;
+
+  static bool needsUserOrProviderServer(String engineId) => const {
+    'nthlink', 'amneziawg', 'openconnect', 'wireguard',
+  }.contains(engineId);
+
+  static bool isLocalOnly(String engineId) => const {
+    'shroudly', 'byedpi', 'powertunnel',
+  }.contains(engineId);
+}
+)
+        .firstMatch(cadence);
+    if (match == null) return null;
+    final amount = int.tryParse(match.group(1)!);
+    if (amount == null || amount <= 0) return null;
+    final unit = match.group(2)!;
+    if (unit.startsWith('m')) return Duration(minutes: amount);
+    if (unit.startsWith('h')) return Duration(hours: amount);
+    return null;
+  }
+
+  void dispose() {
+    if (_disposed) return;
+    _disposed = true;
+    for (final timer in _timers.values) {
+      timer.cancel();
+    }
+    _timers.clear();
+  }
+}
+
+/// Protocol-aware sources. A source is never assigned to an engine merely
+/// because its URL is reachable; its published formats must match.
+class KingEngineServerSourceCatalog {
+  static const List<KingEngineServerSource> online = [
+    KingEngineServerSource(
+      id: 'morpheusadam_hysteria2',
+      name: 'morpheusadam v2ray-config',
+      url: 'https://raw.githubusercontent.com/morpheusadam/v2ray-config/main/subs/bundles/hysteria2.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.mixedShareLinks},
+      engineIds: {'hysteria2', 'sing_box'},
+      updateCadence: 'daily',
+      notes: 'Dedicated Hysteria2 URI bundle; publisher rebuilds protocol bundles daily.',
+    ),
+    KingEngineServerSource(
+      id: 'morpheusadam_shadowsocks',
+      name: 'morpheusadam Shadowsocks feed',
+      url: 'https://raw.githubusercontent.com/morpheusadam/v2ray-config/main/subs/bundles/shadowsocks.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.shadowsocksUri},
+      engineIds: {'shadowsocks', 'sing_box'},
+      updateCadence: 'daily',
+      notes: 'Only Shadowsocks-compatible entries should be retained by the parser.',
+    ),
+    KingEngineServerSource(
+      id: 'morpheusadam_wireguard',
+      name: 'morpheusadam WireGuard bundle',
+      url: 'https://raw.githubusercontent.com/morpheusadam/v2ray-config/main/subs/bundles/wireguard.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.mixedShareLinks},
+      engineIds: {'wireguard', 'sing_box'},
+      updateCadence: 'daily',
+      notes: 'Dedicated WireGuard bundle; entries require protocol-specific parsing and endpoint verification.',
+    ),
+    KingEngineServerSource(
+      id: 'radikal_hysteria2',
+      name: '0xRadikal Hysteria2',
+      url: 'https://raw.githubusercontent.com/0xRadikal/Free-v2ray-Configs/main/protocols/hysteria2.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.hysteria2Uri},
+      engineIds: {'hysteria2', 'sing_box'},
+      updateCadence: '15m',
+      notes: 'Publisher advertises a 15-minute update cycle; live repository activity was observed within minutes of this audit.',
+    ),
+    KingEngineServerSource(
+      id: 'radikal_singbox',
+      name: '0xRadikal sing-box JSON',
+      url: 'https://raw.githubusercontent.com/0xRadikal/Free-v2ray-Configs/main/all/singbox.json',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.singBoxJson},
+      engineIds: {'sing_box'},
+      updateCadence: 'hourly',
+      notes: 'Publisher advertises a 15-minute update cycle; JSON contains multiple proxy outbounds including Hysteria2 and Shadowsocks.',
+    ),
+    KingEngineServerSource(
+      id: 'radikal_shadowsocks',
+      name: '0xRadikal Shadowsocks',
+      url: 'https://raw.githubusercontent.com/0xRadikal/Free-v2ray-Configs/main/protocols/shadowsocks.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.shadowsocksUri},
+      engineIds: {'shadowsocks', 'sing_box'},
+      updateCadence: 'hourly',
+      notes: 'Publisher advertises a 15-minute update cycle; protocol-specific plain-text feed.',
+    ),
+    KingEngineServerSource(
+      id: 'shatak_hysteria2_ae',
+      name: 'ShatakVPN Hysteria2 AE',
+      url: 'https://raw.githubusercontent.com/ShatakVPN/ConfigForge-V2Ray/main/configs/ae/hysteria2.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.hysteria2Uri},
+      engineIds: {'hysteria2', 'sing_box'},
+      updateCadence: 'daily',
+      notes: 'Repository automation published a fresh commit within the last day; this country feed was fetched and parsed as Hysteria2 URIs.',
+    ),
+    KingEngineServerSource(
+      id: 'shatak_shadowsocks',
+      name: 'ShatakVPN Shadowsocks',
+      url: 'https://raw.githubusercontent.com/ShatakVPN/ConfigForge-V2Ray/main/configs/shadowsocks.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.shadowsocksUri},
+      engineIds: {'shadowsocks', 'sing_box'},
+      updateCadence: 'daily',
+      notes: 'Repository automation published a fresh commit within the last day; dedicated Shadowsocks feed.',
+    ),
+    KingEngineServerSource(
+      id: 'tendream_hysteria2',
+      name: '10Dream Hysteria2 Base64',
+      url: 'https://raw.githubusercontent.com/10Dream/sub-mod/main/sub/base64/10ium-VpnClashFaCollector-hysteria2.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.mixedShareLinks},
+      engineIds: {'hysteria2', 'sing_box'},
+      updateCadence: 'daily',
+      notes: 'Repository automation published a fresh commit within the last day; payload is Base64-encoded Hysteria2 links.',
+    ),
+  ];
+
+  static const List<KingOfflineImportKind> offline = KingOfflineImportKind.values;
+
+  static List<KingEngineServerSource> forEngine(String engineId) {
+    final sources = <KingEngineServerSource>[
+      ...online.where((source) => source.engineIds.contains(engineId)),
+    ];
+    if (engineId == 'xray') {
+      sources.addAll(KingProxySourceCatalog.online.map((source) =>
+        KingEngineServerSource(
+          id: source.id,
+          name: 'Xray public feed ${source.id}',
+          url: source.url,
+          kind: KingServerSourceKind.publicSubscription,
+          formats: const {KingServerConfigFormat.mixedShareLinks},
+          engineIds: const {'xray'},
+          notes: 'Legacy Xray-compatible feed; payload must be parsed and validated.',
+        )));
+    }
+    return List.unmodifiable(sources);
+  }
+
+  static List<KingProxySource> xrayFeeds() => KingProxySourceCatalog.online;
+
+  static bool needsUserOrProviderServer(String engineId) => const {
+    'nthlink', 'amneziawg', 'openconnect', 'wireguard',
+  }.contains(engineId);
+
+  static bool isLocalOnly(String engineId) => const {
+    'shroudly', 'byedpi', 'powertunnel',
+  }.contains(engineId);
+}
+).hasMatch(value);
+    final hasRemote = RegExp(
+      r'(?im)^\s*remote\s+([A-Za-z0-9._:-]+)\s+(\\d{1,5})(?:\\s|$)',
+    ).allMatches(value).any((match) {
+      final port = int.tryParse(match.group(2) ?? '');
+      return port != null && port > 0 && port <= 65535;
+    });
+    final hasTransport = RegExp(
+      r'(?im)^\\s*proto\\s+(udp|udp4|udp6|tcp|tcp4|tcp6)(?:-client)?\\s*
+
+  bool _containsAmneziaParameters(String value) =>
+      RegExp(r'(?im)^\s*(Jc|Jmin|Jmax|S1|S2|H1|H2|H3|H4)\s*=').hasMatch(value);
+
+  bool _isHttpsEndpoint(String value) {
+    final uri = Uri.tryParse(value);
+    return uri != null && uri.scheme.toLowerCase() == 'https' && uri.host.isNotEmpty;
+  }
+
+  String _engineForScheme(String scheme) => switch (scheme) {
+    'hysteria2' || 'hy2' => 'hysteria2',
+    'ss' || 'shadowsocks' => 'shadowsocks',
+    'vless' || 'vmess' || 'trojan' => 'xray',
+    'wireguard' => 'wireguard',
+    _ => scheme,
+  };
+
+  bool _supports(String requested, String detected) {
+    if (requested == detected) return true;
+    if (requested == 'sing_box') {
+      return const {'xray', 'hysteria2', 'shadowsocks', 'wireguard'}.contains(detected);
+    }
+    if (requested == 'xray') return detected == 'xray';
+    return false;
+  }
+}
+
+/// Fetches only HTTPS sources, keeps TLS verification enabled, and leaves
+/// source failures isolated so one dead feed cannot discard successful feeds.
+class KingHttpSourceFetcher {
+  KingHttpSourceFetcher({HttpClient? client, this.timeout = const Duration(seconds: 35)})
+      : _client = client ?? HttpClient();
+
+  final HttpClient _client;
+  final Duration timeout;
+
+  Future<String> fetch(String sourceUrl) async {
+    final uri = Uri.parse(sourceUrl);
+    if (uri.scheme.toLowerCase() != 'https' || uri.host.isEmpty ||
+        uri.userInfo.isNotEmpty || uri.hasFragment) {
+      throw const FormatException(
+        'Only absolute HTTPS source URLs without credentials or fragments are accepted',
+      );
+    }
+    final request = await _client.getUrl(uri).timeout(timeout);
+    request.headers.set(HttpHeaders.acceptHeader, 'text/plain, application/json, */*');
+    request.headers.set(HttpHeaders.userAgentHeader, 'KING-VPN-SourceSync/1.0');
+    final response = await request.close().timeout(timeout);
+    // HttpClient follows redirects by default. A trusted HTTPS feed must never
+    // be silently downgraded to cleartext during that redirect chain.
+    for (final redirect in response.redirects) {
+      final target = redirect.location.hasScheme
+          ? redirect.location
+          : uri.resolveUri(redirect.location);
+      if (target.scheme.toLowerCase() != 'https' ||
+          target.host.isEmpty ||
+          target.userInfo.isNotEmpty) {
+        await response.drain<void>();
+        throw const FormatException(
+          'Source redirect must remain an absolute HTTPS URL without credentials',
+        );
+      }
+    }
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      await response.drain<void>();
+      throw HttpException('Source returned HTTP ${response.statusCode}', uri: uri);
+    }
+    return response.transform(utf8.decoder).join().timeout(timeout);
+  }
+
+  void close({bool force = false}) => _client.close(force: force);
+}
+
+class KingServerSourceFailure {
+  const KingServerSourceFailure(this.sourceId, this.message);
+  final String sourceId;
+  final String message;
+}
+
+class KingServerSyncResult {
+  const KingServerSyncResult({
+    required this.engineId,
+    required this.profiles,
+    required this.failures,
+  });
+  final String engineId;
+  final List<KingImportedServerProfile> profiles;
+  final List<KingServerSourceFailure> failures;
+}
+
+/// Source refresh is exhaustive over the registered source iterable. There is
+/// no fixed source-count or profile-count ceiling; results are deduplicated by
+/// exact engine/format/payload identity. Provider outages never erase old data.
+class KingServerSourceSync {
+  KingServerSourceSync({
+    required this.fetchText,
+    KingServerPayloadParser? parser,
+  }) : _parser = parser ?? KingServerPayloadParser();
+
+  final Future<String> Function(String url) fetchText;
+  final KingServerPayloadParser _parser;
+
+  Future<KingServerSyncResult> refresh(String engineId) async {
+    final sources = KingEngineServerSourceCatalog.forEngine(engineId);
+    final profiles = <KingImportedServerProfile>[];
+    final fingerprints = <String>{};
+    final failures = <KingServerSourceFailure>[];
+
+    for (final source in sources) {
+      try {
+        final payload = await fetchText(source.url);
+        if (source.kind == KingServerSourceKind.generatedDirectory) {
+          final directory = jsonDecode(payload);
+          if (directory is! List) {
+            throw const FormatException('Generated directory response is not a JSON list');
+          }
+          for (final entry in directory) {
+            if (entry is! Map) continue;
+            final name = (entry['name'] ?? '').toString();
+            final downloadUrl = (entry['download_url'] ?? '').toString();
+            final downloadUri = Uri.tryParse(downloadUrl);
+            if (!name.toLowerCase().endsWith('.ovpn') ||
+                downloadUri == null ||
+                downloadUri.scheme.toLowerCase() != 'https' ||
+                downloadUri.host.isEmpty ||
+                downloadUri.userInfo.isNotEmpty ||
+                downloadUri.hasFragment) {
+              continue;
+            }
+            final config = await fetchText(downloadUri.toString());
+            final parsed = _parser.parse(
+              engineId: engineId, payload: config, sourceId: source.id,
+            );
+            for (final profile in parsed) {
+              if (fingerprints.add(profile.fingerprint)) profiles.add(profile);
+            }
+          }
+        } else {
+          final parsed = _parser.parse(
+            engineId: engineId, payload: payload, sourceId: source.id,
+          );
+          for (final profile in parsed) {
+            if (fingerprints.add(profile.fingerprint)) profiles.add(profile);
+          }
+        }
+      } catch (error) {
+        failures.add(KingServerSourceFailure(source.id, error.toString()));
+      }
+    }
+    return KingServerSyncResult(
+      engineId: engineId,
+      profiles: List.unmodifiable(profiles),
+      failures: List.unmodifiable(failures),
+    );
+  }
+}
+
+
+/// Schedules refreshes at the fastest cadence explicitly published by the
+/// sources for each engine. Unknown cadences are never guessed. Call
+/// refreshNow once on app startup, then start periodic refreshes.
+class KingServerSourceRefreshScheduler {
+  KingServerSourceRefreshScheduler({
+    required this.sync,
+    required this.onResult,
+  });
+
+  final KingServerSourceSync sync;
+  final Future<void> Function(KingServerSyncResult result) onResult;
+  final Map<String, Timer> _timers = {};
+  final Map<String, Future<KingServerSyncResult>> _inFlight = {};
+  bool _disposed = false;
+
+  void start({Iterable<String>? engineIds}) {
+    if (_disposed) throw StateError('Refresh scheduler is disposed');
+    final ids = engineIds ??
+        KingEngineServerSourceCatalog.online.expand((s) => s.engineIds).toSet();
+    for (final engineId in ids) {
+      final intervals = KingEngineServerSourceCatalog.forEngine(engineId)
+          .map(intervalForSource)
+          .whereType<Duration>()
+          .toList(growable: false);
+      if (intervals.isEmpty || _timers.containsKey(engineId)) continue;
+      intervals.sort((a, b) => a.compareTo(b));
+      final interval = intervals.first;
+      _timers[engineId] = Timer.periodic(interval, (_) {
+        unawaited(refreshNow(engineId).then(onResult).catchError((Object _) {}));
+      });
+    }
+  }
+
+  Future<KingServerSyncResult> refreshNow(String engineId) {
+    if (_disposed) {
+      return Future.error(StateError('Refresh scheduler is disposed'));
+    }
+    final active = _inFlight[engineId];
+    if (active != null) return active;
+    late final Future<KingServerSyncResult> tracked;
+    tracked = sync.refresh(engineId).whenComplete(() {
+      if (identical(_inFlight[engineId], tracked)) _inFlight.remove(engineId);
+    });
+    _inFlight[engineId] = tracked;
+    return tracked;
+  }
+
+  static Duration? intervalForSource(KingEngineServerSource source) {
+    final cadence = source.updateCadence?.trim().toLowerCase();
+    if (cadence == null || cadence.isEmpty) return null;
+    if (cadence == 'daily') return const Duration(days: 1);
+    if (cadence == 'hourly') return const Duration(hours: 1);
+    final match = RegExp(
+      r'^(\d+)\s*(m|min|mins|minute|minutes|h|hr|hrs|hour|hours)$',
+    ).firstMatch(cadence);
+    if (match == null) return null;
+    final amount = int.tryParse(match.group(1)!);
+    if (amount == null || amount <= 0) return null;
+    final unit = match.group(2)!;
+    return unit.startsWith('m')
+        ? Duration(minutes: amount)
+        : Duration(hours: amount);
+  }
+
+  void dispose() {
+    if (_disposed) return;
+    _disposed = true;
+    for (final timer in _timers.values) {
+      timer.cancel();
+    }
+    _timers.clear();
+  }
+}
+
+/// Protocol-aware sources. A source is never assigned to an engine merely
+/// because its URL is reachable; its published formats must match.
+class KingEngineServerSourceCatalog {
+  static const List<KingEngineServerSource> online = [
+    KingEngineServerSource(
+      id: 'morpheusadam_hysteria2',
+      name: 'morpheusadam v2ray-config',
+      url: 'https://raw.githubusercontent.com/morpheusadam/v2ray-config/main/subs/bundles/hysteria2.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.mixedShareLinks},
+      engineIds: {'hysteria2', 'sing_box'},
+      updateCadence: 'daily',
+      notes: 'Dedicated Hysteria2 URI bundle; publisher rebuilds protocol bundles daily.',
+    ),
+    KingEngineServerSource(
+      id: 'morpheusadam_shadowsocks',
+      name: 'morpheusadam Shadowsocks feed',
+      url: 'https://raw.githubusercontent.com/morpheusadam/v2ray-config/main/subs/bundles/shadowsocks.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.shadowsocksUri},
+      engineIds: {'shadowsocks', 'sing_box'},
+      updateCadence: 'daily',
+      notes: 'Only Shadowsocks-compatible entries should be retained by the parser.',
+    ),
+    KingEngineServerSource(
+      id: 'morpheusadam_wireguard',
+      name: 'morpheusadam WireGuard bundle',
+      url: 'https://raw.githubusercontent.com/morpheusadam/v2ray-config/main/subs/bundles/wireguard.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.mixedShareLinks},
+      engineIds: {'wireguard', 'sing_box'},
+      updateCadence: 'daily',
+      notes: 'Dedicated WireGuard bundle; entries require protocol-specific parsing and endpoint verification.',
+    ),
+    KingEngineServerSource(
+      id: 'radikal_hysteria2',
+      name: '0xRadikal Hysteria2',
+      url: 'https://raw.githubusercontent.com/0xRadikal/Free-v2ray-Configs/main/protocols/hysteria2.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.hysteria2Uri},
+      engineIds: {'hysteria2', 'sing_box'},
+      updateCadence: '15m',
+      notes: 'Publisher advertises a 15-minute update cycle; live repository activity was observed within minutes of this audit.',
+    ),
+    KingEngineServerSource(
+      id: 'radikal_singbox',
+      name: '0xRadikal sing-box JSON',
+      url: 'https://raw.githubusercontent.com/0xRadikal/Free-v2ray-Configs/main/all/singbox.json',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.singBoxJson},
+      engineIds: {'sing_box'},
+      updateCadence: 'hourly',
+      notes: 'Publisher advertises a 15-minute update cycle; JSON contains multiple proxy outbounds including Hysteria2 and Shadowsocks.',
+    ),
+    KingEngineServerSource(
+      id: 'mohammadaz2_shadowsocks',
+      name: 'mohammadaz2 hourly Shadowsocks',
+      url: 'https://raw.githubusercontent.com/mohammadaz2/v2rayConfigsForYou/main/sub/ss.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.shadowsocksUri},
+      engineIds: {'shadowsocks', 'sing_box'},
+      updateCadence: 'hourly',
+      notes: 'Repository documents hourly scraping and TCP reachability validation; latest repository update observed on 2026-11-26.',
+    ),
+    KingEngineServerSource(
+      id: 'radikal_shadowsocks',
+      name: '0xRadikal Shadowsocks',
+      url: 'https://raw.githubusercontent.com/0xRadikal/Free-v2ray-Configs/main/protocols/shadowsocks.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.shadowsocksUri},
+      engineIds: {'shadowsocks', 'sing_box'},
+      updateCadence: 'hourly',
+      notes: 'Publisher advertises a 15-minute update cycle; protocol-specific plain-text feed.',
+    ),
+    KingEngineServerSource(
+      id: 'shatak_hysteria2_ae',
+      name: 'ShatakVPN Hysteria2 AE',
+      url: 'https://raw.githubusercontent.com/ShatakVPN/ConfigForge-V2Ray/main/configs/ae/hysteria2.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.hysteria2Uri},
+      engineIds: {'hysteria2', 'sing_box'},
+      updateCadence: 'daily',
+      notes: 'Repository automation published a fresh commit within the last day; this country feed was fetched and parsed as Hysteria2 URIs.',
+    ),
+    KingEngineServerSource(
+      id: 'shatak_shadowsocks',
+      name: 'ShatakVPN Shadowsocks',
+      url: 'https://raw.githubusercontent.com/ShatakVPN/ConfigForge-V2Ray/main/configs/shadowsocks.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.shadowsocksUri},
+      engineIds: {'shadowsocks', 'sing_box'},
+      updateCadence: 'daily',
+      notes: 'Repository automation published a fresh commit within the last day; dedicated Shadowsocks feed.',
+    ),
+    KingEngineServerSource(
+      id: 'tendream_hysteria2',
+      name: '10Dream Hysteria2 Base64',
+      url: 'https://raw.githubusercontent.com/10Dream/sub-mod/main/sub/base64/10ium-VpnClashFaCollector-hysteria2.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.mixedShareLinks},
+      engineIds: {'hysteria2', 'sing_box'},
+      updateCadence: 'daily',
+      notes: 'Repository automation published a fresh commit within the last day; payload is Base64-encoded Hysteria2 links.',
+    ),
+  ];
+
+  static const List<KingOfflineImportKind> offline = KingOfflineImportKind.values;
+
+  static List<KingEngineServerSource> forEngine(String engineId) {
+    final sources = <KingEngineServerSource>[
+      ...online.where((source) => source.engineIds.contains(engineId)),
+    ];
+    if (engineId == 'xray') {
+      sources.addAll(KingProxySourceCatalog.online.map((source) =>
+        KingEngineServerSource(
+          id: source.id,
+          name: 'Xray public feed ${source.id}',
+          url: source.url,
+          kind: KingServerSourceKind.publicSubscription,
+          formats: const {KingServerConfigFormat.mixedShareLinks},
+          engineIds: const {'xray'},
+          notes: 'Legacy Xray-compatible feed; payload must be parsed and validated.',
+        )));
+    }
+    return List.unmodifiable(sources);
+  }
+
+  static List<KingProxySource> xrayFeeds() => KingProxySourceCatalog.online;
+
+  static bool needsUserOrProviderServer(String engineId) => const {
+    'nthlink', 'amneziawg', 'openconnect', 'wireguard',
+  }.contains(engineId);
+
+  static bool isLocalOnly(String engineId) => const {
+    'shroudly', 'byedpi', 'powertunnel',
+  }.contains(engineId);
+}
+)
+        .firstMatch(cadence);
+    if (match == null) return null;
+    final amount = int.tryParse(match.group(1)!);
+    if (amount == null || amount <= 0) return null;
+    final unit = match.group(2)!;
+    if (unit.startsWith('m')) return Duration(minutes: amount);
+    if (unit.startsWith('h')) return Duration(hours: amount);
+    return null;
+  }
+
+  void dispose() {
+    if (_disposed) return;
+    _disposed = true;
+    for (final timer in _timers.values) {
+      timer.cancel();
+    }
+    _timers.clear();
+  }
+}
+
+/// Protocol-aware sources. A source is never assigned to an engine merely
+/// because its URL is reachable; its published formats must match.
+class KingEngineServerSourceCatalog {
+  static const List<KingEngineServerSource> online = [
+    KingEngineServerSource(
+      id: 'morpheusadam_hysteria2',
+      name: 'morpheusadam v2ray-config',
+      url: 'https://raw.githubusercontent.com/morpheusadam/v2ray-config/main/subs/bundles/hysteria2.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.mixedShareLinks},
+      engineIds: {'hysteria2', 'sing_box'},
+      updateCadence: 'daily',
+      notes: 'Dedicated Hysteria2 URI bundle; publisher rebuilds protocol bundles daily.',
+    ),
+    KingEngineServerSource(
+      id: 'morpheusadam_shadowsocks',
+      name: 'morpheusadam Shadowsocks feed',
+      url: 'https://raw.githubusercontent.com/morpheusadam/v2ray-config/main/subs/bundles/shadowsocks.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.shadowsocksUri},
+      engineIds: {'shadowsocks', 'sing_box'},
+      updateCadence: 'daily',
+      notes: 'Only Shadowsocks-compatible entries should be retained by the parser.',
+    ),
+    KingEngineServerSource(
+      id: 'morpheusadam_wireguard',
+      name: 'morpheusadam WireGuard bundle',
+      url: 'https://raw.githubusercontent.com/morpheusadam/v2ray-config/main/subs/bundles/wireguard.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.mixedShareLinks},
+      engineIds: {'wireguard', 'sing_box'},
+      updateCadence: 'daily',
+      notes: 'Dedicated WireGuard bundle; entries require protocol-specific parsing and endpoint verification.',
+    ),
+    KingEngineServerSource(
+      id: 'radikal_hysteria2',
+      name: '0xRadikal Hysteria2',
+      url: 'https://raw.githubusercontent.com/0xRadikal/Free-v2ray-Configs/main/protocols/hysteria2.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.hysteria2Uri},
+      engineIds: {'hysteria2', 'sing_box'},
+      updateCadence: '15m',
+      notes: 'Publisher advertises a 15-minute update cycle; live repository activity was observed within minutes of this audit.',
+    ),
+    KingEngineServerSource(
+      id: 'radikal_singbox',
+      name: '0xRadikal sing-box JSON',
+      url: 'https://raw.githubusercontent.com/0xRadikal/Free-v2ray-Configs/main/all/singbox.json',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.singBoxJson},
+      engineIds: {'sing_box'},
+      updateCadence: 'hourly',
+      notes: 'Publisher advertises a 15-minute update cycle; JSON contains multiple proxy outbounds including Hysteria2 and Shadowsocks.',
+    ),
+    KingEngineServerSource(
+      id: 'radikal_shadowsocks',
+      name: '0xRadikal Shadowsocks',
+      url: 'https://raw.githubusercontent.com/0xRadikal/Free-v2ray-Configs/main/protocols/shadowsocks.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.shadowsocksUri},
+      engineIds: {'shadowsocks', 'sing_box'},
+      updateCadence: 'hourly',
+      notes: 'Publisher advertises a 15-minute update cycle; protocol-specific plain-text feed.',
+    ),
+    KingEngineServerSource(
+      id: 'shatak_hysteria2_ae',
+      name: 'ShatakVPN Hysteria2 AE',
+      url: 'https://raw.githubusercontent.com/ShatakVPN/ConfigForge-V2Ray/main/configs/ae/hysteria2.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.hysteria2Uri},
+      engineIds: {'hysteria2', 'sing_box'},
+      updateCadence: 'daily',
+      notes: 'Repository automation published a fresh commit within the last day; this country feed was fetched and parsed as Hysteria2 URIs.',
+    ),
+    KingEngineServerSource(
+      id: 'shatak_shadowsocks',
+      name: 'ShatakVPN Shadowsocks',
+      url: 'https://raw.githubusercontent.com/ShatakVPN/ConfigForge-V2Ray/main/configs/shadowsocks.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.shadowsocksUri},
+      engineIds: {'shadowsocks', 'sing_box'},
+      updateCadence: 'daily',
+      notes: 'Repository automation published a fresh commit within the last day; dedicated Shadowsocks feed.',
+    ),
+    KingEngineServerSource(
+      id: 'tendream_hysteria2',
+      name: '10Dream Hysteria2 Base64',
+      url: 'https://raw.githubusercontent.com/10Dream/sub-mod/main/sub/base64/10ium-VpnClashFaCollector-hysteria2.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.mixedShareLinks},
+      engineIds: {'hysteria2', 'sing_box'},
+      updateCadence: 'daily',
+      notes: 'Repository automation published a fresh commit within the last day; payload is Base64-encoded Hysteria2 links.',
+    ),
+  ];
+
+  static const List<KingOfflineImportKind> offline = KingOfflineImportKind.values;
+
+  static List<KingEngineServerSource> forEngine(String engineId) {
+    final sources = <KingEngineServerSource>[
+      ...online.where((source) => source.engineIds.contains(engineId)),
+    ];
+    if (engineId == 'xray') {
+      sources.addAll(KingProxySourceCatalog.online.map((source) =>
+        KingEngineServerSource(
+          id: source.id,
+          name: 'Xray public feed ${source.id}',
+          url: source.url,
+          kind: KingServerSourceKind.publicSubscription,
+          formats: const {KingServerConfigFormat.mixedShareLinks},
+          engineIds: const {'xray'},
+          notes: 'Legacy Xray-compatible feed; payload must be parsed and validated.',
+        )));
+    }
+    return List.unmodifiable(sources);
+  }
+
+  static List<KingProxySource> xrayFeeds() => KingProxySourceCatalog.online;
+
+  static bool needsUserOrProviderServer(String engineId) => const {
+    'nthlink', 'amneziawg', 'openconnect', 'wireguard',
+  }.contains(engineId);
+
+  static bool isLocalOnly(String engineId) => const {
+    'shroudly', 'byedpi', 'powertunnel',
+  }.contains(engineId);
+}
+,
+    ).hasMatch(value);
+    return hasClientMode && hasRemote && hasTransport;
+  }
+
+  bool _isWireGuardProfile(String value) {
+    final interface = RegExp(
+      r'(?ims)^\\s*\\[Interface\\]\\s*(.*?)^(?=\\s*\\[|\\s*$)',
+    ).firstMatch(value)?.group(1) ?? '';
+    final peer = RegExp(
+      r'(?ims)^\\s*\\[Peer\\]\\s*(.*?)^(?=\\s*\\[|\\s*$)',
+    ).firstMatch(value)?.group(1) ?? '';
+    final privateKey = RegExp(r'(?im)^\\s*PrivateKey\\s*=\\s*([^\\s#]+)')
+        .firstMatch(interface)?.group(1);
+    final publicKey = RegExp(r'(?im)^\\s*PublicKey\\s*=\\s*([^\\s#]+)')
+        .firstMatch(peer)?.group(1);
+    final endpoint = RegExp(
+      r'(?im)^\\s*Endpoint\\s*=\\s*(?:\\[[0-9a-f:]+\\]|[^:\\s]+):(\\d{1,5})\\s*
+
+  bool _containsAmneziaParameters(String value) =>
+      RegExp(r'(?im)^\s*(Jc|Jmin|Jmax|S1|S2|H1|H2|H3|H4)\s*=').hasMatch(value);
+
+  bool _isHttpsEndpoint(String value) {
+    final uri = Uri.tryParse(value);
+    return uri != null && uri.scheme.toLowerCase() == 'https' && uri.host.isNotEmpty;
+  }
+
+  String _engineForScheme(String scheme) => switch (scheme) {
+    'hysteria2' || 'hy2' => 'hysteria2',
+    'ss' || 'shadowsocks' => 'shadowsocks',
+    'vless' || 'vmess' || 'trojan' => 'xray',
+    'wireguard' => 'wireguard',
+    _ => scheme,
+  };
+
+  bool _supports(String requested, String detected) {
+    if (requested == detected) return true;
+    if (requested == 'sing_box') {
+      return const {'xray', 'hysteria2', 'shadowsocks', 'wireguard'}.contains(detected);
+    }
+    if (requested == 'xray') return detected == 'xray';
+    return false;
+  }
+}
+
+/// Fetches only HTTPS sources, keeps TLS verification enabled, and leaves
+/// source failures isolated so one dead feed cannot discard successful feeds.
+class KingHttpSourceFetcher {
+  KingHttpSourceFetcher({HttpClient? client, this.timeout = const Duration(seconds: 35)})
+      : _client = client ?? HttpClient();
+
+  final HttpClient _client;
+  final Duration timeout;
+
+  Future<String> fetch(String sourceUrl) async {
+    final uri = Uri.parse(sourceUrl);
+    if (uri.scheme.toLowerCase() != 'https' || uri.host.isEmpty ||
+        uri.userInfo.isNotEmpty || uri.hasFragment) {
+      throw const FormatException(
+        'Only absolute HTTPS source URLs without credentials or fragments are accepted',
+      );
+    }
+    final request = await _client.getUrl(uri).timeout(timeout);
+    request.headers.set(HttpHeaders.acceptHeader, 'text/plain, application/json, */*');
+    request.headers.set(HttpHeaders.userAgentHeader, 'KING-VPN-SourceSync/1.0');
+    final response = await request.close().timeout(timeout);
+    // HttpClient follows redirects by default. A trusted HTTPS feed must never
+    // be silently downgraded to cleartext during that redirect chain.
+    for (final redirect in response.redirects) {
+      final target = redirect.location.hasScheme
+          ? redirect.location
+          : uri.resolveUri(redirect.location);
+      if (target.scheme.toLowerCase() != 'https' ||
+          target.host.isEmpty ||
+          target.userInfo.isNotEmpty) {
+        await response.drain<void>();
+        throw const FormatException(
+          'Source redirect must remain an absolute HTTPS URL without credentials',
+        );
+      }
+    }
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      await response.drain<void>();
+      throw HttpException('Source returned HTTP ${response.statusCode}', uri: uri);
+    }
+    return response.transform(utf8.decoder).join().timeout(timeout);
+  }
+
+  void close({bool force = false}) => _client.close(force: force);
+}
+
+class KingServerSourceFailure {
+  const KingServerSourceFailure(this.sourceId, this.message);
+  final String sourceId;
+  final String message;
+}
+
+class KingServerSyncResult {
+  const KingServerSyncResult({
+    required this.engineId,
+    required this.profiles,
+    required this.failures,
+  });
+  final String engineId;
+  final List<KingImportedServerProfile> profiles;
+  final List<KingServerSourceFailure> failures;
+}
+
+/// Source refresh is exhaustive over the registered source iterable. There is
+/// no fixed source-count or profile-count ceiling; results are deduplicated by
+/// exact engine/format/payload identity. Provider outages never erase old data.
+class KingServerSourceSync {
+  KingServerSourceSync({
+    required this.fetchText,
+    KingServerPayloadParser? parser,
+  }) : _parser = parser ?? KingServerPayloadParser();
+
+  final Future<String> Function(String url) fetchText;
+  final KingServerPayloadParser _parser;
+
+  Future<KingServerSyncResult> refresh(String engineId) async {
+    final sources = KingEngineServerSourceCatalog.forEngine(engineId);
+    final profiles = <KingImportedServerProfile>[];
+    final fingerprints = <String>{};
+    final failures = <KingServerSourceFailure>[];
+
+    for (final source in sources) {
+      try {
+        final payload = await fetchText(source.url);
+        if (source.kind == KingServerSourceKind.generatedDirectory) {
+          final directory = jsonDecode(payload);
+          if (directory is! List) {
+            throw const FormatException('Generated directory response is not a JSON list');
+          }
+          for (final entry in directory) {
+            if (entry is! Map) continue;
+            final name = (entry['name'] ?? '').toString();
+            final downloadUrl = (entry['download_url'] ?? '').toString();
+            final downloadUri = Uri.tryParse(downloadUrl);
+            if (!name.toLowerCase().endsWith('.ovpn') ||
+                downloadUri == null ||
+                downloadUri.scheme.toLowerCase() != 'https' ||
+                downloadUri.host.isEmpty ||
+                downloadUri.userInfo.isNotEmpty ||
+                downloadUri.hasFragment) {
+              continue;
+            }
+            final config = await fetchText(downloadUri.toString());
+            final parsed = _parser.parse(
+              engineId: engineId, payload: config, sourceId: source.id,
+            );
+            for (final profile in parsed) {
+              if (fingerprints.add(profile.fingerprint)) profiles.add(profile);
+            }
+          }
+        } else {
+          final parsed = _parser.parse(
+            engineId: engineId, payload: payload, sourceId: source.id,
+          );
+          for (final profile in parsed) {
+            if (fingerprints.add(profile.fingerprint)) profiles.add(profile);
+          }
+        }
+      } catch (error) {
+        failures.add(KingServerSourceFailure(source.id, error.toString()));
+      }
+    }
+    return KingServerSyncResult(
+      engineId: engineId,
+      profiles: List.unmodifiable(profiles),
+      failures: List.unmodifiable(failures),
+    );
+  }
+}
+
+
+/// Schedules refreshes at the fastest cadence explicitly published by the
+/// sources for each engine. Unknown cadences are never guessed. Call
+/// refreshNow once on app startup, then start periodic refreshes.
+class KingServerSourceRefreshScheduler {
+  KingServerSourceRefreshScheduler({
+    required this.sync,
+    required this.onResult,
+  });
+
+  final KingServerSourceSync sync;
+  final Future<void> Function(KingServerSyncResult result) onResult;
+  final Map<String, Timer> _timers = {};
+  final Map<String, Future<KingServerSyncResult>> _inFlight = {};
+  bool _disposed = false;
+
+  void start({Iterable<String>? engineIds}) {
+    if (_disposed) throw StateError('Refresh scheduler is disposed');
+    final ids = engineIds ??
+        KingEngineServerSourceCatalog.online.expand((s) => s.engineIds).toSet();
+    for (final engineId in ids) {
+      final intervals = KingEngineServerSourceCatalog.forEngine(engineId)
+          .map(intervalForSource)
+          .whereType<Duration>()
+          .toList(growable: false);
+      if (intervals.isEmpty || _timers.containsKey(engineId)) continue;
+      intervals.sort((a, b) => a.compareTo(b));
+      final interval = intervals.first;
+      _timers[engineId] = Timer.periodic(interval, (_) {
+        unawaited(refreshNow(engineId).then(onResult).catchError((Object _) {}));
+      });
+    }
+  }
+
+  Future<KingServerSyncResult> refreshNow(String engineId) {
+    if (_disposed) {
+      return Future.error(StateError('Refresh scheduler is disposed'));
+    }
+    final active = _inFlight[engineId];
+    if (active != null) return active;
+    late final Future<KingServerSyncResult> tracked;
+    tracked = sync.refresh(engineId).whenComplete(() {
+      if (identical(_inFlight[engineId], tracked)) _inFlight.remove(engineId);
+    });
+    _inFlight[engineId] = tracked;
+    return tracked;
+  }
+
+  static Duration? intervalForSource(KingEngineServerSource source) {
+    final cadence = source.updateCadence?.trim().toLowerCase();
+    if (cadence == null || cadence.isEmpty) return null;
+    if (cadence == 'daily') return const Duration(days: 1);
+    if (cadence == 'hourly') return const Duration(hours: 1);
+    final match = RegExp(
+      r'^(\d+)\s*(m|min|mins|minute|minutes|h|hr|hrs|hour|hours)$',
+    ).firstMatch(cadence);
+    if (match == null) return null;
+    final amount = int.tryParse(match.group(1)!);
+    if (amount == null || amount <= 0) return null;
+    final unit = match.group(2)!;
+    return unit.startsWith('m')
+        ? Duration(minutes: amount)
+        : Duration(hours: amount);
+  }
+
+  void dispose() {
+    if (_disposed) return;
+    _disposed = true;
+    for (final timer in _timers.values) {
+      timer.cancel();
+    }
+    _timers.clear();
+  }
+}
+
+/// Protocol-aware sources. A source is never assigned to an engine merely
+/// because its URL is reachable; its published formats must match.
+class KingEngineServerSourceCatalog {
+  static const List<KingEngineServerSource> online = [
+    KingEngineServerSource(
+      id: 'morpheusadam_hysteria2',
+      name: 'morpheusadam v2ray-config',
+      url: 'https://raw.githubusercontent.com/morpheusadam/v2ray-config/main/subs/bundles/hysteria2.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.mixedShareLinks},
+      engineIds: {'hysteria2', 'sing_box'},
+      updateCadence: 'daily',
+      notes: 'Dedicated Hysteria2 URI bundle; publisher rebuilds protocol bundles daily.',
+    ),
+    KingEngineServerSource(
+      id: 'morpheusadam_shadowsocks',
+      name: 'morpheusadam Shadowsocks feed',
+      url: 'https://raw.githubusercontent.com/morpheusadam/v2ray-config/main/subs/bundles/shadowsocks.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.shadowsocksUri},
+      engineIds: {'shadowsocks', 'sing_box'},
+      updateCadence: 'daily',
+      notes: 'Only Shadowsocks-compatible entries should be retained by the parser.',
+    ),
+    KingEngineServerSource(
+      id: 'morpheusadam_wireguard',
+      name: 'morpheusadam WireGuard bundle',
+      url: 'https://raw.githubusercontent.com/morpheusadam/v2ray-config/main/subs/bundles/wireguard.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.mixedShareLinks},
+      engineIds: {'wireguard', 'sing_box'},
+      updateCadence: 'daily',
+      notes: 'Dedicated WireGuard bundle; entries require protocol-specific parsing and endpoint verification.',
+    ),
+    KingEngineServerSource(
+      id: 'radikal_hysteria2',
+      name: '0xRadikal Hysteria2',
+      url: 'https://raw.githubusercontent.com/0xRadikal/Free-v2ray-Configs/main/protocols/hysteria2.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.hysteria2Uri},
+      engineIds: {'hysteria2', 'sing_box'},
+      updateCadence: '15m',
+      notes: 'Publisher advertises a 15-minute update cycle; live repository activity was observed within minutes of this audit.',
+    ),
+    KingEngineServerSource(
+      id: 'radikal_singbox',
+      name: '0xRadikal sing-box JSON',
+      url: 'https://raw.githubusercontent.com/0xRadikal/Free-v2ray-Configs/main/all/singbox.json',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.singBoxJson},
+      engineIds: {'sing_box'},
+      updateCadence: 'hourly',
+      notes: 'Publisher advertises a 15-minute update cycle; JSON contains multiple proxy outbounds including Hysteria2 and Shadowsocks.',
+    ),
+    KingEngineServerSource(
+      id: 'mohammadaz2_shadowsocks',
+      name: 'mohammadaz2 hourly Shadowsocks',
+      url: 'https://raw.githubusercontent.com/mohammadaz2/v2rayConfigsForYou/main/sub/ss.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.shadowsocksUri},
+      engineIds: {'shadowsocks', 'sing_box'},
+      updateCadence: 'hourly',
+      notes: 'Repository documents hourly scraping and TCP reachability validation; latest repository update observed on 2026-11-26.',
+    ),
+    KingEngineServerSource(
+      id: 'radikal_shadowsocks',
+      name: '0xRadikal Shadowsocks',
+      url: 'https://raw.githubusercontent.com/0xRadikal/Free-v2ray-Configs/main/protocols/shadowsocks.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.shadowsocksUri},
+      engineIds: {'shadowsocks', 'sing_box'},
+      updateCadence: 'hourly',
+      notes: 'Publisher advertises a 15-minute update cycle; protocol-specific plain-text feed.',
+    ),
+    KingEngineServerSource(
+      id: 'shatak_hysteria2_ae',
+      name: 'ShatakVPN Hysteria2 AE',
+      url: 'https://raw.githubusercontent.com/ShatakVPN/ConfigForge-V2Ray/main/configs/ae/hysteria2.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.hysteria2Uri},
+      engineIds: {'hysteria2', 'sing_box'},
+      updateCadence: 'daily',
+      notes: 'Repository automation published a fresh commit within the last day; this country feed was fetched and parsed as Hysteria2 URIs.',
+    ),
+    KingEngineServerSource(
+      id: 'shatak_shadowsocks',
+      name: 'ShatakVPN Shadowsocks',
+      url: 'https://raw.githubusercontent.com/ShatakVPN/ConfigForge-V2Ray/main/configs/shadowsocks.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.shadowsocksUri},
+      engineIds: {'shadowsocks', 'sing_box'},
+      updateCadence: 'daily',
+      notes: 'Repository automation published a fresh commit within the last day; dedicated Shadowsocks feed.',
+    ),
+    KingEngineServerSource(
+      id: 'tendream_hysteria2',
+      name: '10Dream Hysteria2 Base64',
+      url: 'https://raw.githubusercontent.com/10Dream/sub-mod/main/sub/base64/10ium-VpnClashFaCollector-hysteria2.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.mixedShareLinks},
+      engineIds: {'hysteria2', 'sing_box'},
+      updateCadence: 'daily',
+      notes: 'Repository automation published a fresh commit within the last day; payload is Base64-encoded Hysteria2 links.',
+    ),
+  ];
+
+  static const List<KingOfflineImportKind> offline = KingOfflineImportKind.values;
+
+  static List<KingEngineServerSource> forEngine(String engineId) {
+    final sources = <KingEngineServerSource>[
+      ...online.where((source) => source.engineIds.contains(engineId)),
+    ];
+    if (engineId == 'xray') {
+      sources.addAll(KingProxySourceCatalog.online.map((source) =>
+        KingEngineServerSource(
+          id: source.id,
+          name: 'Xray public feed ${source.id}',
+          url: source.url,
+          kind: KingServerSourceKind.publicSubscription,
+          formats: const {KingServerConfigFormat.mixedShareLinks},
+          engineIds: const {'xray'},
+          notes: 'Legacy Xray-compatible feed; payload must be parsed and validated.',
+        )));
+    }
+    return List.unmodifiable(sources);
+  }
+
+  static List<KingProxySource> xrayFeeds() => KingProxySourceCatalog.online;
+
+  static bool needsUserOrProviderServer(String engineId) => const {
+    'nthlink', 'amneziawg', 'openconnect', 'wireguard',
+  }.contains(engineId);
+
+  static bool isLocalOnly(String engineId) => const {
+    'shroudly', 'byedpi', 'powertunnel',
+  }.contains(engineId);
+}
+)
+        .firstMatch(cadence);
+    if (match == null) return null;
+    final amount = int.tryParse(match.group(1)!);
+    if (amount == null || amount <= 0) return null;
+    final unit = match.group(2)!;
+    if (unit.startsWith('m')) return Duration(minutes: amount);
+    if (unit.startsWith('h')) return Duration(hours: amount);
+    return null;
+  }
+
+  void dispose() {
+    if (_disposed) return;
+    _disposed = true;
+    for (final timer in _timers.values) {
+      timer.cancel();
+    }
+    _timers.clear();
+  }
+}
+
+/// Protocol-aware sources. A source is never assigned to an engine merely
+/// because its URL is reachable; its published formats must match.
+class KingEngineServerSourceCatalog {
+  static const List<KingEngineServerSource> online = [
+    KingEngineServerSource(
+      id: 'morpheusadam_hysteria2',
+      name: 'morpheusadam v2ray-config',
+      url: 'https://raw.githubusercontent.com/morpheusadam/v2ray-config/main/subs/bundles/hysteria2.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.mixedShareLinks},
+      engineIds: {'hysteria2', 'sing_box'},
+      updateCadence: 'daily',
+      notes: 'Dedicated Hysteria2 URI bundle; publisher rebuilds protocol bundles daily.',
+    ),
+    KingEngineServerSource(
+      id: 'morpheusadam_shadowsocks',
+      name: 'morpheusadam Shadowsocks feed',
+      url: 'https://raw.githubusercontent.com/morpheusadam/v2ray-config/main/subs/bundles/shadowsocks.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.shadowsocksUri},
+      engineIds: {'shadowsocks', 'sing_box'},
+      updateCadence: 'daily',
+      notes: 'Only Shadowsocks-compatible entries should be retained by the parser.',
+    ),
+    KingEngineServerSource(
+      id: 'morpheusadam_wireguard',
+      name: 'morpheusadam WireGuard bundle',
+      url: 'https://raw.githubusercontent.com/morpheusadam/v2ray-config/main/subs/bundles/wireguard.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.mixedShareLinks},
+      engineIds: {'wireguard', 'sing_box'},
+      updateCadence: 'daily',
+      notes: 'Dedicated WireGuard bundle; entries require protocol-specific parsing and endpoint verification.',
+    ),
+    KingEngineServerSource(
+      id: 'radikal_hysteria2',
+      name: '0xRadikal Hysteria2',
+      url: 'https://raw.githubusercontent.com/0xRadikal/Free-v2ray-Configs/main/protocols/hysteria2.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.hysteria2Uri},
+      engineIds: {'hysteria2', 'sing_box'},
+      updateCadence: '15m',
+      notes: 'Publisher advertises a 15-minute update cycle; live repository activity was observed within minutes of this audit.',
+    ),
+    KingEngineServerSource(
+      id: 'radikal_singbox',
+      name: '0xRadikal sing-box JSON',
+      url: 'https://raw.githubusercontent.com/0xRadikal/Free-v2ray-Configs/main/all/singbox.json',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.singBoxJson},
+      engineIds: {'sing_box'},
+      updateCadence: 'hourly',
+      notes: 'Publisher advertises a 15-minute update cycle; JSON contains multiple proxy outbounds including Hysteria2 and Shadowsocks.',
+    ),
+    KingEngineServerSource(
+      id: 'radikal_shadowsocks',
+      name: '0xRadikal Shadowsocks',
+      url: 'https://raw.githubusercontent.com/0xRadikal/Free-v2ray-Configs/main/protocols/shadowsocks.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.shadowsocksUri},
+      engineIds: {'shadowsocks', 'sing_box'},
+      updateCadence: 'hourly',
+      notes: 'Publisher advertises a 15-minute update cycle; protocol-specific plain-text feed.',
+    ),
+    KingEngineServerSource(
+      id: 'shatak_hysteria2_ae',
+      name: 'ShatakVPN Hysteria2 AE',
+      url: 'https://raw.githubusercontent.com/ShatakVPN/ConfigForge-V2Ray/main/configs/ae/hysteria2.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.hysteria2Uri},
+      engineIds: {'hysteria2', 'sing_box'},
+      updateCadence: 'daily',
+      notes: 'Repository automation published a fresh commit within the last day; this country feed was fetched and parsed as Hysteria2 URIs.',
+    ),
+    KingEngineServerSource(
+      id: 'shatak_shadowsocks',
+      name: 'ShatakVPN Shadowsocks',
+      url: 'https://raw.githubusercontent.com/ShatakVPN/ConfigForge-V2Ray/main/configs/shadowsocks.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.shadowsocksUri},
+      engineIds: {'shadowsocks', 'sing_box'},
+      updateCadence: 'daily',
+      notes: 'Repository automation published a fresh commit within the last day; dedicated Shadowsocks feed.',
+    ),
+    KingEngineServerSource(
+      id: 'tendream_hysteria2',
+      name: '10Dream Hysteria2 Base64',
+      url: 'https://raw.githubusercontent.com/10Dream/sub-mod/main/sub/base64/10ium-VpnClashFaCollector-hysteria2.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.mixedShareLinks},
+      engineIds: {'hysteria2', 'sing_box'},
+      updateCadence: 'daily',
+      notes: 'Repository automation published a fresh commit within the last day; payload is Base64-encoded Hysteria2 links.',
+    ),
+  ];
+
+  static const List<KingOfflineImportKind> offline = KingOfflineImportKind.values;
+
+  static List<KingEngineServerSource> forEngine(String engineId) {
+    final sources = <KingEngineServerSource>[
+      ...online.where((source) => source.engineIds.contains(engineId)),
+    ];
+    if (engineId == 'xray') {
+      sources.addAll(KingProxySourceCatalog.online.map((source) =>
+        KingEngineServerSource(
+          id: source.id,
+          name: 'Xray public feed ${source.id}',
+          url: source.url,
+          kind: KingServerSourceKind.publicSubscription,
+          formats: const {KingServerConfigFormat.mixedShareLinks},
+          engineIds: const {'xray'},
+          notes: 'Legacy Xray-compatible feed; payload must be parsed and validated.',
+        )));
+    }
+    return List.unmodifiable(sources);
+  }
+
+  static List<KingProxySource> xrayFeeds() => KingProxySourceCatalog.online;
+
+  static bool needsUserOrProviderServer(String engineId) => const {
+    'nthlink', 'amneziawg', 'openconnect', 'wireguard',
+  }.contains(engineId);
+
+  static bool isLocalOnly(String engineId) => const {
+    'shroudly', 'byedpi', 'powertunnel',
+  }.contains(engineId);
+}
+,
+    ).firstMatch(peer)?.group(1);
+    final allowedIps = RegExp(r'(?im)^\\s*AllowedIPs\\s*=\\s*\\S+')
+        .hasMatch(peer);
+    final port = int.tryParse(endpoint ?? '');
+    return privateKey != null && privateKey.isNotEmpty &&
+        publicKey != null && publicKey.isNotEmpty &&
+        port != null && port > 0 && port <= 65535 && allowedIps;
+  }
+
+  bool _containsAmneziaParameters(String value) =>
+      RegExp(r'(?im)^\s*(Jc|Jmin|Jmax|S1|S2|H1|H2|H3|H4)\s*=').hasMatch(value);
+
+  bool _isHttpsEndpoint(String value) {
+    final uri = Uri.tryParse(value);
+    return uri != null && uri.scheme.toLowerCase() == 'https' && uri.host.isNotEmpty;
+  }
+
+  String _engineForScheme(String scheme) => switch (scheme) {
+    'hysteria2' || 'hy2' => 'hysteria2',
+    'ss' || 'shadowsocks' => 'shadowsocks',
+    'vless' || 'vmess' || 'trojan' => 'xray',
+    'wireguard' => 'wireguard',
+    _ => scheme,
+  };
+
+  bool _supports(String requested, String detected) {
+    if (requested == detected) return true;
+    if (requested == 'sing_box') {
+      return const {'xray', 'hysteria2', 'shadowsocks', 'wireguard'}.contains(detected);
+    }
+    if (requested == 'xray') return detected == 'xray';
+    return false;
+  }
+}
+
+/// Fetches only HTTPS sources, keeps TLS verification enabled, and leaves
+/// source failures isolated so one dead feed cannot discard successful feeds.
+class KingHttpSourceFetcher {
+  KingHttpSourceFetcher({HttpClient? client, this.timeout = const Duration(seconds: 35)})
+      : _client = client ?? HttpClient();
+
+  final HttpClient _client;
+  final Duration timeout;
+
+  Future<String> fetch(String sourceUrl) async {
+    final uri = Uri.parse(sourceUrl);
+    if (uri.scheme.toLowerCase() != 'https' || uri.host.isEmpty ||
+        uri.userInfo.isNotEmpty || uri.hasFragment) {
+      throw const FormatException(
+        'Only absolute HTTPS source URLs without credentials or fragments are accepted',
+      );
+    }
+    final request = await _client.getUrl(uri).timeout(timeout);
+    request.headers.set(HttpHeaders.acceptHeader, 'text/plain, application/json, */*');
+    request.headers.set(HttpHeaders.userAgentHeader, 'KING-VPN-SourceSync/1.0');
+    final response = await request.close().timeout(timeout);
+    // HttpClient follows redirects by default. A trusted HTTPS feed must never
+    // be silently downgraded to cleartext during that redirect chain.
+    for (final redirect in response.redirects) {
+      final target = redirect.location.hasScheme
+          ? redirect.location
+          : uri.resolveUri(redirect.location);
+      if (target.scheme.toLowerCase() != 'https' ||
+          target.host.isEmpty ||
+          target.userInfo.isNotEmpty) {
+        await response.drain<void>();
+        throw const FormatException(
+          'Source redirect must remain an absolute HTTPS URL without credentials',
+        );
+      }
+    }
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      await response.drain<void>();
+      throw HttpException('Source returned HTTP ${response.statusCode}', uri: uri);
+    }
+    return response.transform(utf8.decoder).join().timeout(timeout);
+  }
+
+  void close({bool force = false}) => _client.close(force: force);
+}
+
+class KingServerSourceFailure {
+  const KingServerSourceFailure(this.sourceId, this.message);
+  final String sourceId;
+  final String message;
+}
+
+class KingServerSyncResult {
+  const KingServerSyncResult({
+    required this.engineId,
+    required this.profiles,
+    required this.failures,
+  });
+  final String engineId;
+  final List<KingImportedServerProfile> profiles;
+  final List<KingServerSourceFailure> failures;
+}
+
+/// Source refresh is exhaustive over the registered source iterable. There is
+/// no fixed source-count or profile-count ceiling; results are deduplicated by
+/// exact engine/format/payload identity. Provider outages never erase old data.
+class KingServerSourceSync {
+  KingServerSourceSync({
+    required this.fetchText,
+    KingServerPayloadParser? parser,
+  }) : _parser = parser ?? KingServerPayloadParser();
+
+  final Future<String> Function(String url) fetchText;
+  final KingServerPayloadParser _parser;
+
+  Future<KingServerSyncResult> refresh(String engineId) async {
+    final sources = KingEngineServerSourceCatalog.forEngine(engineId);
+    final profiles = <KingImportedServerProfile>[];
+    final fingerprints = <String>{};
+    final failures = <KingServerSourceFailure>[];
+
+    for (final source in sources) {
+      try {
+        final payload = await fetchText(source.url);
+        if (source.kind == KingServerSourceKind.generatedDirectory) {
+          final directory = jsonDecode(payload);
+          if (directory is! List) {
+            throw const FormatException('Generated directory response is not a JSON list');
+          }
+          for (final entry in directory) {
+            if (entry is! Map) continue;
+            final name = (entry['name'] ?? '').toString();
+            final downloadUrl = (entry['download_url'] ?? '').toString();
+            final downloadUri = Uri.tryParse(downloadUrl);
+            if (!name.toLowerCase().endsWith('.ovpn') ||
+                downloadUri == null ||
+                downloadUri.scheme.toLowerCase() != 'https' ||
+                downloadUri.host.isEmpty ||
+                downloadUri.userInfo.isNotEmpty ||
+                downloadUri.hasFragment) {
+              continue;
+            }
+            final config = await fetchText(downloadUri.toString());
+            final parsed = _parser.parse(
+              engineId: engineId, payload: config, sourceId: source.id,
+            );
+            for (final profile in parsed) {
+              if (fingerprints.add(profile.fingerprint)) profiles.add(profile);
+            }
+          }
+        } else {
+          final parsed = _parser.parse(
+            engineId: engineId, payload: payload, sourceId: source.id,
+          );
+          for (final profile in parsed) {
+            if (fingerprints.add(profile.fingerprint)) profiles.add(profile);
+          }
+        }
+      } catch (error) {
+        failures.add(KingServerSourceFailure(source.id, error.toString()));
+      }
+    }
+    return KingServerSyncResult(
+      engineId: engineId,
+      profiles: List.unmodifiable(profiles),
+      failures: List.unmodifiable(failures),
+    );
+  }
+}
+
+
+/// Schedules refreshes at the fastest cadence explicitly published by the
+/// sources for each engine. Unknown cadences are never guessed. Call
+/// refreshNow once on app startup, then start periodic refreshes.
+class KingServerSourceRefreshScheduler {
+  KingServerSourceRefreshScheduler({
+    required this.sync,
+    required this.onResult,
+  });
+
+  final KingServerSourceSync sync;
+  final Future<void> Function(KingServerSyncResult result) onResult;
+  final Map<String, Timer> _timers = {};
+  final Map<String, Future<KingServerSyncResult>> _inFlight = {};
+  bool _disposed = false;
+
+  void start({Iterable<String>? engineIds}) {
+    if (_disposed) throw StateError('Refresh scheduler is disposed');
+    final ids = engineIds ??
+        KingEngineServerSourceCatalog.online.expand((s) => s.engineIds).toSet();
+    for (final engineId in ids) {
+      final intervals = KingEngineServerSourceCatalog.forEngine(engineId)
+          .map(intervalForSource)
+          .whereType<Duration>()
+          .toList(growable: false);
+      if (intervals.isEmpty || _timers.containsKey(engineId)) continue;
+      intervals.sort((a, b) => a.compareTo(b));
+      final interval = intervals.first;
+      _timers[engineId] = Timer.periodic(interval, (_) {
+        unawaited(refreshNow(engineId).then(onResult).catchError((Object _) {}));
+      });
+    }
+  }
+
+  Future<KingServerSyncResult> refreshNow(String engineId) {
+    if (_disposed) {
+      return Future.error(StateError('Refresh scheduler is disposed'));
+    }
+    final active = _inFlight[engineId];
+    if (active != null) return active;
+    late final Future<KingServerSyncResult> tracked;
+    tracked = sync.refresh(engineId).whenComplete(() {
+      if (identical(_inFlight[engineId], tracked)) _inFlight.remove(engineId);
+    });
+    _inFlight[engineId] = tracked;
+    return tracked;
+  }
+
+  static Duration? intervalForSource(KingEngineServerSource source) {
+    final cadence = source.updateCadence?.trim().toLowerCase();
+    if (cadence == null || cadence.isEmpty) return null;
+    if (cadence == 'daily') return const Duration(days: 1);
+    if (cadence == 'hourly') return const Duration(hours: 1);
+    final match = RegExp(
+      r'^(\d+)\s*(m|min|mins|minute|minutes|h|hr|hrs|hour|hours)$',
+    ).firstMatch(cadence);
+    if (match == null) return null;
+    final amount = int.tryParse(match.group(1)!);
+    if (amount == null || amount <= 0) return null;
+    final unit = match.group(2)!;
+    return unit.startsWith('m')
+        ? Duration(minutes: amount)
+        : Duration(hours: amount);
+  }
+
+  void dispose() {
+    if (_disposed) return;
+    _disposed = true;
+    for (final timer in _timers.values) {
+      timer.cancel();
+    }
+    _timers.clear();
+  }
+}
+
+/// Protocol-aware sources. A source is never assigned to an engine merely
+/// because its URL is reachable; its published formats must match.
+class KingEngineServerSourceCatalog {
+  static const List<KingEngineServerSource> online = [
+    KingEngineServerSource(
+      id: 'morpheusadam_hysteria2',
+      name: 'morpheusadam v2ray-config',
+      url: 'https://raw.githubusercontent.com/morpheusadam/v2ray-config/main/subs/bundles/hysteria2.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.mixedShareLinks},
+      engineIds: {'hysteria2', 'sing_box'},
+      updateCadence: 'daily',
+      notes: 'Dedicated Hysteria2 URI bundle; publisher rebuilds protocol bundles daily.',
+    ),
+    KingEngineServerSource(
+      id: 'morpheusadam_shadowsocks',
+      name: 'morpheusadam Shadowsocks feed',
+      url: 'https://raw.githubusercontent.com/morpheusadam/v2ray-config/main/subs/bundles/shadowsocks.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.shadowsocksUri},
+      engineIds: {'shadowsocks', 'sing_box'},
+      updateCadence: 'daily',
+      notes: 'Only Shadowsocks-compatible entries should be retained by the parser.',
+    ),
+    KingEngineServerSource(
+      id: 'morpheusadam_wireguard',
+      name: 'morpheusadam WireGuard bundle',
+      url: 'https://raw.githubusercontent.com/morpheusadam/v2ray-config/main/subs/bundles/wireguard.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.mixedShareLinks},
+      engineIds: {'wireguard', 'sing_box'},
+      updateCadence: 'daily',
+      notes: 'Dedicated WireGuard bundle; entries require protocol-specific parsing and endpoint verification.',
+    ),
+    KingEngineServerSource(
+      id: 'radikal_hysteria2',
+      name: '0xRadikal Hysteria2',
+      url: 'https://raw.githubusercontent.com/0xRadikal/Free-v2ray-Configs/main/protocols/hysteria2.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.hysteria2Uri},
+      engineIds: {'hysteria2', 'sing_box'},
+      updateCadence: '15m',
+      notes: 'Publisher advertises a 15-minute update cycle; live repository activity was observed within minutes of this audit.',
+    ),
+    KingEngineServerSource(
+      id: 'radikal_singbox',
+      name: '0xRadikal sing-box JSON',
+      url: 'https://raw.githubusercontent.com/0xRadikal/Free-v2ray-Configs/main/all/singbox.json',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.singBoxJson},
+      engineIds: {'sing_box'},
+      updateCadence: 'hourly',
+      notes: 'Publisher advertises a 15-minute update cycle; JSON contains multiple proxy outbounds including Hysteria2 and Shadowsocks.',
+    ),
+    KingEngineServerSource(
+      id: 'mohammadaz2_shadowsocks',
+      name: 'mohammadaz2 hourly Shadowsocks',
+      url: 'https://raw.githubusercontent.com/mohammadaz2/v2rayConfigsForYou/main/sub/ss.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.shadowsocksUri},
+      engineIds: {'shadowsocks', 'sing_box'},
+      updateCadence: 'hourly',
+      notes: 'Repository documents hourly scraping and TCP reachability validation; latest repository update observed on 2026-11-26.',
+    ),
+    KingEngineServerSource(
+      id: 'radikal_shadowsocks',
+      name: '0xRadikal Shadowsocks',
+      url: 'https://raw.githubusercontent.com/0xRadikal/Free-v2ray-Configs/main/protocols/shadowsocks.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.shadowsocksUri},
+      engineIds: {'shadowsocks', 'sing_box'},
+      updateCadence: 'hourly',
+      notes: 'Publisher advertises a 15-minute update cycle; protocol-specific plain-text feed.',
+    ),
+    KingEngineServerSource(
+      id: 'shatak_hysteria2_ae',
+      name: 'ShatakVPN Hysteria2 AE',
+      url: 'https://raw.githubusercontent.com/ShatakVPN/ConfigForge-V2Ray/main/configs/ae/hysteria2.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.hysteria2Uri},
+      engineIds: {'hysteria2', 'sing_box'},
+      updateCadence: 'daily',
+      notes: 'Repository automation published a fresh commit within the last day; this country feed was fetched and parsed as Hysteria2 URIs.',
+    ),
+    KingEngineServerSource(
+      id: 'shatak_shadowsocks',
+      name: 'ShatakVPN Shadowsocks',
+      url: 'https://raw.githubusercontent.com/ShatakVPN/ConfigForge-V2Ray/main/configs/shadowsocks.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.shadowsocksUri},
+      engineIds: {'shadowsocks', 'sing_box'},
+      updateCadence: 'daily',
+      notes: 'Repository automation published a fresh commit within the last day; dedicated Shadowsocks feed.',
+    ),
+    KingEngineServerSource(
+      id: 'tendream_hysteria2',
+      name: '10Dream Hysteria2 Base64',
+      url: 'https://raw.githubusercontent.com/10Dream/sub-mod/main/sub/base64/10ium-VpnClashFaCollector-hysteria2.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.mixedShareLinks},
+      engineIds: {'hysteria2', 'sing_box'},
+      updateCadence: 'daily',
+      notes: 'Repository automation published a fresh commit within the last day; payload is Base64-encoded Hysteria2 links.',
+    ),
+  ];
+
+  static const List<KingOfflineImportKind> offline = KingOfflineImportKind.values;
+
+  static List<KingEngineServerSource> forEngine(String engineId) {
+    final sources = <KingEngineServerSource>[
+      ...online.where((source) => source.engineIds.contains(engineId)),
+    ];
+    if (engineId == 'xray') {
+      sources.addAll(KingProxySourceCatalog.online.map((source) =>
+        KingEngineServerSource(
+          id: source.id,
+          name: 'Xray public feed ${source.id}',
+          url: source.url,
+          kind: KingServerSourceKind.publicSubscription,
+          formats: const {KingServerConfigFormat.mixedShareLinks},
+          engineIds: const {'xray'},
+          notes: 'Legacy Xray-compatible feed; payload must be parsed and validated.',
+        )));
+    }
+    return List.unmodifiable(sources);
+  }
+
+  static List<KingProxySource> xrayFeeds() => KingProxySourceCatalog.online;
+
+  static bool needsUserOrProviderServer(String engineId) => const {
+    'nthlink', 'amneziawg', 'openconnect', 'wireguard',
+  }.contains(engineId);
+
+  static bool isLocalOnly(String engineId) => const {
+    'shroudly', 'byedpi', 'powertunnel',
+  }.contains(engineId);
+}
+)
+        .firstMatch(cadence);
+    if (match == null) return null;
+    final amount = int.tryParse(match.group(1)!);
+    if (amount == null || amount <= 0) return null;
+    final unit = match.group(2)!;
+    if (unit.startsWith('m')) return Duration(minutes: amount);
+    if (unit.startsWith('h')) return Duration(hours: amount);
+    return null;
+  }
+
+  void dispose() {
+    if (_disposed) return;
+    _disposed = true;
+    for (final timer in _timers.values) {
+      timer.cancel();
+    }
+    _timers.clear();
+  }
+}
+
+/// Protocol-aware sources. A source is never assigned to an engine merely
+/// because its URL is reachable; its published formats must match.
+class KingEngineServerSourceCatalog {
+  static const List<KingEngineServerSource> online = [
+    KingEngineServerSource(
+      id: 'morpheusadam_hysteria2',
+      name: 'morpheusadam v2ray-config',
+      url: 'https://raw.githubusercontent.com/morpheusadam/v2ray-config/main/subs/bundles/hysteria2.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.mixedShareLinks},
+      engineIds: {'hysteria2', 'sing_box'},
+      updateCadence: 'daily',
+      notes: 'Dedicated Hysteria2 URI bundle; publisher rebuilds protocol bundles daily.',
+    ),
+    KingEngineServerSource(
+      id: 'morpheusadam_shadowsocks',
+      name: 'morpheusadam Shadowsocks feed',
+      url: 'https://raw.githubusercontent.com/morpheusadam/v2ray-config/main/subs/bundles/shadowsocks.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.shadowsocksUri},
+      engineIds: {'shadowsocks', 'sing_box'},
+      updateCadence: 'daily',
+      notes: 'Only Shadowsocks-compatible entries should be retained by the parser.',
+    ),
+    KingEngineServerSource(
+      id: 'morpheusadam_wireguard',
+      name: 'morpheusadam WireGuard bundle',
+      url: 'https://raw.githubusercontent.com/morpheusadam/v2ray-config/main/subs/bundles/wireguard.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.mixedShareLinks},
+      engineIds: {'wireguard', 'sing_box'},
+      updateCadence: 'daily',
+      notes: 'Dedicated WireGuard bundle; entries require protocol-specific parsing and endpoint verification.',
+    ),
+    KingEngineServerSource(
+      id: 'radikal_hysteria2',
+      name: '0xRadikal Hysteria2',
+      url: 'https://raw.githubusercontent.com/0xRadikal/Free-v2ray-Configs/main/protocols/hysteria2.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.hysteria2Uri},
+      engineIds: {'hysteria2', 'sing_box'},
+      updateCadence: '15m',
+      notes: 'Publisher advertises a 15-minute update cycle; live repository activity was observed within minutes of this audit.',
+    ),
+    KingEngineServerSource(
+      id: 'radikal_singbox',
+      name: '0xRadikal sing-box JSON',
+      url: 'https://raw.githubusercontent.com/0xRadikal/Free-v2ray-Configs/main/all/singbox.json',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.singBoxJson},
+      engineIds: {'sing_box'},
+      updateCadence: 'hourly',
+      notes: 'Publisher advertises a 15-minute update cycle; JSON contains multiple proxy outbounds including Hysteria2 and Shadowsocks.',
+    ),
+    KingEngineServerSource(
+      id: 'radikal_shadowsocks',
+      name: '0xRadikal Shadowsocks',
+      url: 'https://raw.githubusercontent.com/0xRadikal/Free-v2ray-Configs/main/protocols/shadowsocks.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.shadowsocksUri},
+      engineIds: {'shadowsocks', 'sing_box'},
+      updateCadence: 'hourly',
+      notes: 'Publisher advertises a 15-minute update cycle; protocol-specific plain-text feed.',
+    ),
+    KingEngineServerSource(
+      id: 'shatak_hysteria2_ae',
+      name: 'ShatakVPN Hysteria2 AE',
+      url: 'https://raw.githubusercontent.com/ShatakVPN/ConfigForge-V2Ray/main/configs/ae/hysteria2.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.hysteria2Uri},
+      engineIds: {'hysteria2', 'sing_box'},
+      updateCadence: 'daily',
+      notes: 'Repository automation published a fresh commit within the last day; this country feed was fetched and parsed as Hysteria2 URIs.',
+    ),
+    KingEngineServerSource(
+      id: 'shatak_shadowsocks',
+      name: 'ShatakVPN Shadowsocks',
+      url: 'https://raw.githubusercontent.com/ShatakVPN/ConfigForge-V2Ray/main/configs/shadowsocks.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.shadowsocksUri},
+      engineIds: {'shadowsocks', 'sing_box'},
+      updateCadence: 'daily',
+      notes: 'Repository automation published a fresh commit within the last day; dedicated Shadowsocks feed.',
+    ),
+    KingEngineServerSource(
+      id: 'tendream_hysteria2',
+      name: '10Dream Hysteria2 Base64',
+      url: 'https://raw.githubusercontent.com/10Dream/sub-mod/main/sub/base64/10ium-VpnClashFaCollector-hysteria2.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.mixedShareLinks},
+      engineIds: {'hysteria2', 'sing_box'},
+      updateCadence: 'daily',
+      notes: 'Repository automation published a fresh commit within the last day; payload is Base64-encoded Hysteria2 links.',
+    ),
+  ];
+
+  static const List<KingOfflineImportKind> offline = KingOfflineImportKind.values;
+
+  static List<KingEngineServerSource> forEngine(String engineId) {
+    final sources = <KingEngineServerSource>[
+      ...online.where((source) => source.engineIds.contains(engineId)),
+    ];
+    if (engineId == 'xray') {
+      sources.addAll(KingProxySourceCatalog.online.map((source) =>
+        KingEngineServerSource(
+          id: source.id,
+          name: 'Xray public feed ${source.id}',
+          url: source.url,
+          kind: KingServerSourceKind.publicSubscription,
+          formats: const {KingServerConfigFormat.mixedShareLinks},
+          engineIds: const {'xray'},
+          notes: 'Legacy Xray-compatible feed; payload must be parsed and validated.',
+        )));
+    }
+    return List.unmodifiable(sources);
+  }
+
+  static List<KingProxySource> xrayFeeds() => KingProxySourceCatalog.online;
+
+  static bool needsUserOrProviderServer(String engineId) => const {
+    'nthlink', 'amneziawg', 'openconnect', 'wireguard',
+  }.contains(engineId);
+
+  static bool isLocalOnly(String engineId) => const {
+    'shroudly', 'byedpi', 'powertunnel',
+  }.contains(engineId);
+}
+)
+        .firstMatch(peer)?.group(1);
+    return _isWireGuardKey(privateKey) &&
+        _isWireGuardKey(publicKey) &&
+        host != null && host.isNotEmpty &&
+        port != null && port > 0 && port <= 65535 &&
+        _hasValidWireGuardAllowedIps(allowedIps);
+  }
+
+  bool _isWireGuardKey(String? value) {
+    if (value == null || value.isEmpty) return false;
+    try {
+      return base64.decode(base64.normalize(value)).length == 32;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  bool _hasValidWireGuardAllowedIps(String? value) {
+    if (value == null || value.trim().isEmpty) return false;
+    final entries = value.split(',');
+    if (entries.isEmpty) return false;
+    for (final entry in entries) {
+      final parts = entry.trim().split('/');
+      if (parts.length != 2) return false;
+      final address = InternetAddress.tryParse(parts[0]);
+      final prefix = int.tryParse(parts[1]);
+      if (address == null || prefix == null) return false;
+      final maxPrefix = address.type == InternetAddressType.IPv4 ? 32 : 128;
+      if (prefix < 0 || prefix > maxPrefix) return false;
+    }
+    return true;
+  }
+
+  bool _containsAmneziaParameters(String value) =>
+      RegExp(r'(?im)^\s*(Jc|Jmin|Jmax|S1|S2|H1|H2|H3|H4)\s*=').hasMatch(value);
+
+  bool _isHttpsEndpoint(String value) {
+    final uri = Uri.tryParse(value);
+    return uri != null && uri.scheme.toLowerCase() == 'https' && uri.host.isNotEmpty;
+  }
+
+  String _engineForScheme(String scheme) => switch (scheme) {
+    'hysteria2' || 'hy2' => 'hysteria2',
+    'ss' || 'shadowsocks' => 'shadowsocks',
+    'vless' || 'vmess' || 'trojan' => 'xray',
+    'wireguard' => 'wireguard',
+    _ => scheme,
+  };
+
+  bool _supports(String requested, String detected) {
+    if (requested == detected) return true;
+    if (requested == 'sing_box') {
+      return const {'xray', 'hysteria2', 'shadowsocks', 'wireguard'}.contains(detected);
+    }
+    if (requested == 'xray') return detected == 'xray';
+    return false;
+  }
+}
+
+/// Fetches only HTTPS sources, keeps TLS verification enabled, and leaves
+/// source failures isolated so one dead feed cannot discard successful feeds.
+class KingHttpSourceFetcher {
+  KingHttpSourceFetcher({HttpClient? client, this.timeout = const Duration(seconds: 35)})
+      : _client = client ?? HttpClient();
+
+  final HttpClient _client;
+  final Duration timeout;
+
+  Future<String> fetch(String sourceUrl) async {
+    final uri = Uri.parse(sourceUrl);
+    if (uri.scheme.toLowerCase() != 'https' || uri.host.isEmpty ||
+        uri.userInfo.isNotEmpty || uri.hasFragment) {
+      throw const FormatException(
+        'Only absolute HTTPS source URLs without credentials or fragments are accepted',
+      );
+    }
+    final request = await _client.getUrl(uri).timeout(timeout);
+    request.headers.set(HttpHeaders.acceptHeader, 'text/plain, application/json, */*');
+    request.headers.set(HttpHeaders.userAgentHeader, 'KING-VPN-SourceSync/1.0');
+    final response = await request.close().timeout(timeout);
+    // HttpClient follows redirects by default. A trusted HTTPS feed must never
+    // be silently downgraded to cleartext during that redirect chain.
+    for (final redirect in response.redirects) {
+      final target = redirect.location.hasScheme
+          ? redirect.location
+          : uri.resolveUri(redirect.location);
+      if (target.scheme.toLowerCase() != 'https' ||
+          target.host.isEmpty ||
+          target.userInfo.isNotEmpty) {
+        await response.drain<void>();
+        throw const FormatException(
+          'Source redirect must remain an absolute HTTPS URL without credentials',
+        );
+      }
+    }
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      await response.drain<void>();
+      throw HttpException('Source returned HTTP ${response.statusCode}', uri: uri);
+    }
+    return response.transform(utf8.decoder).join().timeout(timeout);
+  }
+
+  void close({bool force = false}) => _client.close(force: force);
+}
+
+class KingServerSourceFailure {
+  const KingServerSourceFailure(this.sourceId, this.message);
+  final String sourceId;
+  final String message;
+}
+
+class KingServerSyncResult {
+  const KingServerSyncResult({
+    required this.engineId,
+    required this.profiles,
+    required this.failures,
+  });
+  final String engineId;
+  final List<KingImportedServerProfile> profiles;
+  final List<KingServerSourceFailure> failures;
+}
+
+/// Source refresh is exhaustive over the registered source iterable. There is
+/// no fixed source-count or profile-count ceiling; results are deduplicated by
+/// exact engine/format/payload identity. Provider outages never erase old data.
+class KingServerSourceSync {
+  KingServerSourceSync({
+    required this.fetchText,
+    KingServerPayloadParser? parser,
+  }) : _parser = parser ?? KingServerPayloadParser();
+
+  final Future<String> Function(String url) fetchText;
+  final KingServerPayloadParser _parser;
+
+  Future<KingServerSyncResult> refresh(String engineId) async {
+    final sources = KingEngineServerSourceCatalog.forEngine(engineId);
+    final profiles = <KingImportedServerProfile>[];
+    final fingerprints = <String>{};
+    final failures = <KingServerSourceFailure>[];
+
+    for (final source in sources) {
+      try {
+        final payload = await fetchText(source.url);
+        if (source.kind == KingServerSourceKind.generatedDirectory) {
+          final directory = jsonDecode(payload);
+          if (directory is! List) {
+            throw const FormatException('Generated directory response is not a JSON list');
+          }
+          for (final entry in directory) {
+            if (entry is! Map) continue;
+            final name = (entry['name'] ?? '').toString();
+            final downloadUrl = (entry['download_url'] ?? '').toString();
+            final downloadUri = Uri.tryParse(downloadUrl);
+            if (!name.toLowerCase().endsWith('.ovpn') ||
+                downloadUri == null ||
+                downloadUri.scheme.toLowerCase() != 'https' ||
+                downloadUri.host.isEmpty ||
+                downloadUri.userInfo.isNotEmpty ||
+                downloadUri.hasFragment) {
+              continue;
+            }
+            final config = await fetchText(downloadUri.toString());
+            final parsed = _parser.parse(
+              engineId: engineId, payload: config, sourceId: source.id,
+            );
+            for (final profile in parsed) {
+              if (fingerprints.add(profile.fingerprint)) profiles.add(profile);
+            }
+          }
+        } else {
+          final parsed = _parser.parse(
+            engineId: engineId, payload: payload, sourceId: source.id,
+          );
+          for (final profile in parsed) {
+            if (fingerprints.add(profile.fingerprint)) profiles.add(profile);
+          }
+        }
+      } catch (error) {
+        failures.add(KingServerSourceFailure(source.id, error.toString()));
+      }
+    }
+    return KingServerSyncResult(
+      engineId: engineId,
+      profiles: List.unmodifiable(profiles),
+      failures: List.unmodifiable(failures),
+    );
+  }
+}
+
+
+/// Schedules refreshes at the fastest cadence explicitly published by the
+/// sources for each engine. Unknown cadences are never guessed. Call
+/// refreshNow once on app startup, then start periodic refreshes.
+class KingServerSourceRefreshScheduler {
+  KingServerSourceRefreshScheduler({
+    required this.sync,
+    required this.onResult,
+  });
+
+  final KingServerSourceSync sync;
+  final Future<void> Function(KingServerSyncResult result) onResult;
+  final Map<String, Timer> _timers = {};
+  final Map<String, Future<KingServerSyncResult>> _inFlight = {};
+  bool _disposed = false;
+
+  void start({Iterable<String>? engineIds}) {
+    if (_disposed) throw StateError('Refresh scheduler is disposed');
+    final ids = engineIds ??
+        KingEngineServerSourceCatalog.online.expand((s) => s.engineIds).toSet();
+    for (final engineId in ids) {
+      final intervals = KingEngineServerSourceCatalog.forEngine(engineId)
+          .map(intervalForSource)
+          .whereType<Duration>()
+          .toList(growable: false);
+      if (intervals.isEmpty || _timers.containsKey(engineId)) continue;
+      intervals.sort((a, b) => a.compareTo(b));
+      final interval = intervals.first;
+      _timers[engineId] = Timer.periodic(interval, (_) {
+        unawaited(refreshNow(engineId).then(onResult).catchError((Object _) {}));
+      });
+    }
+  }
+
+  Future<KingServerSyncResult> refreshNow(String engineId) {
+    if (_disposed) {
+      return Future.error(StateError('Refresh scheduler is disposed'));
+    }
+    final active = _inFlight[engineId];
+    if (active != null) return active;
+    late final Future<KingServerSyncResult> tracked;
+    tracked = sync.refresh(engineId).whenComplete(() {
+      if (identical(_inFlight[engineId], tracked)) _inFlight.remove(engineId);
+    });
+    _inFlight[engineId] = tracked;
+    return tracked;
+  }
+
+  static Duration? intervalForSource(KingEngineServerSource source) {
+    final cadence = source.updateCadence?.trim().toLowerCase();
+    if (cadence == null || cadence.isEmpty) return null;
+    if (cadence == 'daily') return const Duration(days: 1);
+    if (cadence == 'hourly') return const Duration(hours: 1);
+    final match = RegExp(
+      r'^(\d+)\s*(m|min|mins|minute|minutes|h|hr|hrs|hour|hours)$',
+    ).firstMatch(cadence);
+    if (match == null) return null;
+    final amount = int.tryParse(match.group(1)!);
+    if (amount == null || amount <= 0) return null;
+    final unit = match.group(2)!;
+    return unit.startsWith('m')
+        ? Duration(minutes: amount)
+        : Duration(hours: amount);
+  }
+
+  void dispose() {
+    if (_disposed) return;
+    _disposed = true;
+    for (final timer in _timers.values) {
+      timer.cancel();
+    }
+    _timers.clear();
+  }
+}
+
+/// Protocol-aware sources. A source is never assigned to an engine merely
+/// because its URL is reachable; its published formats must match.
+class KingEngineServerSourceCatalog {
+  static const List<KingEngineServerSource> online = [
+    KingEngineServerSource(
+      id: 'morpheusadam_hysteria2',
+      name: 'morpheusadam v2ray-config',
+      url: 'https://raw.githubusercontent.com/morpheusadam/v2ray-config/main/subs/bundles/hysteria2.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.mixedShareLinks},
+      engineIds: {'hysteria2', 'sing_box'},
+      updateCadence: 'daily',
+      notes: 'Dedicated Hysteria2 URI bundle; publisher rebuilds protocol bundles daily.',
+    ),
+    KingEngineServerSource(
+      id: 'morpheusadam_shadowsocks',
+      name: 'morpheusadam Shadowsocks feed',
+      url: 'https://raw.githubusercontent.com/morpheusadam/v2ray-config/main/subs/bundles/shadowsocks.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.shadowsocksUri},
+      engineIds: {'shadowsocks', 'sing_box'},
+      updateCadence: 'daily',
+      notes: 'Only Shadowsocks-compatible entries should be retained by the parser.',
+    ),
+    KingEngineServerSource(
+      id: 'morpheusadam_wireguard',
+      name: 'morpheusadam WireGuard bundle',
+      url: 'https://raw.githubusercontent.com/morpheusadam/v2ray-config/main/subs/bundles/wireguard.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.mixedShareLinks},
+      engineIds: {'wireguard', 'sing_box'},
+      updateCadence: 'daily',
+      notes: 'Dedicated WireGuard bundle; entries require protocol-specific parsing and endpoint verification.',
+    ),
+    KingEngineServerSource(
+      id: 'radikal_hysteria2',
+      name: '0xRadikal Hysteria2',
+      url: 'https://raw.githubusercontent.com/0xRadikal/Free-v2ray-Configs/main/protocols/hysteria2.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.hysteria2Uri},
+      engineIds: {'hysteria2', 'sing_box'},
+      updateCadence: '15m',
+      notes: 'Publisher advertises a 15-minute update cycle; live repository activity was observed within minutes of this audit.',
+    ),
+    KingEngineServerSource(
+      id: 'radikal_singbox',
+      name: '0xRadikal sing-box JSON',
+      url: 'https://raw.githubusercontent.com/0xRadikal/Free-v2ray-Configs/main/all/singbox.json',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.singBoxJson},
+      engineIds: {'sing_box'},
+      updateCadence: 'hourly',
+      notes: 'Publisher advertises a 15-minute update cycle; JSON contains multiple proxy outbounds including Hysteria2 and Shadowsocks.',
+    ),
+    KingEngineServerSource(
+      id: 'mohammadaz2_shadowsocks',
+      name: 'mohammadaz2 hourly Shadowsocks',
+      url: 'https://raw.githubusercontent.com/mohammadaz2/v2rayConfigsForYou/main/sub/ss.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.shadowsocksUri},
+      engineIds: {'shadowsocks', 'sing_box'},
+      updateCadence: 'hourly',
+      notes: 'Repository documents hourly scraping and TCP reachability validation; latest repository update observed on 2026-11-26.',
+    ),
+    KingEngineServerSource(
+      id: 'radikal_shadowsocks',
+      name: '0xRadikal Shadowsocks',
+      url: 'https://raw.githubusercontent.com/0xRadikal/Free-v2ray-Configs/main/protocols/shadowsocks.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.shadowsocksUri},
+      engineIds: {'shadowsocks', 'sing_box'},
+      updateCadence: 'hourly',
+      notes: 'Publisher advertises a 15-minute update cycle; protocol-specific plain-text feed.',
+    ),
+    KingEngineServerSource(
+      id: 'shatak_hysteria2_ae',
+      name: 'ShatakVPN Hysteria2 AE',
+      url: 'https://raw.githubusercontent.com/ShatakVPN/ConfigForge-V2Ray/main/configs/ae/hysteria2.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.hysteria2Uri},
+      engineIds: {'hysteria2', 'sing_box'},
+      updateCadence: 'daily',
+      notes: 'Repository automation published a fresh commit within the last day; this country feed was fetched and parsed as Hysteria2 URIs.',
+    ),
+    KingEngineServerSource(
+      id: 'shatak_shadowsocks',
+      name: 'ShatakVPN Shadowsocks',
+      url: 'https://raw.githubusercontent.com/ShatakVPN/ConfigForge-V2Ray/main/configs/shadowsocks.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.shadowsocksUri},
+      engineIds: {'shadowsocks', 'sing_box'},
+      updateCadence: 'daily',
+      notes: 'Repository automation published a fresh commit within the last day; dedicated Shadowsocks feed.',
+    ),
+    KingEngineServerSource(
+      id: 'tendream_hysteria2',
+      name: '10Dream Hysteria2 Base64',
+      url: 'https://raw.githubusercontent.com/10Dream/sub-mod/main/sub/base64/10ium-VpnClashFaCollector-hysteria2.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.mixedShareLinks},
+      engineIds: {'hysteria2', 'sing_box'},
+      updateCadence: 'daily',
+      notes: 'Repository automation published a fresh commit within the last day; payload is Base64-encoded Hysteria2 links.',
+    ),
+  ];
+
+  static const List<KingOfflineImportKind> offline = KingOfflineImportKind.values;
+
+  static List<KingEngineServerSource> forEngine(String engineId) {
+    final sources = <KingEngineServerSource>[
+      ...online.where((source) => source.engineIds.contains(engineId)),
+    ];
+    if (engineId == 'xray') {
+      sources.addAll(KingProxySourceCatalog.online.map((source) =>
+        KingEngineServerSource(
+          id: source.id,
+          name: 'Xray public feed ${source.id}',
+          url: source.url,
+          kind: KingServerSourceKind.publicSubscription,
+          formats: const {KingServerConfigFormat.mixedShareLinks},
+          engineIds: const {'xray'},
+          notes: 'Legacy Xray-compatible feed; payload must be parsed and validated.',
+        )));
+    }
+    return List.unmodifiable(sources);
+  }
+
+  static List<KingProxySource> xrayFeeds() => KingProxySourceCatalog.online;
+
+  static bool needsUserOrProviderServer(String engineId) => const {
+    'nthlink', 'amneziawg', 'openconnect', 'wireguard',
+  }.contains(engineId);
+
+  static bool isLocalOnly(String engineId) => const {
+    'shroudly', 'byedpi', 'powertunnel',
+  }.contains(engineId);
+}
+)
+        .firstMatch(cadence);
+    if (match == null) return null;
+    final amount = int.tryParse(match.group(1)!);
+    if (amount == null || amount <= 0) return null;
+    final unit = match.group(2)!;
+    if (unit.startsWith('m')) return Duration(minutes: amount);
+    if (unit.startsWith('h')) return Duration(hours: amount);
+    return null;
+  }
+
+  void dispose() {
+    if (_disposed) return;
+    _disposed = true;
+    for (final timer in _timers.values) {
+      timer.cancel();
+    }
+    _timers.clear();
+  }
+}
+
+/// Protocol-aware sources. A source is never assigned to an engine merely
+/// because its URL is reachable; its published formats must match.
+class KingEngineServerSourceCatalog {
+  static const List<KingEngineServerSource> online = [
+    KingEngineServerSource(
+      id: 'morpheusadam_hysteria2',
+      name: 'morpheusadam v2ray-config',
+      url: 'https://raw.githubusercontent.com/morpheusadam/v2ray-config/main/subs/bundles/hysteria2.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.mixedShareLinks},
+      engineIds: {'hysteria2', 'sing_box'},
+      updateCadence: 'daily',
+      notes: 'Dedicated Hysteria2 URI bundle; publisher rebuilds protocol bundles daily.',
+    ),
+    KingEngineServerSource(
+      id: 'morpheusadam_shadowsocks',
+      name: 'morpheusadam Shadowsocks feed',
+      url: 'https://raw.githubusercontent.com/morpheusadam/v2ray-config/main/subs/bundles/shadowsocks.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.shadowsocksUri},
+      engineIds: {'shadowsocks', 'sing_box'},
+      updateCadence: 'daily',
+      notes: 'Only Shadowsocks-compatible entries should be retained by the parser.',
+    ),
+    KingEngineServerSource(
+      id: 'morpheusadam_wireguard',
+      name: 'morpheusadam WireGuard bundle',
+      url: 'https://raw.githubusercontent.com/morpheusadam/v2ray-config/main/subs/bundles/wireguard.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.mixedShareLinks},
+      engineIds: {'wireguard', 'sing_box'},
+      updateCadence: 'daily',
+      notes: 'Dedicated WireGuard bundle; entries require protocol-specific parsing and endpoint verification.',
+    ),
+    KingEngineServerSource(
+      id: 'radikal_hysteria2',
+      name: '0xRadikal Hysteria2',
+      url: 'https://raw.githubusercontent.com/0xRadikal/Free-v2ray-Configs/main/protocols/hysteria2.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.hysteria2Uri},
+      engineIds: {'hysteria2', 'sing_box'},
+      updateCadence: '15m',
+      notes: 'Publisher advertises a 15-minute update cycle; live repository activity was observed within minutes of this audit.',
+    ),
+    KingEngineServerSource(
+      id: 'radikal_singbox',
+      name: '0xRadikal sing-box JSON',
+      url: 'https://raw.githubusercontent.com/0xRadikal/Free-v2ray-Configs/main/all/singbox.json',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.singBoxJson},
+      engineIds: {'sing_box'},
+      updateCadence: 'hourly',
+      notes: 'Publisher advertises a 15-minute update cycle; JSON contains multiple proxy outbounds including Hysteria2 and Shadowsocks.',
+    ),
+    KingEngineServerSource(
+      id: 'radikal_shadowsocks',
+      name: '0xRadikal Shadowsocks',
+      url: 'https://raw.githubusercontent.com/0xRadikal/Free-v2ray-Configs/main/protocols/shadowsocks.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.shadowsocksUri},
+      engineIds: {'shadowsocks', 'sing_box'},
+      updateCadence: 'hourly',
+      notes: 'Publisher advertises a 15-minute update cycle; protocol-specific plain-text feed.',
+    ),
+    KingEngineServerSource(
+      id: 'shatak_hysteria2_ae',
+      name: 'ShatakVPN Hysteria2 AE',
+      url: 'https://raw.githubusercontent.com/ShatakVPN/ConfigForge-V2Ray/main/configs/ae/hysteria2.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.hysteria2Uri},
+      engineIds: {'hysteria2', 'sing_box'},
+      updateCadence: 'daily',
+      notes: 'Repository automation published a fresh commit within the last day; this country feed was fetched and parsed as Hysteria2 URIs.',
+    ),
+    KingEngineServerSource(
+      id: 'shatak_shadowsocks',
+      name: 'ShatakVPN Shadowsocks',
+      url: 'https://raw.githubusercontent.com/ShatakVPN/ConfigForge-V2Ray/main/configs/shadowsocks.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.shadowsocksUri},
+      engineIds: {'shadowsocks', 'sing_box'},
+      updateCadence: 'daily',
+      notes: 'Repository automation published a fresh commit within the last day; dedicated Shadowsocks feed.',
+    ),
+    KingEngineServerSource(
+      id: 'tendream_hysteria2',
+      name: '10Dream Hysteria2 Base64',
+      url: 'https://raw.githubusercontent.com/10Dream/sub-mod/main/sub/base64/10ium-VpnClashFaCollector-hysteria2.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.mixedShareLinks},
+      engineIds: {'hysteria2', 'sing_box'},
+      updateCadence: 'daily',
+      notes: 'Repository automation published a fresh commit within the last day; payload is Base64-encoded Hysteria2 links.',
+    ),
+  ];
+
+  static const List<KingOfflineImportKind> offline = KingOfflineImportKind.values;
+
+  static List<KingEngineServerSource> forEngine(String engineId) {
+    final sources = <KingEngineServerSource>[
+      ...online.where((source) => source.engineIds.contains(engineId)),
+    ];
+    if (engineId == 'xray') {
+      sources.addAll(KingProxySourceCatalog.online.map((source) =>
+        KingEngineServerSource(
+          id: source.id,
+          name: 'Xray public feed ${source.id}',
+          url: source.url,
+          kind: KingServerSourceKind.publicSubscription,
+          formats: const {KingServerConfigFormat.mixedShareLinks},
+          engineIds: const {'xray'},
+          notes: 'Legacy Xray-compatible feed; payload must be parsed and validated.',
+        )));
+    }
+    return List.unmodifiable(sources);
+  }
+
+  static List<KingProxySource> xrayFeeds() => KingProxySourceCatalog.online;
+
+  static bool needsUserOrProviderServer(String engineId) => const {
+    'nthlink', 'amneziawg', 'openconnect', 'wireguard',
+  }.contains(engineId);
+
+  static bool isLocalOnly(String engineId) => const {
+    'shroudly', 'byedpi', 'powertunnel',
+  }.contains(engineId);
+}
+).hasMatch(value);
+    final hasRemote = RegExp(
+      r'(?im)^\s*remote\s+([A-Za-z0-9._:-]+)\s+(\\d{1,5})(?:\\s|$)',
+    ).allMatches(value).any((match) {
+      final port = int.tryParse(match.group(2) ?? '');
+      return port != null && port > 0 && port <= 65535;
+    });
+    final hasTransport = RegExp(
+      r'(?im)^\\s*proto\\s+(udp|udp4|udp6|tcp|tcp4|tcp6)(?:-client)?\\s*
+
+  bool _containsAmneziaParameters(String value) =>
+      RegExp(r'(?im)^\s*(Jc|Jmin|Jmax|S1|S2|H1|H2|H3|H4)\s*=').hasMatch(value);
+
+  bool _isHttpsEndpoint(String value) {
+    final uri = Uri.tryParse(value);
+    return uri != null && uri.scheme.toLowerCase() == 'https' && uri.host.isNotEmpty;
+  }
+
+  String _engineForScheme(String scheme) => switch (scheme) {
+    'hysteria2' || 'hy2' => 'hysteria2',
+    'ss' || 'shadowsocks' => 'shadowsocks',
+    'vless' || 'vmess' || 'trojan' => 'xray',
+    'wireguard' => 'wireguard',
+    _ => scheme,
+  };
+
+  bool _supports(String requested, String detected) {
+    if (requested == detected) return true;
+    if (requested == 'sing_box') {
+      return const {'xray', 'hysteria2', 'shadowsocks', 'wireguard'}.contains(detected);
+    }
+    if (requested == 'xray') return detected == 'xray';
+    return false;
+  }
+}
+
+/// Fetches only HTTPS sources, keeps TLS verification enabled, and leaves
+/// source failures isolated so one dead feed cannot discard successful feeds.
+class KingHttpSourceFetcher {
+  KingHttpSourceFetcher({HttpClient? client, this.timeout = const Duration(seconds: 35)})
+      : _client = client ?? HttpClient();
+
+  final HttpClient _client;
+  final Duration timeout;
+
+  Future<String> fetch(String sourceUrl) async {
+    final uri = Uri.parse(sourceUrl);
+    if (uri.scheme.toLowerCase() != 'https' || uri.host.isEmpty ||
+        uri.userInfo.isNotEmpty || uri.hasFragment) {
+      throw const FormatException(
+        'Only absolute HTTPS source URLs without credentials or fragments are accepted',
+      );
+    }
+    final request = await _client.getUrl(uri).timeout(timeout);
+    request.headers.set(HttpHeaders.acceptHeader, 'text/plain, application/json, */*');
+    request.headers.set(HttpHeaders.userAgentHeader, 'KING-VPN-SourceSync/1.0');
+    final response = await request.close().timeout(timeout);
+    // HttpClient follows redirects by default. A trusted HTTPS feed must never
+    // be silently downgraded to cleartext during that redirect chain.
+    for (final redirect in response.redirects) {
+      final target = redirect.location.hasScheme
+          ? redirect.location
+          : uri.resolveUri(redirect.location);
+      if (target.scheme.toLowerCase() != 'https' ||
+          target.host.isEmpty ||
+          target.userInfo.isNotEmpty) {
+        await response.drain<void>();
+        throw const FormatException(
+          'Source redirect must remain an absolute HTTPS URL without credentials',
+        );
+      }
+    }
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      await response.drain<void>();
+      throw HttpException('Source returned HTTP ${response.statusCode}', uri: uri);
+    }
+    return response.transform(utf8.decoder).join().timeout(timeout);
+  }
+
+  void close({bool force = false}) => _client.close(force: force);
+}
+
+class KingServerSourceFailure {
+  const KingServerSourceFailure(this.sourceId, this.message);
+  final String sourceId;
+  final String message;
+}
+
+class KingServerSyncResult {
+  const KingServerSyncResult({
+    required this.engineId,
+    required this.profiles,
+    required this.failures,
+  });
+  final String engineId;
+  final List<KingImportedServerProfile> profiles;
+  final List<KingServerSourceFailure> failures;
+}
+
+/// Source refresh is exhaustive over the registered source iterable. There is
+/// no fixed source-count or profile-count ceiling; results are deduplicated by
+/// exact engine/format/payload identity. Provider outages never erase old data.
+class KingServerSourceSync {
+  KingServerSourceSync({
+    required this.fetchText,
+    KingServerPayloadParser? parser,
+  }) : _parser = parser ?? KingServerPayloadParser();
+
+  final Future<String> Function(String url) fetchText;
+  final KingServerPayloadParser _parser;
+
+  Future<KingServerSyncResult> refresh(String engineId) async {
+    final sources = KingEngineServerSourceCatalog.forEngine(engineId);
+    final profiles = <KingImportedServerProfile>[];
+    final fingerprints = <String>{};
+    final failures = <KingServerSourceFailure>[];
+
+    for (final source in sources) {
+      try {
+        final payload = await fetchText(source.url);
+        if (source.kind == KingServerSourceKind.generatedDirectory) {
+          final directory = jsonDecode(payload);
+          if (directory is! List) {
+            throw const FormatException('Generated directory response is not a JSON list');
+          }
+          for (final entry in directory) {
+            if (entry is! Map) continue;
+            final name = (entry['name'] ?? '').toString();
+            final downloadUrl = (entry['download_url'] ?? '').toString();
+            final downloadUri = Uri.tryParse(downloadUrl);
+            if (!name.toLowerCase().endsWith('.ovpn') ||
+                downloadUri == null ||
+                downloadUri.scheme.toLowerCase() != 'https' ||
+                downloadUri.host.isEmpty ||
+                downloadUri.userInfo.isNotEmpty ||
+                downloadUri.hasFragment) {
+              continue;
+            }
+            final config = await fetchText(downloadUri.toString());
+            final parsed = _parser.parse(
+              engineId: engineId, payload: config, sourceId: source.id,
+            );
+            for (final profile in parsed) {
+              if (fingerprints.add(profile.fingerprint)) profiles.add(profile);
+            }
+          }
+        } else {
+          final parsed = _parser.parse(
+            engineId: engineId, payload: payload, sourceId: source.id,
+          );
+          for (final profile in parsed) {
+            if (fingerprints.add(profile.fingerprint)) profiles.add(profile);
+          }
+        }
+      } catch (error) {
+        failures.add(KingServerSourceFailure(source.id, error.toString()));
+      }
+    }
+    return KingServerSyncResult(
+      engineId: engineId,
+      profiles: List.unmodifiable(profiles),
+      failures: List.unmodifiable(failures),
+    );
+  }
+}
+
+
+/// Schedules refreshes at the fastest cadence explicitly published by the
+/// sources for each engine. Unknown cadences are never guessed. Call
+/// refreshNow once on app startup, then start periodic refreshes.
+class KingServerSourceRefreshScheduler {
+  KingServerSourceRefreshScheduler({
+    required this.sync,
+    required this.onResult,
+  });
+
+  final KingServerSourceSync sync;
+  final Future<void> Function(KingServerSyncResult result) onResult;
+  final Map<String, Timer> _timers = {};
+  final Map<String, Future<KingServerSyncResult>> _inFlight = {};
+  bool _disposed = false;
+
+  void start({Iterable<String>? engineIds}) {
+    if (_disposed) throw StateError('Refresh scheduler is disposed');
+    final ids = engineIds ??
+        KingEngineServerSourceCatalog.online.expand((s) => s.engineIds).toSet();
+    for (final engineId in ids) {
+      final intervals = KingEngineServerSourceCatalog.forEngine(engineId)
+          .map(intervalForSource)
+          .whereType<Duration>()
+          .toList(growable: false);
+      if (intervals.isEmpty || _timers.containsKey(engineId)) continue;
+      intervals.sort((a, b) => a.compareTo(b));
+      final interval = intervals.first;
+      _timers[engineId] = Timer.periodic(interval, (_) {
+        unawaited(refreshNow(engineId).then(onResult).catchError((Object _) {}));
+      });
+    }
+  }
+
+  Future<KingServerSyncResult> refreshNow(String engineId) {
+    if (_disposed) {
+      return Future.error(StateError('Refresh scheduler is disposed'));
+    }
+    final active = _inFlight[engineId];
+    if (active != null) return active;
+    late final Future<KingServerSyncResult> tracked;
+    tracked = sync.refresh(engineId).whenComplete(() {
+      if (identical(_inFlight[engineId], tracked)) _inFlight.remove(engineId);
+    });
+    _inFlight[engineId] = tracked;
+    return tracked;
+  }
+
+  static Duration? intervalForSource(KingEngineServerSource source) {
+    final cadence = source.updateCadence?.trim().toLowerCase();
+    if (cadence == null || cadence.isEmpty) return null;
+    if (cadence == 'daily') return const Duration(days: 1);
+    if (cadence == 'hourly') return const Duration(hours: 1);
+    final match = RegExp(
+      r'^(\d+)\s*(m|min|mins|minute|minutes|h|hr|hrs|hour|hours)$',
+    ).firstMatch(cadence);
+    if (match == null) return null;
+    final amount = int.tryParse(match.group(1)!);
+    if (amount == null || amount <= 0) return null;
+    final unit = match.group(2)!;
+    return unit.startsWith('m')
+        ? Duration(minutes: amount)
+        : Duration(hours: amount);
+  }
+
+  void dispose() {
+    if (_disposed) return;
+    _disposed = true;
+    for (final timer in _timers.values) {
+      timer.cancel();
+    }
+    _timers.clear();
+  }
+}
+
+/// Protocol-aware sources. A source is never assigned to an engine merely
+/// because its URL is reachable; its published formats must match.
+class KingEngineServerSourceCatalog {
+  static const List<KingEngineServerSource> online = [
+    KingEngineServerSource(
+      id: 'morpheusadam_hysteria2',
+      name: 'morpheusadam v2ray-config',
+      url: 'https://raw.githubusercontent.com/morpheusadam/v2ray-config/main/subs/bundles/hysteria2.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.mixedShareLinks},
+      engineIds: {'hysteria2', 'sing_box'},
+      updateCadence: 'daily',
+      notes: 'Dedicated Hysteria2 URI bundle; publisher rebuilds protocol bundles daily.',
+    ),
+    KingEngineServerSource(
+      id: 'morpheusadam_shadowsocks',
+      name: 'morpheusadam Shadowsocks feed',
+      url: 'https://raw.githubusercontent.com/morpheusadam/v2ray-config/main/subs/bundles/shadowsocks.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.shadowsocksUri},
+      engineIds: {'shadowsocks', 'sing_box'},
+      updateCadence: 'daily',
+      notes: 'Only Shadowsocks-compatible entries should be retained by the parser.',
+    ),
+    KingEngineServerSource(
+      id: 'morpheusadam_wireguard',
+      name: 'morpheusadam WireGuard bundle',
+      url: 'https://raw.githubusercontent.com/morpheusadam/v2ray-config/main/subs/bundles/wireguard.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.mixedShareLinks},
+      engineIds: {'wireguard', 'sing_box'},
+      updateCadence: 'daily',
+      notes: 'Dedicated WireGuard bundle; entries require protocol-specific parsing and endpoint verification.',
+    ),
+    KingEngineServerSource(
+      id: 'radikal_hysteria2',
+      name: '0xRadikal Hysteria2',
+      url: 'https://raw.githubusercontent.com/0xRadikal/Free-v2ray-Configs/main/protocols/hysteria2.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.hysteria2Uri},
+      engineIds: {'hysteria2', 'sing_box'},
+      updateCadence: '15m',
+      notes: 'Publisher advertises a 15-minute update cycle; live repository activity was observed within minutes of this audit.',
+    ),
+    KingEngineServerSource(
+      id: 'radikal_singbox',
+      name: '0xRadikal sing-box JSON',
+      url: 'https://raw.githubusercontent.com/0xRadikal/Free-v2ray-Configs/main/all/singbox.json',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.singBoxJson},
+      engineIds: {'sing_box'},
+      updateCadence: 'hourly',
+      notes: 'Publisher advertises a 15-minute update cycle; JSON contains multiple proxy outbounds including Hysteria2 and Shadowsocks.',
+    ),
+    KingEngineServerSource(
+      id: 'mohammadaz2_shadowsocks',
+      name: 'mohammadaz2 hourly Shadowsocks',
+      url: 'https://raw.githubusercontent.com/mohammadaz2/v2rayConfigsForYou/main/sub/ss.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.shadowsocksUri},
+      engineIds: {'shadowsocks', 'sing_box'},
+      updateCadence: 'hourly',
+      notes: 'Repository documents hourly scraping and TCP reachability validation; latest repository update observed on 2026-11-26.',
+    ),
+    KingEngineServerSource(
+      id: 'radikal_shadowsocks',
+      name: '0xRadikal Shadowsocks',
+      url: 'https://raw.githubusercontent.com/0xRadikal/Free-v2ray-Configs/main/protocols/shadowsocks.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.shadowsocksUri},
+      engineIds: {'shadowsocks', 'sing_box'},
+      updateCadence: 'hourly',
+      notes: 'Publisher advertises a 15-minute update cycle; protocol-specific plain-text feed.',
+    ),
+    KingEngineServerSource(
+      id: 'shatak_hysteria2_ae',
+      name: 'ShatakVPN Hysteria2 AE',
+      url: 'https://raw.githubusercontent.com/ShatakVPN/ConfigForge-V2Ray/main/configs/ae/hysteria2.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.hysteria2Uri},
+      engineIds: {'hysteria2', 'sing_box'},
+      updateCadence: 'daily',
+      notes: 'Repository automation published a fresh commit within the last day; this country feed was fetched and parsed as Hysteria2 URIs.',
+    ),
+    KingEngineServerSource(
+      id: 'shatak_shadowsocks',
+      name: 'ShatakVPN Shadowsocks',
+      url: 'https://raw.githubusercontent.com/ShatakVPN/ConfigForge-V2Ray/main/configs/shadowsocks.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.shadowsocksUri},
+      engineIds: {'shadowsocks', 'sing_box'},
+      updateCadence: 'daily',
+      notes: 'Repository automation published a fresh commit within the last day; dedicated Shadowsocks feed.',
+    ),
+    KingEngineServerSource(
+      id: 'tendream_hysteria2',
+      name: '10Dream Hysteria2 Base64',
+      url: 'https://raw.githubusercontent.com/10Dream/sub-mod/main/sub/base64/10ium-VpnClashFaCollector-hysteria2.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.mixedShareLinks},
+      engineIds: {'hysteria2', 'sing_box'},
+      updateCadence: 'daily',
+      notes: 'Repository automation published a fresh commit within the last day; payload is Base64-encoded Hysteria2 links.',
+    ),
+  ];
+
+  static const List<KingOfflineImportKind> offline = KingOfflineImportKind.values;
+
+  static List<KingEngineServerSource> forEngine(String engineId) {
+    final sources = <KingEngineServerSource>[
+      ...online.where((source) => source.engineIds.contains(engineId)),
+    ];
+    if (engineId == 'xray') {
+      sources.addAll(KingProxySourceCatalog.online.map((source) =>
+        KingEngineServerSource(
+          id: source.id,
+          name: 'Xray public feed ${source.id}',
+          url: source.url,
+          kind: KingServerSourceKind.publicSubscription,
+          formats: const {KingServerConfigFormat.mixedShareLinks},
+          engineIds: const {'xray'},
+          notes: 'Legacy Xray-compatible feed; payload must be parsed and validated.',
+        )));
+    }
+    return List.unmodifiable(sources);
+  }
+
+  static List<KingProxySource> xrayFeeds() => KingProxySourceCatalog.online;
+
+  static bool needsUserOrProviderServer(String engineId) => const {
+    'nthlink', 'amneziawg', 'openconnect', 'wireguard',
+  }.contains(engineId);
+
+  static bool isLocalOnly(String engineId) => const {
+    'shroudly', 'byedpi', 'powertunnel',
+  }.contains(engineId);
+}
+)
+        .firstMatch(cadence);
+    if (match == null) return null;
+    final amount = int.tryParse(match.group(1)!);
+    if (amount == null || amount <= 0) return null;
+    final unit = match.group(2)!;
+    if (unit.startsWith('m')) return Duration(minutes: amount);
+    if (unit.startsWith('h')) return Duration(hours: amount);
+    return null;
+  }
+
+  void dispose() {
+    if (_disposed) return;
+    _disposed = true;
+    for (final timer in _timers.values) {
+      timer.cancel();
+    }
+    _timers.clear();
+  }
+}
+
+/// Protocol-aware sources. A source is never assigned to an engine merely
+/// because its URL is reachable; its published formats must match.
+class KingEngineServerSourceCatalog {
+  static const List<KingEngineServerSource> online = [
+    KingEngineServerSource(
+      id: 'morpheusadam_hysteria2',
+      name: 'morpheusadam v2ray-config',
+      url: 'https://raw.githubusercontent.com/morpheusadam/v2ray-config/main/subs/bundles/hysteria2.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.mixedShareLinks},
+      engineIds: {'hysteria2', 'sing_box'},
+      updateCadence: 'daily',
+      notes: 'Dedicated Hysteria2 URI bundle; publisher rebuilds protocol bundles daily.',
+    ),
+    KingEngineServerSource(
+      id: 'morpheusadam_shadowsocks',
+      name: 'morpheusadam Shadowsocks feed',
+      url: 'https://raw.githubusercontent.com/morpheusadam/v2ray-config/main/subs/bundles/shadowsocks.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.shadowsocksUri},
+      engineIds: {'shadowsocks', 'sing_box'},
+      updateCadence: 'daily',
+      notes: 'Only Shadowsocks-compatible entries should be retained by the parser.',
+    ),
+    KingEngineServerSource(
+      id: 'morpheusadam_wireguard',
+      name: 'morpheusadam WireGuard bundle',
+      url: 'https://raw.githubusercontent.com/morpheusadam/v2ray-config/main/subs/bundles/wireguard.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.mixedShareLinks},
+      engineIds: {'wireguard', 'sing_box'},
+      updateCadence: 'daily',
+      notes: 'Dedicated WireGuard bundle; entries require protocol-specific parsing and endpoint verification.',
+    ),
+    KingEngineServerSource(
+      id: 'radikal_hysteria2',
+      name: '0xRadikal Hysteria2',
+      url: 'https://raw.githubusercontent.com/0xRadikal/Free-v2ray-Configs/main/protocols/hysteria2.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.hysteria2Uri},
+      engineIds: {'hysteria2', 'sing_box'},
+      updateCadence: '15m',
+      notes: 'Publisher advertises a 15-minute update cycle; live repository activity was observed within minutes of this audit.',
+    ),
+    KingEngineServerSource(
+      id: 'radikal_singbox',
+      name: '0xRadikal sing-box JSON',
+      url: 'https://raw.githubusercontent.com/0xRadikal/Free-v2ray-Configs/main/all/singbox.json',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.singBoxJson},
+      engineIds: {'sing_box'},
+      updateCadence: 'hourly',
+      notes: 'Publisher advertises a 15-minute update cycle; JSON contains multiple proxy outbounds including Hysteria2 and Shadowsocks.',
+    ),
+    KingEngineServerSource(
+      id: 'radikal_shadowsocks',
+      name: '0xRadikal Shadowsocks',
+      url: 'https://raw.githubusercontent.com/0xRadikal/Free-v2ray-Configs/main/protocols/shadowsocks.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.shadowsocksUri},
+      engineIds: {'shadowsocks', 'sing_box'},
+      updateCadence: 'hourly',
+      notes: 'Publisher advertises a 15-minute update cycle; protocol-specific plain-text feed.',
+    ),
+    KingEngineServerSource(
+      id: 'shatak_hysteria2_ae',
+      name: 'ShatakVPN Hysteria2 AE',
+      url: 'https://raw.githubusercontent.com/ShatakVPN/ConfigForge-V2Ray/main/configs/ae/hysteria2.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.hysteria2Uri},
+      engineIds: {'hysteria2', 'sing_box'},
+      updateCadence: 'daily',
+      notes: 'Repository automation published a fresh commit within the last day; this country feed was fetched and parsed as Hysteria2 URIs.',
+    ),
+    KingEngineServerSource(
+      id: 'shatak_shadowsocks',
+      name: 'ShatakVPN Shadowsocks',
+      url: 'https://raw.githubusercontent.com/ShatakVPN/ConfigForge-V2Ray/main/configs/shadowsocks.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.shadowsocksUri},
+      engineIds: {'shadowsocks', 'sing_box'},
+      updateCadence: 'daily',
+      notes: 'Repository automation published a fresh commit within the last day; dedicated Shadowsocks feed.',
+    ),
+    KingEngineServerSource(
+      id: 'tendream_hysteria2',
+      name: '10Dream Hysteria2 Base64',
+      url: 'https://raw.githubusercontent.com/10Dream/sub-mod/main/sub/base64/10ium-VpnClashFaCollector-hysteria2.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.mixedShareLinks},
+      engineIds: {'hysteria2', 'sing_box'},
+      updateCadence: 'daily',
+      notes: 'Repository automation published a fresh commit within the last day; payload is Base64-encoded Hysteria2 links.',
+    ),
+  ];
+
+  static const List<KingOfflineImportKind> offline = KingOfflineImportKind.values;
+
+  static List<KingEngineServerSource> forEngine(String engineId) {
+    final sources = <KingEngineServerSource>[
+      ...online.where((source) => source.engineIds.contains(engineId)),
+    ];
+    if (engineId == 'xray') {
+      sources.addAll(KingProxySourceCatalog.online.map((source) =>
+        KingEngineServerSource(
+          id: source.id,
+          name: 'Xray public feed ${source.id}',
+          url: source.url,
+          kind: KingServerSourceKind.publicSubscription,
+          formats: const {KingServerConfigFormat.mixedShareLinks},
+          engineIds: const {'xray'},
+          notes: 'Legacy Xray-compatible feed; payload must be parsed and validated.',
+        )));
+    }
+    return List.unmodifiable(sources);
+  }
+
+  static List<KingProxySource> xrayFeeds() => KingProxySourceCatalog.online;
+
+  static bool needsUserOrProviderServer(String engineId) => const {
+    'nthlink', 'amneziawg', 'openconnect', 'wireguard',
+  }.contains(engineId);
+
+  static bool isLocalOnly(String engineId) => const {
+    'shroudly', 'byedpi', 'powertunnel',
+  }.contains(engineId);
+}
+,
+    ).hasMatch(value);
+    return hasClientMode && hasRemote && hasTransport;
+  }
+
+  bool _isWireGuardProfile(String value) {
+    final interface = RegExp(
+      r'(?ims)^\\s*\\[Interface\\]\\s*(.*?)^(?=\\s*\\[|\\s*$)',
+    ).firstMatch(value)?.group(1) ?? '';
+    final peer = RegExp(
+      r'(?ims)^\\s*\\[Peer\\]\\s*(.*?)^(?=\\s*\\[|\\s*$)',
+    ).firstMatch(value)?.group(1) ?? '';
+    final privateKey = RegExp(r'(?im)^\\s*PrivateKey\\s*=\\s*([^\\s#]+)')
+        .firstMatch(interface)?.group(1);
+    final publicKey = RegExp(r'(?im)^\\s*PublicKey\\s*=\\s*([^\\s#]+)')
+        .firstMatch(peer)?.group(1);
+    final endpoint = RegExp(
+      r'(?im)^\\s*Endpoint\\s*=\\s*(?:\\[[0-9a-f:]+\\]|[^:\\s]+):(\\d{1,5})\\s*
+
+  bool _containsAmneziaParameters(String value) =>
+      RegExp(r'(?im)^\s*(Jc|Jmin|Jmax|S1|S2|H1|H2|H3|H4)\s*=').hasMatch(value);
+
+  bool _isHttpsEndpoint(String value) {
+    final uri = Uri.tryParse(value);
+    return uri != null && uri.scheme.toLowerCase() == 'https' && uri.host.isNotEmpty;
+  }
+
+  String _engineForScheme(String scheme) => switch (scheme) {
+    'hysteria2' || 'hy2' => 'hysteria2',
+    'ss' || 'shadowsocks' => 'shadowsocks',
+    'vless' || 'vmess' || 'trojan' => 'xray',
+    'wireguard' => 'wireguard',
+    _ => scheme,
+  };
+
+  bool _supports(String requested, String detected) {
+    if (requested == detected) return true;
+    if (requested == 'sing_box') {
+      return const {'xray', 'hysteria2', 'shadowsocks', 'wireguard'}.contains(detected);
+    }
+    if (requested == 'xray') return detected == 'xray';
+    return false;
+  }
+}
+
+/// Fetches only HTTPS sources, keeps TLS verification enabled, and leaves
+/// source failures isolated so one dead feed cannot discard successful feeds.
+class KingHttpSourceFetcher {
+  KingHttpSourceFetcher({HttpClient? client, this.timeout = const Duration(seconds: 35)})
+      : _client = client ?? HttpClient();
+
+  final HttpClient _client;
+  final Duration timeout;
+
+  Future<String> fetch(String sourceUrl) async {
+    final uri = Uri.parse(sourceUrl);
+    if (uri.scheme.toLowerCase() != 'https' || uri.host.isEmpty ||
+        uri.userInfo.isNotEmpty || uri.hasFragment) {
+      throw const FormatException(
+        'Only absolute HTTPS source URLs without credentials or fragments are accepted',
+      );
+    }
+    final request = await _client.getUrl(uri).timeout(timeout);
+    request.headers.set(HttpHeaders.acceptHeader, 'text/plain, application/json, */*');
+    request.headers.set(HttpHeaders.userAgentHeader, 'KING-VPN-SourceSync/1.0');
+    final response = await request.close().timeout(timeout);
+    // HttpClient follows redirects by default. A trusted HTTPS feed must never
+    // be silently downgraded to cleartext during that redirect chain.
+    for (final redirect in response.redirects) {
+      final target = redirect.location.hasScheme
+          ? redirect.location
+          : uri.resolveUri(redirect.location);
+      if (target.scheme.toLowerCase() != 'https' ||
+          target.host.isEmpty ||
+          target.userInfo.isNotEmpty) {
+        await response.drain<void>();
+        throw const FormatException(
+          'Source redirect must remain an absolute HTTPS URL without credentials',
+        );
+      }
+    }
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      await response.drain<void>();
+      throw HttpException('Source returned HTTP ${response.statusCode}', uri: uri);
+    }
+    return response.transform(utf8.decoder).join().timeout(timeout);
+  }
+
+  void close({bool force = false}) => _client.close(force: force);
+}
+
+class KingServerSourceFailure {
+  const KingServerSourceFailure(this.sourceId, this.message);
+  final String sourceId;
+  final String message;
+}
+
+class KingServerSyncResult {
+  const KingServerSyncResult({
+    required this.engineId,
+    required this.profiles,
+    required this.failures,
+  });
+  final String engineId;
+  final List<KingImportedServerProfile> profiles;
+  final List<KingServerSourceFailure> failures;
+}
+
+/// Source refresh is exhaustive over the registered source iterable. There is
+/// no fixed source-count or profile-count ceiling; results are deduplicated by
+/// exact engine/format/payload identity. Provider outages never erase old data.
+class KingServerSourceSync {
+  KingServerSourceSync({
+    required this.fetchText,
+    KingServerPayloadParser? parser,
+  }) : _parser = parser ?? KingServerPayloadParser();
+
+  final Future<String> Function(String url) fetchText;
+  final KingServerPayloadParser _parser;
+
+  Future<KingServerSyncResult> refresh(String engineId) async {
+    final sources = KingEngineServerSourceCatalog.forEngine(engineId);
+    final profiles = <KingImportedServerProfile>[];
+    final fingerprints = <String>{};
+    final failures = <KingServerSourceFailure>[];
+
+    for (final source in sources) {
+      try {
+        final payload = await fetchText(source.url);
+        if (source.kind == KingServerSourceKind.generatedDirectory) {
+          final directory = jsonDecode(payload);
+          if (directory is! List) {
+            throw const FormatException('Generated directory response is not a JSON list');
+          }
+          for (final entry in directory) {
+            if (entry is! Map) continue;
+            final name = (entry['name'] ?? '').toString();
+            final downloadUrl = (entry['download_url'] ?? '').toString();
+            final downloadUri = Uri.tryParse(downloadUrl);
+            if (!name.toLowerCase().endsWith('.ovpn') ||
+                downloadUri == null ||
+                downloadUri.scheme.toLowerCase() != 'https' ||
+                downloadUri.host.isEmpty ||
+                downloadUri.userInfo.isNotEmpty ||
+                downloadUri.hasFragment) {
+              continue;
+            }
+            final config = await fetchText(downloadUri.toString());
+            final parsed = _parser.parse(
+              engineId: engineId, payload: config, sourceId: source.id,
+            );
+            for (final profile in parsed) {
+              if (fingerprints.add(profile.fingerprint)) profiles.add(profile);
+            }
+          }
+        } else {
+          final parsed = _parser.parse(
+            engineId: engineId, payload: payload, sourceId: source.id,
+          );
+          for (final profile in parsed) {
+            if (fingerprints.add(profile.fingerprint)) profiles.add(profile);
+          }
+        }
+      } catch (error) {
+        failures.add(KingServerSourceFailure(source.id, error.toString()));
+      }
+    }
+    return KingServerSyncResult(
+      engineId: engineId,
+      profiles: List.unmodifiable(profiles),
+      failures: List.unmodifiable(failures),
+    );
+  }
+}
+
+
+/// Schedules refreshes at the fastest cadence explicitly published by the
+/// sources for each engine. Unknown cadences are never guessed. Call
+/// refreshNow once on app startup, then start periodic refreshes.
+class KingServerSourceRefreshScheduler {
+  KingServerSourceRefreshScheduler({
+    required this.sync,
+    required this.onResult,
+  });
+
+  final KingServerSourceSync sync;
+  final Future<void> Function(KingServerSyncResult result) onResult;
+  final Map<String, Timer> _timers = {};
+  final Map<String, Future<KingServerSyncResult>> _inFlight = {};
+  bool _disposed = false;
+
+  void start({Iterable<String>? engineIds}) {
+    if (_disposed) throw StateError('Refresh scheduler is disposed');
+    final ids = engineIds ??
+        KingEngineServerSourceCatalog.online.expand((s) => s.engineIds).toSet();
+    for (final engineId in ids) {
+      final intervals = KingEngineServerSourceCatalog.forEngine(engineId)
+          .map(intervalForSource)
+          .whereType<Duration>()
+          .toList(growable: false);
+      if (intervals.isEmpty || _timers.containsKey(engineId)) continue;
+      intervals.sort((a, b) => a.compareTo(b));
+      final interval = intervals.first;
+      _timers[engineId] = Timer.periodic(interval, (_) {
+        unawaited(refreshNow(engineId).then(onResult).catchError((Object _) {}));
+      });
+    }
+  }
+
+  Future<KingServerSyncResult> refreshNow(String engineId) {
+    if (_disposed) {
+      return Future.error(StateError('Refresh scheduler is disposed'));
+    }
+    final active = _inFlight[engineId];
+    if (active != null) return active;
+    late final Future<KingServerSyncResult> tracked;
+    tracked = sync.refresh(engineId).whenComplete(() {
+      if (identical(_inFlight[engineId], tracked)) _inFlight.remove(engineId);
+    });
+    _inFlight[engineId] = tracked;
+    return tracked;
+  }
+
+  static Duration? intervalForSource(KingEngineServerSource source) {
+    final cadence = source.updateCadence?.trim().toLowerCase();
+    if (cadence == null || cadence.isEmpty) return null;
+    if (cadence == 'daily') return const Duration(days: 1);
+    if (cadence == 'hourly') return const Duration(hours: 1);
+    final match = RegExp(
+      r'^(\d+)\s*(m|min|mins|minute|minutes|h|hr|hrs|hour|hours)$',
+    ).firstMatch(cadence);
+    if (match == null) return null;
+    final amount = int.tryParse(match.group(1)!);
+    if (amount == null || amount <= 0) return null;
+    final unit = match.group(2)!;
+    return unit.startsWith('m')
+        ? Duration(minutes: amount)
+        : Duration(hours: amount);
+  }
+
+  void dispose() {
+    if (_disposed) return;
+    _disposed = true;
+    for (final timer in _timers.values) {
+      timer.cancel();
+    }
+    _timers.clear();
+  }
+}
+
+/// Protocol-aware sources. A source is never assigned to an engine merely
+/// because its URL is reachable; its published formats must match.
+class KingEngineServerSourceCatalog {
+  static const List<KingEngineServerSource> online = [
+    KingEngineServerSource(
+      id: 'morpheusadam_hysteria2',
+      name: 'morpheusadam v2ray-config',
+      url: 'https://raw.githubusercontent.com/morpheusadam/v2ray-config/main/subs/bundles/hysteria2.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.mixedShareLinks},
+      engineIds: {'hysteria2', 'sing_box'},
+      updateCadence: 'daily',
+      notes: 'Dedicated Hysteria2 URI bundle; publisher rebuilds protocol bundles daily.',
+    ),
+    KingEngineServerSource(
+      id: 'morpheusadam_shadowsocks',
+      name: 'morpheusadam Shadowsocks feed',
+      url: 'https://raw.githubusercontent.com/morpheusadam/v2ray-config/main/subs/bundles/shadowsocks.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.shadowsocksUri},
+      engineIds: {'shadowsocks', 'sing_box'},
+      updateCadence: 'daily',
+      notes: 'Only Shadowsocks-compatible entries should be retained by the parser.',
+    ),
+    KingEngineServerSource(
+      id: 'morpheusadam_wireguard',
+      name: 'morpheusadam WireGuard bundle',
+      url: 'https://raw.githubusercontent.com/morpheusadam/v2ray-config/main/subs/bundles/wireguard.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.mixedShareLinks},
+      engineIds: {'wireguard', 'sing_box'},
+      updateCadence: 'daily',
+      notes: 'Dedicated WireGuard bundle; entries require protocol-specific parsing and endpoint verification.',
+    ),
+    KingEngineServerSource(
+      id: 'radikal_hysteria2',
+      name: '0xRadikal Hysteria2',
+      url: 'https://raw.githubusercontent.com/0xRadikal/Free-v2ray-Configs/main/protocols/hysteria2.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.hysteria2Uri},
+      engineIds: {'hysteria2', 'sing_box'},
+      updateCadence: '15m',
+      notes: 'Publisher advertises a 15-minute update cycle; live repository activity was observed within minutes of this audit.',
+    ),
+    KingEngineServerSource(
+      id: 'radikal_singbox',
+      name: '0xRadikal sing-box JSON',
+      url: 'https://raw.githubusercontent.com/0xRadikal/Free-v2ray-Configs/main/all/singbox.json',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.singBoxJson},
+      engineIds: {'sing_box'},
+      updateCadence: 'hourly',
+      notes: 'Publisher advertises a 15-minute update cycle; JSON contains multiple proxy outbounds including Hysteria2 and Shadowsocks.',
+    ),
+    KingEngineServerSource(
+      id: 'mohammadaz2_shadowsocks',
+      name: 'mohammadaz2 hourly Shadowsocks',
+      url: 'https://raw.githubusercontent.com/mohammadaz2/v2rayConfigsForYou/main/sub/ss.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.shadowsocksUri},
+      engineIds: {'shadowsocks', 'sing_box'},
+      updateCadence: 'hourly',
+      notes: 'Repository documents hourly scraping and TCP reachability validation; latest repository update observed on 2026-11-26.',
+    ),
+    KingEngineServerSource(
+      id: 'radikal_shadowsocks',
+      name: '0xRadikal Shadowsocks',
+      url: 'https://raw.githubusercontent.com/0xRadikal/Free-v2ray-Configs/main/protocols/shadowsocks.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.shadowsocksUri},
+      engineIds: {'shadowsocks', 'sing_box'},
+      updateCadence: 'hourly',
+      notes: 'Publisher advertises a 15-minute update cycle; protocol-specific plain-text feed.',
+    ),
+    KingEngineServerSource(
+      id: 'shatak_hysteria2_ae',
+      name: 'ShatakVPN Hysteria2 AE',
+      url: 'https://raw.githubusercontent.com/ShatakVPN/ConfigForge-V2Ray/main/configs/ae/hysteria2.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.hysteria2Uri},
+      engineIds: {'hysteria2', 'sing_box'},
+      updateCadence: 'daily',
+      notes: 'Repository automation published a fresh commit within the last day; this country feed was fetched and parsed as Hysteria2 URIs.',
+    ),
+    KingEngineServerSource(
+      id: 'shatak_shadowsocks',
+      name: 'ShatakVPN Shadowsocks',
+      url: 'https://raw.githubusercontent.com/ShatakVPN/ConfigForge-V2Ray/main/configs/shadowsocks.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.shadowsocksUri},
+      engineIds: {'shadowsocks', 'sing_box'},
+      updateCadence: 'daily',
+      notes: 'Repository automation published a fresh commit within the last day; dedicated Shadowsocks feed.',
+    ),
+    KingEngineServerSource(
+      id: 'tendream_hysteria2',
+      name: '10Dream Hysteria2 Base64',
+      url: 'https://raw.githubusercontent.com/10Dream/sub-mod/main/sub/base64/10ium-VpnClashFaCollector-hysteria2.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.mixedShareLinks},
+      engineIds: {'hysteria2', 'sing_box'},
+      updateCadence: 'daily',
+      notes: 'Repository automation published a fresh commit within the last day; payload is Base64-encoded Hysteria2 links.',
+    ),
+  ];
+
+  static const List<KingOfflineImportKind> offline = KingOfflineImportKind.values;
+
+  static List<KingEngineServerSource> forEngine(String engineId) {
+    final sources = <KingEngineServerSource>[
+      ...online.where((source) => source.engineIds.contains(engineId)),
+    ];
+    if (engineId == 'xray') {
+      sources.addAll(KingProxySourceCatalog.online.map((source) =>
+        KingEngineServerSource(
+          id: source.id,
+          name: 'Xray public feed ${source.id}',
+          url: source.url,
+          kind: KingServerSourceKind.publicSubscription,
+          formats: const {KingServerConfigFormat.mixedShareLinks},
+          engineIds: const {'xray'},
+          notes: 'Legacy Xray-compatible feed; payload must be parsed and validated.',
+        )));
+    }
+    return List.unmodifiable(sources);
+  }
+
+  static List<KingProxySource> xrayFeeds() => KingProxySourceCatalog.online;
+
+  static bool needsUserOrProviderServer(String engineId) => const {
+    'nthlink', 'amneziawg', 'openconnect', 'wireguard',
+  }.contains(engineId);
+
+  static bool isLocalOnly(String engineId) => const {
+    'shroudly', 'byedpi', 'powertunnel',
+  }.contains(engineId);
+}
+)
+        .firstMatch(cadence);
+    if (match == null) return null;
+    final amount = int.tryParse(match.group(1)!);
+    if (amount == null || amount <= 0) return null;
+    final unit = match.group(2)!;
+    if (unit.startsWith('m')) return Duration(minutes: amount);
+    if (unit.startsWith('h')) return Duration(hours: amount);
+    return null;
+  }
+
+  void dispose() {
+    if (_disposed) return;
+    _disposed = true;
+    for (final timer in _timers.values) {
+      timer.cancel();
+    }
+    _timers.clear();
+  }
+}
+
+/// Protocol-aware sources. A source is never assigned to an engine merely
+/// because its URL is reachable; its published formats must match.
+class KingEngineServerSourceCatalog {
+  static const List<KingEngineServerSource> online = [
+    KingEngineServerSource(
+      id: 'morpheusadam_hysteria2',
+      name: 'morpheusadam v2ray-config',
+      url: 'https://raw.githubusercontent.com/morpheusadam/v2ray-config/main/subs/bundles/hysteria2.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.mixedShareLinks},
+      engineIds: {'hysteria2', 'sing_box'},
+      updateCadence: 'daily',
+      notes: 'Dedicated Hysteria2 URI bundle; publisher rebuilds protocol bundles daily.',
+    ),
+    KingEngineServerSource(
+      id: 'morpheusadam_shadowsocks',
+      name: 'morpheusadam Shadowsocks feed',
+      url: 'https://raw.githubusercontent.com/morpheusadam/v2ray-config/main/subs/bundles/shadowsocks.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.shadowsocksUri},
+      engineIds: {'shadowsocks', 'sing_box'},
+      updateCadence: 'daily',
+      notes: 'Only Shadowsocks-compatible entries should be retained by the parser.',
+    ),
+    KingEngineServerSource(
+      id: 'morpheusadam_wireguard',
+      name: 'morpheusadam WireGuard bundle',
+      url: 'https://raw.githubusercontent.com/morpheusadam/v2ray-config/main/subs/bundles/wireguard.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.mixedShareLinks},
+      engineIds: {'wireguard', 'sing_box'},
+      updateCadence: 'daily',
+      notes: 'Dedicated WireGuard bundle; entries require protocol-specific parsing and endpoint verification.',
+    ),
+    KingEngineServerSource(
+      id: 'radikal_hysteria2',
+      name: '0xRadikal Hysteria2',
+      url: 'https://raw.githubusercontent.com/0xRadikal/Free-v2ray-Configs/main/protocols/hysteria2.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.hysteria2Uri},
+      engineIds: {'hysteria2', 'sing_box'},
+      updateCadence: '15m',
+      notes: 'Publisher advertises a 15-minute update cycle; live repository activity was observed within minutes of this audit.',
+    ),
+    KingEngineServerSource(
+      id: 'radikal_singbox',
+      name: '0xRadikal sing-box JSON',
+      url: 'https://raw.githubusercontent.com/0xRadikal/Free-v2ray-Configs/main/all/singbox.json',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.singBoxJson},
+      engineIds: {'sing_box'},
+      updateCadence: 'hourly',
+      notes: 'Publisher advertises a 15-minute update cycle; JSON contains multiple proxy outbounds including Hysteria2 and Shadowsocks.',
+    ),
+    KingEngineServerSource(
+      id: 'radikal_shadowsocks',
+      name: '0xRadikal Shadowsocks',
+      url: 'https://raw.githubusercontent.com/0xRadikal/Free-v2ray-Configs/main/protocols/shadowsocks.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.shadowsocksUri},
+      engineIds: {'shadowsocks', 'sing_box'},
+      updateCadence: 'hourly',
+      notes: 'Publisher advertises a 15-minute update cycle; protocol-specific plain-text feed.',
+    ),
+    KingEngineServerSource(
+      id: 'shatak_hysteria2_ae',
+      name: 'ShatakVPN Hysteria2 AE',
+      url: 'https://raw.githubusercontent.com/ShatakVPN/ConfigForge-V2Ray/main/configs/ae/hysteria2.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.hysteria2Uri},
+      engineIds: {'hysteria2', 'sing_box'},
+      updateCadence: 'daily',
+      notes: 'Repository automation published a fresh commit within the last day; this country feed was fetched and parsed as Hysteria2 URIs.',
+    ),
+    KingEngineServerSource(
+      id: 'shatak_shadowsocks',
+      name: 'ShatakVPN Shadowsocks',
+      url: 'https://raw.githubusercontent.com/ShatakVPN/ConfigForge-V2Ray/main/configs/shadowsocks.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.shadowsocksUri},
+      engineIds: {'shadowsocks', 'sing_box'},
+      updateCadence: 'daily',
+      notes: 'Repository automation published a fresh commit within the last day; dedicated Shadowsocks feed.',
+    ),
+    KingEngineServerSource(
+      id: 'tendream_hysteria2',
+      name: '10Dream Hysteria2 Base64',
+      url: 'https://raw.githubusercontent.com/10Dream/sub-mod/main/sub/base64/10ium-VpnClashFaCollector-hysteria2.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.mixedShareLinks},
+      engineIds: {'hysteria2', 'sing_box'},
+      updateCadence: 'daily',
+      notes: 'Repository automation published a fresh commit within the last day; payload is Base64-encoded Hysteria2 links.',
+    ),
+  ];
+
+  static const List<KingOfflineImportKind> offline = KingOfflineImportKind.values;
+
+  static List<KingEngineServerSource> forEngine(String engineId) {
+    final sources = <KingEngineServerSource>[
+      ...online.where((source) => source.engineIds.contains(engineId)),
+    ];
+    if (engineId == 'xray') {
+      sources.addAll(KingProxySourceCatalog.online.map((source) =>
+        KingEngineServerSource(
+          id: source.id,
+          name: 'Xray public feed ${source.id}',
+          url: source.url,
+          kind: KingServerSourceKind.publicSubscription,
+          formats: const {KingServerConfigFormat.mixedShareLinks},
+          engineIds: const {'xray'},
+          notes: 'Legacy Xray-compatible feed; payload must be parsed and validated.',
+        )));
+    }
+    return List.unmodifiable(sources);
+  }
+
+  static List<KingProxySource> xrayFeeds() => KingProxySourceCatalog.online;
+
+  static bool needsUserOrProviderServer(String engineId) => const {
+    'nthlink', 'amneziawg', 'openconnect', 'wireguard',
+  }.contains(engineId);
+
+  static bool isLocalOnly(String engineId) => const {
+    'shroudly', 'byedpi', 'powertunnel',
+  }.contains(engineId);
+}
+,
+    ).firstMatch(peer)?.group(1);
+    final allowedIps = RegExp(r'(?im)^\\s*AllowedIPs\\s*=\\s*\\S+')
+        .hasMatch(peer);
+    final port = int.tryParse(endpoint ?? '');
+    return privateKey != null && privateKey.isNotEmpty &&
+        publicKey != null && publicKey.isNotEmpty &&
+        port != null && port > 0 && port <= 65535 && allowedIps;
+  }
+
+  bool _containsAmneziaParameters(String value) =>
+      RegExp(r'(?im)^\s*(Jc|Jmin|Jmax|S1|S2|H1|H2|H3|H4)\s*=').hasMatch(value);
+
+  bool _isHttpsEndpoint(String value) {
+    final uri = Uri.tryParse(value);
+    return uri != null && uri.scheme.toLowerCase() == 'https' && uri.host.isNotEmpty;
+  }
+
+  String _engineForScheme(String scheme) => switch (scheme) {
+    'hysteria2' || 'hy2' => 'hysteria2',
+    'ss' || 'shadowsocks' => 'shadowsocks',
+    'vless' || 'vmess' || 'trojan' => 'xray',
+    'wireguard' => 'wireguard',
+    _ => scheme,
+  };
+
+  bool _supports(String requested, String detected) {
+    if (requested == detected) return true;
+    if (requested == 'sing_box') {
+      return const {'xray', 'hysteria2', 'shadowsocks', 'wireguard'}.contains(detected);
+    }
+    if (requested == 'xray') return detected == 'xray';
+    return false;
+  }
+}
+
+/// Fetches only HTTPS sources, keeps TLS verification enabled, and leaves
+/// source failures isolated so one dead feed cannot discard successful feeds.
+class KingHttpSourceFetcher {
+  KingHttpSourceFetcher({HttpClient? client, this.timeout = const Duration(seconds: 35)})
+      : _client = client ?? HttpClient();
+
+  final HttpClient _client;
+  final Duration timeout;
+
+  Future<String> fetch(String sourceUrl) async {
+    final uri = Uri.parse(sourceUrl);
+    if (uri.scheme.toLowerCase() != 'https' || uri.host.isEmpty ||
+        uri.userInfo.isNotEmpty || uri.hasFragment) {
+      throw const FormatException(
+        'Only absolute HTTPS source URLs without credentials or fragments are accepted',
+      );
+    }
+    final request = await _client.getUrl(uri).timeout(timeout);
+    request.headers.set(HttpHeaders.acceptHeader, 'text/plain, application/json, */*');
+    request.headers.set(HttpHeaders.userAgentHeader, 'KING-VPN-SourceSync/1.0');
+    final response = await request.close().timeout(timeout);
+    // HttpClient follows redirects by default. A trusted HTTPS feed must never
+    // be silently downgraded to cleartext during that redirect chain.
+    for (final redirect in response.redirects) {
+      final target = redirect.location.hasScheme
+          ? redirect.location
+          : uri.resolveUri(redirect.location);
+      if (target.scheme.toLowerCase() != 'https' ||
+          target.host.isEmpty ||
+          target.userInfo.isNotEmpty) {
+        await response.drain<void>();
+        throw const FormatException(
+          'Source redirect must remain an absolute HTTPS URL without credentials',
+        );
+      }
+    }
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      await response.drain<void>();
+      throw HttpException('Source returned HTTP ${response.statusCode}', uri: uri);
+    }
+    return response.transform(utf8.decoder).join().timeout(timeout);
+  }
+
+  void close({bool force = false}) => _client.close(force: force);
+}
+
+class KingServerSourceFailure {
+  const KingServerSourceFailure(this.sourceId, this.message);
+  final String sourceId;
+  final String message;
+}
+
+class KingServerSyncResult {
+  const KingServerSyncResult({
+    required this.engineId,
+    required this.profiles,
+    required this.failures,
+  });
+  final String engineId;
+  final List<KingImportedServerProfile> profiles;
+  final List<KingServerSourceFailure> failures;
+}
+
+/// Source refresh is exhaustive over the registered source iterable. There is
+/// no fixed source-count or profile-count ceiling; results are deduplicated by
+/// exact engine/format/payload identity. Provider outages never erase old data.
+class KingServerSourceSync {
+  KingServerSourceSync({
+    required this.fetchText,
+    KingServerPayloadParser? parser,
+  }) : _parser = parser ?? KingServerPayloadParser();
+
+  final Future<String> Function(String url) fetchText;
+  final KingServerPayloadParser _parser;
+
+  Future<KingServerSyncResult> refresh(String engineId) async {
+    final sources = KingEngineServerSourceCatalog.forEngine(engineId);
+    final profiles = <KingImportedServerProfile>[];
+    final fingerprints = <String>{};
+    final failures = <KingServerSourceFailure>[];
+
+    for (final source in sources) {
+      try {
+        final payload = await fetchText(source.url);
+        if (source.kind == KingServerSourceKind.generatedDirectory) {
+          final directory = jsonDecode(payload);
+          if (directory is! List) {
+            throw const FormatException('Generated directory response is not a JSON list');
+          }
+          for (final entry in directory) {
+            if (entry is! Map) continue;
+            final name = (entry['name'] ?? '').toString();
+            final downloadUrl = (entry['download_url'] ?? '').toString();
+            final downloadUri = Uri.tryParse(downloadUrl);
+            if (!name.toLowerCase().endsWith('.ovpn') ||
+                downloadUri == null ||
+                downloadUri.scheme.toLowerCase() != 'https' ||
+                downloadUri.host.isEmpty ||
+                downloadUri.userInfo.isNotEmpty ||
+                downloadUri.hasFragment) {
+              continue;
+            }
+            final config = await fetchText(downloadUri.toString());
+            final parsed = _parser.parse(
+              engineId: engineId, payload: config, sourceId: source.id,
+            );
+            for (final profile in parsed) {
+              if (fingerprints.add(profile.fingerprint)) profiles.add(profile);
+            }
+          }
+        } else {
+          final parsed = _parser.parse(
+            engineId: engineId, payload: payload, sourceId: source.id,
+          );
+          for (final profile in parsed) {
+            if (fingerprints.add(profile.fingerprint)) profiles.add(profile);
+          }
+        }
+      } catch (error) {
+        failures.add(KingServerSourceFailure(source.id, error.toString()));
+      }
+    }
+    return KingServerSyncResult(
+      engineId: engineId,
+      profiles: List.unmodifiable(profiles),
+      failures: List.unmodifiable(failures),
+    );
+  }
+}
+
+
+/// Schedules refreshes at the fastest cadence explicitly published by the
+/// sources for each engine. Unknown cadences are never guessed. Call
+/// refreshNow once on app startup, then start periodic refreshes.
+class KingServerSourceRefreshScheduler {
+  KingServerSourceRefreshScheduler({
+    required this.sync,
+    required this.onResult,
+  });
+
+  final KingServerSourceSync sync;
+  final Future<void> Function(KingServerSyncResult result) onResult;
+  final Map<String, Timer> _timers = {};
+  final Map<String, Future<KingServerSyncResult>> _inFlight = {};
+  bool _disposed = false;
+
+  void start({Iterable<String>? engineIds}) {
+    if (_disposed) throw StateError('Refresh scheduler is disposed');
+    final ids = engineIds ??
+        KingEngineServerSourceCatalog.online.expand((s) => s.engineIds).toSet();
+    for (final engineId in ids) {
+      final intervals = KingEngineServerSourceCatalog.forEngine(engineId)
+          .map(intervalForSource)
+          .whereType<Duration>()
+          .toList(growable: false);
+      if (intervals.isEmpty || _timers.containsKey(engineId)) continue;
+      intervals.sort((a, b) => a.compareTo(b));
+      final interval = intervals.first;
+      _timers[engineId] = Timer.periodic(interval, (_) {
+        unawaited(refreshNow(engineId).then(onResult).catchError((Object _) {}));
+      });
+    }
+  }
+
+  Future<KingServerSyncResult> refreshNow(String engineId) {
+    if (_disposed) {
+      return Future.error(StateError('Refresh scheduler is disposed'));
+    }
+    final active = _inFlight[engineId];
+    if (active != null) return active;
+    late final Future<KingServerSyncResult> tracked;
+    tracked = sync.refresh(engineId).whenComplete(() {
+      if (identical(_inFlight[engineId], tracked)) _inFlight.remove(engineId);
+    });
+    _inFlight[engineId] = tracked;
+    return tracked;
+  }
+
+  static Duration? intervalForSource(KingEngineServerSource source) {
+    final cadence = source.updateCadence?.trim().toLowerCase();
+    if (cadence == null || cadence.isEmpty) return null;
+    if (cadence == 'daily') return const Duration(days: 1);
+    if (cadence == 'hourly') return const Duration(hours: 1);
+    final match = RegExp(
+      r'^(\d+)\s*(m|min|mins|minute|minutes|h|hr|hrs|hour|hours)$',
+    ).firstMatch(cadence);
+    if (match == null) return null;
+    final amount = int.tryParse(match.group(1)!);
+    if (amount == null || amount <= 0) return null;
+    final unit = match.group(2)!;
+    return unit.startsWith('m')
+        ? Duration(minutes: amount)
+        : Duration(hours: amount);
+  }
+
+  void dispose() {
+    if (_disposed) return;
+    _disposed = true;
+    for (final timer in _timers.values) {
+      timer.cancel();
+    }
+    _timers.clear();
+  }
+}
+
+/// Protocol-aware sources. A source is never assigned to an engine merely
+/// because its URL is reachable; its published formats must match.
+class KingEngineServerSourceCatalog {
+  static const List<KingEngineServerSource> online = [
+    KingEngineServerSource(
+      id: 'morpheusadam_hysteria2',
+      name: 'morpheusadam v2ray-config',
+      url: 'https://raw.githubusercontent.com/morpheusadam/v2ray-config/main/subs/bundles/hysteria2.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.mixedShareLinks},
+      engineIds: {'hysteria2', 'sing_box'},
+      updateCadence: 'daily',
+      notes: 'Dedicated Hysteria2 URI bundle; publisher rebuilds protocol bundles daily.',
+    ),
+    KingEngineServerSource(
+      id: 'morpheusadam_shadowsocks',
+      name: 'morpheusadam Shadowsocks feed',
+      url: 'https://raw.githubusercontent.com/morpheusadam/v2ray-config/main/subs/bundles/shadowsocks.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.shadowsocksUri},
+      engineIds: {'shadowsocks', 'sing_box'},
+      updateCadence: 'daily',
+      notes: 'Only Shadowsocks-compatible entries should be retained by the parser.',
+    ),
+    KingEngineServerSource(
+      id: 'morpheusadam_wireguard',
+      name: 'morpheusadam WireGuard bundle',
+      url: 'https://raw.githubusercontent.com/morpheusadam/v2ray-config/main/subs/bundles/wireguard.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.mixedShareLinks},
+      engineIds: {'wireguard', 'sing_box'},
+      updateCadence: 'daily',
+      notes: 'Dedicated WireGuard bundle; entries require protocol-specific parsing and endpoint verification.',
+    ),
+    KingEngineServerSource(
+      id: 'radikal_hysteria2',
+      name: '0xRadikal Hysteria2',
+      url: 'https://raw.githubusercontent.com/0xRadikal/Free-v2ray-Configs/main/protocols/hysteria2.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.hysteria2Uri},
+      engineIds: {'hysteria2', 'sing_box'},
+      updateCadence: '15m',
+      notes: 'Publisher advertises a 15-minute update cycle; live repository activity was observed within minutes of this audit.',
+    ),
+    KingEngineServerSource(
+      id: 'radikal_singbox',
+      name: '0xRadikal sing-box JSON',
+      url: 'https://raw.githubusercontent.com/0xRadikal/Free-v2ray-Configs/main/all/singbox.json',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.singBoxJson},
+      engineIds: {'sing_box'},
+      updateCadence: 'hourly',
+      notes: 'Publisher advertises a 15-minute update cycle; JSON contains multiple proxy outbounds including Hysteria2 and Shadowsocks.',
+    ),
+    KingEngineServerSource(
+      id: 'mohammadaz2_shadowsocks',
+      name: 'mohammadaz2 hourly Shadowsocks',
+      url: 'https://raw.githubusercontent.com/mohammadaz2/v2rayConfigsForYou/main/sub/ss.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.shadowsocksUri},
+      engineIds: {'shadowsocks', 'sing_box'},
+      updateCadence: 'hourly',
+      notes: 'Repository documents hourly scraping and TCP reachability validation; latest repository update observed on 2026-11-26.',
+    ),
+    KingEngineServerSource(
+      id: 'radikal_shadowsocks',
+      name: '0xRadikal Shadowsocks',
+      url: 'https://raw.githubusercontent.com/0xRadikal/Free-v2ray-Configs/main/protocols/shadowsocks.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.shadowsocksUri},
+      engineIds: {'shadowsocks', 'sing_box'},
+      updateCadence: 'hourly',
+      notes: 'Publisher advertises a 15-minute update cycle; protocol-specific plain-text feed.',
+    ),
+    KingEngineServerSource(
+      id: 'shatak_hysteria2_ae',
+      name: 'ShatakVPN Hysteria2 AE',
+      url: 'https://raw.githubusercontent.com/ShatakVPN/ConfigForge-V2Ray/main/configs/ae/hysteria2.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.hysteria2Uri},
+      engineIds: {'hysteria2', 'sing_box'},
+      updateCadence: 'daily',
+      notes: 'Repository automation published a fresh commit within the last day; this country feed was fetched and parsed as Hysteria2 URIs.',
+    ),
+    KingEngineServerSource(
+      id: 'shatak_shadowsocks',
+      name: 'ShatakVPN Shadowsocks',
+      url: 'https://raw.githubusercontent.com/ShatakVPN/ConfigForge-V2Ray/main/configs/shadowsocks.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.shadowsocksUri},
+      engineIds: {'shadowsocks', 'sing_box'},
+      updateCadence: 'daily',
+      notes: 'Repository automation published a fresh commit within the last day; dedicated Shadowsocks feed.',
+    ),
+    KingEngineServerSource(
+      id: 'tendream_hysteria2',
+      name: '10Dream Hysteria2 Base64',
+      url: 'https://raw.githubusercontent.com/10Dream/sub-mod/main/sub/base64/10ium-VpnClashFaCollector-hysteria2.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.mixedShareLinks},
+      engineIds: {'hysteria2', 'sing_box'},
+      updateCadence: 'daily',
+      notes: 'Repository automation published a fresh commit within the last day; payload is Base64-encoded Hysteria2 links.',
+    ),
+  ];
+
+  static const List<KingOfflineImportKind> offline = KingOfflineImportKind.values;
+
+  static List<KingEngineServerSource> forEngine(String engineId) {
+    final sources = <KingEngineServerSource>[
+      ...online.where((source) => source.engineIds.contains(engineId)),
+    ];
+    if (engineId == 'xray') {
+      sources.addAll(KingProxySourceCatalog.online.map((source) =>
+        KingEngineServerSource(
+          id: source.id,
+          name: 'Xray public feed ${source.id}',
+          url: source.url,
+          kind: KingServerSourceKind.publicSubscription,
+          formats: const {KingServerConfigFormat.mixedShareLinks},
+          engineIds: const {'xray'},
+          notes: 'Legacy Xray-compatible feed; payload must be parsed and validated.',
+        )));
+    }
+    return List.unmodifiable(sources);
+  }
+
+  static List<KingProxySource> xrayFeeds() => KingProxySourceCatalog.online;
+
+  static bool needsUserOrProviderServer(String engineId) => const {
+    'nthlink', 'amneziawg', 'openconnect', 'wireguard',
+  }.contains(engineId);
+
+  static bool isLocalOnly(String engineId) => const {
+    'shroudly', 'byedpi', 'powertunnel',
+  }.contains(engineId);
+}
+)
+        .firstMatch(cadence);
+    if (match == null) return null;
+    final amount = int.tryParse(match.group(1)!);
+    if (amount == null || amount <= 0) return null;
+    final unit = match.group(2)!;
+    if (unit.startsWith('m')) return Duration(minutes: amount);
+    if (unit.startsWith('h')) return Duration(hours: amount);
+    return null;
+  }
+
+  void dispose() {
+    if (_disposed) return;
+    _disposed = true;
+    for (final timer in _timers.values) {
+      timer.cancel();
+    }
+    _timers.clear();
+  }
+}
+
+/// Protocol-aware sources. A source is never assigned to an engine merely
+/// because its URL is reachable; its published formats must match.
+class KingEngineServerSourceCatalog {
+  static const List<KingEngineServerSource> online = [
+    KingEngineServerSource(
+      id: 'morpheusadam_hysteria2',
+      name: 'morpheusadam v2ray-config',
+      url: 'https://raw.githubusercontent.com/morpheusadam/v2ray-config/main/subs/bundles/hysteria2.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.mixedShareLinks},
+      engineIds: {'hysteria2', 'sing_box'},
+      updateCadence: 'daily',
+      notes: 'Dedicated Hysteria2 URI bundle; publisher rebuilds protocol bundles daily.',
+    ),
+    KingEngineServerSource(
+      id: 'morpheusadam_shadowsocks',
+      name: 'morpheusadam Shadowsocks feed',
+      url: 'https://raw.githubusercontent.com/morpheusadam/v2ray-config/main/subs/bundles/shadowsocks.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.shadowsocksUri},
+      engineIds: {'shadowsocks', 'sing_box'},
+      updateCadence: 'daily',
+      notes: 'Only Shadowsocks-compatible entries should be retained by the parser.',
+    ),
+    KingEngineServerSource(
+      id: 'morpheusadam_wireguard',
+      name: 'morpheusadam WireGuard bundle',
+      url: 'https://raw.githubusercontent.com/morpheusadam/v2ray-config/main/subs/bundles/wireguard.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.mixedShareLinks},
+      engineIds: {'wireguard', 'sing_box'},
+      updateCadence: 'daily',
+      notes: 'Dedicated WireGuard bundle; entries require protocol-specific parsing and endpoint verification.',
+    ),
+    KingEngineServerSource(
+      id: 'radikal_hysteria2',
+      name: '0xRadikal Hysteria2',
+      url: 'https://raw.githubusercontent.com/0xRadikal/Free-v2ray-Configs/main/protocols/hysteria2.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.hysteria2Uri},
+      engineIds: {'hysteria2', 'sing_box'},
+      updateCadence: '15m',
+      notes: 'Publisher advertises a 15-minute update cycle; live repository activity was observed within minutes of this audit.',
+    ),
+    KingEngineServerSource(
+      id: 'radikal_singbox',
+      name: '0xRadikal sing-box JSON',
+      url: 'https://raw.githubusercontent.com/0xRadikal/Free-v2ray-Configs/main/all/singbox.json',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.singBoxJson},
+      engineIds: {'sing_box'},
+      updateCadence: 'hourly',
+      notes: 'Publisher advertises a 15-minute update cycle; JSON contains multiple proxy outbounds including Hysteria2 and Shadowsocks.',
+    ),
+    KingEngineServerSource(
+      id: 'radikal_shadowsocks',
+      name: '0xRadikal Shadowsocks',
+      url: 'https://raw.githubusercontent.com/0xRadikal/Free-v2ray-Configs/main/protocols/shadowsocks.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.shadowsocksUri},
+      engineIds: {'shadowsocks', 'sing_box'},
+      updateCadence: 'hourly',
+      notes: 'Publisher advertises a 15-minute update cycle; protocol-specific plain-text feed.',
+    ),
+    KingEngineServerSource(
+      id: 'shatak_hysteria2_ae',
+      name: 'ShatakVPN Hysteria2 AE',
+      url: 'https://raw.githubusercontent.com/ShatakVPN/ConfigForge-V2Ray/main/configs/ae/hysteria2.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.hysteria2Uri},
+      engineIds: {'hysteria2', 'sing_box'},
+      updateCadence: 'daily',
+      notes: 'Repository automation published a fresh commit within the last day; this country feed was fetched and parsed as Hysteria2 URIs.',
+    ),
+    KingEngineServerSource(
+      id: 'shatak_shadowsocks',
+      name: 'ShatakVPN Shadowsocks',
+      url: 'https://raw.githubusercontent.com/ShatakVPN/ConfigForge-V2Ray/main/configs/shadowsocks.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.shadowsocksUri},
+      engineIds: {'shadowsocks', 'sing_box'},
+      updateCadence: 'daily',
+      notes: 'Repository automation published a fresh commit within the last day; dedicated Shadowsocks feed.',
+    ),
+    KingEngineServerSource(
+      id: 'tendream_hysteria2',
+      name: '10Dream Hysteria2 Base64',
+      url: 'https://raw.githubusercontent.com/10Dream/sub-mod/main/sub/base64/10ium-VpnClashFaCollector-hysteria2.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.mixedShareLinks},
+      engineIds: {'hysteria2', 'sing_box'},
+      updateCadence: 'daily',
+      notes: 'Repository automation published a fresh commit within the last day; payload is Base64-encoded Hysteria2 links.',
+    ),
+  ];
+
+  static const List<KingOfflineImportKind> offline = KingOfflineImportKind.values;
+
+  static List<KingEngineServerSource> forEngine(String engineId) {
+    final sources = <KingEngineServerSource>[
+      ...online.where((source) => source.engineIds.contains(engineId)),
+    ];
+    if (engineId == 'xray') {
+      sources.addAll(KingProxySourceCatalog.online.map((source) =>
+        KingEngineServerSource(
+          id: source.id,
+          name: 'Xray public feed ${source.id}',
+          url: source.url,
+          kind: KingServerSourceKind.publicSubscription,
+          formats: const {KingServerConfigFormat.mixedShareLinks},
+          engineIds: const {'xray'},
+          notes: 'Legacy Xray-compatible feed; payload must be parsed and validated.',
+        )));
+    }
+    return List.unmodifiable(sources);
+  }
+
+  static List<KingProxySource> xrayFeeds() => KingProxySourceCatalog.online;
+
+  static bool needsUserOrProviderServer(String engineId) => const {
+    'nthlink', 'amneziawg', 'openconnect', 'wireguard',
+  }.contains(engineId);
+
+  static bool isLocalOnly(String engineId) => const {
+    'shroudly', 'byedpi', 'powertunnel',
+  }.contains(engineId);
+}
+), '');
     final interface = RegExp(
       r'(?ims)^\s*\[Interface\]\s*(.*?)^(?=\s*\[|\s*$)',
     ).firstMatch(value)?.group(1) ?? '';
