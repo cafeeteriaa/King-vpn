@@ -1,7 +1,7 @@
 # KING VPN Revision Ledger
 
-Current revision: 58
-Next revision: 59
+Current revision: 59
+Next revision: 60
 Repository: cafeeteriaa/King-vpn
 Revision branch: fix/revision-58-network-identity-fragmentation-20261126
 Revision PR: https://github.com/cafeeteriaa/King-vpn/pull/58
@@ -31,6 +31,15 @@ Revision PR: https://github.com/cafeeteriaa/King-vpn/pull/58
 - Replaced random 28-IP-per-CIDR Cloudflare sampling with persistent per-range cursors, so the clean-IP scanner traverses each published IPv4 range in resumable batches without a daily quota.
 - Reused saved endpoint ports and domain hostnames from the active discovery mode only; DNS and SNI inventories now include the matching persisted host/domain history and matching profile-template inventory.
 - Increased the healthy-server folder capacity from 5,000 to 50,000, migrated its snapshot from SharedPreferences to an app-private atomic JSON file, and made its 48-hour recheck independent of National Net mode while retaining network-outage protection.
+
+### 59 — Append-only, streaming KING AI research memory
+- Removed the production dependency on the 500-entry in-memory merge/truncation path. Research notes are now validated and appended to JSONL storage; the on-disk history has no total-record ceiling.
+- Added serialized appends so concurrent foreground/background research writers cannot interleave records.
+- Replaced whole-file `readAsLines()` retrieval with incremental file streaming. Ranking retains only the best matching unique URLs in memory, so RAM use depends on requested context size rather than total research-history size.
+- Preserved trusted-HTTPS source validation, malformed-row rejection, 180-day relevance freshness, and the separation between private conversation memory and public technical research.
+- Added Dart tests for 750+ stored rows, duplicate URL refresh, malformed records and untrusted domains, plus Python source guards for append-only/streaming production paths.
+- Pull request: https://github.com/cafeeteriaa/King-vpn/pull/58
+- Verification: pending CI for this revision; no Dart/Android success is claimed until the workflow completes.
 
 ## Mandatory three-pass review protocol
 
