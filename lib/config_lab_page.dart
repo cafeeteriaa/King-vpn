@@ -114,9 +114,9 @@ class _KingConfigLabPageState extends State<KingConfigLabPage> {
       final overrides = <String, Object?>{};
       if (_address.text.trim().isNotEmpty) overrides['address'] = _address.text.trim();
       if (_port.text.trim().isNotEmpty) overrides['port'] = _port.text.trim();
-      if (_sni.text.trim().isNotEmpty) overrides['sni'] = _sni.text.trim();
-      if (_host.text.trim().isNotEmpty) overrides['host'] = _host.text.trim();
-      if (_path.text.trim().isNotEmpty) overrides['path'] = _path.text;
+      overrides['sni'] = _sni.text.trim();
+      overrides['host'] = _host.text.trim();
+      overrides['path'] = _path.text;
       final output = doc.withOverrides(overrides).toShareLink();
       setState(() {
         _generated = output;
