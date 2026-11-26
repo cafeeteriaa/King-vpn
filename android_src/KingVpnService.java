@@ -290,6 +290,9 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
         if (!ACTION_START.equals(action)) {
             return START_NOT_STICKY;
         }
+        // A new start request supersedes any prior explicit-stop marker, even if
+        // the new request is malformed or foreground startup is refused.
+        userStopped = false;
 
         String json = intent.getStringExtra(EXTRA_CONFIG);
         if (json == null || json.isEmpty()) {
@@ -312,7 +315,6 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
         sortByScoreDesc(backups);
         nationalMode = intent.getBooleanExtra(EXTRA_NATIONAL, false);
         activeAttemptId = intent.getIntExtra(EXTRA_ATTEMPT, 0);
-        userStopped = false;
 
         if (!startForegroundSafe(first.remark)) {
             lastError = "Unable to enter foreground mode; VPN startup was refused";
