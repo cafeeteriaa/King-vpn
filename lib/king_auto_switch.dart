@@ -5,8 +5,8 @@ import 'king_network_engines.dart';
 abstract final class KingEngineId {
   static const xray = 'xray';
   static const calyxVpn = 'calyx_vpn';
-  static const riseupVpn = 'riseup_vpn';
-  static const vpnBook = 'vpnbook';
+  static const hysteria2 = 'hysteria2';
+  static const singBox = 'sing_box';
   static const nthLink = 'nthlink';
   static const tor = 'tor';
   static const i2p = 'i2p';
