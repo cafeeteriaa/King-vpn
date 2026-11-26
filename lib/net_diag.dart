@@ -50,34 +50,37 @@ _NetClassification _classifyNetEvidence(
   List<_DiagItem> probes, {
   required bool dnsPoison,
 }) {
-  int successes(int start, int end) =>
-      probes.skip(start).take(end - start + 1).where((p) => p.ok).length;
+  int successes(_DiagGroup group) =>
+      probes.where((p) => p.group == group && p.ok).length;
+  int total(_DiagGroup group) =>
+      probes.where((p) => p.group == group).length;
+  String ratio(_DiagGroup group, int count) => '$count/${total(group)}';
 
-  final tcp = successes(0, 4);
-  final tls = successes(5, 8);
-  final web = successes(9, 13);
-  final sources = successes(14, 17);
-  final national = successes(18, 20);
+  final tcp = successes(_DiagGroup.tcp);
+  final tls = successes(_DiagGroup.tls);
+  final web = successes(_DiagGroup.web);
+  final sources = successes(_DiagGroup.sources);
+  final national = successes(_DiagGroup.national);
 
   if (tcp == 0 && national > 0) {
     return _NetClassification(
       1,
       national >= 2 ? 'high' : 'medium',
-      'TCP خارجی ۰/۵؛ مقصد ملی $national/۳',
+      'TCP خارجی ${ratio(_DiagGroup.tcp, tcp)}؛ مقصد ملی ${ratio(_DiagGroup.national, national)}',
     );
   }
   if (tcp >= 3 && tls == 0) {
     return _NetClassification(
       2,
       'medium',
-      'TCP خارجی $tcp/۵؛ TLS با SNI برابر ۰/۴',
+      'TCP خارجی ${ratio(_DiagGroup.tcp, tcp)}؛ TLS با SNI برابر ${ratio(_DiagGroup.tls, tls)}',
     );
   }
   if (tcp >= 2 && tls >= 2 && web == 0) {
     return _NetClassification(
       3,
       dnsPoison ? 'high' : 'medium',
-      'TCP $tcp/۵ و TLS $tls/۴؛ وب $web/۵'
+      'TCP ${ratio(_DiagGroup.tcp, tcp)} و TLS ${ratio(_DiagGroup.tls, tls)}؛ وب ${ratio(_DiagGroup.web, web)}'
           '${dnsPoison ? '؛ اختلاف/نشانه DNS نیز دیده شد' : ''}',
     );
   }
@@ -85,28 +88,31 @@ _NetClassification _classifyNetEvidence(
     return _NetClassification(
       4,
       'medium',
-      'وب $web/۵؛ منابع $sources/۴',
+      'وب ${ratio(_DiagGroup.web, web)}؛ منابع ${ratio(_DiagGroup.sources, sources)}',
     );
   }
   if (web >= 2 || (tcp >= 3 && tls >= 2)) {
     return _NetClassification(
       0,
       'high',
-      'اتصال در چند مقصد مستقل تأیید شد (TCP $tcp/۵، TLS $tls/۴، وب $web/۵)',
+      'اتصال در چند مقصد مستقل تأیید شد (TCP ${ratio(_DiagGroup.tcp, tcp)}، TLS ${ratio(_DiagGroup.tls, tls)}، وب ${ratio(_DiagGroup.web, web)})',
     );
   }
   return _NetClassification(
     0,
     'low',
-    'نمونه‌ها برای نتیجه‌گیری کافی نیستند (TCP $tcp/۵، TLS $tls/۴، وب $web/۵، ملی $national/۳)',
+    'نمونه‌ها برای نتیجه‌گیری کافی نیستند (TCP ${ratio(_DiagGroup.tcp, tcp)}، TLS ${ratio(_DiagGroup.tls, tls)}، وب ${ratio(_DiagGroup.web, web)}، ملی ${ratio(_DiagGroup.national, national)})',
   );
 }
+
+enum _DiagGroup { tcp, tls, web, sources, national }
 
 class _DiagItem {
   final String label;
   final bool ok;
   final int ms;
-  const _DiagItem(this.label, this.ok, this.ms);
+  final _DiagGroup group;
+  const _DiagItem(this.label, this.ok, this.ms, this.group);
 }
 
 Future<_DiagItem> _diagTcp(String label, String host, int port) async {
@@ -115,16 +121,16 @@ Future<_DiagItem> _diagTcp(String label, String host, int port) async {
   try {
     s = await Socket.connect(host, port,
         timeout: const Duration(seconds: 4));
-    return _DiagItem(label, true, sw.elapsedMilliseconds);
+    return _DiagItem(label, true, sw.elapsedMilliseconds, _DiagGroup.tcp);
   } catch (e, stk) {
     logError(e, stk);
-    return _DiagItem(label, false, sw.elapsedMilliseconds);
+    return _DiagItem(label, false, sw.elapsedMilliseconds, _DiagGroup.tcp);
   } finally {
     s?.destroy();
   }
 }
 
-Future<_DiagItem> _diagHttp(String label, String url) async {
+Future<_DiagItem> _diagHttp(String label, String url, _DiagGroup group) async {
   final sw = Stopwatch()..start();
   final c = HttpClient()
     ..findProxy = ((_) => 'DIRECT')
@@ -134,10 +140,10 @@ Future<_DiagItem> _diagHttp(String label, String url) async {
         await c.getUrl(Uri.parse(url)).timeout(const Duration(seconds: 5));
     final res = await req.close().timeout(const Duration(seconds: 5));
     await res.drain<void>().timeout(const Duration(seconds: 5));
-    return _DiagItem(label, res.statusCode > 0, sw.elapsedMilliseconds);
+    return _DiagItem(label, res.statusCode > 0, sw.elapsedMilliseconds, group);
   } catch (e, stk) {
     logError(e, stk);
-    return _DiagItem(label, false, sw.elapsedMilliseconds);
+    return _DiagItem(label, false, sw.elapsedMilliseconds, _DiagGroup.tls);
   } finally {
     c.close(force: true);
   }
@@ -153,10 +159,10 @@ Future<_DiagItem> _diagTls(String label, String ip, String sni) async {
     k = await SecureSocket.secure(raw,
             host: sni)
         .timeout(const Duration(seconds: 5));
-    return _DiagItem(label, true, sw.elapsedMilliseconds);
+    return _DiagItem(label, true, sw.elapsedMilliseconds, _DiagGroup.tls);
   } catch (e, stk) {
     logError(e, stk);
-    return _DiagItem(label, false, sw.elapsedMilliseconds);
+    return _DiagItem(label, false, sw.elapsedMilliseconds, group);
   } finally {
     k?.destroy();
     raw?.destroy();
@@ -184,20 +190,20 @@ Future<String> netDiagnose() async {
     _diagTls('TLS 104.16.0.1 با SNI=www.cloudflare.com', '104.16.0.1',
         'www.cloudflare.com'),
     // 9..13 foreign sites
-    _diagHttp('gstatic (generate_204)', 'https://www.gstatic.com/generate_204'),
-    _diagHttp('Cloudflare', 'https://cp.cloudflare.com/generate_204'),
-    _diagHttp('Google', 'https://www.google.com/generate_204'),
-    _diagHttp('Apple', 'https://www.apple.com/library/test/success.html'),
-    _diagHttp('Telegram', 'https://web.telegram.org/'),
+    _diagHttp('gstatic (generate_204)', 'https://www.gstatic.com/generate_204', _DiagGroup.web),
+    _diagHttp('Cloudflare', 'https://cp.cloudflare.com/generate_204', _DiagGroup.web),
+    _diagHttp('Google', 'https://www.google.com/generate_204', _DiagGroup.web),
+    _diagHttp('Apple', 'https://www.apple.com/library/test/success.html', _DiagGroup.web),
+    _diagHttp('Telegram', 'https://web.telegram.org/', _DiagGroup.web),
     // 14..17 list sources
-    _diagHttp('GitHub raw', 'https://raw.githubusercontent.com/'),
-    _diagHttp('jsDelivr', 'https://cdn.jsdelivr.net/'),
-    _diagHttp('GitHack', 'https://raw.githack.com/'),
-    _diagHttp('ghproxy', 'https://ghproxy.net/'),
+    _diagHttp('GitHub raw', 'https://raw.githubusercontent.com/', _DiagGroup.sources),
+    _diagHttp('jsDelivr', 'https://cdn.jsdelivr.net/', _DiagGroup.sources),
+    _diagHttp('GitHack', 'https://raw.githack.com/', _DiagGroup.sources),
+    _diagHttp('ghproxy', 'https://ghproxy.net/', _DiagGroup.sources),
     // 18..20 national network
-    _diagHttp('آپارات', 'https://www.aparat.com/'),
-    _diagHttp('دیجی‌کالا', 'https://www.digikala.com/'),
-    _diagHttp('دیوار', 'https://divar.ir/'),
+    _diagHttp('آپارات', 'https://www.aparat.com/', _DiagGroup.national),
+    _diagHttp('دیجی‌کالا', 'https://www.digikala.com/', _DiagGroup.national),
+    _diagHttp('دیوار', 'https://divar.ir/', _DiagGroup.national),
   ]);
 
   // DNS: system resolver vs DNS-over-HTTPS
