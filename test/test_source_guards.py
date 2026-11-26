@@ -2386,7 +2386,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn('timedOut()', body)
         self.assertIn('for (final entry in _goldIps.values)', body)
         self.assertIn('...kAutoSniDomains', body)
-        self.assertIn('...natFrontSnis', body)
+        self.assertIn('...natFrontSnis()', body)
         self.assertIn('for (final p in ports)', body)
         self.assertIn('shouldAbort: () => cancelled(),', body)
         self.assertNotIn('kAutoIpLimit', body)
@@ -2402,8 +2402,9 @@ class KingVpnSourceGuardTests(unittest.TestCase):
             self.assertNotIn('onBadCertificate: (_) => true', source)
         self.assertIn('InternetAddress.tryParse(sni.trim()) != null', nip)
         self.assertIn('InternetAddress.tryParse(value.trim()) == null', nip)
-        self.assertIn('final List<String> natFrontSnis', nip)
+        self.assertIn('List<String> natFrontSnis()', nip)
         self.assertIn('...kAutoSniDomains', nip)
+        self.assertIn('...dnsxFullDomains()', nip)
 
     def test_ip_grafting_preserves_host_and_the_actual_scanned_port(self):
         nip = (ROOT / 'lib' / 'nip_scan.dart').read_text(encoding='utf-8')
@@ -2654,7 +2655,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         snapshot = body.index('final scanNationalMode = nationalMode;')
         prefs = body.index('await SharedPreferences.getInstance();')
         first_guard = body.index('if (nationalMode != scanNationalMode) return;')
-        saved_dns = body.index('final savedDns = await goldDnsList();')
+        saved_dns = body.index('final savedDns = scanNationalMode ? await natNationalDnsList() : await goldDnsList();')
         second_guard = body.index('if (nationalMode != scanNationalMode) return;', first_guard + 1)
         scan = body.index('final r = await dnsxScan(', saved_dns)
         self.assertLess(snapshot, prefs)
@@ -2709,14 +2710,14 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         body = dns[start:end]
         guard = body.index('if (running || dnsxManualBusy || _dnsxAutoBusy)')
         lock = body.index('dnsxManualBusy = true;', guard)
-        await_load = body.index('await goldDnsList();', lock)
+        await_load = body.index('scanNationalMode ? await natNationalDnsList() : await goldDnsList();', lock)
         scan = body.index('r = await dnsxScan(', await_load)
         unlock = body.index('dnsxManualBusy = false;', scan)
         self.assertLess(guard, lock)
         self.assertLess(lock, await_load)
         self.assertLess(await_load, scan)
         self.assertLess(scan, unlock)
-        self.assertIn('stop: () => stopFlag || !sheetOpen,', body)
+        self.assertIn('stop: () => stopFlag || !sheetOpen || nationalMode != scanNationalMode,', body)
 
     def test_dns_probe_checks_cancellation_after_inter_batch_delay(self):
         dns = (ROOT / 'lib' / 'dns_scanner.dart').read_text(encoding='utf-8')
@@ -2736,15 +2737,16 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         body = dns[start:end]
         abort = body.index('bool shouldAbort()')
         folder_save = body.index('if (r.isNotEmpty) {')
-        saved = body.index('final saved = await goldAddDns(r, shouldAbort: shouldAbort);', folder_save)
-        saved_guard = body.index('if (!saved || shouldAbort()) return;', saved)
+        national_save = body.index('await natNationalDnsSave(', folder_save)
+        global_save = body.index('await goldAddDns(r, shouldAbort: shouldAbort);', folder_save)
         best = body.index("await p.setStringList('dnsx_best_v1_$sfx', best);")
         mode_guard = body.index('if (shouldAbort()) return;', best)
         last = body.index("await p.setInt('dnsx_at_v1_$sfx', now);", mode_guard)
         self.assertLess(abort, folder_save)
-        self.assertLess(folder_save, saved)
-        self.assertLess(saved, saved_guard)
-        self.assertLess(saved_guard, best)
+        self.assertLess(folder_save, national_save)
+        self.assertLess(folder_save, global_save)
+        self.assertLess(national_save, best)
+        self.assertLess(global_save, best)
         self.assertLess(best, mode_guard)
         self.assertLess(mode_guard, last)
 
@@ -2891,7 +2893,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         sheet = dns[dns.index('void dnsxSheet('):]
         scan = sheet.index('r = await dnsxScan(')
         guard = sheet.index('if (stopFlag || !sheetOpen)', scan)
-        save = sheet.index('goldAddDns(r, shouldAbort: () => stopFlag || !sheetOpen)', guard)
+        save = sheet.index('goldAddDns(r,', guard)
         self.assertLess(scan, guard)
         self.assertLess(guard, save)
 
