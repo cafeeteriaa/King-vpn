@@ -2420,6 +2420,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('String? nipSwapLink(Server t, String ip, {int? port})', nip)
         self.assertIn("j['port'] = port.toString();", nip)
         self.assertIn('u.replace(host: ip, port: port ??', nip)
+        self.assertIn('InternetAddress.tryParse(ip.trim()) == null', nip)
         self.assertIn('String? nipSwapSni(Server t, String ip, String sni, {int? port})', nip)
         self.assertIn('String _nipHostnameOrEmpty(String value)', nip)
         self.assertIn('labels.length < 2', nip)
