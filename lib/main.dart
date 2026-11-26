@@ -10132,14 +10132,14 @@ ListTile( // KINGEXTRAS row
     _natKeepOn = true;
     var seen = false; // was connected at least once
     var idle = 0;
-    final startedAt = DateTime.now(); // NATKEEP-CAP: سقف کلی ۸ ساعت
     try {
+      // Continue while the user keeps National Net pilot active; the user/app
+      // lifecycle is the stop condition, not an arbitrary eight-hour timer.
       while (mounted &&
           nationalMode &&
           localPilotOn &&
           !appGone &&
-          !abort &&
-          DateTime.now().difference(startedAt) < const Duration(hours: 8)) {
+          !abort) {
         await Future.delayed(const Duration(seconds: 2));
         if (connected) {
           seen = true;
