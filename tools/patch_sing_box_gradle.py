@@ -2,8 +2,13 @@
 """Align libbox Gradle and reconcile gomobile's shared Go runtime classes."""
 import json
 from pathlib import Path
+# Avoid Kotlin DSL's `java` extension shadowing fully-qualified java.util.zip.
+
 import re
 import sys
+import java.util.zip.ZipEntry
+import java.util.zip.ZipFile
+import java.util.zip.ZipOutputStream
 from urllib.parse import unquote, urlparse
 
 AGP_VERSION = "9.3.1"
@@ -63,8 +68,8 @@ val prepareLibboxGoRuntimeJar = tasks.register("prepareLibboxGoRuntimeJar") {
         output.parentFile.mkdirs()
         val collisions = setOf("go/Universe\$proxyerror.class", "go/error.class")
         val found = mutableSetOf<String>()
-        java.util.zip.ZipFile(original).use { source ->
-            java.util.zip.ZipOutputStream(output.outputStream().buffered()).use { target ->
+        ZipFile(original).use { source ->
+            ZipOutputStream(output.outputStream().buffered()).use { target ->
                 val entries = source.entries()
                 while (entries.hasMoreElements()) {
                     val entry = entries.nextElement()
@@ -72,7 +77,7 @@ val prepareLibboxGoRuntimeJar = tasks.register("prepareLibboxGoRuntimeJar") {
                         found.add(entry.name)
                         continue
                     }
-                    val copied = java.util.zip.ZipEntry(entry.name)
+                    val copied = ZipEntry(entry.name)
                     if (entry.time >= 0) copied.time = entry.time
                     target.putNextEntry(copied)
                     source.getInputStream(entry).use { it.copyTo(target) }
