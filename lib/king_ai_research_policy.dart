@@ -146,7 +146,15 @@ Future<List<Map<String, String>>> rankKingAiResearchMemoryStream(
       final freshness = 1.0 - (age.inDays / 180.0);
       final score = titleHits * 3.0 + bodyHits + freshness;
       final url = note['url']!;
-      ranked.removeWhere((entry) => entry.note['url'] == url);
+      final existingIndex = ranked.indexWhere((entry) => entry.note['url'] == url);
+      if (existingIndex >= 0) {
+        final existingAt = DateTime.parse(
+          ranked[existingIndex].note['fetchedAt']!,
+        ).toUtc();
+        // Appending an older replay must never replace a newer verified note.
+        if (!fetchedAt.isAfter(existingAt)) continue;
+        ranked.removeAt(existingIndex);
+      }
       ranked.add((score: score, note: note));
       ranked.sort((a, b) => b.score.compareTo(a.score));
       if (ranked.length > limit) ranked.removeRange(limit, ranked.length);
