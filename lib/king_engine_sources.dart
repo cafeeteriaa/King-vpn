@@ -89,7 +89,7 @@ class KingImportedServerProfile {
 /// authenticate a server or prove that a profile is reachable.
 class KingServerPayloadParser {
   static const _shareSchemes = {
-    'vless', 'vmess', 'trojan', 'ss', 'hysteria2', 'hy2',
+    'vless', 'vmess', 'trojan', 'ss', 'hysteria2', 'hy2', 'wireguard',
   };
 
   List<KingImportedServerProfile> parse({
@@ -379,12 +379,12 @@ class KingEngineServerSourceCatalog {
     KingEngineServerSource(
       id: 'morpheusadam_hysteria2',
       name: 'morpheusadam v2ray-config',
-      url: 'https://raw.githubusercontent.com/morpheusadam/v2ray-config/main/subs/all.txt',
+      url: 'https://raw.githubusercontent.com/morpheusadam/v2ray-config/main/subs/bundles/hysteria2.txt',
       kind: KingServerSourceKind.publicSubscription,
       formats: {KingServerConfigFormat.mixedShareLinks},
-      engineIds: {'xray', 'hysteria2', 'shadowsocks', 'sing_box'},
+      engineIds: {'hysteria2', 'sing_box'},
       updateCadence: 'daily',
-      notes: 'Mixed-protocol public feed; protocol must be parsed and filtered locally.',
+      notes: 'Dedicated Hysteria2 URI bundle; publisher rebuilds protocol bundles daily.',
     ),
     KingEngineServerSource(
       id: 'morpheusadam_shadowsocks',
@@ -395,6 +395,16 @@ class KingEngineServerSourceCatalog {
       engineIds: {'shadowsocks', 'sing_box'},
       updateCadence: 'daily',
       notes: 'Only Shadowsocks-compatible entries should be retained by the parser.',
+    ),
+    KingEngineServerSource(
+      id: 'morpheusadam_wireguard',
+      name: 'morpheusadam WireGuard bundle',
+      url: 'https://raw.githubusercontent.com/morpheusadam/v2ray-config/main/subs/bundles/wireguard.txt',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.mixedShareLinks},
+      engineIds: {'wireguard', 'sing_box'},
+      updateCadence: 'daily',
+      notes: 'Dedicated WireGuard bundle; entries require protocol-specific parsing and endpoint verification.',
     ),
   ];
 
