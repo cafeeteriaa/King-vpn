@@ -139,7 +139,7 @@ static void _resetCoreDeadStreak() { _atCoreDeadStreak = 0; }
         _atItemNames[0], _atItemNames[1], _atSearchName, _atItemNames[2],
         _atItemNames[3], _atItemNames[4], _atItemNames[5], _atItemNames[6],
         _atItemNames[7], _atItemNames[8], _atItemNames[9], _atItemNames[10],
-        _atSubstName,
+        _atItemNames[11], _atSubstName,
       ];
   static const String _atSearchName = 'نت ملی: جستجوی سرورهای سالم (IP و کانفیگ)';
   static const List<String> _atItemNames = [
@@ -154,6 +154,7 @@ static void _resetCoreDeadStreak() { _atCoreDeadStreak = 0; }
     'Shadowsocks (فقط ss)',
     'کشور (پرتکرارترین کشور)',
     'خلبان هوش مصنوعی (کلید)',
+    'سرورهای شخصی (پوشهٔ مستقل)',
   ];
   // نتیجه‌ی هر بخش، در گزارش پایان نشان داده می‌شود
   static final Map<String, String> _itemResult = {};
@@ -337,6 +338,7 @@ static void _resetCoreDeadStreak() { _atCoreDeadStreak = 0; }
         (_atItemNames[2], _atItemNatModes),
         (_atItemNames[3], _atItemOffline),
         (_atItemNames[4], _atItemOnline),
+        (_atItemNames[11], _atItemPersonal),
         (_atItemNames[5], () => _atItemProto(5, 'vmess')),
         (_atItemNames[6], () => _atItemProto(6, 'vless')),
         (_atItemNames[7], () => _atItemProto(7, 'trojan')),
@@ -2156,6 +2158,39 @@ static void _resetCoreDeadStreak() { _atCoreDeadStreak = 0; }
     offlineOnly = false;
     await ultimateSave();
     await _atConnectItem(name);
+  }
+
+  /// Personal Server is tested through its own folder and connection route.
+  /// It never borrows Online/Offline source queues.
+  Future<void> _atItemPersonal() async {
+    _scenario = 8;
+    final name = _atItemNames[11];
+    await _atEnsureDisconnected();
+    if (personalFolderCache.isEmpty && personal == null) {
+      _itemResult[name] = '⏭ پوشهٔ سرور شخصی خالی است؛ تست مستقلی برای اجرا وجود ندارد';
+      return;
+    }
+
+    _set('آماده‌سازی مستقل پوشهٔ سرورهای شخصی…');
+    _personalPrewarm();
+    await personalFolderConnect();
+
+    if (_abortRequested) {
+      _itemResult[name] = '⏹ آزمون سرور شخصی با درخواست توقف متوقف شد';
+      await _atEnsureDisconnected();
+      return;
+    }
+
+    final ok = connected && connRow == 'p:personal' && (current?.personal ?? false);
+    if (ok) {
+      _itemResult[name] =
+          '✅ مسیر مستقل سرور شخصی وصل شد • ${current?.name ?? current?.host ?? 'server'}';
+    } else {
+      _itemResult[name] =
+          '❌ مسیر مستقل سرور شخصی وصل نشد • status="$status" • lastFail="$lastFail"';
+      _atAdd('PERSONAL-FAIL', 'مسیر مستقل سرور شخصی وصل نشد • lastFail="$lastFail"');
+    }
+    await _atEnsureDisconnected();
   }
 
   /// سناریو ۲: طوفان قطع/وصل روی V2Ray (موتور اصلی)
