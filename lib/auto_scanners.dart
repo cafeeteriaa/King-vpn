@@ -108,8 +108,7 @@ Future<void> autoScanRun(void Function(String) say,
     for (final server in configuredServers) {
       if (cancelled()) break;
       if (server.isIp) continue;
-      final resolved = await nipResolve(server.host);
-      if (resolved != null) ipSet.add(resolved);
+      ipSet.addAll(await nipResolveAll(server.host));
     }
     if (cancelled()) {
       say(cancellationMessage());
