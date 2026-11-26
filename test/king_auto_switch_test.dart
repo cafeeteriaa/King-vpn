@@ -47,18 +47,18 @@ class BlockingAdapter implements KingConnectionAdapter {
 
 void main() {
   group('KING multi-engine coordinator', () {
-    test('Xray stays primary and VPN Gate is the next configured full VPN', () async {
+    test('Xray stays primary and CalyxVPN is next configured full VPN', () async {
       final events = <String>[];
       final result = await KingAutoSwitchCoordinator(adapters: [
-        FakeAdapter(KingEngineId.vpnGate, events: events),
+        FakeAdapter(KingEngineId.calyxVpn, events: events),
         FakeAdapter(KingEngineId.xray, trafficOk: false, events: events),
       ]).connect();
       expect(result.connected, isTrue);
-      expect(result.engine, KingEngineId.vpnGate);
+      expect(result.engine, KingEngineId.calyxVpn);
       expect(events, [
         'connect:xray',
         'disconnect:xray',
-        'connect:vpn_gate',
+        'connect:calyx_vpn',
       ]);
     });
 
@@ -150,12 +150,11 @@ void main() {
   });
 
   group('Extensible engine catalog', () {
-    test('contains the twelve alternatives without Psiphon', () {
+    test('contains the ten selected alternatives without Psiphon, VPN Gate, or Ceno', () {
       final catalog = KingNetworkEngineCatalog();
       final alternatives = catalog.all.where((engine) => engine.id != KingEngineId.xray);
-      expect(alternatives, hasLength(12));
+      expect(alternatives, hasLength(10));
       expect(alternatives.map((engine) => engine.id).toSet(), {
-        KingEngineId.vpnGate,
         KingEngineId.calyxVpn,
         KingEngineId.nthLink,
         KingEngineId.tor,
@@ -164,13 +163,11 @@ void main() {
         KingEngineId.cloudflareWarp,
         KingEngineId.aviraPhantom,
         KingEngineId.shroudly,
-        KingEngineId.ceno,
         KingEngineId.byeDpi,
         KingEngineId.powerTunnel,
       });
-      expect(catalog[KingEngineId.vpnGate]?.role, KingEngineRole.fullDeviceVpn);
-      expect(catalog[KingEngineId.ceno]?.role, KingEngineRole.browserNetwork);
       expect(catalog[KingEngineId.byeDpi]?.role, KingEngineRole.localTransport);
+      expect(catalog[KingEngineId.powerTunnel]?.role, KingEngineRole.localTransport);
       expect(
         catalog.all.where((engine) => engine.state == KingIntegrationState.integrated)
             .map((engine) => engine.id).toList(),
