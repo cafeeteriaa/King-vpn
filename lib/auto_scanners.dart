@@ -93,6 +93,7 @@ Future<void> autoScanRun(void Function(String) say,
     if (scanNationalMode) {
       await natNationalIpMemLoad();
       await natNationalDomMemLoad();
+      await natRelayHostsLoad();
     } else {
       await goldLoad();
       await natIpMemLoad();
@@ -107,6 +108,7 @@ Future<void> autoScanRun(void Function(String) say,
     // public/neighboring subnets.
     final ipSet = <String>{
       if (scanNationalMode) ...natNationalIpMemHosts() else ..._goldIps.keys,
+      if (scanNationalMode) ...natRelayHosts,
       for (final server in configuredServers)
         if (server.isIp) server.host,
     };
