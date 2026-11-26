@@ -263,8 +263,11 @@ class KingHttpSourceFetcher {
 
   Future<String> fetch(String sourceUrl) async {
     final uri = Uri.parse(sourceUrl);
-    if (uri.scheme != 'https' || uri.host.isEmpty) {
-      throw const FormatException('Only absolute HTTPS source URLs are accepted');
+    if (uri.scheme.toLowerCase() != 'https' || uri.host.isEmpty ||
+        uri.userInfo.isNotEmpty || uri.hasFragment) {
+      throw const FormatException(
+        'Only absolute HTTPS source URLs without credentials or fragments are accepted',
+      );
     }
     final request = await _client.getUrl(uri).timeout(timeout);
     request.headers.set(HttpHeaders.acceptHeader, 'text/plain, application/json, */*');
@@ -342,8 +345,16 @@ class KingServerSourceSync {
             if (entry is! Map) continue;
             final name = (entry['name'] ?? '').toString();
             final downloadUrl = (entry['download_url'] ?? '').toString();
-            if (!name.toLowerCase().endsWith('.ovpn') || downloadUrl.isEmpty) continue;
-            final config = await fetchText(downloadUrl);
+            final downloadUri = Uri.tryParse(downloadUrl);
+            if (!name.toLowerCase().endsWith('.ovpn') ||
+                downloadUri == null ||
+                downloadUri.scheme.toLowerCase() != 'https' ||
+                downloadUri.host.isEmpty ||
+                downloadUri.userInfo.isNotEmpty ||
+                downloadUri.hasFragment) {
+              continue;
+            }
+            final config = await fetchText(downloadUri.toString());
             final parsed = _parser.parse(
               engineId: engineId, payload: config, sourceId: source.id,
             );
