@@ -344,7 +344,11 @@ Future<void> dnsxAutoPick({bool Function()? stop}) async {
     // کامل: همه‌ی دامنه‌های پروژه، با فاصله‌ی ۱۵۰ میلی‌ثانیه بین بسته‌ها
     final r = await dnsxScan(
       list,
-      domains: dnsxFullDomains(),
+      domains: dnsxFullDomains(profileServers: [
+                  ...good,
+                  ...pending,
+                  ...natRestPending,
+                ]),
       gap: const Duration(milliseconds: 150),
       nationalModeSnapshot: scanNationalMode,
       stop: () => nationalMode != scanNationalMode || (stop?.call() ?? false),
@@ -453,7 +457,11 @@ extension DnsxExt on _HomePageState {
               upd(() => total = list.length);
               r = await dnsxScan(
                 list,
-                domains: dnsxFullDomains(),
+                domains: dnsxFullDomains(profileServers: [
+                  ...good,
+                  ...pending,
+                  ...natRestPending,
+                ]),
                 manual: true,
                 nationalModeSnapshot: scanNationalMode,
                 stop: () => stopFlag || !sheetOpen || nationalMode != scanNationalMode,
