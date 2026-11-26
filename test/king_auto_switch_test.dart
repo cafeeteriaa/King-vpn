@@ -404,7 +404,7 @@ void main() {
         return 'hy2://token@example.org:443';
       });
       final result = await sync.refresh(KingEngineId.hysteria2);
-      expect(result.profiles, hasLength(1));
+      expect(result.profiles, hasLength(1), reason: result.failures.map((failure) => '${failure.sourceId}: ${failure.message}').join('\\n'));
       expect(result.failures, hasLength(1));
     });
 
