@@ -423,7 +423,6 @@ List<_NatSpec> _natGenerate() {
 
 int _natGrowCounter = 0;
 int natGrow(int n) {
-  if (_natSpecs.length > 500000) return 0;
   final rnd = Random(DateTime.now().millisecondsSinceEpoch + _natGrowCounter++);
   var added = 0;
   const fps = ['chrome', 'firefox', 'randomized', 'ios', 'android', 'safari', 'edge', 'random', 'qq', '360', 'hellogolang', 'hellochrome', 'hellofirefox', 'hellosafari', 'helloios', 'helloandroid', 'helloedge', 'hello360', 'helloqq', 'hellorandomized', 'hellorandomizedalpn', 'hellorandomizednoalpn'];
@@ -576,14 +575,6 @@ class _NatFacts {
         port = s.port;
 }
 
-const Set<String> _natRetiredNames = {
-  'Fragment ریز و کند',
-  'fp=android',
-};
-
-bool natRetired(int v) =>
-    v > 0 && v < _natSpecs.length && _natRetiredNames.contains(_natSpecs[v].name);
-
 // VARCB: circuit breaker برای variantها (فقط نت ملی)
 // هر variant بعد از ۲۰ شکست پشت‌سرهم، یک ساعت غیرفعال می‌شود
 const int _varcbLimit = 20;
@@ -619,8 +610,6 @@ bool _natAppliesF(_NatFacts f, int v) {
   if (v < 0 || v >= _natSpecs.length) return false;
   if (v == 0) return true;
   if (natDisabled.contains(v)) return false;
-  if (natVariantCooling(v)) return false; // VARCB
-  if (natRetired(v)) return false;
   final x = _natSpecs[v];
   if (x.other && !f.hasOther) return false;
   if ((x.fp != null || x.alpn != null || x.frag != null || x.noise) &&
@@ -751,7 +740,6 @@ String _natCk(Server s) => '$natOpKey#${s.key}';
 void natCursorAdvance(Server s, int n) {
   if (n <= 0) return;
   final k = _natCk(s);
-  if (_natCursor.length > 4000) _natCursor.remove(_natCursor.keys.first);
   _natCursor[k] = (_natCursor[k] ?? 0) + n;
 }
 
@@ -1580,10 +1568,6 @@ void natVarSet(Server s, int v) {
     _natLearnVer++;
   }
   _natCursor.remove(_natCk(s));
-  if (natDimWins.length > 6000) natDimWins.remove(natDimWins.keys.first);
-  while (natVar.length > 4000) {
-    natVar.remove(natVar.keys.first);
-  }
   _natSaveT ??= Timer(const Duration(seconds: 5), () {
     _natSaveT = null;
     natSavePersisted();
