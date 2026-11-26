@@ -50,7 +50,8 @@ class LibboxDependencyGuard(unittest.TestCase):
         self.assertIn("prepareLibboxGoRuntimeJar", patch)
         self.assertIn("libboxGoRuntimeJar", patch)
         self.assertIn("Refusing an unsafe merge", patch)
-\n    def test_third_party_license_and_build_provenance_exist(self):
+
+    def test_third_party_license_and_build_provenance_exist(self):
         folder = ROOT / "licenses" / "sing_box"
         for name in ("LICENSE", "THIRD_PARTY_NOTICES.md", "SING_BOX_CORE_LICENSE", "BUILD_PROVENANCE.md"):
             self.assertTrue((folder / name).is_file())
