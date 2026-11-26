@@ -2717,6 +2717,23 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn('targets.length', scan)
         self.assertNotIn('out.length < 256', main)
 
+    def test_ip_auto_scanner_has_no_result_port_or_core_probe_quotas(self):
+        source = (ROOT / 'lib' / 'ip_auto_scan.dart').read_text(encoding='utf-8')
+        self.assertNotIn('_ipAutoMaxHits', source)
+        self.assertNotIn('_ipAutoPorts', source)
+        self.assertNotIn('_ipAutoCoreMax', source)
+        self.assertNotIn('want: 300', source)
+        self.assertNotIn('budget: const Duration(minutes: 5)', source)
+        self.assertNotIn('pool.take(2)', source)
+        self.assertNotIn('candidates.take(', source)
+        self.assertIn('final ports = natAutoPorts(pool).toSet().toList()', source)
+        self.assertIn('for (final endpoint in reachableEndpoints)', source)
+        self.assertIn('for (final template in tpl)', source)
+        self.assertIn('natNationalIpMemHosts()', source)
+        self.assertIn('await natNationalIpMemLoad();', source)
+        self.assertIn('await natHotAll(fetch: false);', source)
+        self.assertIn('pool = await fetchServers(stop: () => halted());', source)
+
     def test_matrix_order_is_not_truncated_by_the_old_5000_variant_ceiling(self):
         main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
         nat = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
