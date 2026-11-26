@@ -152,12 +152,29 @@ class KingAutoSwitchCoordinator {
   }
 
   Future<KingAutoSwitchResult> _recoverFromTrafficFailure() async {
+    final generationAtStart = _generation;
+    if (_stoppedByUser) {
+      return const KingAutoSwitchResult(
+        engine: null,
+        connected: false,
+        attempts: [],
+        detail: 'Connection attempt cancelled',
+      );
+    }
     final active = _active;
     if (active == null) return _connectInOrder(++_generation, _adapters);
     var healthy = false;
     try {
       healthy = await active.verifyTraffic();
     } catch (_) {}
+    if (_stoppedByUser || generationAtStart != _generation) {
+      return const KingAutoSwitchResult(
+        engine: null,
+        connected: false,
+        attempts: [],
+        detail: 'Connection attempt cancelled',
+      );
+    }
     if (healthy) {
       return KingAutoSwitchResult(
         engine: active.id,
@@ -170,6 +187,14 @@ class KingAutoSwitchCoordinator {
     try {
       await active.disconnect();
     } catch (_) {}
+    if (_stoppedByUser || generationAtStart != _generation) {
+      return const KingAutoSwitchResult(
+        engine: null,
+        connected: false,
+        attempts: [],
+        detail: 'Connection attempt cancelled',
+      );
+    }
     final generation = ++_generation;
     // Give every other adapter one chance, including the primary engine when
     // the active fallback has failed and Xray may have recovered meanwhile.
