@@ -1697,7 +1697,7 @@ Future<void> goldMergeIps(
   if (res.isEmpty || (shouldAbort?.call() ?? false)) return;
   await goldLoad();
   if (shouldAbort?.call() ?? false) return;
-  // Check again after the asynchronous preferences lookup, immediately before
+  // Check again after the asynchronous inventory load, immediately before
   // mutating the shared cache so a closed dialog cannot persist stale results.
   if (shouldAbort?.call() ?? false) return;
   final now = DateTime.now().millisecondsSinceEpoch;
