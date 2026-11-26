@@ -24,13 +24,13 @@ class LibboxDependencyGuard(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             pubspec = pathlib.Path(tmp) / "pubspec.yaml"
             pubspec.write_text(
-                "name: test_app\\n"
-                "dependencies:\\n"
-                "  flutter:\\n"
-                "    sdk: flutter\\n"
-                "dev_dependencies:\\n"
-                "  flutter_test:\\n"
-                "    sdk: flutter\\n",
+                "name: test_app\n"
+                "dependencies:\n"
+                "  flutter:\n"
+                "    sdk: flutter\n"
+                "dev_dependencies:\n"
+                "  flutter_test:\n"
+                "    sdk: flutter\n",
                 encoding="utf-8",
             )
             script = ROOT / "tools" / "configure_sing_box_dependency.py"
