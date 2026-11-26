@@ -1969,7 +1969,9 @@ List<int> natAutoPorts(List<Server> known,
     }
   }
   if (includeSavedIpMemory) {
-    for (final entry in natIpMem) {
+    // Reuse only the port inventory belonging to the active discovery engine.
+    final saved = nationalMode ? natNationalIpMem : natIpMem;
+    for (final entry in saved) {
       final port = (entry['port'] as num?)?.toInt() ?? 0;
       if (port > 0 && port < 65536) cnt[port] = (cnt[port] ?? 0) + 5;
     }
@@ -2533,7 +2535,7 @@ Future<List<String>> _natRangeScanStepBody({
   final out = <String>[];
   final portList = natAutoPorts(
     seeds,
-    includeSavedIpMemory: !modeSnapshot,
+    includeSavedIpMemory: true,
   );
   final scanClock = Stopwatch()..start();
   bool scanExpired() => budget != null && scanClock.elapsed >= budget;
