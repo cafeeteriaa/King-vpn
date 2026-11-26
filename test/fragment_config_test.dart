@@ -29,6 +29,16 @@ void main() {
         'inbounds': <dynamic>[],
         'outbounds': <dynamic>[
           <String, dynamic>{
+            'tag': 'frag-out',
+            'protocol': 'blackhole',
+            'settings': <String, dynamic>{},
+          },
+          <String, dynamic>{
+            'tag': 'frag-out',
+            'protocol': 'freedom',
+            'settings': <String, dynamic>{},
+          },
+          <String, dynamic>{
             'tag': 'proxy',
             'protocol': 'vless',
             'settings': <String, dynamic>{
