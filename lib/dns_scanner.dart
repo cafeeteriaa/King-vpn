@@ -49,7 +49,7 @@ List<String> _dnsxHostsFrom(Iterable<String> src) {
     if (s.startsWith('domain:')) s = s.substring(7);
     if (s.startsWith('full:')) s = s.substring(5);
     // فقط نام دامنه‌ی واقعی؛ TLD تنها (مثل ir) و قانون‌های geoip و کلمه‌ی کلیدی کنار گذاشته می‌شوند
-    if (!s.contains('.') || !okChars.hasMatch(s)) continue;
+    if (!s.contains('.') || !okChars.hasMatch(s) || InternetAddress.tryParse(s) != null) continue;
     out.add(s);
   }
   return out;
@@ -110,14 +110,30 @@ const List<String> kDnsxGlobalDomains = <String>[
 
 /// همه‌ی دامنه‌های موجود در پروژه برای اسکن دستی (بدون تکرار): ایرانی و خارجی
 List<String> dnsxFullDomains() {
+  final discoveredProfiles = <Server>[
+    ...good,
+    ...pending,
+    ...natRestPending,
+    ...natGlobalTemplateSeeds,
+    ...natNationalTemplateSeeds,
+  ];
+  final profileDomains = <String>{
+    for (final server in discoveredProfiles) ...[
+      if (!server.isIp) server.host,
+      if (server.sni.trim().isNotEmpty) server.sni,
+    ],
+  };
   final all = <String>{
     ...kDnsxNationalProbeDomains,
     ...kDnsxGlobalDomains,
     ...natIrDomains,
     ..._dnsxHostsFrom(iranDomains),
     ..._dnsxHostsFrom(_iranMoreDomains),
+    ..._dnsxHostsFrom(profileDomains),
   };
-  return all.toList();
+  return all
+      .where((host) => InternetAddress.tryParse(host) == null)
+      .toList(growable: false);
 }
 
 /// متن نمایشی دامنه‌ها در شیت
@@ -249,11 +265,12 @@ Future<List<DnsxHit>> dnsxScan(List<String> list,
     Duration gap = Duration.zero,
     void Function(int done, int total)? onProgress,
     bool Function()? stop,
-    bool manual = false}) async {
+    bool manual = false,
+    bool? nationalModeSnapshot}) async {
   final results = <DnsxHit>[];
   var done = 0;
   // NATQUOTA: اسکن دستی در نت ملی سهمیه‌ی کم دارد و منتظر جستجوی نت ملی می‌ماند
-  final limited = manual && nationalMode;
+  final limited = manual && (nationalModeSnapshot ?? nationalMode);
   final dnsBatch = limited ? kNatManualConc : 12; // DNS در هر دسته‌ی همزمان
   for (var i = 0; i < list.length; i += dnsBatch) {
     if (stop != null && stop()) break;
@@ -311,7 +328,7 @@ Future<void> dnsxAutoPick({bool Function()? stop}) async {
     // اگر DNS سالمی نداریم، زودتر دوباره اسکن می‌شود (۶ ساعت)؛ وگرنه هر ۲۴ ساعت
     final gapMs = dnsxBestCache.isEmpty ? 6 * 3600 * 1000 : 24 * 3600 * 1000;
     if (now - last < gapMs) return;
-    final savedDns = await goldDnsList();
+    final savedDns = scanNationalMode ? await natNationalDnsList() : await goldDnsList();
     if (nationalMode != scanNationalMode) return;
     final list = {...savedDns, ...(scanNationalMode ? kDnsxNationalDefaults : kDnsxDefaults)}.toList();
     // کامل: همه‌ی دامنه‌های پروژه، با فاصله‌ی ۱۵۰ میلی‌ثانیه بین بسته‌ها
@@ -319,17 +336,21 @@ Future<void> dnsxAutoPick({bool Function()? stop}) async {
       list,
       domains: dnsxFullDomains(),
       gap: const Duration(milliseconds: 150),
+      nationalModeSnapshot: scanNationalMode,
       stop: () => nationalMode != scanNationalMode || (stop?.call() ?? false),
     );
     // Discard partial or cross-mode results before writing anything.
     bool shouldAbort() =>
         nationalMode != scanNationalMode || (stop?.call() ?? false);
     if (shouldAbort()) return;
-    // Persist the shared DNS folder with the same cancellation/mode guard.
-    // Await it so a late preferences write cannot outlive this scan's validity.
+    // Resolver inventories remain independent for global and National Net.
     if (r.isNotEmpty) {
-      final saved = await goldAddDns(r, shouldAbort: shouldAbort);
-      if (!saved || shouldAbort()) return;
+      if (scanNationalMode) {
+        await natNationalDnsSave(r.map((hit) => hit.ip), shouldAbort: shouldAbort);
+      } else {
+        final saved = await goldAddDns(r, shouldAbort: shouldAbort);
+        if (!saved || shouldAbort()) return;
+      }
     }
     final best = [for (final e in r) e.ip];
     await p.setStringList('dnsx_best_v1_$sfx', best);
@@ -386,6 +407,7 @@ extension DnsxExt on _HomePageState {
             }
             dnsxManualBusy = true;
             stopFlag = false;
+            final scanNationalMode = nationalMode;
             upd(() {
               running = true;
               done = 0;
@@ -403,20 +425,21 @@ extension DnsxExt on _HomePageState {
                       InternetAddress.tryParse(s)?.type ==
                           InternetAddressType.IPv4)
                   .toList();
-              final saved = await goldDnsList();
+              final saved = scanNationalMode ? await natNationalDnsList() : await goldDnsList();
               if (!mounted || !sheetOpen) return;
               if (stopFlag) {
                 upd(() => note = 'اسکن متوقف شد؛ نتایج ذخیره نشد.');
                 return;
               }
-              final list = {...saved, ...kDnsxDefaults, ...kDnsxNationalDefaults, ...extra}
-                  .toList();
+              final defaults = scanNationalMode ? kDnsxNationalDefaults : kDnsxDefaults;
+              final list = {...saved, ...defaults, ...extra}.toList(growable: false);
               upd(() => total = list.length);
               r = await dnsxScan(
                 list,
                 domains: dnsxFullDomains(),
                 manual: true,
-                stop: () => stopFlag || !sheetOpen,
+                nationalModeSnapshot: scanNationalMode,
+                stop: () => stopFlag || !sheetOpen || nationalMode != scanNationalMode,
                 onProgress: (d, t) => upd(() {
                   done = d;
                   total = t;
@@ -427,13 +450,24 @@ extension DnsxExt on _HomePageState {
               } else if (r.isEmpty) {
                 upd(() => note = 'هیچ DNS ای جواب معتبر نداد.');
               } else {
-                final saved = await goldAddDns(r, shouldAbort: () => stopFlag || !sheetOpen);
-                if (!saved) {
-                  upd(() => note = stopFlag || !sheetOpen
-                      ? 'اسکن متوقف شد؛ نتایج ناقص ذخیره نشد.'
-                      : 'ذخیره نتایج DNS ناموفق بود.');
+                if (scanNationalMode) {
+                  await natNationalDnsSave(
+                    r.map((hit) => hit.ip),
+                    shouldAbort: () => stopFlag || !sheetOpen || nationalMode != scanNationalMode,
+                  );
+                  upd(() => note = '${r.length} DNS سالم پیدا و در پوشه نت ملی ذخیره شد.');
                 } else {
-                  upd(() => note = '${r.length} DNS سالم پیدا و ذخیره شد.');
+                  final saved = await goldAddDns(
+                    r,
+                    shouldAbort: () => stopFlag || !sheetOpen || nationalMode != scanNationalMode,
+                  );
+                  if (!saved) {
+                    upd(() => note = stopFlag || !sheetOpen
+                        ? 'اسکن متوقف شد؛ نتایج ناقص ذخیره نشد.'
+                        : 'ذخیره نتایج DNS ناموفق بود.');
+                  } else {
+                    upd(() => note = '${r.length} DNS سالم پیدا و ذخیره شد.');
+                  }
                 }
               }
             } catch (e, stk) {
