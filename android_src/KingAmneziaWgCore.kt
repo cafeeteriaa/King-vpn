@@ -46,9 +46,10 @@ class KingAmneziaWgCore private constructor() {
         var descriptor: ParcelFileDescriptor? = null
         var handle: Int? = null
         try {
-            descriptor = establishTun()
+            val activeDescriptor = establishTun()
                 ?: error("Android did not establish the AmneziaWG TUN interface")
-            val started = GoBackend.awgTurnOn(INTERFACE_NAME, descriptor.fd, userspaceSettings)
+            descriptor = activeDescriptor
+            val started = GoBackend.awgTurnOn(INTERFACE_NAME, activeDescriptor.fd, userspaceSettings)
             check(started > 0) { "AmneziaWG native engine returned an invalid handle: $started" }
             handle = started
 
