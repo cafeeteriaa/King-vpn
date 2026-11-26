@@ -39,6 +39,9 @@ class PublicSingBoxProtocolsSourceGuard(unittest.TestCase):
         self.assertIn("final singBoxBatch = batch.where((s) => s.singBox).toList();", main)
         self.assertIn("final tunnelMode = s.singBox || (viaVpn && row != 'r:ai');", main)
         self.assertIn("await _testBatchSeq(singBoxPending, enough, keepUp: false, row: row);", main)
+        self.assertIn("viaCore && !_kingWireGuardActive && !_kingSingBoxActive", main)
+        self.assertIn("(viaCore || !direct) && !_kingWireGuardActive && !_kingSingBoxActive", main)
+        self.assertIn("if (_kingWireGuardActive || _kingSingBoxActive)", main)
 
 
 if __name__ == "__main__":
