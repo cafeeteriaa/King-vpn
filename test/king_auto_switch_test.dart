@@ -77,6 +77,7 @@ void main() {
       final pending = coordinator.connect();
       await Future<void>.delayed(Duration.zero);
       await coordinator.disconnect();
+      expect(events, ['disconnect:xray']);
       started.complete(const KingEngineConnectResult(
         started: true,
         trafficVerified: true,
@@ -84,7 +85,7 @@ void main() {
       final result = await pending;
       expect(result.connected, isFalse);
       expect(result.engine, isNull);
-      expect(events, ['disconnect:xray']);
+      expect(events, ['disconnect:xray', 'disconnect:xray']);
     });
 
     test('rejects duplicate adapter identifiers', () {
