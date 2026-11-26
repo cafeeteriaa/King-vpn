@@ -10,7 +10,7 @@ class KingConfigDocument {
   final Map<String, dynamic> _values;
   final String _original;
 
-  String get address => (_values['add'] ?? _values['address'] ?? '').toString();
+  String get address => (_values['add'] ?? _values['address'] ?? _values['_host'] ?? '').toString();
   int? get port => int.tryParse((_values['port'] ?? '').toString());
   String get sni => (_values['sni'] ?? _values['peer'] ?? '').toString();
   String get hostHeader => (_values['host'] ?? '').toString();
