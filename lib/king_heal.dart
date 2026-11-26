@@ -21,7 +21,6 @@ class _HealSignal {
 class _HealMemory {
   final Map<String, int> wins = {};
   final Map<String, int> fails = {};
-  final List<String> recent = [];
   Future<void>? _loadTask;
   Future<void> _writeQueue = Future<void>.value();
 
@@ -59,7 +58,6 @@ class _HealMemory {
     } else {
       fails[action] = (fails[action] ?? 0) + 1;
     }
-    recent.add('${ok ? "✓" : "✗"}$action');
   }
 
   Future<void> remember(String action, bool ok) async {
