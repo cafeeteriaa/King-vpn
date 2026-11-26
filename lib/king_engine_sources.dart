@@ -301,7 +301,9 @@ class KingServerPayloadParser {
   }
 
   bool _containsAmneziaParameters(String value) =>
-      RegExp(r'(?im)^\s*(Jc|Jmin|Jmax|S1|S2|H1|H2|H3|H4)\s*=').hasMatch(value);
+      RegExp(
+        r'(?im)^\s*(I[1-5]|Jc|Jmin|Jmax|S[1-4]|H[1-4]|HeaderProtectionKey|ContentPaddingAddition|RekeyAfterTime|RekeyTimeout|RejectAfterTime|KeepaliveTimeout|MaxHandshakeAttempts|RandomTrailers|DisableCookies)\s*=',
+      ).hasMatch(value);
 
   bool _isHttpsEndpoint(String value) {
     final uri = Uri.tryParse(value);
