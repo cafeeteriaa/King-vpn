@@ -2485,7 +2485,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn('.take(2)', range_add)
         self.assertNotIn('pending.length > 3000', range_add)
         self.assertIn('natRangeTemplateCursor', range_add)
-        self.assertIn('for (final server in [...pending, ...natRestPending, ...natTemplateSeeds, ...good])', range_add)
+        self.assertIn('for (final server in [...pending, ...natRestPending, ...natCurrentTemplateSeeds(), ...good])', range_add)
         self.assertNotIn('maxPerSource', main)
 
     def test_search_does_not_stop_after_a_fixed_batch_count(self):
@@ -2548,6 +2548,32 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn('timeout(const Duration(minutes: 2)', gold)
         self.assertIn('v.testAt = nowMs;', gold)
         self.assertIn('await _goldWrite();', gold)
+
+    def test_global_and_national_ip_domain_and_template_inventories_are_isolated(self):
+        nat = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
+        main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        nip = (ROOT / 'lib' / 'nip_scan.dart').read_text(encoding='utf-8')
+        self.assertIn('king_vpn_national_ip_inventory.jsonl', nat)
+        self.assertIn('king_vpn_national_domain_inventory.jsonl', nat)
+        self.assertIn('natGlobalTemplateSeeds', nat)
+        self.assertIn('natNationalTemplateSeeds', nat)
+        self.assertIn('_natNationalRangeCursors', nat)
+        self.assertIn('_cfRangeCursors', nat)
+        self.assertIn('if (modeSnapshot) ...natNationalIpMemHosts() else ...natIpMemHosts()', nat)
+        self.assertIn('if (modeSnapshot) ...natRanges', nat)
+        reuse_start = main.index('Future<void> _natMemoryReuse()')
+        reuse_end = main.index('Future<void> _natRangeAdd(', reuse_start)
+        reuse = main[reuse_start:reuse_end]
+        self.assertIn('natNationalIpMem', reuse)
+        self.assertNotIn('natIpMem', reuse)
+        self.assertNotIn('natHotNext', reuse)
+        hunt_start = nip.index('Future<bool> _natIpHunt()')
+        hunt_end = nip.index('Future<bool> _natTryScan(', hunt_start)
+        hunt = nip[hunt_start:hunt_end]
+        self.assertIn('natNationalIpMemHosts()', hunt)
+        self.assertNotIn('_goldIps', hunt)
+        self.assertNotIn('goldLoad()', hunt)
+        self.assertIn('natNationalDomMem', nat)
 
     def test_matrix_order_is_not_truncated_by_the_old_5000_variant_ceiling(self):
         main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
