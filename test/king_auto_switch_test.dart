@@ -240,4 +240,74 @@ void main() {
       ), throwsArgumentError);
     });
   });
+
+  group('Server payload parser and refresh', () {
+    final parser = KingServerPayloadParser();
+
+    test('filters protocol-specific links and decodes Base64 feeds', () {
+      final plain = parser.parse(
+        engineId: KingEngineId.hysteria2,
+        payload: 'hy2://token@example.org:443\\nvless://uuid@example.net:443',
+      );
+      expect(plain, hasLength(1));
+      expect(plain.single.format, KingServerConfigFormat.hysteria2Uri);
+      final encoded = base64Encode(utf8.encode('hysteria2://token@example.org:443'));
+      expect(parser.parse(engineId: KingEngineId.hysteria2, payload: encoded), hasLength(1));
+    });
+
+    test('recognizes OpenVPN, WireGuard and AmneziaWG profile files', () {
+      const ovpn = 'client\\nremote vpn.example.org 1194\\n';
+      const wg = '[Interface]\\nPrivateKey = key\\n[Peer]\\nPublicKey = key\\nEndpoint = vpn.example.org:51820\\n';
+      const awg = '[Interface]\\nPrivateKey = key\\nJc = 4\\n[Peer]\\nPublicKey = key\\nEndpoint = vpn.example.org:51820\\n';
+      expect(parser.parse(engineId: KingEngineId.openVpn, payload: ovpn).single.format,
+          KingServerConfigFormat.openVpnProfile);
+      expect(parser.parse(engineId: KingEngineId.wireGuard, payload: wg).single.format,
+          KingServerConfigFormat.wireGuardConfig);
+      expect(parser.parse(engineId: KingEngineId.amneziaWg, payload: awg).single.format,
+          KingServerConfigFormat.amneziaWgConfig);
+      expect(parser.parse(engineId: KingEngineId.wireGuard,
+          payload: 'wireguard://private-key@example.org:51820').single.format,
+          KingServerConfigFormat.wireGuardConfig);
+    });
+
+    test('recognizes OpenConnect endpoints and Shroudly upstream proxies', () {
+      expect(parser.parse(engineId: KingEngineId.openConnect,
+          payload: 'https://vpn.example.org').single.format,
+          KingServerConfigFormat.openConnectEndpoint);
+      expect(parser.parse(engineId: KingEngineId.shroudly,
+          payload: 'socks5://user:pass@127.0.0.1:1080').single.format,
+          KingServerConfigFormat.socksOrHttpProxy);
+    });
+
+    test('isolates failed sources and retains healthy Hysteria2 profiles', () async {
+      final sync = KingServerSourceSync(fetchText: (url) async {
+        if (url.contains('parsabrg')) throw StateError('temporary outage');
+        return 'hy2://token@example.org:443';
+      });
+      final result = await sync.refresh(KingEngineId.hysteria2);
+      expect(result.profiles, hasLength(1));
+      expect(result.failures, hasLength(1));
+    });
+
+    test('coalesces concurrent refreshes for the same engine', () async {
+      final gate = Completer<String>();
+      var calls = 0;
+      final sync = KingServerSourceSync(fetchText: (url) {
+        calls++;
+        return gate.future;
+      });
+      final scheduler = KingServerSourceRefreshScheduler(
+        sync: sync,
+        onResult: (_) async {},
+      );
+      final first = scheduler.refreshNow(KingEngineId.hysteria2);
+      final second = scheduler.refreshNow(KingEngineId.hysteria2);
+      expect(identical(first, second), isTrue);
+      gate.complete('hy2://token@example.org:443');
+      await first;
+      expect(calls, 2);
+      scheduler.dispose();
+    });
+  });
+
 }
