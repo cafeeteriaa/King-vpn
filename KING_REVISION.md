@@ -140,6 +140,6 @@ Increment the revision number by exactly one for each substantial edit set. Reco
 ## Revision 67 — نخستین هستهٔ مستقل: WireGuard
 - وابستگی رسمی و قابل‌جاسازی WireGuard Android (com.wireguard.android:tunnel:1.0.20260102) به مرحلهٔ تولید پروژهٔ Android در CI افزوده شد.
 - کنترل‌گر native مستقل android_src/KingWireGuardCore.kt با نمونهٔ جداگانهٔ GoBackend، هویت تونل اختصاصی، parse واقعی فرمت WireGuard و چرخهٔ UP/DOWN اضافه شد؛ کانفیگ WireGuard به Xray تبدیل یا ارسال نمی‌شود.
-- کانال king/wireguard برای connect/disconnect/status افزوده شد. این مرحله هنوز اتصال از Pilot/Server parser و انتخاب‌گر خودکار را فعال نمی‌کند؛ آن‌ها در مرحلهٔ یکپارچه‌سازی بعدی متصل می‌شوند.
+- کانال king/wireguard و صفحهٔ مستقل ورود پروفایل و اتصال/قطع/وضعیت به منوی برنامه افزوده شد؛ درخواست مجوز VPN اندروید نیز در صورت نیاز نمایش داده می‌شود. اتصال به Pilot/Server parser و انتخاب‌گر خودکار هنوز مرحلهٔ بعدی است.
 - Android فقط یک VPN slot فعال برای هر برنامه دارد؛ اجرای WireGuard و Xray هم‌زمان روی دو TUN مستقل ادعا نمی‌شود و باید پیش از شروع یکی، دیگری متوقف شود.
 - CI و تست دستگاه واقعی برای این commit هنوز اجرا/تأیید نشده‌اند.
