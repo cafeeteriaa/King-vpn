@@ -1053,19 +1053,20 @@ String withNpvAmCore(String cfg) {
       final sec = st is Map ? (st['security'] ?? 'none').toString() : 'none';
       final net = st is Map ? (st['network'] ?? 'tcp').toString() : 'tcp';
       if (fragEnabled && st is Map && (sec == 'tls' || sec == 'reality')) {
-        if (!outs.any((o) => o is Map && o['tag'] == 'frag-out')) {
-          outs.add({
-            'tag': 'frag-out',
-            'protocol': 'freedom',
-            'settings': {
-              'fragment': {
-                'packets': 'tlshello',
-                'length': fragLen,
-                'interval': fragInt,
-              }
-            },
-          });
-        }
+        // frag-out is an app-owned tag: replace stale/duplicate definitions so
+        // the proxy always references one valid freedom fragmentation outbound.
+        outs.removeWhere((entry) => entry is Map && entry['tag'] == 'frag-out');
+        outs.add({
+          'tag': 'frag-out',
+          'protocol': 'freedom',
+          'settings': {
+            'fragment': {
+              'packets': 'tlshello',
+              'length': fragLen,
+              'interval': fragInt,
+            }
+          },
+        });
         final so = st['sockopt'] is Map ? st['sockopt'] as Map : <String, dynamic>{};
         so['dialerProxy'] = 'frag-out';
         st['sockopt'] = so;
