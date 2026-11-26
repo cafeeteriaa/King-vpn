@@ -15,6 +15,14 @@ import android.util.Log;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
+import java.io.BufferedReader;
+import java.io.BufferedWriter;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
+import java.io.InputStreamReader;
+import java.io.OutputStreamWriter;
+import java.nio.charset.StandardCharsets;
 import java.net.ConnectException;
 import java.net.HttpURLConnection;
 import java.net.InetSocketAddress;
@@ -98,7 +106,6 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
     private static final int CHECK_TIMEOUT_MS = 8000;
     /** Soft failures in a row before we switch servers. */
     private static final int FAILS_BEFORE_SWITCH = 2;
-    private static final int MAX_BACKUPS = 8;
     /** Hard cap on a single bringUp() call; stuck servers are skipped. */
     private static final long BRING_UP_TIMEOUT_MS = 20_000L;
 
@@ -365,7 +372,6 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
             servers.clear();
             servers.add(first);
             for (Srv b : backups) {
-                if (servers.size() > MAX_BACKUPS) break;
                 if (!b.config.equals(first.config)) servers.add(b);
             }
             currentIdx = 0; // جدید: new list starts at 0; a stale index from the last session was saved before
@@ -1070,44 +1076,93 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
         }
     }
 
+    /** Durable failover inventory. JSONL avoids one giant SharedPreferences value. */
+    private File failoverStateFile() {
+        return new File(getFilesDir(), "king_failover_state.jsonl");
+    }
+
     private void saveState() {
+        File target = failoverStateFile();
+        File temp = new File(getFilesDir(), "king_failover_state.jsonl.tmp");
         try {
-            JSONArray arr = new JSONArray();
-            for (Srv s : servers) {
-                JSONObject o = new JSONObject();
-                o.put("config", s.config);
-                o.put("remark", s.remark);
-                o.put("addr", s.addr);
-                o.put("port", s.port);
-                arr.put(o);
+            FileOutputStream stream = new FileOutputStream(temp, false);
+            try {
+                BufferedWriter writer = new BufferedWriter(
+                        new OutputStreamWriter(stream, StandardCharsets.UTF_8));
+                for (Srv s : servers) {
+                    JSONObject row = new JSONObject();
+                    row.put("config", s.config);
+                    row.put("remark", s.remark);
+                    row.put("addr", s.addr);
+                    row.put("port", s.port);
+                    writer.write(row.toString());
+                    writer.newLine();
+                }
+                writer.flush();
+                stream.getFD().sync();
+            } finally {
+                stream.close();
+            }
+            if (target.exists() && !target.delete()) {
+                throw new java.io.IOException("could not replace previous failover state");
+            }
+            if (!temp.renameTo(target)) {
+                throw new java.io.IOException("could not atomically publish failover state");
             }
             SharedPreferences sp = getSharedPreferences(PREFS, MODE_PRIVATE);
-            sp.edit().putString("list", arr.toString())
-                    .putInt("idx", currentIdx)
+            sp.edit().putInt("idx", currentIdx)
                     .putBoolean("national", nationalMode)
-                    .apply();
+                    .remove("list").commit();
         } catch (Exception e) {
-            Log.w(TAG, "saveState failed", e);
+            Log.w(TAG, "saveState failed; previous durable state is retained when possible", e);
+            if (temp.exists()) temp.delete();
         }
     }
 
     private boolean loadState() {
         try {
             SharedPreferences sp = getSharedPreferences(PREFS, MODE_PRIVATE);
-            String raw = sp.getString("list", "");
-            if (raw == null || raw.isEmpty()) return false;
-            JSONArray arr = new JSONArray(raw);
+            File state = failoverStateFile();
             servers.clear();
-            for (int i = 0; i < arr.length(); i++) {
-                JSONObject o = arr.getJSONObject(i);
-                servers.add(new Srv(o.optString("config"), o.optString("remark"),
-                        o.optString("addr"), o.optString("port")));
+            if (state.isFile() && state.length() > 0L) {
+                try (BufferedReader reader = new BufferedReader(new InputStreamReader(
+                        new FileInputStream(state), StandardCharsets.UTF_8))) {
+                    String line;
+                    while ((line = reader.readLine()) != null) {
+                        if (line.trim().isEmpty()) continue;
+                        try {
+                            JSONObject row = new JSONObject(line);
+                            String config = row.optString("config", "");
+                            if (!config.isEmpty()) {
+                                servers.add(new Srv(config, row.optString("remark"),
+                                        row.optString("addr"), row.optString("port")));
+                            }
+                        } catch (Exception malformedRow) {
+                            Log.w(TAG, "skipping malformed failover state row", malformedRow);
+                        }
+                    }
+                }
+            } else {
+                // One-time migration from the legacy JSON array in SharedPreferences.
+                String raw = sp.getString("list", "");
+                if (raw == null || raw.isEmpty()) return false;
+                JSONArray legacy = new JSONArray(raw);
+                for (int i = 0; i < legacy.length(); i++) {
+                    JSONObject row = legacy.getJSONObject(i);
+                    String config = row.optString("config", "");
+                    if (!config.isEmpty()) {
+                        servers.add(new Srv(config, row.optString("remark"),
+                                row.optString("addr"), row.optString("port")));
+                    }
+                }
+                if (!servers.isEmpty()) saveState();
             }
+            if (servers.isEmpty()) return false;
             currentIdx = Math.max(0, Math.min(sp.getInt("idx", 0), servers.size() - 1));
             listExhaustedStreak = 0;
             healthyStreak = 0;
             nationalMode = sp.getBoolean("national", false);
-            return !servers.isEmpty();
+            return true;
         } catch (Exception e) {
             Log.w(TAG, "loadState failed", e);
             return false;
@@ -1116,7 +1171,13 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
 
     private void clearState() {
         try {
-            getSharedPreferences(PREFS, MODE_PRIVATE).edit().clear().apply();
+            getSharedPreferences(PREFS, MODE_PRIVATE).edit().clear().commit();
+            File state = failoverStateFile();
+            if (state.exists() && !state.delete()) {
+                Log.w(TAG, "could not delete failover state after explicit stop");
+            }
+            File temp = new File(getFilesDir(), "king_failover_state.jsonl.tmp");
+            if (temp.exists()) temp.delete();
         } catch (Exception ignored) {
         }
     }
@@ -1162,7 +1223,7 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
         if (raw == null || raw.isEmpty()) return out;
         try {
             JSONArray arr = new JSONArray(raw);
-            for (int i = 0; i < arr.length() && out.size() < MAX_BACKUPS; i++) {
+            for (int i = 0; i < arr.length(); i++) {
                 JSONObject o = arr.getJSONObject(i);
                 String cfg = o.optString("config", "");
                 if (!cfg.isEmpty()) {
