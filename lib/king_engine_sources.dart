@@ -393,7 +393,7 @@ class KingServerSourceRefreshScheduler {
         KingEngineServerSourceCatalog.online.expand((s) => s.engineIds).toSet();
     for (final engineId in ids) {
       final intervals = KingEngineServerSourceCatalog.forEngine(engineId)
-          .map(_intervalFor)
+          .map(intervalForSource)
           .whereType<Duration>()
           .toList(growable: false);
       if (intervals.isEmpty || _timers.containsKey(engineId)) continue;
@@ -419,7 +419,7 @@ class KingServerSourceRefreshScheduler {
     return tracked;
   }
 
-  Duration? _intervalFor(KingEngineServerSource source) {
+  static Duration? intervalForSource(KingEngineServerSource source) {
     final cadence = source.updateCadence?.trim().toLowerCase();
     if (cadence == null || cadence.isEmpty) return null;
     if (cadence == 'daily') return const Duration(days: 1);
