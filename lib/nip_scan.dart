@@ -312,7 +312,7 @@ Future<List<String>> nipAsnPrefixes(String ip) async {
 
 // Full hostname inventory: retain the original CDN-oriented names and add the
 // app's complete SNI domain inventory. IP literals are never valid TLS SNI.
-final List<String> natFrontSnis = <String>{
+List<String> natFrontSnis() => <String>{
   'cdnjs.cloudflare.com',
   'www.cloudflare.com',
   'speed.cloudflare.com',
@@ -327,6 +327,7 @@ final List<String> natFrontSnis = <String>{
   'radar.cloudflare.com',
   'dash.cloudflare.com',
   ...kAutoSniDomains,
+  ...dnsxFullDomains(),
 }.where((value) =>
     value.trim().isNotEmpty && InternetAddress.tryParse(value.trim()) == null)
  .toList(growable: false);
@@ -352,7 +353,7 @@ Future<String?> nipFrontProbe(String ip, int port, String sni) async {
 }
 
 Future<String?> nipFindFrontSni(String ip, int port) async {
-  for (final sni in natFrontSnis) {
+  for (final sni in natFrontSnis()) {
     final ok = await nipFrontProbe(ip, port, sni);
     if (ok != null) return ok;
   }
