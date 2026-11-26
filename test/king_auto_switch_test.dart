@@ -9,7 +9,7 @@ import 'package:king_vpn/king_proxy_sources.dart';
 
 class FakeAdapter implements KingConnectionAdapter {
   FakeAdapter(this.id, {this.available = true, this.startOk = true,
-    this.trafficOk = true, this.events});
+    this.trafficOk = true, this.events, this.disconnectError});
   @override
   final String id;
   @override
@@ -17,6 +17,7 @@ class FakeAdapter implements KingConnectionAdapter {
   final bool startOk;
   bool trafficOk;
   final List<String>? events;
+  final Object? disconnectError;
   @override
   Future<KingEngineConnectResult> connect() async {
     events?.add('connect:$id');
@@ -25,7 +26,10 @@ class FakeAdapter implements KingConnectionAdapter {
   @override
   Future<bool> verifyTraffic() async => trafficOk;
   @override
-  Future<void> disconnect() async => events?.add('disconnect:$id');
+  Future<void> disconnect() async {
+    events?.add('disconnect:$id');
+    if (disconnectError != null) throw disconnectError!;
+  }
 }
 
 class BlockingAdapter implements KingConnectionAdapter {
@@ -108,6 +112,32 @@ void main() {
       expect(() => KingAutoSwitchCoordinator(adapters: [
         FakeAdapter(KingEngineId.xray), FakeAdapter(KingEngineId.xray),
       ]), throwsArgumentError);
+    });
+
+
+    test('never treats local DPI modules as independent VPN owners', () async {
+      final events = <String>[];
+      final result = await KingAutoSwitchCoordinator(adapters: [
+        FakeAdapter(KingEngineId.shroudly, events: events),
+        FakeAdapter(KingEngineId.byeDpi, events: events),
+        FakeAdapter(KingEngineId.powerTunnel, events: events),
+        FakeAdapter(KingEngineId.xray, events: events),
+      ]).connect();
+      expect(result.engine, KingEngineId.xray);
+      expect(events, ['connect:xray']);
+    });
+
+    test('halts failover when previous engine cannot confirm TUN teardown', () async {
+      final events = <String>[];
+      final result = await KingAutoSwitchCoordinator(adapters: [
+        FakeAdapter(KingEngineId.xray, trafficOk: false,
+            events: events, disconnectError: StateError('TUN still owned')),
+        FakeAdapter(KingEngineId.wireGuard, events: events),
+      ]).connect();
+      expect(result.connected, isFalse);
+      expect(result.engine, isNull);
+      expect(result.detail, contains('teardown failed'));
+      expect(events, ['connect:xray', 'disconnect:xray']);
     });
 
     test('does not accept CONNECTED without data-plane proof', () async {
