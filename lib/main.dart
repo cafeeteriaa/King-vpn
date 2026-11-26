@@ -638,7 +638,7 @@ set lastFail(String v) {
 }
 
 // links pasted with extra text around them ("@channel vless://...") are
-// cleaned: the first vmess/vless/trojan/ss link inside the text is used
+// cleaned: the first supported Xray or sing-box share link inside the text is used
 final _schemeRe = RegExp(
     r'^(vmess|vless|trojan|ss|hysteria2|hy2|tuic)://',
     caseSensitive: false);
@@ -7594,10 +7594,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     }
     await pool<Server>(alive, gateMax,
         (s) async {
-      if (s.singBox) {
-        skipped.add(s);
-        return;
-      }
       // DEADSKIP: نت ملی سرورهایی را که اخیراً شکست خورده‌اند تا پایان failWindow دوباره تست نمی‌کند
       if (abort || stale() || enough() || (smartOrder && _srcDead(s)) ||
           (nationalMode && (_recentFail(s) || _bad(s)))) {
