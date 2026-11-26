@@ -352,10 +352,20 @@ Future<String?> nipFrontProbe(String ip, int port, String sni) async {
   }
 }
 
-Future<String?> nipFindFrontSni(String ip, int port) async {
-  for (final sni in natFrontSnis()) {
-    final ok = await nipFrontProbe(ip, port, sni);
-    if (ok != null) return ok;
+Future<String?> nipFindFrontSni(
+    String ip, int port, {bool Function()? stop}) async {
+  final names = natFrontSnis();
+  final workers = max(2, min(12, natAdaptiveWorkers()));
+  for (var offset = 0; offset < names.length; offset += workers) {
+    if (stop?.call() ?? false) return null;
+    final batch = names.skip(offset).take(workers);
+    final results = await Future.wait(
+      batch.map((sni) => nipFrontProbe(ip, port, sni)),
+    );
+    if (stop?.call() ?? false) return null;
+    for (final result in results) {
+      if (result != null) return result;
+    }
   }
   return null;
 }
@@ -506,7 +516,7 @@ extension NipHunt on _HomePageState {
           nipSwapLink(template, hit.ip, port: port),
         ];
         if (front) {
-          final sni = await nipFindFrontSni(hit.ip, port);
+          final sni = await nipFindFrontSni(hit.ip, port, stop: () => abort);
           if (abort) return false;
           if (sni != null) {
             links.add(nipSwapSni(template, hit.ip, sni, port: port));
