@@ -12642,7 +12642,7 @@ ListTile( // KINGEXTRAS row
                 ? await _connectLoop(_mineList())
                 // پوشهٔ «سرورهای شخصی»: همهٔ ورودی‌ها، با آخرین سرور موفق در اولویت
                 : (row == 'f:pfolder')
-                    ? await _connectLoop(personalFolderServers(max: kPersonalShowCap))
+                    ? await _connectLoop(personalFolderServers())
                 // DSGETTER: از مقدار مؤثر
                 : await _acquire(strictRow: row != null, speed: effAutoSpeed);
         // AUTONET: the tapped mode found nothing -> the app picks the best
