@@ -5720,11 +5720,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     }
     var stillAlive = false;
     try {
-      // IDLECAP: a long national search is fine while it keeps writing progress
-      // lines. It is cut only when it has been silent for a while, or when it
-      // runs past the hard limit.
-      final startedAt = DateTime.now();
-      final hardLimit = Duration(minutes: nationalMode ? 20 : 8);
+      // No global duration ceiling: a long search/connection can continue while
+      // it produces real progress. Only a genuinely idle/hung operation is stopped.
       final idleLimit = Duration(minutes: nationalMode ? 3 : 2);
       var done = false;
       work.whenComplete(() => done = true);
@@ -5732,10 +5729,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         await Future.any(
             [work, Future<void>.delayed(const Duration(seconds: 20))]);
         if (done) break;
-        final now = DateTime.now();
-        if (now.difference(startedAt) > hardLimit ||
-            now.difference(dbgLastAt) > idleLimit) {
-          throw TimeoutException('idle-or-hard-cap');
+        if (DateTime.now().difference(dbgLastAt) > idleLimit) {
+          throw TimeoutException('idle-no-progress');
         }
       }
     } on TimeoutException {
@@ -5743,7 +5738,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       poolStop = true; // ABORTPOOL
       // STUCK-WHERE: the status text shows which step was waiting when it hung
       final quietMin = DateTime.now().difference(dbgLastAt).inMinutes;
-      dbg('کار متوقف شد (بی‌فعالیتی ~$quietMin دقیقه یا سقف زمان) • گیر در: «$status»');
+      dbg('کار متوقف شد (بدون پیشرفت برای ~$quietMin دقیقه) • گیر در: «$status»');
       try {
         // BUSYCAP: مهلت توقف از ۲۰ ثانیه به ۶۰ ثانیه تا کار بتواند خودش تمیز تمام شود
         await work.timeout(const Duration(seconds: 60));
@@ -6408,7 +6403,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       final p = await SharedPreferences.getInstance();
       if (connected) {
         _screenWasOn = true;
-        await p.setStringList('personal_shown_v1', [for (final x in _personalShown) x.link]);
+        // The personal folder has its own durable JSONL journal; avoid duplicating
+        // the entire inventory in the general preferences JSON.
+        await p.remove('personal_shown_v1');
         // KEEPALL: مسیر اتصال و سرورهای سالم صفحه (آنلاین/آفلاین) هم ذخیره می‌شوند
         await p.setString('screen_row_v1', connRow ?? '');
         final cur = current;
@@ -6425,7 +6422,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       } else if (_screenWasOn) {
         // قطع اتصال در همین اجرا: لیست صفحه پاک می‌شود
         _screenWasOn = false;
-        await p.setStringList('personal_shown_v1', <String>[]);
+        await p.remove('personal_shown_v1');
         await p.remove('screen_row_v1');
         await p.remove('screen_good_v1');
       }
@@ -6437,21 +6434,19 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   Future<void> _restoreScreenLists() async {
     try {
       final p = await SharedPreferences.getInstance();
-      final ps = <Server>[];
-      for (final l in p.getStringList('personal_shown_v1') ?? const <String>[]) {
-        final x = Server.parse(l);
-        if (x != null) {
-          x.personal = true;
-          x.restored = true;
-          ps.add(x);
-        }
-      }
-      if (ps.isNotEmpty) {
-        _screenWasOn = true; // PERSKEEP-FIX: وضعیت ذخیره‌شده پس از restart هم باید قابل پاک‌شدن باشد
-        if (_personalShown.isEmpty) _personalShown = ps;
+      final legacyPersonal = p.getStringList('personal_shown_v1') ?? const <String>[];
+      if (legacyPersonal.isNotEmpty) {
+        // The independent personal-folder journal is now the source of truth.
+        _screenWasOn = true;
+        if (_personalShown.isEmpty) _personalShown = personalFolderServers();
+        await p.remove('personal_shown_v1');
       }
       // KEEPALL: مسیر اتصال و سرورهای سالم صفحه
       final rowSaved = p.getString('screen_row_v1') ?? '';
+      if (rowSaved == 'p:personal' && _personalShown.isEmpty) {
+        _personalShown = personalFolderServers();
+        _screenWasOn = _personalShown.isNotEmpty;
+      }
       if (rowSaved.isNotEmpty) {
         _screenWasOn = true;
         _restoredRow = rowSaved;
@@ -12086,7 +12081,7 @@ ListTile( // KINGEXTRAS row
   /// خروجی: نقشه‌ی link -> ms فقط برای سرورهای سالم
   Future<Map<String, int>> _personalPingAll(List<Server> list) async {
     final gen = ++_personalPingGen;
-    bool cancelled() => gen != _personalPingGen;
+    bool cancelled() => gen != _personalPingGen || autoTestAbortRequested;
     final ok = <String, int>{};
     final rows = _personalRows.value;
     var doneCount = 0;
@@ -12115,8 +12110,11 @@ ListTile( // KINGEXTRAS row
             rows[i].ping = -1;
           }
           doneCount++;
-          _personalRows.value = List<_PRow>.of(rows);
-          _set('پینگ سرورهای شخصی: $doneCount/${list.length} • سالم: ${ok.length}');
+          // UI notifications are batched; no server is skipped or dropped.
+          if (doneCount % 128 == 0 || doneCount == list.length) {
+            _personalRows.value = List<_PRow>.of(rows);
+            _set('پینگ سرورهای شخصی: $doneCount/${list.length} • سالم: ${ok.length}');
+          }
         }
       }
       // مشکل ۷: تعداد کارگرها با سقف گیت هماهنگ است
@@ -12124,11 +12122,15 @@ ListTile( // KINGEXTRAS row
       await Future.wait([for (var k = 0; k < nW; k++) worker()]);
     }
     await pass([for (var i = 0; i < list.length; i++) i]);
+    _personalRows.value = List<_PRow>.of(rows);
+    _set('پینگ سرورهای شخصی: $doneCount/${list.length} • سالم: ${ok.length}');
+    if (cancelled()) return ok;
     final failed = [for (var i = 0; i < list.length; i++) if (!ok.containsKey(list[i].link)) i];
     if (failed.isNotEmpty) {
       await Future<void>.delayed(const Duration(seconds: 2));
       doneCount = list.length - failed.length;
       await pass(failed);
+      _personalRows.value = List<_PRow>.of(rows);
     }
     _set('پینگ سرورهای شخصی تمام شد: ${ok.length} سالم از ${list.length}');
     return ok;
@@ -12189,6 +12191,7 @@ ListTile( // KINGEXTRAS row
     _set('اتصال به سرورهای شخصی...');
     await prep;
     _personalPrep = null;
+    if (autoTestAbortRequested) return;
     // V5: نتیجه‌ی پینگ پیش‌گرم (که هنگام تبلیغ اجرا شده) گاهی خالی است؛ یک بار دوباره پینگ می‌گیریم
     if (_personalRanked.isEmpty && personalFolderCache.isNotEmpty) {
       _set('دوباره پینگ سرورهای شخصی...');
@@ -12202,7 +12205,7 @@ ListTile( // KINGEXTRAS row
     await _personalConnectAt(0);
   }
 
-  /// لیست زنده‌ی سرورهای پوشه (تا ۵۰ تا) با پینگ؛ تابع برگشتی بستن صفحه را بعد از مدتی انجام می‌دهد
+  /// لیست زندهٔ تمام سرورهای پوشه با پینگ؛ تابع برگشتی بستن صفحه را بعد از مدتی انجام می‌دهد
   void Function(Duration) _personalShowLive() {
     BuildContext? sheetCtx;
     var closed = false;
@@ -12294,17 +12297,18 @@ ListTile( // KINGEXTRAS row
   }
 
   Future<void> _personalConnectAt(int i) async {
-    if (i >= _personalRanked.length) {
-      _set('هیچ سرور شخصی وصل نشد');
-      return;
+    // Iterate rather than recurse: a large personal folder must not grow the call stack.
+    for (var index = i; index < _personalRanked.length; index++) {
+      if (abort || autoTestAbortRequested) return;
+      _personalIdx = index;
+      final ok = await _connectPersonalFast(_personalRanked[index]);
+      if (ok) {
+        _personalWatchOn();
+        return;
+      }
+      if (_personalHardFail || abort || autoTestAbortRequested || !wantVpn) return;
     }
-    _personalIdx = i;
-    final ok = await _connectPersonalFast(_personalRanked[i]);
-    if (ok) {
-      _personalWatchOn();
-    } else if (!_personalHardFail && !abort && wantVpn) {
-      await _personalConnectAt(i + 1);
-    }
+    _set('هیچ سرور شخصی وصل نشد');
   }
 
   /// PERSWATCH: فقط خود سرور وصل‌شده هر ۱ دقیقه از داخل تونل بررسی می‌شود (نه لیست پوشه).
@@ -12337,7 +12341,7 @@ ListTile( // KINGEXTRAS row
       context: context,
       isScrollControlled: true,
       builder: (ctx) {
-        final links = List<String>.of(personalFolderCache);
+        final links = personalFolderCache;
         return SafeArea(
           child: SizedBox(
             height: MediaQuery.of(ctx).size.height * 0.75,
