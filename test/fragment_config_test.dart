@@ -59,6 +59,27 @@ void main() {
               'sockopt': <String, dynamic>{},
             },
           },
+          <String, dynamic>{
+            'tag': 'proxy-second',
+            'protocol': 'vmess',
+            'settings': <String, dynamic>{
+              'vnext': <dynamic>[
+                <String, dynamic>{
+                  'address': 'second.example.test',
+                  'port': 8443,
+                  'users': <dynamic>[
+                    <String, dynamic>{'id': '00000000-0000-4000-8000-000000000002'},
+                  ],
+                },
+              ],
+            },
+            'streamSettings': <String, dynamic>{
+              'network': 'ws',
+              'security': 'tls',
+              'tlsSettings': <String, dynamic>{'serverName': 'second.example.test'},
+              'sockopt': <String, dynamic>{},
+            },
+          },
         ],
         'routing': <String, dynamic>{'rules': <dynamic>[]},
       });
@@ -71,6 +92,12 @@ void main() {
       final proxyStream = proxy['streamSettings'] as Map;
       final sockopt = proxyStream['sockopt'] as Map;
       expect(sockopt['dialerProxy'], 'frag-out');
+      final secondProxy = outbounds.firstWhere(
+        (entry) => entry is Map && entry['tag'] == 'proxy-second',
+      ) as Map;
+      final secondSockopt =
+          (secondProxy['streamSettings'] as Map)['sockopt'] as Map;
+      expect(secondSockopt['dialerProxy'], 'frag-out');
 
       final fragmentOutbound = outbounds.firstWhere(
         (entry) => entry is Map && entry['tag'] == 'frag-out',
@@ -94,6 +121,22 @@ void main() {
         sanitizedOutbounds.where((entry) => entry is Map && entry['tag'] == 'frag-out'),
         hasLength(1),
       );
+
+      app.fragEnabled = false;
+      final disabled = jsonDecode(
+        app.withNpvAmCore(jsonEncode(configured)),
+      ) as Map<String, dynamic>;
+      final disabledOutbounds = disabled['outbounds'] as List<dynamic>;
+      expect(
+        disabledOutbounds.where((entry) => entry is Map && entry['tag'] == 'frag-out'),
+        isEmpty,
+      );
+      final disabledProxy = disabledOutbounds.firstWhere(
+        (entry) => entry is Map && entry['tag'] == 'proxy',
+      ) as Map;
+      final disabledSockopt =
+          (disabledProxy['streamSettings'] as Map)['sockopt'] as Map?;
+      expect(disabledSockopt == null || !disabledSockopt.containsKey('dialerProxy'), isTrue);
     } finally {
       app.fragEnabled = previous[0];
       app.muxEnabled = previous[1];
