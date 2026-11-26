@@ -5622,9 +5622,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     while (natScanHits.length > 20000) {
       natScanHits.remove(natScanHits.first);
     }
-    while (natGood.length > 50000) {
-      natGood.remove(natGood.first);
-    }
     while (natSubstSearched.length > 5000) {
       natSubstSearched.remove(natSubstSearched.first);
     }
@@ -8850,9 +8847,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           natVarSet(s, v);
         } else {
           // NORMALCACHE: برای اتصال بعدی هم به خاطر بسپار
-          if (natVarNormal.length > 3000) {
-            natVarNormal.remove(natVarNormal.keys.first);
-          }
           // NORMALKEY: keyed by s.key only so the cache survives operator
           // changes and restarts (natOpKey is 'x' at startup).
           natVarNormal[s.key] = v;
