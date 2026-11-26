@@ -17276,72 +17276,50 @@ extension ProjectNatSweep on _HomePageState {
         const {'360', 'qq'}.contains(x.fp); // NEWFP
   }
 
-  // AUTORANGE: بلوک‌های /24 سرورهای IP دار برنامه، بدون دخالت کاربر
-  List<String> _atAutoRanges(List<Server> servers) {
-    final blocks = <String>{};
-    for (final x in servers) {
-      if (!x.isIp) continue;
-      final p = x.host.split('.');
-      if (p.length != 4) continue;
-      blocks.add('${p[0]}.${p[1]}.${p[2]}.0/24');
-      if (blocks.length >= 200) break;
-    }
-    return blocks.toList();
-  }
-
   // IPSWEEP: هر IP تمیز را با اتصال واقعی روی یک سرور پشت کلودفلر امتحان می‌کند.
   // فقط IP‌هایی که ترافیک تونل (google و youtube) بدهند نگه داشته می‌شوند (حداکثر ۱۰ تا).
   // IPSWEEP: IP‌های باز را روی همه‌ی پورت‌های CDN (_natCfPorts) پیدا می‌کند، سپس هر جفت IP:پورت
   // را با اتصال واقعی و بررسی تونل (google و youtube) می‌سنجد. فقط جفت‌های ترافیک‌دار نگه داشته می‌شوند.
   Future<List<CleanIp>> _atIpSweep(List<Server> pool, Duration budget) async {
     Server? server;
-    for (final x in pool) {
-      if (_natCdnNets.contains(x.net)) {
-        server = x;
+    for (final value in pool) {
+      if (_natCdnNets.contains(value.net)) {
+        server = value;
         break;
       }
     }
     if (server == null) return <CleanIp>[];
     final sv = server;
-    final vIdx = _natSpecs.indexWhere((x) => x.name == 'IP تمیز Cloudflare');
+    final vIdx = _natSpecs.indexWhere((value) => value.name == 'IP تمیز Cloudflare');
     if (vIdx <= 0) {
       dbg('IPSCAN: حالت «IP تمیز Cloudflare» در ماتریس پیدا نشد '
           '(vIdx=$vIdx، تعداد ماتریس=${_natSpecs.length})');
       return <CleanIp>[];
     }
 
-    // بازه‌ها: کلودفلر + بلوک‌های /24 سرورهای خود برنامه
-    final ranges = <String>[..._cfRanges, ..._atAutoRanges(good)];
-    final pool2 = <String>[];
-    for (final r in ranges) {
-      pool2.addAll(natExpandCidr(r, maxPerBlock: 128));
-    }
-    pool2.shuffle(Random());
-
-    // FIXSWEEP: سقف کل مرحله‌ی «اسکن» ۳۵ ثانیه است. قبلاً هر پورت جداگانه ۳۵ ثانیه
-    // بود (۷ پورت ⇒ تا ~۴ دقیقه) و بودجه‌ی ۴۵ ثانیه‌ای فقط روی مرحله‌ی تست کاندیدها اثر داشت.
-    // لغو کاربر (abort) هم اسکن را متوقف می‌کند.
-    final scanDeadline = DateTime.now().add(const Duration(seconds: 35));
+    // Cloudflare IPv4 space is traversed by the shared persistent cursor.
+    // Each returned page is checked on every supported Cloudflare port; no
+    // random per-CIDR sample, per-port hit quota, or hidden scan deadline.
+    final addresses = await _cleanCandidates();
     final opened = <CleanIp>[];
     for (final port in _natCfPorts) {
       if (abort || AutoTestEngine._abortRequested) break;
-      final left = scanDeadline.difference(DateTime.now());
-      if (left <= Duration.zero) break;
-      final hits = await natScanIps(pool2,
-          port: port,
-          concurrency: 24,
-          want: 20,
-          budget: left,
-          cancelled: () => abort || AutoTestEngine._abortRequested);
-      for (final h in hits) {
-        opened.add(CleanIp(h.ip, h.ms, port));
+      final hits = await natScanIps(
+        addresses,
+        port: port,
+        concurrency: 24,
+        timeout: const Duration(milliseconds: 900),
+        cancelled: () => abort || AutoTestEngine._abortRequested,
+      );
+      for (final hit in hits) {
+        opened.add(CleanIp(hit.ip, hit.ms, port));
       }
     }
-    dbg('IPSCAN: ${opened.length} جفت IP:پورت باز');
-    var cands = opened;
-    if (cands.isEmpty && !abort) {
-      cands = [for (final ip in await _cleanCandidates()) CleanIp(ip, 0, 443)];
+    if (!abort && !AutoTestEngine._abortRequested) {
+      await goldCommitCleanCandidates();
     }
+    dbg('IPSCAN: ${opened.length} جفت IP:پورت باز از ${addresses.length} آدرس بررسی‌شده');
+    final cands = opened;
 
     final winners = <CleanIp>[];
     final saved = List<CleanIp>.of(cleanIps);
