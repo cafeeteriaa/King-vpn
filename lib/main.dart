@@ -10604,7 +10604,7 @@ ListTile( // KINGEXTRAS row
       }
       if (items.isEmpty) return;
       if (natTemplateSeeds.isEmpty) {
-        natTemplateSeeds = await natHotNext(2, fetch: false);
+        natTemplateSeeds = await natHotNext(800, fetch: false);
       }
       final before = pending.length;
       await _natRangeAdd(items, count: false);
@@ -10662,7 +10662,6 @@ ListTile( // KINGEXTRAS row
     if (count) natIpFound += items.length;
     pending = [...made, ...pending];
     // No destructive queue truncation: every generated profile remains available.
-    natRangeCursor = 0;
   }
 
   void _userListsDialog(BuildContext context) {
