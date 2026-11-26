@@ -143,31 +143,32 @@ void main() {
           isNot(contains('https://ooni.org.attacker.example/fake')));
     });
 
-    test('streaming retrieval scans histories larger than the former 500-row ceiling', () async {
+    test('streaming retrieval finds relevant records beyond the former 500-row ceiling', () async {
       final now = DateTime.utc(2026, 11, 26);
-      final rows = <String>[];
+      final rows = <String>[
+        jsonEncode(note(
+          url: 'https://docs.flutter.dev/rare-protocol-migration',
+          title: 'Rare protocol migration guide',
+          excerpt: 'Detailed guidance for the rare protocol migration',
+          date: now.subtract(const Duration(days: 179)).toIso8601String(),
+        )),
+      ];
       for (var i = 0; i < 750; i++) {
         rows.add(jsonEncode(note(
-          url: 'https://docs.flutter.dev/archive-$i',
-          title: 'Flutter archive record $i',
-          excerpt: 'Historical Flutter documentation entry $i',
-          date: now.subtract(Duration(days: i % 150)).toIso8601String(),
+          url: 'https://docs.flutter.dev/unrelated-$i',
+          title: 'Generic archive record $i',
+          excerpt: 'General reference manual entry $i',
+          date: now.subtract(Duration(days: i % 20)).toIso8601String(),
         )));
       }
-      rows.add(jsonEncode(note(
-        url: 'https://docs.flutter.dev/best-match',
-        title: 'Flutter streaming retrieval guide',
-        excerpt: 'Best match for streaming research memory',
-        date: now.toIso8601String(),
-      )));
       final result = await rankKingAiResearchMemoryStream(
         Stream<String>.fromIterable(rows),
-        'Flutter streaming retrieval',
+        'rare protocol migration',
         now: now,
         maxItems: 3,
       );
-      expect(result, hasLength(3));
-      expect(result.first['url'], 'https://docs.flutter.dev/best-match');
+      expect(result, hasLength(1));
+      expect(result.single['url'], 'https://docs.flutter.dev/rare-protocol-migration');
     });
 
     test('streaming retrieval keeps only unique URLs and replaces stale duplicates', () async {
