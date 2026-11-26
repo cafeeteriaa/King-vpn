@@ -140,6 +140,15 @@ class _HealMemory {
         (localWins + localFails + 4);
     return globalRate * (1 - evidenceWeight) + localRate * evidenceWeight;
   }
+
+  String bestAction(List<String> actions, String context) {
+    final eligible = actions.where((action) =>
+        (wins[action] ?? 0) + (fails[action] ?? 0) > 0).toList();
+    if (eligible.isEmpty) return actions.first;
+    eligible.sort((a, b) =>
+        score(b, context: context).compareTo(score(a, context: context)));
+    return eligible.first;
+  }
 }
 
 final _healMem = _HealMemory();
@@ -430,17 +439,26 @@ extension KingHealEngine on _HomePageState {
       return ('connect_now', 'اتصال یتیم — اتصال فوری', params);
     }
     if (ids.contains('empty_queue') || ids.contains('no_healthy')) {
-      if (ids.contains('blacklist')) {
-        return (
-          'soft_clear_and_search',
-          'سیاه‌لیست بزرگ + بدون سالم — پاک‌سازی نرم و جستجو',
-          params
-        );
-      }
-      return ('search_connect', 'بدون سرور سالم — جستجو و اتصال', params);
+      final contextKey = (ids.toList()..sort()).join('+');
+      final action = ids.contains('blacklist')
+          ? _healMem.bestAction(
+              <String>['soft_clear_and_search', 'search_connect'],
+              contextKey,
+            )
+          : 'search_connect';
+      return (
+        action,
+        'بدون سرور سالم — $action • تصمیم بر اساس شواهد این الگوی خرابی',
+        params
+      );
     }
     if (ids.contains('core_drop')) {
-      return ('failover', 'قطع هسته — تعویض سرور', params);
+      final contextKey = (ids.toList()..sort()).join('+');
+      final action = _healMem.bestAction(
+        <String>['failover', 'failover_soft'],
+        contextKey,
+      );
+      return (action, 'قطع هسته — $action بر اساس سابقهٔ همین الگو', params);
     }
     if (ids.contains('pilot_thrash')) {
       return (
