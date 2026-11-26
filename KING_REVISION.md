@@ -48,6 +48,9 @@ Revision PR: pending creation
 - Added a regression source guard proving that _resAdd no longer contains a count ceiling or oldest-entry eviction.
 - Important remaining scalability work: _resMap is still an in-memory working map and the current JSON snapshot is loaded as a whole. This revision removes data loss but does not yet claim memory-bounded paging or multi-million-entry scalability. The next stage must migrate to a disk-backed indexed/paged store before such scale is claimed.
 - Exact-head CI and runtime/device validation are pending.
+- Restored the missing engine catalog/coordinator/source modules required by the already-present engine tests; this is modular catalog/source groundwork only and does not claim extra engines are operational.
+- Reconciled the catalog with the native-core policy by excluding OpenVPN IDs, runtime descriptors, import formats and parser support; no OpenVPN runtime/dependency is introduced.
+- CI initially exposed the missing-module regression: source guards passed, but one Flutter test file failed to compile. The repair is now committed; a fresh exact-head run is still required.
 
 ## Mandatory three-pass review protocol
 
