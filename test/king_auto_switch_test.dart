@@ -313,9 +313,11 @@ void main() {
     });
 
     test('recognizes OpenVPN, WireGuard and AmneziaWG profile files', () {
-      const ovpn = 'client\\nproto udp\\nremote vpn.example.org 1194\\n';
-      const wg = '[Interface]\\nPrivateKey = key\\n[Peer]\\nPublicKey = key\\nAllowedIPs = 0.0.0.0/0\\nEndpoint = vpn.example.org:51820\\n';
-      const awg = '[Interface]\\nPrivateKey = key\\nJc = 4\\n[Peer]\\nPublicKey = key\\nAllowedIPs = 0.0.0.0/0\\nEndpoint = vpn.example.org:51820\\n';
+      const ovpn = 'client\nproto udp\nremote vpn.example.org 1194\n';
+      final privateKey = base64Encode(List<int>.filled(32, 7));
+      final publicKey = base64Encode(List<int>.filled(32, 9));
+      final wg = '[Interface]\nPrivateKey = $privateKey\n[Peer]\nPublicKey = $publicKey\nAllowedIPs = 0.0.0.0/0, ::/0\nEndpoint = vpn.example.org:51820\n';
+      final awg = '[Interface]\nPrivateKey = $privateKey\nJc = 4\n[Peer]\nPublicKey = $publicKey\nAllowedIPs = 0.0.0.0/0\nEndpoint = vpn.example.org:51820\n';
       expect(parser.parse(engineId: KingEngineId.openVpn, payload: ovpn).single.format,
           KingServerConfigFormat.openVpnProfile);
       expect(parser.parse(engineId: KingEngineId.wireGuard, payload: wg).single.format,
@@ -325,6 +327,15 @@ void main() {
       expect(parser.parse(engineId: KingEngineId.wireGuard,
           payload: 'wireguard://private-key@example.org:51820').single.format,
           KingServerConfigFormat.wireGuardConfig);
+    });
+
+    test('rejects malformed WireGuard key material and invalid AllowedIPs', () {
+      const invalidKey = '[Interface]\nPrivateKey = key\n[Peer]\nPublicKey = key\nAllowedIPs = 0.0.0.0/0\nEndpoint = vpn.example.org:51820\n';
+      final privateKey = base64Encode(List<int>.filled(32, 7));
+      final publicKey = base64Encode(List<int>.filled(32, 9));
+      final invalidNetwork = '[Interface]\nPrivateKey = $privateKey\n[Peer]\nPublicKey = $publicKey\nAllowedIPs = 0.0.0.0/99\nEndpoint = vpn.example.org:51820\n';
+      expect(parser.parse(engineId: KingEngineId.wireGuard, payload: invalidKey), isEmpty);
+      expect(parser.parse(engineId: KingEngineId.wireGuard, payload: invalidNetwork), isEmpty);
     });
 
     test('recognizes OpenConnect endpoints and Shroudly upstream proxies', () {
