@@ -95,6 +95,8 @@ Future<void> autoScanRun(void Function(String) say,
       await natNationalDomMemLoad();
     } else {
       await goldLoad();
+      await natIpMemLoad();
+      await natDomMemLoad();
     }
     if (cancelled()) {
       say(cancellationMessage());
