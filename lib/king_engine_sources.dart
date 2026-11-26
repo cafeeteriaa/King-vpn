@@ -132,6 +132,21 @@ class KingServerPayloadParser {
       )];
     }
 
+    if (engineId == 'shroudly') {
+      final proxyProfiles = <KingImportedServerProfile>[];
+      for (final line in value.split(RegExp(r'[\\r\\n]+'))) {
+        final item = line.trim();
+        final uri = Uri.tryParse(item);
+        if (uri != null && const {'socks5', 'socks5h', 'http', 'https'}.contains(uri.scheme.toLowerCase()) && uri.host.isNotEmpty) {
+          proxyProfiles.add(KingImportedServerProfile(
+            engineId: engineId, format: KingServerConfigFormat.socksOrHttpProxy,
+            raw: item, sourceId: sourceId,
+          ));
+        }
+      }
+      if (proxyProfiles.isNotEmpty) return List.unmodifiable(proxyProfiles);
+    }
+
     final found = <KingImportedServerProfile>[];
     final seen = <String>{};
     for (final line in value.split(RegExp(r'[\r\n]+'))) {
@@ -300,11 +315,31 @@ class KingServerSourceSync {
     for (final source in sources) {
       try {
         final payload = await fetchText(source.url);
-        final parsed = _parser.parse(
-          engineId: engineId, payload: payload, sourceId: source.id,
-        );
-        for (final profile in parsed) {
-          if (fingerprints.add(profile.fingerprint)) profiles.add(profile);
+        if (source.kind == KingServerSourceKind.generatedDirectory) {
+          final directory = jsonDecode(payload);
+          if (directory is! List) {
+            throw const FormatException('Generated directory response is not a JSON list');
+          }
+          for (final entry in directory) {
+            if (entry is! Map) continue;
+            final name = (entry['name'] ?? '').toString();
+            final downloadUrl = (entry['download_url'] ?? '').toString();
+            if (!name.toLowerCase().endsWith('.ovpn') || downloadUrl.isEmpty) continue;
+            final config = await fetchText(downloadUrl);
+            final parsed = _parser.parse(
+              engineId: engineId, payload: config, sourceId: source.id,
+            );
+            for (final profile in parsed) {
+              if (fingerprints.add(profile.fingerprint)) profiles.add(profile);
+            }
+          }
+        } else {
+          final parsed = _parser.parse(
+            engineId: engineId, payload: payload, sourceId: source.id,
+          );
+          for (final profile in parsed) {
+            if (fingerprints.add(profile.fingerprint)) profiles.add(profile);
+          }
         }
       } catch (error) {
         failures.add(KingServerSourceFailure(source.id, error.toString()));
