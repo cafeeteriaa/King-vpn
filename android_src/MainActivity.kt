@@ -142,7 +142,9 @@ class MainActivity : FlutterActivity() {
                                     when (previous) {
                                         "xray" -> KingVpnService.instance?.stopForEngineHandoff()
                                         "wireguard" -> kingWireGuardCore().disconnect()
-                                        "libbox" -> stopService(Intent(this, com.qusadprod.sing_box.service.SingBoxVpnService::class.java))
+                                        "libbox" -> check(KingVpnEngineCoordinator.stopLibboxAndRelease(this, timeoutMs)) {
+                                                "libbox TUN handoff timed out"
+                                            }
                                     }
                                 }
                                 val acquired = KingVpnEngineCoordinator.acquire(engine, timeoutMs)

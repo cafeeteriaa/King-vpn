@@ -692,7 +692,12 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
         }
         if (!isCurrent(myAttempt)) return false;
         if ("libbox".equals(KingVpnEngineCoordinator.currentOwner())) {
-            stopService(new Intent(this, com.qusadprod.sing_box.service.SingBoxVpnService.class));
+            long waitMs = Math.max(0L, TimeUnit.NANOSECONDS.toMillis(deadline - System.nanoTime()));
+            if (!KingVpnEngineCoordinator.stopLibboxAndRelease(this, waitMs)) {
+                lastError = "libbox TUN handoff timed out before Xray start";
+                Log.e(TAG, lastError);
+                return false;
+            }
         }
         if ("wireguard".equals(KingVpnEngineCoordinator.currentOwner())) {
             try {

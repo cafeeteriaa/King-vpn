@@ -64,7 +64,21 @@ def main():
     check = gradle.read_text(encoding="utf-8")
     for item in (f'classpath("com.android.tools.build:gradle:{AGP_VERSION}")', f'val kotlinVersion = "{KOTLIN_VERSION}"', f"compileSdk = {COMPILE_SDK}", "minSdk = 24", *MIRRORS):
         if item not in check: raise SystemExit(f"HARD FAIL: Gradle patch verification missing {item}")
-    print("OK: libbox Gradle aligned; minSdk 24 retained")
+    state_file = root / "android" / "src" / "main" / "kotlin" / "com" / "qusadprod" / "sing_box" / "core" / "ServiceState.kt"
+    if not state_file.is_file():
+        raise SystemExit(f"HARD FAIL: missing libbox ServiceState API: {state_file}")
+    state_source = state_file.read_text(encoding="utf-8")
+    for private_decl, public_decl in (
+        ("internal enum class ServiceStatus", "enum class ServiceStatus"),
+        ("internal data class ServiceSnapshot", "data class ServiceSnapshot"),
+        ("internal object ServiceState", "object ServiceState"),
+    ):
+        if private_decl in state_source:
+            state_source = state_source.replace(private_decl, public_decl, 1)
+        elif public_decl not in state_source:
+            raise SystemExit(f"HARD FAIL: unexpected ServiceState declaration: {private_decl}")
+    state_file.write_text(state_source, encoding="utf-8")
+    print("OK: libbox Gradle aligned; minSdk 24 retained; native ServiceState exposed")
 
 if __name__ == "__main__":
     main()
