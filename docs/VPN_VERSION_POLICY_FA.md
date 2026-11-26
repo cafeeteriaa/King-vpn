@@ -39,7 +39,7 @@ Psiphon هنوز در KING VPN اجرایی نشده است؛ نسخهٔ جدی�
 adapter اولیهٔ KING با JNI API که در آخرین release رسمی `v3.1.20260814` بررسی شد، هم‌نام است. اما native library و pipeline ساخت هنوز کامل نیست. upstream در همین release مقدار Go در `go.mod` را `1.25.0` و Makefile را `1.24.2` قرار داده است؛ تا رفع reproducible این ناسازگاری، نباید موتور عملیاتی اعلام شود.
 
 ### sing-box
-Core `v1.14.4` آخرین release پایدار رسمی است. اما artifact اندروید جدیدتر با tag `libbox-v1.14.4-lx.25` منتشر شده است. pipeline KING باید properties را به همان artifact و SHA-256 رسمی تغییر دهد؛ استفاده از AAR قبلی با همان شمارهٔ core ولی artifact قدیمی‌تر، با قانون «آخرین نسخه» سازگار نیست.
+Core `v1.14.4` آخرین release پایدار رسمی است. اما artifact اندروید جدیدتر با tag `libbox-v1.14.4-lx.25` منتشر شده است. اسکریپت build در PR63 اکنون properties را به همان artifact و SHA-256 رسمی بازنویسی می‌کند؛ CI باید ثابت کند Gradle واقعاً همین artifact را دریافت و hash آن را تأیید می‌کند.
 
 ### WireGuard و Xray
 - WireGuard موجود در PR58 حفظ می‌شود؛ dependency اندروید `com.wireguard.android:tunnel:1.0.20260102` در Maven Central آخرین نسخهٔ بررسی‌شده است.
@@ -53,3 +53,4 @@ Core `v1.14.4` آخرین release پایدار رسمی است. اما artifact 
 - https://github.com/QUSAD-prod/sing_box/releases
 - https://central.sonatype.com/artifact/com.wireguard.android/tunnel
 - https://github.com/XTLS/Xray-core/releases
+- https://pub.dev/packages/flutter_v2ray_client/versions
