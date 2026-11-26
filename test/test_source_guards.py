@@ -2690,5 +2690,17 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn('out.length >= 8', body)
 
 
+    def test_wireguard_profile_parser_validates_key_length_and_allowed_ip_prefix(self):
+        source = (ROOT / 'lib' / 'king_engine_sources.dart').read_text(encoding='utf-8')
+        start = source.index('bool _isWireGuardProfile(String value)')
+        end = source.index('bool _containsAmneziaParameters', start)
+        parser = source[start:end]
+        self.assertIn('base64.decode(base64.normalize(value)).length == 32', parser)
+        self.assertIn('InternetAddress.tryParse(parts[0])', parser)
+        self.assertIn('prefix > maxPrefix', parser)
+        self.assertIn('_isWireGuardKey(privateKey)', parser)
+        self.assertIn('_isWireGuardKey(publicKey)', parser)
+
+
 if __name__ == '__main__':
     unittest.main()
