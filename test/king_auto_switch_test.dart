@@ -329,7 +329,7 @@ void main() {
 
     test('isolates failed sources and retains healthy Hysteria2 profiles', () async {
       final sync = KingServerSourceSync(fetchText: (url) async {
-        if (url.contains('parsabrg')) throw StateError('temporary outage');
+        if (url.contains('tendream')) throw StateError('temporary outage');
         return 'hy2://token@example.org:443';
       });
       final result = await sync.refresh(KingEngineId.hysteria2);
