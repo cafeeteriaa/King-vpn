@@ -102,7 +102,7 @@ void main() {
     test('requires data-plane proof, not only core CONNECTED', () async {
       final coordinator = KingVpnEngineCoordinator();
       final adapter = FakeEngineAdapter(
-        descriptor('psiphon'),
+        descriptor('hysteria2'),
         health: const KingEngineHealth(
           coreConnected: true,
           dataPlaneVerified: false,
