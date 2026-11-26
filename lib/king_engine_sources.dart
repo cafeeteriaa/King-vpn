@@ -153,7 +153,7 @@ class KingServerPayloadParser {
     if (engineId == 'hysteria2' || engineId == 'sing_box') {
       final hysteriaProfiles = <KingImportedServerProfile>[];
       final hysteriaSeen = <String>{};
-      for (final line in value.split(RegExp(r'[\\r\\n]+'))) {
+      for (final line in value.split(RegExp(r'[\r\n]+'))) {
         final item = line.trim();
         if (item.isEmpty || item.startsWith('#') || item.startsWith(';')) continue;
         final uri = Uri.tryParse(item);
