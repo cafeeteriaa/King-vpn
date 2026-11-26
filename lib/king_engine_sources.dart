@@ -245,7 +245,7 @@ class KingServerPayloadParser {
 
   bool _isOpenVpnProfile(String value) {
     final lines = value
-        .split(RegExp(r'[\\r\\n]+'))
+        .split(RegExp(r'[\r\n]+'))
         .map((line) => line.trim())
         .where((line) => line.isNotEmpty && !line.startsWith('#') && !line.startsWith(';'))
         .toList(growable: false);
@@ -254,12 +254,12 @@ class KingServerPayloadParser {
       return normalized == 'client' || normalized == 'tls-client';
     });
     final hasRemote = lines.any((line) {
-      final parts = line.split(RegExp(r'\\s+'));
+      final parts = line.split(RegExp(r'\s+'));
       if (parts.length < 3 || parts[0].toLowerCase() != 'remote') return false;
       final host = parts[1];
       final port = int.tryParse(parts[2]);
       return host.isNotEmpty &&
-          !host.contains(RegExp(r'[\\s/@]')) &&
+          !host.contains(RegExp(r'[\s/@]')) &&
           port != null && port > 0 && port <= 65535;
     });
     final transports = <String>{
@@ -267,7 +267,7 @@ class KingServerPayloadParser {
       'udp-client', 'tcp-client',
     };
     final hasTransport = lines.any((line) {
-      final parts = line.split(RegExp(r'\\s+'));
+      final parts = line.split(RegExp(r'\s+'));
       return parts.length >= 2 &&
           parts[0].toLowerCase() == 'proto' &&
           transports.contains(parts[1].toLowerCase());
