@@ -3079,8 +3079,6 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('shouldAbort: () => stopFlag || !sheetOpen || nationalMode != scanNationalMode,', sheet[national_save:])
 
 
-if __name__ == '__main__':
-    unittest.main()
 
 class WireGuardIntegrationGuards(unittest.TestCase):
     @classmethod
@@ -3131,3 +3129,6 @@ class WireGuardIntegrationGuards(unittest.TestCase):
         self.assertIn("com.wireguard.android:tunnel:1.0.20260102", self.prepare)
         self.assertIn("coreLibraryDesugaring", self.prepare)
         self.assertIn("isCoreLibraryDesugaringEnabled", self.prepare)
+
+if __name__ == '__main__':
+    unittest.main()
