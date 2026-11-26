@@ -15,6 +15,20 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn("personalFolderServers(max:", source)
         self.assertNotIn("out.length >= max", source)
 
+    def test_personal_folder_mutations_are_serialized(self):
+        folder = (ROOT / "lib" / "personal_folder.dart").read_text(encoding="utf-8")
+        self.assertIn("Future<void> _personalMutationQueue", folder)
+        self.assertIn("_serializePersonalMutation", folder)
+        for signature in (
+            "Future<void> loadPersonalFolder()",
+            "Future<void> setPersonalLastGood(String link)",
+            "Future<void> removeFromPersonalFolder(String link)",
+            "Future<int> addToPersonalFolder(Iterable<String> links)",
+        ):
+            start = folder.index(signature)
+            end = folder.find("\n}", start)
+            self.assertIn("_serializePersonalMutation", folder[start:end + 2])
+
     def test_auto_scan_sheet_forwards_live_vpn_guards(self):
         source = (ROOT / 'lib' / 'auto_scanners.dart').read_text(encoding='utf-8')
         start = source.index('Future<void> autoScanSheet(')
