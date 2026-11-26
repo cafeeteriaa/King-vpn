@@ -2359,7 +2359,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn('want: 50', body)
         self.assertNotIn('Duration(seconds: 5)', body)
         self.assertNotIn('address.type != InternetAddressType.IPv4', body)
-        self.assertIn('return const <String>[];', body)
+        self.assertIn('return out;', body)
 
     def test_nat_ip_scan_only_applies_explicit_hit_and_time_limits(self):
         source = (ROOT / 'lib' / 'nat_ip_scan.dart').read_text(encoding='utf-8')
