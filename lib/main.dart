@@ -8107,6 +8107,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         r = 'settling<25s';
       } else if (rechecking) {
         r = 'rechecking=1';
+      }
       final now = DateTime.now();
       if (r == _sbLast && now.difference(_sbAt) < const Duration(seconds: 90)) {
         return;
