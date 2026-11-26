@@ -736,6 +736,7 @@ void natCursorAdvance(Server s, int n) {
   if (n <= 0) return;
   final k = _natCk(s);
   _natCursor[k] = (_natCursor[k] ?? 0) + n;
+  natSaveSoon();
 }
 
 Duration natBudget({bool full = false}) {
@@ -1597,6 +1598,7 @@ Future<void> natSavePersisted() async {
           'd': natDimWins,
           'g': _natGenVer,
           'n': natVarNormal, // NORMALCACHE: پایدار بین session‌ها
+          'c': _natCursor, // persist exact per-server matrix progress across app restarts
         }));
   } catch (e, stk) {
     logError(e, stk);
@@ -1622,6 +1624,13 @@ Future<void> natLoadPersisted() async {
     (j['v'] as Map).forEach((k, v) => natVar['$k'] = (v as num).toInt());
     (j['w'] as Map).forEach((k, v) => natWins['$k'] = (v as num).toInt());
     _natWinsVer++; // TOPWIN
+    final savedCursors = j['c'];
+    if (savedCursors is Map) {
+      _natCursor.clear();
+      savedCursors.forEach((key, value) {
+        if (value is num && value >= 0) _natCursor[key.toString()] = value.toInt();
+      });
+    }
     final d = j['d'];
     if (d is Map) {
       d.forEach((k, v) => natDimWins['$k'] = (v as num).toInt());
@@ -1642,9 +1651,6 @@ Future<void> natLoadPersisted() async {
           }
         }
       });
-      while (natVarNormal.length > 3000) {
-        natVarNormal.remove(natVarNormal.keys.first);
-      }
     }
     if (((j['g'] ?? 0) as num).toInt() != _natGenVer) {
       natVar.removeWhere((k, v) => v >= _natBaseCount);
