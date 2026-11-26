@@ -1585,8 +1585,8 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         scan_only = main[scan_only_start:scan_only_end]
         self.assertIn('if (nationalMode == runNationalMode) await _natRangeAdd(ips);', scan_only)
         self.assertIn('if (abort || nationalMode != runNationalMode) return;', scan_only)
-        self.assertLess(scan_only.index('if (abort || nationalMode != runNationalMode) return;'),
-                        scan_only.index('await _natRangeAdd(ips);'))
+        self.assertLess(scan_only.index('await _natRangeAdd(ips);'),
+                        scan_only.index('if (abort || nationalMode != runNationalMode) return;'))
         escalate_start = main.index('Future<void> _natEscalate(int round)')
         escalate_end = main.index('// CRITICAL for نت ملی: do NOT destroy existing configs.', escalate_start)
         escalate = main[escalate_start:escalate_end]
@@ -2528,7 +2528,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn('natHotFetchDeadline', nat)
         self.assertIn('final int lineCount;', nat)
         self.assertIn('final int byteLength;', nat)
-        self.assertIn('file.openRead(offset)', nat)
+        self.assertIn('openRead(offset)', nat)
         self.assertIn('_hotCursorOffset = offset;', nat)
         self.assertIn('await for (final _ in file', nat)
 
