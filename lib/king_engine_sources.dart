@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -351,6 +352,70 @@ class KingServerSourceSync {
       profiles: List.unmodifiable(profiles),
       failures: List.unmodifiable(failures),
     );
+  }
+}
+
+
+/// Schedules refreshes at the fastest cadence explicitly published by the
+/// sources for each engine. Unknown cadences are never guessed. Call
+/// refreshNow once on app startup, then start periodic refreshes.
+class KingServerSourceRefreshScheduler {
+  KingServerSourceRefreshScheduler({
+    required this.sync,
+    required this.onResult,
+  });
+
+  final KingServerSourceSync sync;
+  final Future<void> Function(KingServerSyncResult result) onResult;
+  final Map<String, Timer> _timers = {};
+  final Map<String, Future<KingServerSyncResult>> _inFlight = {};
+  bool _disposed = false;
+
+  void start({Iterable<String>? engineIds}) {
+    if (_disposed) throw StateError('Refresh scheduler is disposed');
+    final ids = engineIds ??
+        KingEngineServerSourceCatalog.online.expand((s) => s.engineIds).toSet();
+    for (final engineId in ids) {
+      final intervals = KingEngineServerSourceCatalog.forEngine(engineId)
+          .map(_intervalFor)
+          .whereType<Duration>()
+          .toList(growable: false);
+      if (intervals.isEmpty || _timers.containsKey(engineId)) continue;
+      intervals.sort((a, b) => a.compareTo(b));
+      final interval = intervals.first;
+      _timers[engineId] = Timer.periodic(interval, (_) {
+        unawaited(refreshNow(engineId).then(onResult).catchError((Object _) {}));
+      });
+    }
+  }
+
+  Future<KingServerSyncResult> refreshNow(String engineId) {
+    if (_disposed) {
+      return Future.error(StateError('Refresh scheduler is disposed'));
+    }
+    final active = _inFlight[engineId];
+    if (active != null) return active;
+    late final Future<KingServerSyncResult> tracked;
+    tracked = sync.refresh(engineId).whenComplete(() {
+      if (identical(_inFlight[engineId], tracked)) _inFlight.remove(engineId);
+    });
+    _inFlight[engineId] = tracked;
+    return tracked;
+  }
+
+  Duration? _intervalFor(KingEngineServerSource source) => switch (source.updateCadence) {
+    'hourly' => const Duration(hours: 1),
+    'daily' => const Duration(days: 1),
+    _ => null,
+  };
+
+  void dispose() {
+    if (_disposed) return;
+    _disposed = true;
+    for (final timer in _timers.values) {
+      timer.cancel();
+    }
+    _timers.clear();
   }
 }
 
