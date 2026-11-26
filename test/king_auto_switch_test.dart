@@ -348,6 +348,17 @@ void main() {
           KingServerConfigFormat.socksOrHttpProxy);
     });
 
+    test('parses Hysteria 2 share links with auth, host and port', () {
+      final profiles = parser.parse(
+        engineId: KingEngineId.hysteria2,
+        payload: 'hy2://token@example.org:443?sni=example.org',
+        sourceId: 'fixture',
+      );
+      expect(profiles, hasLength(1));
+      expect(profiles.single.format, KingServerConfigFormat.hysteria2Uri);
+      expect(profiles.single.raw, 'hy2://token@example.org:443?sni=example.org');
+    });
+
     test('isolates failed sources and retains healthy Hysteria2 profiles', () async {
       final sync = KingServerSourceSync(fetchText: (url) async {
         if (url.contains('tendream')) throw StateError('temporary outage');
