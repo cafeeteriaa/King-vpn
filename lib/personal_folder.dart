@@ -1,155 +1,201 @@
-// پوشه‌ی «سرورهای شخصی»
-// ورودی‌ها در ژورنال دیسکی نگهداری می‌شوند؛ سقف ثابت تعداد/نمایش/پینگ نداریم.
-// این مسیر مستقل از موجودی‌های Online و Offline باقی می‌ماند.
+// پوشهٔ سرورهای شخصی — مستقل از Online و Offline
+// لینک‌های واردشده، دستی، تولیدشده با Cloudflare و سرورهای شخصی دیگر
+// در فایل JSONL اختصاصی نگهداری می‌شوند؛ ظرفیت مصنوعی یا سقف تعداد وجود ندارد.
+
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
 import 'package:path_provider/path_provider.dart';
+
 import 'prefs_store.dart';
 import 'errjournal.dart';
 
 const String _kPersonalFolderPref = 'personal_folder_v1';
 const String _kPersonalLastGoodPref = 'personal_last_good_v1';
-const String _kPersonalJournalName = 'personal_folder.jsonl';
 
-/// Cache compatibility for existing UI and connection code. The durable
-/// source of truth is the append-only disk journal, not SharedPreferences.
+/// حافظهٔ سریع برای UI و منطق اتصال؛ منبع پایدار، ژورنال دیسکی است.
 List<String> personalFolderCache = <String>[];
+final Set<String> _personalFolderIndex = <String>{};
 String personalLastGood = '';
 
-Future<void>? _personalLoadTask;
-Future<void> _personalWriteQueue = Future<void>.value();
+Future<void> _personalFolderWriteQueue = Future<void>.value();
+Future<void>? _personalFolderLoadTask;
+bool _personalFolderLoaded = false;
 
-Future<File> _personalJournal() async {
-  final dir = await getApplicationSupportDirectory();
+Future<T> _serializePersonalMutation<T>(Future<T> Function() action) {
+  final operation = _personalFolderWriteQueue.then<T>((_) => action());
+  _personalFolderWriteQueue = operation.then<void>(
+    (_) {},
+    onError: (Object error, StackTrace stackTrace) {},
+  );
+  return operation;
+}
+
+Future<Directory> _personalFolderDirectory() async {
+  final root = await getApplicationSupportDirectory();
+  final dir = Directory('${root.path}/KingVPN/PersonalServers');
   if (!await dir.exists()) await dir.create(recursive: true);
-  return File('${dir.path}/$_kPersonalJournalName');
+  return dir;
 }
 
-Future<void> _enqueuePersonalWrite(Future<void> Function() action) {
-  final previous = _personalWriteQueue;
-  final release = Completer<void>();
-  _personalWriteQueue = release.future;
-  return () async {
-    await previous;
-    try {
-      await action();
-    } finally {
-      release.complete();
-    }
-  }();
-}
+Future<File> _personalFolderJournal() async =>
+    File('${(await _personalFolderDirectory()).path}/personal_servers.jsonl');
 
-/// Load journal incrementally, recovering from malformed/torn individual rows.
-/// Legacy SharedPreferences data is migrated once and then its old key is removed.
-Future<void> loadPersonalFolder() => _personalLoadTask ??= _loadPersonalFolder();
-
-Future<void> _loadPersonalFolder() async {
+Future<void> _appendPersonalEventsUnlocked(
+  Iterable<Map<String, Object?>> events,
+) async {
+  final file = await _personalFolderJournal();
+  final lockFile = await File('${file.path}.lock').open(mode: FileMode.append);
+  var locked = false;
   try {
-    final journal = await _personalJournal();
-    final loaded = <String>[];
-    final seen = <String>{};
-    if (await journal.exists() && await journal.length() > 0) {
-      await for (final line in journal
-          .openRead()
-          .transform(utf8.decoder)
-          .transform(const LineSplitter())) {
-        try {
-          final row = jsonDecode(line);
-          if (row is! Map || row['v'] != 1 || row['link'] is! String) continue;
-          final link = (row['link'] as String).trim();
-          if (link.isEmpty) continue;
-          if (row['op'] == 'add') {
-            if (seen.add(link)) loaded.add(link);
-          } else if (row['op'] == 'remove') {
-            if (seen.remove(link)) loaded.remove(link);
-          }
-        } catch (_) {
-          // Skip a damaged record; later journal entries remain readable.
-        }
+    await lockFile.lock(FileLock.exclusive);
+    locked = true;
+    final out = await file.open(mode: FileMode.append);
+    try {
+      for (final event in events) {
+        await out.writeString(jsonEncode(<String, Object>{
+          'v': 1,
+          ...event,
+          'at': DateTime.now().toUtc().toIso8601String(),
+        }) + '\n');
       }
-    } else {
-      final prefs = await SharedPreferences.getInstance();
-      final legacy = prefs.getStringList(_kPersonalFolderPref) ?? const <String>[];
-      if (legacy.isNotEmpty) {
-        final unique = <String>{};
-        final rows = <String>[];
-        for (final raw in legacy) {
-          final link = raw.trim();
-          if (link.isNotEmpty && unique.add(link)) {
-            loaded.add(link);
-            rows.add(jsonEncode(<String, Object>{'v': 1, 'op': 'add', 'link': link}));
-          }
-        }
-        if (rows.isNotEmpty) {
-          await journal.writeAsString('${rows.join('\n')}\n', flush: true);
-          await prefs.remove(_kPersonalFolderPref);
-        }
-      }
+      await out.flush();
+    } finally {
+      await out.close();
     }
-    personalFolderCache = loaded;
-    final prefs = await SharedPreferences.getInstance();
-    personalLastGood = prefs.getString(_kPersonalLastGoodPref) ?? '';
-  } catch (e, stk) {
-    errJournalAdd(e, kind: 'PERSONAL-FOLDER', st: stk);
+  } finally {
+    try {
+      if (locked) await lockFile.unlock();
+    } finally {
+      await lockFile.close();
+    }
   }
 }
 
-/// Record which personal server connected successfully.
+/// ژورنال را به‌صورت streaming replay می‌کند؛ خط ناقص/خراب فقط همان رکورد را رد می‌کند.
+Future<void> _replayPersonalJournal(File file) async {
+  await for (final line in file
+      .openRead()
+      .transform(utf8.decoder)
+      .transform(const LineSplitter())) {
+    try {
+      final decoded = jsonDecode(line);
+      if (decoded is! Map || decoded['v'] != 1) continue;
+      final op = decoded['op'];
+      final link = decoded['link'];
+      if (op is! String || link is! String || link.trim().isEmpty) continue;
+      final value = link.trim();
+      if (op == 'add') {
+        if (_personalFolderIndex.add(value)) personalFolderCache.add(value);
+      } else if (op == 'remove') {
+        if (_personalFolderIndex.remove(value)) {
+          personalFolderCache.remove(value);
+        }
+      }
+    } catch (e, stk) {
+      errJournalAdd(e, st: stk, kind: 'PERSONAL-FOLDER-ROW');
+    }
+  }
+}
+
+/// پوشه و آخرین سرور سالم را از ژورنال دیسکی می‌خواند و SharedPreferences قدیمی را مهاجرت می‌دهد.
+Future<void> loadPersonalFolder() {
+  if (_personalFolderLoaded) return Future<void>.value();
+  return _personalFolderLoadTask ??= _serializePersonalMutation(() async {
+    try {
+      personalFolderCache = <String>[];
+      _personalFolderIndex.clear();
+      final file = await _personalFolderJournal();
+      if (await file.exists()) await _replayPersonalJournal(file);
+
+      // One-time migration from the previous SharedPreferences string-list store.
+      final p = await SharedPreferences.getInstance();
+      final legacy = p.getStringList(_kPersonalFolderPref) ?? const <String>[];
+      final migrate = <String>[];
+      for (final raw in legacy) {
+        final value = raw.trim();
+        if (value.isNotEmpty && !_personalFolderIndex.contains(value) &&
+            !migrate.contains(value)) {
+          migrate.add(value);
+        }
+      }
+      if (migrate.isNotEmpty) {
+        await _appendPersonalEventsUnlocked([
+          for (final value in migrate) <String, Object?>{'op': 'add', 'link': value},
+        ]);
+        personalFolderCache.addAll(migrate);
+        _personalFolderIndex.addAll(migrate);
+      }
+      if (legacy.isNotEmpty) await p.remove(_kPersonalFolderPref);
+
+      final lg = p.getStringList(_kPersonalLastGoodPref) ?? const <String>[];
+      personalLastGood = lg.isEmpty ? '' : lg.first.trim();
+      _personalFolderLoaded = true;
+    } catch (e, stk) {
+      errJournalAdd(e, st: stk, kind: 'PERSONAL-FOLDER');
+      // Keep retry possible if storage could not be read.
+      _personalFolderLoaded = false;
+      rethrow;
+    }
+  });
+}
+
+/// ثبت می‌کند کدام سرور وصل شد.
 Future<void> setPersonalLastGood(String link) async {
   personalLastGood = link.trim();
   try {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_kPersonalLastGoodPref, personalLastGood);
+    final p = await SharedPreferences.getInstance();
+    await p.setStringList(_kPersonalLastGoodPref, [personalLastGood]);
   } catch (e, stk) {
-    errJournalAdd(e, kind: 'PERSONAL-FOLDER', st: stk);
+    errJournalAdd(e, st: stk, kind: 'PERSONAL-FOLDER');
   }
 }
 
-/// Remove one exact link without rewriting the entire inventory.
+/// یک لینک را از پوشه حذف می‌کند؛ حذف نیز به‌صورت رویداد پایدار ثبت می‌شود.
 Future<void> removeFromPersonalFolder(String link) async {
   await loadPersonalFolder();
-  final normalized = link.trim();
-  if (normalized.isEmpty) return;
+  final value = link.trim();
+  if (value.isEmpty) return;
   try {
-    final journal = await _personalJournal();
-    await _enqueuePersonalWrite(() async {
-      if (!personalFolderCache.contains(normalized)) return;
-      await journal.writeAsString(
-        jsonEncode(<String, Object>{'v': 1, 'op': 'remove', 'link': normalized}) + '\n',
-        mode: FileMode.append,
-        flush: true,
-      );
-      personalFolderCache.remove(normalized);
+    await _serializePersonalMutation(() async {
+      if (!_personalFolderIndex.contains(value)) return;
+      await _appendPersonalEventsUnlocked([
+        <String, Object?>{'op': 'remove', 'link': value},
+      ]);
+      _personalFolderIndex.remove(value);
+      personalFolderCache.remove(value);
     });
   } catch (e, stk) {
-    errJournalAdd(e, kind: 'PERSONAL-FOLDER', st: stk);
+    errJournalAdd(e, st: stk, kind: 'PERSONAL-FOLDER');
   }
 }
 
-/// Add every distinct non-empty link. No fixed inventory cap or silent truncation.
+/// لینک‌ها را بدون سقف مصنوعی اضافه می‌کند؛ تکراری‌ها فقط یک‌بار ذخیره می‌شوند.
 Future<int> addToPersonalFolder(Iterable<String> links) async {
   await loadPersonalFolder();
-  final addedLinks = <String>[];
-  try {
-    final journal = await _personalJournal();
-    await _enqueuePersonalWrite(() async {
-      final seen = personalFolderCache.toSet();
-      for (final raw in links) {
-        final link = raw.trim();
-        if (link.isNotEmpty && seen.add(link)) addedLinks.add(link);
+  return _serializePersonalMutation(() async {
+    final added = <String>[];
+    final batchSeen = <String>{};
+    for (final raw in links) {
+      final value = raw.trim();
+      if (value.isEmpty || _personalFolderIndex.contains(value) ||
+          !batchSeen.add(value)) {
+        continue;
       }
-      if (addedLinks.isEmpty) return;
-      final payload = '${addedLinks.map((link) => jsonEncode(
-        <String, Object>{'v': 1, 'op': 'add', 'link': link},
-      )).join('\n')}\n';
-      await journal.writeAsString(payload, mode: FileMode.append, flush: true);
-      personalFolderCache.addAll(addedLinks);
-    });
-  } catch (e, stk) {
-    errJournalAdd(e, kind: 'PERSONAL-FOLDER', st: stk);
-    return 0;
-  }
-  return addedLinks.length;
+      added.add(value);
+    }
+    if (added.isEmpty) return 0;
+    try {
+      await _appendPersonalEventsUnlocked([
+        for (final value in added) <String, Object?>{'op': 'add', 'link': value},
+      ]);
+      personalFolderCache.addAll(added);
+      _personalFolderIndex.addAll(added);
+      return added.length;
+    } catch (e, stk) {
+      errJournalAdd(e, st: stk, kind: 'PERSONAL-FOLDER');
+      return 0;
+    }
+  });
 }
