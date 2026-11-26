@@ -1212,37 +1212,51 @@ String _natFrag(String cfg, int fi,
     return '$na-$nb';
   }
 
-  final lengthRange = jitter(p[0], 6);
-  final intervalRange = jitter(p[1], 3);
-
   try {
     final j = jsonDecode(cfg);
     if (j is! Map<String, dynamic>) return cfg;
     final outs = (j['outbounds'] as List?) ?? <dynamic>[];
-    final proxy = _natProxyOut(j);
-    if (proxy == null) return cfg;
-    final st = proxy['streamSettings'];
-    if (st is! Map) return cfg;
-    final sec = (st['security'] ?? 'none').toString();
-    if (sec != 'tls' && sec != 'reality') return cfg;
-    outs.removeWhere((o) => o is Map && o['tag'] == 'frag-out');
-    final set = <String, dynamic>{
+    final fragmentTargets = <Map>[];
+    for (final outbound in outs) {
+      if (outbound is! Map ||
+          !const {'vmess', 'vless', 'trojan', 'shadowsocks'}
+              .contains(outbound['protocol'])) {
+        continue;
+      }
+      final stream = outbound['streamSettings'];
+      if (stream is! Map) continue;
+      final security = (stream['security'] ?? 'none').toString();
+      if (security == 'tls' || security == 'reality') {
+        fragmentTargets.add(outbound);
+      }
+    }
+    if (fragmentTargets.isEmpty) return cfg;
+
+    // A single app-owned fragmentation outbound is shared by every eligible
+    // TLS/REALITY proxy in multi-hop profiles; preserve all unrelated outbounds.
+    outs.removeWhere((outbound) => outbound is Map && outbound['tag'] == 'frag-out');
+    final settings = <String, dynamic>{
       'fragment': {
         'packets': p[2],
-        'length': lengthRange,
-        'interval': intervalRange,
+        'length': jitter(p[0], 6),
+        'interval': jitter(p[1], 3),
       }
     };
     if (noise) {
       final nz = _natNoises[noiseK % _natNoises.length];
-      set['noises'] = [
+      settings['noises'] = [
         {'type': 'rand', 'packet': nz[0], 'delay': nz[1]}
       ];
     }
-    outs.add({'tag': 'frag-out', 'protocol': 'freedom', 'settings': set});
-    final so = st['sockopt'] is Map ? st['sockopt'] as Map : <String, dynamic>{};
-    so['dialerProxy'] = 'frag-out';
-    st['sockopt'] = so;
+    outs.add({'tag': 'frag-out', 'protocol': 'freedom', 'settings': settings});
+    for (final outbound in fragmentTargets) {
+      final stream = outbound['streamSettings'] as Map;
+      final sockopt = stream['sockopt'] is Map
+          ? stream['sockopt'] as Map
+          : <String, dynamic>{};
+      sockopt['dialerProxy'] = 'frag-out';
+      stream['sockopt'] = sockopt;
+    }
     j['outbounds'] = outs;
     return jsonEncode(j);
   } catch (e, stk) {
@@ -1400,7 +1414,7 @@ String _natSmartSni(String cfg, Server s, {bool forceAll = false}) {
       if (tls is! Map) continue;
       if (tlsHasEch(tls)) continue;
       tls['serverName'] = 'cdnjs.cloudflare.com';
-      tls['allowInsecure'] = true;
+      // Keep certificate verification enabled; an SNI trial must not weaken TLS.
     }
     return jsonEncode(j);
   } catch (_) { return cfg; }
