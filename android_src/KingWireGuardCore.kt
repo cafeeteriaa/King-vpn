@@ -36,7 +36,9 @@ class KingWireGuardCore private constructor(context: Context) {
             Config.parse(it)
         }
         if (KingVpnEngineCoordinator.currentOwner() == "xray") {
-            KingVpnService.instance?.stopForEngineHandoff()
+            check(KingVpnService.instance?.stopForEngineHandoff(30_000L) == true) {
+                "Xray did not confirm native shutdown and TUN release before WireGuard start"
+            }
         }
         if (KingVpnEngineCoordinator.currentOwner() == "libbox") {
             check(KingVpnEngineCoordinator.stopLibboxAndRelease(appContext, 30_000L)) {
