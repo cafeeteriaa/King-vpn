@@ -49,13 +49,17 @@ def install_go_runtime_merge(gradle_text):
     marker = "val libboxProperties = Properties().apply {"
     if "prepareLibboxGoRuntimeJar" in gradle_text:
         return gradle_text
-    zip_imports = (
-        "import java.util.zip.ZipEntry\n"
-        "import java.util.zip.ZipFile\n"
-        "import java.util.zip.ZipOutputStream\n"
+    required_imports = (
+        "import java.util.zip.ZipEntry",
+        "import java.util.zip.ZipFile",
+        "import java.util.zip.ZipOutputStream",
     )
-    if "import java.util.zip.ZipFile" not in gradle_text:
-        gradle_text = zip_imports + gradle_text
+    missing_imports = [
+        item for item in required_imports
+        if not re.search(r"(?m)^" + re.escape(item) + r"\\s*$", gradle_text)
+    ]
+    if missing_imports:
+        gradle_text = "\\n".join(missing_imports) + "\\n" + gradle_text
     task = r'''
 // Both libbox and the existing Xray/V2Ray AAR ship gomobile's shared
 // Go runtime bridge. Keep the bridge already supplied by libv2ray and
@@ -117,6 +121,7 @@ def main():
     gradle = root / "android" / "build.gradle.kts"
     if not gradle.is_file(): raise SystemExit(f"HARD FAIL: missing {gradle}")
     text = gradle.read_text(encoding="utf-8")
+    text = text.replace("current = URL(current, location)", "current = current.toURI().resolve(location).toURL()")
     if "minSdk = 24" not in text:
         raise SystemExit("HARD FAIL: plugin minSdk changed; preserve API 24 support")
     text, a = re.subn(r'classpath\("com\.android\.tools\.build:gradle:[^"]+"\)', f'classpath("com.android.tools.build:gradle:{AGP_VERSION}")', text, count=1)
