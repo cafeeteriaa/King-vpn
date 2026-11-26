@@ -103,6 +103,15 @@ class KingServerPayloadParser {
     final decoded = _decodeIfBase64(text);
     final value = decoded.trim();
 
+    if (engineId == 'openvpn') {
+      final directoryProfiles = KingVpnGateCsvParser().parse(
+        payload: value,
+        sourceId: sourceId,
+        isValidConfig: _isOpenVpnProfile,
+      );
+      if (directoryProfiles.isNotEmpty) return directoryProfiles;
+    }
+
     final jsonProfiles = _parseJson(engineId, value, sourceId);
     if (jsonProfiles.isNotEmpty) return jsonProfiles;
 
@@ -327,6 +336,120 @@ class KingServerPayloadParser {
   }
 }
 
+/// Parses the official VPN Gate CSV directory into independently validated
+/// OpenVPN profiles. The directory is a relay catalogue, not a VPN engine.
+/// CSV quoting is handled explicitly because provider fields may contain commas.
+class KingVpnGateCsvParser {
+  List<KingImportedServerProfile> parse({
+    required String payload,
+    required String sourceId,
+    required bool Function(String config) isValidConfig,
+  }) {
+    final rows = _decodeCsv(payload);
+    if (rows.isEmpty) return const [];
+    final headerIndex = rows.indexWhere((row) => row.any(
+      (cell) => cell.replaceFirst(RegExp(r'^\\uFEFF'), '')
+          .replaceFirst(RegExp(r'^#'), '').trim().toLowerCase() == 'hostname',
+    ));
+    if (headerIndex < 0) return const [];
+
+    final headers = rows[headerIndex].map((cell) => cell
+        .replaceFirst(RegExp(r'^\\uFEFF'), '')
+        .replaceFirst(RegExp(r'^#'), '')
+        .trim()).toList(growable: false);
+    final indexes = <String, int>{
+      for (var i = 0; i < headers.length; i++) headers[i].toLowerCase(): i,
+    };
+    final configColumns = indexes.entries
+        .where((entry) => entry.key.startsWith('openvpn_configdata_base64'))
+        .map((entry) => entry.value)
+        .toList(growable: false);
+    if (configColumns.isEmpty) return const [];
+
+    String field(List<String> row, String name) {
+      final index = indexes[name];
+      return index == null || index >= row.length ? '' : row[index].trim();
+    }
+
+    final profiles = <KingImportedServerProfile>[];
+    final seen = <String>{};
+    for (final row in rows.skip(headerIndex + 1)) {
+      if (row.isEmpty || row.every((cell) => cell.trim().isEmpty)) continue;
+      final host = field(row, 'hostname');
+      final ip = field(row, 'ip');
+      for (final column in configColumns) {
+        if (column >= row.length) continue;
+        final encoded = row[column].trim();
+        if (encoded.isEmpty) continue;
+        try {
+          final normalized = base64.normalize(
+            encoded.replaceAll('-', '+').replaceAll('_', '/'),
+          );
+          final config = utf8.decode(base64.decode(normalized));
+          if (!isValidConfig(config)) continue;
+          final fingerprint = config.trim();
+          if (!seen.add(fingerprint)) continue;
+          final label = [host, ip].where((part) => part.isNotEmpty).join(' · ');
+          profiles.add(KingImportedServerProfile(
+            engineId: 'openvpn',
+            format: KingServerConfigFormat.openVpnProfile,
+            raw: config,
+            sourceId: sourceId,
+            name: label.isEmpty ? 'VPN Gate OpenVPN relay' : 'VPN Gate · $label',
+          ));
+        } on FormatException {
+          continue;
+        }
+      }
+    }
+    return List<KingImportedServerProfile>.unmodifiable(profiles);
+  }
+
+  List<List<String>> _decodeCsv(String input) {
+    final rows = <List<String>>[];
+    var row = <String>[];
+    final cell = StringBuffer();
+    var quoted = false;
+    final text = input.replaceFirst(RegExp(r'^\\uFEFF'), '');
+    for (var i = 0; i < text.length; i++) {
+      final char = text[i];
+      if (quoted) {
+        if (char == '"') {
+          if (i + 1 < text.length && text[i + 1] == '"') {
+            cell.write('"');
+            i++;
+          } else {
+            quoted = false;
+          }
+        } else {
+          cell.write(char);
+        }
+        continue;
+      }
+      if (char == '"' && cell.isEmpty) {
+        quoted = true;
+      } else if (char == ',') {
+        row.add(cell.toString());
+        cell.clear();
+      } else if (char == '\\n' || char == '\\r') {
+        if (char == '\\r' && i + 1 < text.length && text[i + 1] == '\\n') i++;
+        row.add(cell.toString());
+        cell.clear();
+        rows.add(row);
+        row = <String>[];
+      } else {
+        cell.write(char);
+      }
+    }
+    if (quoted) throw const FormatException('Unterminated quoted CSV field');
+    if (cell.isNotEmpty || row.isNotEmpty) {
+      row.add(cell.toString());
+      rows.add(row);
+    }
+    return rows;
+  }
+}
+
 /// Fetches only HTTPS sources, keeps TLS verification enabled, and leaves
 /// source failures isolated so one dead feed cannot discard successful feeds.
 class KingHttpSourceFetcher {
@@ -536,6 +659,15 @@ class KingServerSourceRefreshScheduler {
 /// because its URL is reachable; its published formats must match.
 class KingEngineServerSourceCatalog {
   static const List<KingEngineServerSource> online = [
+    KingEngineServerSource(
+      id: 'vpn_gate_official_directory',
+      name: 'VPN Gate official relay directory',
+      url: 'https://www.vpngate.net/api/iphone/',
+      kind: KingServerSourceKind.publicSubscription,
+      formats: {KingServerConfigFormat.openVpnProfile},
+      engineIds: {'openvpn'},
+      notes: 'Official CSV directory; imports each valid UDP/TCP OpenVPN profile variant without treating the directory itself as a VPN engine.',
+    ),
     KingEngineServerSource(
       id: 'morpheusadam_hysteria2',
       name: 'morpheusadam v2ray-config',
