@@ -3,6 +3,7 @@ import 'network_health.dart';
 import 'king_local_ai.dart';
 import 'king_ai_console.dart';
 import 'king_chat_page.dart';
+import 'king_wireguard_page.dart';
 import 'king_ai_background.dart';
 import 'king_ai_owner_auth.dart';
 import 'king_command_safety.dart';
@@ -15928,6 +15929,11 @@ ListTile( // KINGEXTRAS row
           ),
           PopupMenuButton<String>(
             onSelected: (v) {
+              if (v == 'wireguard') {
+                Navigator.of(context).push(MaterialPageRoute<void>(
+                  builder: (_) => const KingWireGuardPage(),
+                ));
+              }
               if (v == 'kingchat') {
                 Navigator.of(context).push(MaterialPageRoute<void>(
                   builder: (_) => const KingChatPage(),
@@ -15977,6 +15983,7 @@ ListTile( // KINGEXTRAS row
             },
             itemBuilder: (_) => const [
               PopupMenuItem(value: 'apps', child: Text('برنامه‌های خارج از VPN')),
+              PopupMenuItem(value: 'wireguard', child: Text('هستهٔ مستقل WireGuard')),
               PopupMenuItem(value: 'kingchat', child: Text('گفت‌وگوی آزاد صوتی و متنی با کینگ')),
               PopupMenuItem(value: 'kingai', child: Text('هوش مصنوعی مهندس محلی')),
               PopupMenuItem(value: 'set', child: Text('تنظیمات تست')),
