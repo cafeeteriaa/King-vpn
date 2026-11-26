@@ -296,37 +296,76 @@ class KingServerPayloadParser {
   }
 
   bool _isWireGuardProfile(String value) {
-    final interface = RegExp(
-      r'^\s*\[Interface\]\s*(.*?)^(?=\s*\[|\s*$)', multiLine: true, caseSensitive: false, dotAll: true).firstMatch(value)?.group(1) ?? '';
-    final peer = RegExp(
-      r'^\s*\[Peer\]\s*(.*?)^(?=\s*\[|\s*$)', multiLine: true, caseSensitive: false, dotAll: true).firstMatch(value)?.group(1) ?? '';
-    final privateKey = RegExp(r'^\s*PrivateKey\s*=\s*([^\s#]+)', multiLine: true, caseSensitive: false)
-        .firstMatch(interface)?.group(1);
-    final publicKey = RegExp(r'^\s*PublicKey\s*=\s*([^\s#]+)', multiLine: true, caseSensitive: false)
-        .firstMatch(peer)?.group(1);
+    // Parse sections line-by-line. A multiline regex using \\s* at section
+    // boundaries can consume newlines and match an empty section body.
+    String? section;
+    final interfaceLines = <String>[];
+    final peerLines = <String>[];
+    for (final rawLine in value.split(RegExp(r'[\\r\\n]+'))) {
+      final line = rawLine.trim();
+      if (line.isEmpty || line.startsWith('#') || line.startsWith(';')) {
+        continue;
+      }
+      final header = RegExp(r'^\\[([^\\]]+)\\]$').firstMatch(line);
+      if (header != null) {
+        section = header.group(1)!.trim().toLowerCase();
+        continue;
+      }
+      if (section == 'interface') {
+        interfaceLines.add(line);
+      } else if (section == 'peer') {
+        peerLines.add(line);
+      }
+    }
+    final interface = interfaceLines.join('\\n');
+    final peer = peerLines.join('\\n');
+    final privateKey = RegExp(
+      r'^\\s*PrivateKey\\s*=\\s*([^\\s#;]+)',
+      multiLine: true,
+      caseSensitive: false,
+    ).firstMatch(interface)?.group(1);
+    final publicKey = RegExp(
+      r'^\\s*PublicKey\\s*=\\s*([^\\s#;]+)',
+      multiLine: true,
+      caseSensitive: false,
+    ).firstMatch(peer)?.group(1);
     final endpoint = RegExp(
-      r'^\s*Endpoint\s*=\s*(\[[0-9a-fA-F:]+\]|[^:\s]+):(\d{1,5})\s*$', multiLine: true, caseSensitive: false).firstMatch(peer);
+      r'^\\s*Endpoint\\s*=\\s*(\\[[0-9a-fA-F:]+\\]|[^:\\s]+):(\\d{1,5})\\s*(?:[#;].*)?$',
+      multiLine: true,
+      caseSensitive: false,
+    ).firstMatch(peer);
     final port = int.tryParse(endpoint?.group(2) ?? '');
-    final allowedIpLine = RegExp(r'^\s*AllowedIPs\s*=\s*([^\r\n#]+)', multiLine: true, caseSensitive: false)
-        .firstMatch(peer)?.group(1);
+    final allowedIpLine = RegExp(
+      r'^\\s*AllowedIPs\\s*=\\s*([^\\r\\n#;]+)',
+      multiLine: true,
+      caseSensitive: false,
+    ).firstMatch(peer)?.group(1);
 
-    if (interface.isEmpty || peer.isEmpty ||
-        !_isWireGuardKey(privateKey) || !_isWireGuardKey(publicKey) ||
-        endpoint == null || port == null || port < 1 || port > 65535 ||
-        allowedIpLine == null || allowedIpLine.trim().isEmpty) {
+    if (interfaceLines.isEmpty ||
+        peerLines.isEmpty ||
+        !_isWireGuardKey(privateKey) ||
+        !_isWireGuardKey(publicKey) ||
+        endpoint == null ||
+        port == null ||
+        port < 1 ||
+        port > 65535 ||
+        allowedIpLine == null ||
+        allowedIpLine.trim().isEmpty) {
       return false;
     }
 
-    final endpointHost = endpoint.group(1)!.replaceAll(RegExp(r'^\[|\]$'), '');
+    final endpointHost = endpoint.group(1)!.replaceAll(
+      RegExp(r'^\\[|\\]$'),
+      '',
+    );
     if (endpointHost.isEmpty ||
-        endpointHost.contains(RegExp(r'\s')) ||
+        endpointHost.contains(RegExp(r'\\s')) ||
         endpointHost.contains('/') ||
         endpointHost.contains('@')) {
       return false;
     }
 
     final allowedIps = allowedIpLine.split(',');
-    if (allowedIps.isEmpty) return false;
     for (final item in allowedIps) {
       final parts = item.trim().split('/');
       if (parts.length != 2) return false;
@@ -336,7 +375,7 @@ class KingServerPayloadParser {
       final maxPrefix = address.type == InternetAddressType.IPv4 ? 32 : 128;
       if (prefix < 0 || prefix > maxPrefix) return false;
     }
-    return true;
+    return allowedIps.isNotEmpty;
   }
 
   bool _isWireGuardKey(String? value) {
