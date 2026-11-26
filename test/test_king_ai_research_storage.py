@@ -23,6 +23,8 @@ class KingAiResearchStorageTests(unittest.TestCase):
         self.assertIn('openRead()', retrieve)
         self.assertIn('rankKingAiResearchMemoryStream', retrieve)
         self.assertIn('await for (final line in lines)', policy)
+        self.assertNotIn('clamp(1, 500)', policy)
+        self.assertNotIn('take(maxEntries', policy)
 
     def test_streaming_research_memory_usage_is_independent_of_history_size(self):
         policy = (ROOT / 'lib' / 'king_ai_research_policy.dart').read_text(encoding='utf-8')
