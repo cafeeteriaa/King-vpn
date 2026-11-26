@@ -1673,6 +1673,10 @@ const String _ipMemKey = 'natIpMem';
 const String _rangeKey = 'natRanges';
 const String _ipMemFileName = 'king_vpn_ip_inventory.jsonl';
 const String _domMemFileName = 'king_vpn_domain_inventory.jsonl';
+const String _natNationalIpMemKey = 'natNationalIpMem';
+const String _natNationalDomMemKey = 'natNationalDomMem';
+const String _natNationalIpMemFileName = 'king_vpn_national_ip_inventory.jsonl';
+const String _natNationalDomMemFileName = 'king_vpn_national_domain_inventory.jsonl';
 
 final List<Map<String, dynamic>> natIpMem = [];
 final Set<String> natIpDeadRun = {};
@@ -1751,6 +1755,76 @@ Future<List<Map<String, dynamic>>> _natMigrateLegacyInventory(
 }
 
 Set<String> natIpMemHosts() => {for (final e in natIpMem) '${e['ip']}'};
+
+// National Net has its own persistent IP/domain history. It never reads or
+// writes the global clean-IP inventory.
+final List<Map<String, dynamic>> natNationalIpMem = [];
+final List<Map<String, dynamic>> natNationalDomMem = [];
+
+Set<String> natNationalIpMemHosts() =>
+    {for (final entry in natNationalIpMem) '${entry['ip']}'};
+Set<String> natNationalDomMemHosts() =>
+    {for (final entry in natNationalDomMem) '${entry['h']}'};
+
+Future<void> natNationalIpMemLoad() async {
+  try {
+    final prefs = await SharedPreferences.getInstance();
+    final loaded = await _natMigrateLegacyInventory(
+        prefs, _natNationalIpMemKey, _natNationalIpMemFileName, 'ip');
+    natNationalIpMem
+      ..clear()
+      ..addAll(loaded);
+  } catch (e, stk) {
+    logError(e, stk);
+  }
+}
+
+Future<void> natNationalDomMemLoad() async {
+  try {
+    final prefs = await SharedPreferences.getInstance();
+    final loaded = await _natMigrateLegacyInventory(
+        prefs, _natNationalDomMemKey, _natNationalDomMemFileName, 'h');
+    natNationalDomMem
+      ..clear()
+      ..addAll(loaded);
+  } catch (e, stk) {
+    logError(e, stk);
+  }
+}
+
+Future<void> natNationalIpMemSave(String ip, int port) async {
+  final normalized = ip.trim();
+  if (InternetAddress.tryParse(normalized) == null || port < 1 || port > 65535) return;
+  final row = <String, dynamic>{
+    'ip': normalized,
+    'port': port,
+    't': DateTime.now().millisecondsSinceEpoch,
+  };
+  natNationalIpMem.removeWhere((e) => e['ip'] == normalized && e['port'] == port);
+  natNationalIpMem.insert(0, row);
+  try {
+    await _natAppendInventoryRecord(_natNationalIpMemFileName, row);
+  } catch (e, stk) {
+    logError(e, stk);
+  }
+}
+
+Future<void> natNationalDomMemSave(String host, int port) async {
+  final normalized = host.trim().toLowerCase();
+  if (normalized.isEmpty || port < 1 || port > 65535) return;
+  final row = <String, dynamic>{
+    'h': normalized,
+    'port': port,
+    't': DateTime.now().millisecondsSinceEpoch,
+  };
+  natNationalDomMem.removeWhere((e) => e['h'] == normalized && e['port'] == port);
+  natNationalDomMem.insert(0, row);
+  try {
+    await _natAppendInventoryRecord(_natNationalDomMemFileName, row);
+  } catch (e, stk) {
+    logError(e, stk);
+  }
+}
 
 Future<void> natIpMemLoad() async {
   try {
@@ -2098,7 +2172,10 @@ int natDomainHosts = 0;
 int natDomainIps = 0;
 int natDomainOpen = 0;
 
-List<Server> natTemplateSeeds = [];
+List<Server> natGlobalTemplateSeeds = [];
+List<Server> natNationalTemplateSeeds = [];
+List<Server> natCurrentTemplateSeeds() =>
+    nationalMode ? natNationalTemplateSeeds : natGlobalTemplateSeeds;
 
 // V7: IP scanning is required by v7 (Layer 1 filter = IP/Port). Set to true.
 bool kNatIpScanOn = true;
@@ -2309,8 +2386,15 @@ Future<List<String>> _natRangeScanStepBody({
   }
   if (shouldAbort()) return const <String>[];
 
+  if (modeSnapshot) {
+    await natNationalIpMemLoad();
+    await natRelayHostsLoad();
+  } else {
+    await natIpMemLoad();
+  }
   final hosts = <String>{
-    if (!modeSnapshot) ...natIpMemHosts(),
+    if (modeSnapshot) ...natNationalIpMemHosts() else ...natIpMemHosts(),
+    if (modeSnapshot) ...natRelayHosts,
     for (final server in seeds)
       if (server.isIp) server.host,
   };
@@ -2371,7 +2455,11 @@ Future<List<String>> _natRangeScanStepBody({
   cursorStore
     ..clear()
     ..addAll(generatedCursors);
-  natTemplateSeeds = seeds.toList(growable: false);
+  if (modeSnapshot) {
+    natNationalTemplateSeeds = seeds.toList(growable: false);
+  } else {
+    natGlobalTemplateSeeds = seeds.toList(growable: false);
+  }
   return out;
 }
 
