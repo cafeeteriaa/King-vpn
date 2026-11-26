@@ -5,7 +5,7 @@ Next revision: 61
 Repository: cafeeteriaa/King-vpn
 Revision branch: fix/healthy-folder-unbounded-retention-20261127
 Parent revision branch: fix/healthy-folder-small-sample-outage-20261126
-Revision PR: pending creation
+Revision PR: https://github.com/cafeeteriaa/King-vpn/pull/64
 
 ## Revision history
 
