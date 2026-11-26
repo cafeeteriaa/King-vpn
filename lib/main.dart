@@ -9629,35 +9629,80 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   // NATRESPATCH ---- folder of healthy servers (key 'natres2') ----
   final Map<String, _NatResItem> _resMap = {};
   Timer? _resT, _resSaveT;
-  bool _resBusy = false, _resDirty = false, _resNext = false;
+  bool _resBusy = false, _resDirty = false, _resNext = false, _resSaving = false;
   DateTime? _resHold, _resLast, _resUi;
   int _resDone = 0, _resTotal = 0;
-  static const int _resMax = 5000;
+  static const int _resMax = 50000; // ظرفیت پوشه سرورهای سالم: پنجاه‌هزار
   static const Duration _resEvery = Duration(hours: 48); // FOLDERS: تست خودکار هر ۴۸ ساعت
   int _resMergeCursor = 0; // FOLDERS: چرخش سهم سرورهای سالم در صف نت ملی
   bool _resFull = false; // second-chance pass: every variant
 
+  Future<File> _resDataFile() async {
+    final root = await getApplicationSupportDirectory();
+    final dir = Directory('${root.path}/KingVPN/HealthyServers');
+    if (!await dir.exists()) await dir.create(recursive: true);
+    return File('${dir.path}/servers.json');
+  }
+
+  Map<String, Object?> _resSnapshot() => <String, Object?>{
+        'schema': 2,
+        'last': _resLast?.millisecondsSinceEpoch,
+        'capacity': _resMax,
+        'items': _resMap.values
+            .map((e) => <String, Object?>{
+                  'l': e.link,
+                  'a': e.added.millisecondsSinceEpoch,
+                  'c': e.checked?.millisecondsSinceEpoch,
+                  'p': e.s.ping,
+                })
+            .toList(growable: false),
+      };
+
   Future<void> _resLoad() async {
     try {
-      final p = await SharedPreferences.getInstance();
-      final t = p.getString('natres2');
-      if (t != null) {
-        final j = jsonDecode(t);
-        final last = (j['last'] as num?)?.toInt();
-        if (last != null) {
-          _resLast = DateTime.fromMillisecondsSinceEpoch(last);
-        }
-        for (final x in (j['items'] as List)) {
-          final srv = Server.parse(x['l'] as String);
-          if (srv == null) continue;
-          final e = _NatResItem(srv.link, srv,
-              DateTime.fromMillisecondsSinceEpoch((x['a'] as num).toInt()));
-          final c = (x['c'] as num?)?.toInt();
-          if (c != null) e.checked = DateTime.fromMillisecondsSinceEpoch(c);
-          srv.ping = (x['p'] as num?)?.toInt();
-          _resMap[srv.key] = e;
+      String? raw;
+      final file = await _resDataFile();
+      if (await file.exists()) {
+        raw = await file.readAsString();
+      } else {
+        // One-time migration from the previous SharedPreferences snapshot.
+        final prefs = await SharedPreferences.getInstance();
+        raw = prefs.getString('natres2');
+        if (raw != null && raw.isNotEmpty) _resDirty = true;
+      }
+      if (raw != null && raw.isNotEmpty) {
+        final decoded = jsonDecode(raw);
+        if (decoded is Map) {
+          final j = Map<String, dynamic>.from(decoded);
+          final last = (j['last'] as num?)?.toInt();
+          if (last != null) {
+            _resLast = DateTime.fromMillisecondsSinceEpoch(last);
+          }
+          final items = j['items'];
+          if (items is List) {
+            for (final item in items) {
+              if (item is! Map || item['l'] is! String) continue;
+              final srv = Server.parse(item['l'] as String);
+              if (srv == null) continue;
+              final addedMs = (item['a'] as num?)?.toInt();
+              final e = _NatResItem(
+                srv.link,
+                srv,
+                DateTime.fromMillisecondsSinceEpoch(
+                  addedMs ?? DateTime.now().millisecondsSinceEpoch,
+                ),
+              );
+              final checkedMs = (item['c'] as num?)?.toInt();
+              if (checkedMs != null) {
+                e.checked = DateTime.fromMillisecondsSinceEpoch(checkedMs);
+              }
+              srv.ping = (item['p'] as num?)?.toInt();
+              _resMap[srv.key] = e;
+            }
+          }
         }
       }
+      if (_resDirty) await _resSave();
     } catch (e, stk) {
       logError(e, stk);
     }
@@ -9669,26 +9714,22 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   }
 
   Future<void> _resSave() async {
-    if (!_resDirty) return;
-    _resDirty = false;
+    if (!_resDirty || _resSaving) return;
+    _resSaving = true;
     try {
-      final p = await SharedPreferences.getInstance();
-      await p.setString(
-          'natres2',
-          jsonEncode({
-            'last': _resLast?.millisecondsSinceEpoch,
-            'items': _resMap.values
-                .map((e) => {
-                      'l': e.link,
-                      'a': e.added.millisecondsSinceEpoch,
-                      'c': e.checked?.millisecondsSinceEpoch,
-                      'p': e.s.ping
-                    })
-                .toList()
-          }));
-    } catch (e) {
+      while (_resDirty) {
+        _resDirty = false;
+        final file = await _resDataFile();
+        final temp = File('${file.path}.tmp');
+        await temp.writeAsString(jsonEncode(_resSnapshot()), flush: true);
+        // Same-directory rename keeps the persisted snapshot complete.
+        await temp.rename(file.path);
+      }
+    } catch (e, stk) {
       _resDirty = true;
-      logError(e);
+      logError(e, stk);
+    } finally {
+      _resSaving = false;
     }
   }
 
@@ -9824,11 +9865,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     return n;
   }
 
-  // 12 h after the last check: ping again (automatic, VPN up or not). Works stay, fails get a second
-  // chance at the end of the round and are deleted if they fail again.
+  // Every 48 hours, recheck the healthy-server folder in every network mode.
+  // A user connect/search pauses this maintenance; global network failure never mass-deletes entries.
   Future<void> _resDaily({bool force = false}) async {
-    // NAT-ONLY-READ: never retest or consume the healthy folder outside national mode.
-    if (!nationalMode || _resBusy || _resMap.isEmpty) return;
+    if (_resBusy || _resMap.isEmpty) return;
     if (searching || busy || switching || upBusy) return;
     // NATULTRA: the 12 h check also runs while the VPN is off (the core's
     // delay test never needs the tunnel); a user connect/search stops it
