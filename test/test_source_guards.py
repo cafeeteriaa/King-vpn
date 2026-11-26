@@ -3108,6 +3108,8 @@ class WireGuardIntegrationGuards(unittest.TestCase):
         self.assertIn("(viaCore || !direct) && !_kingWireGuardActive", self.main)
         self.assertIn("if (s.wireGuard || !nationalMode) return false", self.main)
         self.assertIn("_kingWireGuardCore.status().timeout", self.main)
+        self.assertIn("WireGuard did not confirm DOWN", self.main)
+        self.assertIn("Previous VPN engine did not confirm DOWN", self.main)
 
     def test_native_engine_uses_official_wireguard_backend(self):
         self.assertIn("GoBackend(appContext)", self.native)
