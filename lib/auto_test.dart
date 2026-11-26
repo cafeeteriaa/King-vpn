@@ -76,7 +76,6 @@ extension AutoTestEngine on _HomePageState {
   // ALLPATHS: تست کامل همه‌ی مسیرها؛ مدت مهم نیست، بخش‌ها همه اجرا می‌شوند
   // SIX-HOUR: تست کامل همه‌ی مسیرها ۶ ساعت است (وقت کافی برای همه‌ی بخش‌ها)
   // STEST60: کل تست ۶۰ دقیقه و فقط نت ملی است (جهانی، پوشه، آفلاین، آنلاین، پروتکل‌ها، کشور و خلبان هوش مصنوعی حذف شدند)
-  static const _testDuration = Duration(minutes: 90); // تست نت ملی ۹۰ دقیقه (کافی برای بررسی‌های CHANGES_v3)
   static const _sampleEvery = Duration(seconds: 3);
   // آستانه‌ها باید بیشتر از مهلت واقعی اتصال باشند (وگرنه اتصال عادی گزارش گیر می‌دهد)
   static const _busyStuckLimit = Duration(seconds: 240); // TESTUPGRADE
@@ -92,7 +91,6 @@ extension AutoTestEngine on _HomePageState {
 
   static _AtPhase _phase = _AtPhase.idle;
   static Timer? _sampleT;
-  static Timer? _endT;
   static DateTime? _startedAt;
   static int _dbgStartIdx = 0; // KNOWN-ISSUES: only this run's debug lines
   static DateTime? _busySince;
@@ -114,6 +112,8 @@ extension AutoTestEngine on _HomePageState {
   static int _atLogStart = 0;
   // PILOT-FLAP: how many times the pilot switched the server during this run
   static int _atPilotSwitches = 0;
+  static int _atCompletedSteps = 0;
+  static int _atTotalSteps = 0;
   // FLAG-MISMATCH is reported only when it lasts 3 samples in a row (about 9 s);
   // a state that changes during a normal disconnect is not a bug
   static int _atMismatchTicks = 0;
@@ -135,12 +135,13 @@ static void _resetCoreDeadStreak() { _atCoreDeadStreak = 0; }
   // NATONLY2: فقط این دو بخش در تست و گزارش دیده می‌شوند
   // SIXHOUR: همه‌ی مسیرهای اتصال در گزارش دیده می‌شوند
   // ALLNAT: ۶ ساعت = جستجوی نت ملی + ماتریس سطوح + جایگزینی؛ هر بخش کلید گزارش جدا دارد
-  static List<String> get _atActiveNames =>
-      [_atSearchName, _atItemNames[2], _atSubstName];
+  static List<String> get _atActiveNames => [
+        _atItemNames[0], _atItemNames[1], _atSearchName, _atItemNames[2],
+        _atItemNames[3], _atItemNames[4], _atItemNames[5], _atItemNames[6],
+        _atItemNames[7], _atItemNames[8], _atItemNames[9], _atItemNames[10],
+        _atSubstName,
+      ];
   static const String _atSearchName = 'نت ملی: جستجوی سرورهای سالم (IP و کانفیگ)';
-  static const Duration _atSearchCap = Duration(minutes: 30); // سقف جستجو (کاهش از ۱۸۰ دقیقه)
-  static const Duration _atMatrixCap = Duration(minutes: 120); // سقف ماتریس (۱۱ سطح)
-  static const Duration _atSubstBudget = Duration(minutes: 35); // حداقل وقت لازم جایگزینی (کاهش از ۶۰)
   static const List<String> _atItemNames = [
     'اینترنت جهانی (عادی)',
     'پوشه‌ی منابع تازه (ساخت)',
@@ -176,8 +177,8 @@ static void _resetCoreDeadStreak() { _atCoreDeadStreak = 0; }
     final timeoutNames = <String>[];
     final noServerNames = <String>[];
     for (final u in _atSubstUntried) {
-      if (u.endsWith('تست نشد (وقت تمام شد)')) {
-        timeoutNames.add(u.replaceAll(': تست نشد (وقت تمام شد)', ''));
+      if (u.endsWith('تست نشد (چرخهٔ تست متوقف شد)')) {
+        timeoutNames.add(u.replaceAll(': تست نشد (چرخهٔ تست متوقف شد)', ''));
       } else if (u.contains('با هیچ سرور تست‌شده سازگار نبود')) {
         noServerNames.add(u.split(':').first);
       } else {
@@ -229,13 +230,13 @@ static void _resetCoreDeadStreak() { _atCoreDeadStreak = 0; }
         textDirection: TextDirection.rtl,
         child: StatefulBuilder(
           builder: (ctx, setD) => AlertDialog(
-            title: const Text('تست نت ملی (۹۰ دقیقه)'),
+            title: const Text('تست جامع تمام مسیرهای KING VPN'),
             content: SingleChildScrollView(
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text('فقط نت ملی تست می‌شود:'),
+                  const Text('همهٔ مسیرهای موجود به‌ترتیب و بدون سقف زمانی کلی بررسی می‌شوند:'),
                   const SizedBox(height: 4),
                   for (final item in _atActiveNames)
                     Text('• $item', style: const TextStyle(fontSize: 13)),
@@ -285,9 +286,9 @@ static void _resetCoreDeadStreak() { _atCoreDeadStreak = 0; }
 
   Future<void> _atRun() async {
     _phase = _AtPhase.running;
-    autoTestAdFree = true; // TESTNOAD
+    autoTestAdFree = true;
     _abortRequested = false;
-    _applyModePreset(true, offlineOnly, false); // BESTDEF: تست ۶ ساعته = تنظیمات نت ملی
+    _applyModePreset(true, offlineOnly, false);
     _findings.clear();
     _atNoTraffic = false;
     _samples.clear();
@@ -301,6 +302,8 @@ static void _resetCoreDeadStreak() { _atCoreDeadStreak = 0; }
     _atVerdict = '';
     _scenario = 0;
     _atPilotSwitches = 0;
+    _atCompletedSteps = 0;
+    _atTotalSteps = 0;
     _atLogStart = errorLog.value.length;
     _busySince = null;
     _busyStatus = null;
@@ -311,65 +314,70 @@ static void _resetCoreDeadStreak() { _atCoreDeadStreak = 0; }
     _connectingSince = null;
     _currentEngine = 'v2ray';
     _startedAt = DateTime.now();
-    // مشکل ۱۱: پروب شبکه‌ی پایه فقط وقتی معنا دارد که تونل یا پروکسی فعال نباشد
     if (!connected && !wantVpn && !proxyMode) {
-      _atDomesticProbe(); // DOMESTIC: which sites open on the national network now
+      _atDomesticProbe();
     }
     _dbgStartIdx = dbgLines.length;
     autoTestRunning.value = true;
     autoTestProgress.value = 0;
-    autoTestText.value = 'تست خودکار شروع شد (${_atSelected.length} VPN)…';
-    dbg('🧪 AUTOTEST نت ملی شروع شد (۹۰ دقیقه • ${_atActiveNames.length} بخش)');
-    _dbgProb('🧪 تست نت ملی — ۹۰ دقیقه');
+    autoTestText.value = 'تست جامع شروع شد…';
+    dbg('🧪 AUTOTEST جامع شروع شد • همهٔ مسیرهای موجود و سناریوهای پایداری');
+    _dbgProb('🧪 تست جامع تمام مسیرهای اتصال');
 
     _sampleT?.cancel();
     _sampleT = Timer.periodic(_sampleEvery, (_) => _atSample());
 
-    _endT?.cancel();
-    _endT = Timer(_testDuration, () {
-      if (_phase == _AtPhase.running) {
-        dbg('🧪 AUTOTEST زمان ۹۰ دقیقه تمام شد');
-        _atFinish(reason: 'زمان تمام شد');
-      }
-    });
-
     try {
-      // پوشه‌ی منابع تازه از همین اول در پس‌زمینه ساخته می‌شود تا بخش آفلاین آماده باشد
       if (!natHotReady()) unawaited(natHotEnsure(force: true));
-
-      // بخش‌های اصلی: هر کدام فقط اگر وقت باقی‌مانده‌ی کافی داشته باشد اجرا می‌شود
-      // NATONLY: فقط نت ملی (جستجو)؛ بقیه‌ی بخش‌ها حذف شدند
-      // NATMODES: هر سطح ماتریس نت ملی (۰ تا ۱۰) جداگانه تست می‌شود
-      // ALLPATHS: همه‌ی مسیرهای اصلی به ترتیب؛ هر بخش اگر وقت داشت اجرا می‌شود
-      // SUBST-ONLY: فقط تست جایگزینی روی سرورهای سالم اجرا می‌شود
-      // AUTOFULL: اول نت ملی (جستجو تا ۱۵ سرور سالم)، بعد جایگزینی روی همان سالم‌ها
-      // FIVE-HOUR: همه‌ی مسیرها به ترتیب؛ هر بخش اگر وقت کافی داشته باشد اجرا می‌شود
-      // STEST60: فقط بخش‌های نت ملی، در مجموع ۶۰ دقیقه:
-      //  ۱) همه‌ی سطوح ماتریس نت ملی (تا ۱۱ دقیقه)
-      //  ۲) همه‌ی حالت‌های جایگزین روی سرورهای سالم (تا ۲۵ دقیقه)
-      // V14: only run the national test for the full budget. The gate must not
-      // ask for more than _testDuration (it used to ask for 5h, so it never ran);
-      // a 10-minute margin covers the setup time already spent when this runs.
-      final steps = <(String, Duration, Future<void> Function())>[
-        (_atSearchName, _atSearchCap, _atItemNational),
-        (_atItemNames[2], const Duration(minutes: 25), _atItemNatModes),
-        (_atSubstName, _atSubstBudget, _atItemSubst),
+      final steps = <(String, Future<void> Function())>[
+        (_atItemNames[0], _atItemGlobal),
+        (_atItemNames[1], _atItemFolder),
+        (_atSearchName, _atItemNational),
+        (_atItemNames[2], _atItemNatModes),
+        (_atItemNames[3], _atItemOffline),
+        (_atItemNames[4], _atItemOnline),
+        (_atItemNames[5], () => _atItemProto(5, 'vmess')),
+        (_atItemNames[6], () => _atItemProto(6, 'vless')),
+        (_atItemNames[7], () => _atItemProto(7, 'trojan')),
+        (_atItemNames[8], () => _atItemProto(8, 'ss')),
+        (_atItemNames[9], () => _atItemCountry(9)),
+        (_atItemNames[10], () => _atItemAiPilot(10)),
+        (_atSubstName, _atItemSubst),
+        ('سناریوی قطع و وصل مجدد', _atScenarioReconnectStorm),
+        ('سناریوی توقف وسط اتصال و بازیابی', _atScenarioMidConnectAbort),
+        ('سناریوی تعویض سرور', _atScenarioServerSwap),
+        ('سناریوی پایداری اتصال', _atScenarioLongStable),
       ];
-      for (final s in steps) {
-        if (_abortRequested) {
-          await _atFinish(reason: 'توقف دستی');
-          return;
+      _atTotalSteps = steps.length;
+      for (final step in steps) {
+        if (_abortRequested || _phase != _AtPhase.running) break;
+        final label = step.$1;
+        autoTestText.value =
+            'مرحلهٔ ${_atCompletedSteps + 1}/$_atTotalSteps • $label';
+        dbg('🧪 شروع مرحلهٔ ${_atCompletedSteps + 1}/$_atTotalSteps: $label');
+        try {
+          await step.$2();
+        } catch (e, stk) {
+          logError(e, stk);
+          _atAdd('STEP-CRASH', '$label: $e');
         }
-        if (_atCanRun(s.$1, s.$2)) await s.$3();
+        if (_abortRequested || _phase != _AtPhase.running) break;
+        _atCompletedSteps++;
+        autoTestProgress.value =
+            _atTotalSteps == 0 ? 0 : _atCompletedSteps / _atTotalSteps;
+        dbg('🧪 پایان مرحلهٔ $_atCompletedSteps/$_atTotalSteps: $label');
       }
-
-      // NATONLY: سناریوهای پایداری حذف شدند
-    } catch (e) {
-      _atAdd('CRASH', 'استثنای تست: $e');
-      logError(e);
+      final reason = _abortRequested
+          ? 'توقف دستی پس از $_atCompletedSteps مرحله'
+          : 'تمام مسیرهای آزمون‌شده اجرا شدند';
+      await _atFinish(reason: reason);
+    } catch (e, stk) {
+      logError(e, stk);
+      _atAdd('CRASH', 'استثنای تست جامع: $e');
+      await _atFinish(reason: 'خطای اصلی تست: $e');
     } finally {
       if (_phase == _AtPhase.running) {
-        await _atFinish(reason: 'تست نت ملی تمام شد');
+        await _atFinish(reason: 'اجرای تست پایان یافت');
       }
     }
   }
@@ -378,11 +386,11 @@ static void _resetCoreDeadStreak() { _atCoreDeadStreak = 0; }
     if (_phase == _AtPhase.done) return;
     _phase = _AtPhase.done;
     _sampleT?.cancel();
-    _endT?.cancel();
     _sampleT = null;
-    _endT = null;
     autoTestRunning.value = false;
-    autoTestProgress.value = 1.0;
+    autoTestProgress.value = _atTotalSteps == 0
+        ? 0
+        : _atCompletedSteps / _atTotalSteps;
 
     _atSample();
 
@@ -571,15 +579,8 @@ static void _resetCoreDeadStreak() { _atCoreDeadStreak = 0; }
         _atAdd('PILOT-FLAP', 'خلبان ۶ بار سرور را عوض کرد؛ شاید بیش از حد تعویض می‌کند');
       }
     }
-    if (_samples.length > 500) _samples.removeAt(0);
 
-    if (_startedAt != null) {
-      final p = now.difference(_startedAt!).inMilliseconds /
-          _testDuration.inMilliseconds;
-      autoTestProgress.value = p.clamp(0.0, 1.0);
-    }
-
-    // SWITCH-FLAG-STUCK: switching stays true while connected and idle (blocks later actions)
+// SWITCH-FLAG-STUCK: switching stays true while connected and idle (blocks later actions)
     if (switching && connected && !busy) {
       _switchFlagSince ??= now;
       if (now.difference(_switchFlagSince!) > const Duration(seconds: 40)) {
@@ -1451,30 +1452,6 @@ static void _resetCoreDeadStreak() { _atCoreDeadStreak = 0; }
   // بخش‌های تست ۶۰ دقیقه‌ای؛ هر کدام یک حالت واقعی برنامه را تست می‌کند
   // ---------------------------------------------------------------------------
 
-  /// آیا این بخش وقت دارد؟ اگر نه، با دلیل ثبت و رد می‌شود
-  bool _atCanRun(String name, Duration need) {
-    if (_abortRequested || _phase != _AtPhase.running) return false;
-    if (_atLeft() < need) {
-      _itemResult[name] = '⏭ رد شد: وقت باقی‌مانده کافی نبود';
-      dbg('🧪 بخش «$name» رد شد (وقت کم)');
-      return false;
-    }
-    return true;
-  }
-
-  /// STEST60: هر بودجه‌ای (IP، خلبان) فقط از وقت باقی‌مانده استفاده می‌کند
-  Duration _atCap(Duration want, {Duration reserve = Duration.zero}) {
-    final room = _atLeft() - reserve;
-    if (room <= const Duration(seconds: 30)) return const Duration(seconds: 30);
-    return room < want ? room : want;
-  }
-
-  Duration _atLeft() {
-    if (_startedAt == null) return _testDuration;
-    final l = _testDuration - DateTime.now().difference(_startedAt!);
-    return l.isNegative ? Duration.zero : l;
-  }
-
   /// نت ملی جستجوی طولانی دارد؛ حد گیر کردن برای آن بیشتر است
   Duration _busyLimitNow() => (nationalMode || natForce)
       ? const Duration(minutes: 15)
@@ -1786,8 +1763,9 @@ static void _resetCoreDeadStreak() { _atCoreDeadStreak = 0; }
     offlineOnly = false;
     natRound = 1; // V14: force pass 1
     await ultimateSave();
+    await _atEnsureDisconnected();
 
-    _set('نت ملی: پاک‌سازی صف برای تست کامل ۹۰ دقیقه‌ای');
+    _set('نت ملی: آماده‌سازی و اجرای چرخهٔ کامل کشف تا پایان واقعی صف');
     good.clear();
     pending.clear();
     failed.clear();
@@ -1798,14 +1776,9 @@ static void _resetCoreDeadStreak() { _atCoreDeadStreak = 0; }
     await connect(); // Triggers V13 logic, returns on first server
 
     final tStart = DateTime.now();
-    final testDuration = _atSearchCap;
 
     while (_phase == _AtPhase.running && !_abortRequested) {
       final elapsed = DateTime.now().difference(tStart);
-      if (elapsed > testDuration) break;
-
-      final progress = elapsed.inSeconds / testDuration.inSeconds;
-      autoTestProgress.value = progress.clamp(0.0, 1.0);
       autoTestText.value = 'جستجوی نت ملی • ${elapsed.inHours}h ${elapsed.inMinutes % 60}m • '
           'دور: $natRound • سالم: ${good.length} • صف: ${pending.length} • '
           'IP تست‌شده: $natIpTested • IP باز: $natIpFound';
@@ -1830,8 +1803,6 @@ static void _resetCoreDeadStreak() { _atCoreDeadStreak = 0; }
   // SUBST: تست فقط برای جایگزینی پورت / IP تمیز / DNS / SNI روی سرورهای سالم
   static const String _atSubstName =
       'نت ملی: جایگزینی پورت/هاست/DNS روی سرورهای سالم';
-  static const int _atSubstServers = 20; // سرورهای سالم (سریع‌ترین‌ها)
-  static const int _atSubstPerServer = 12; // سقف حالت جایگزینی برای هر سرور (SUBSTFAST)
   static const Duration _atSubstTimeout = Duration(seconds: 5); // مهلت هر تست
 
   List<String> _atSubstDims(int v) {
@@ -1874,7 +1845,7 @@ static void _resetCoreDeadStreak() { _atCoreDeadStreak = 0; }
 
     // HEALTHYFIRST: تا پوشه‌ی سرورهای سالم پر نشده، تست شروع نمی‌شود.
     // اگر خالی بود، همان جستجوی نت ملی برنامه اجرا می‌شود تا سرور سالم پیدا شود.
-    var healthy = _usable().take(_atSubstServers).toList();
+    var healthy = _usable().toList();
     if (healthy.isEmpty && !_abortRequested) {
       _set('پوشه‌ی سرورهای سالم خالی است؛ جستجو از پوشه‌ی منابع تازه...');
       try {
@@ -1891,7 +1862,7 @@ static void _resetCoreDeadStreak() { _atCoreDeadStreak = 0; }
       } catch (e, stk) {
         logError(e, stk);
       }
-      healthy = _usable().take(_atSubstServers).toList();
+      healthy = _usable().toList();
     }
     if (healthy.isEmpty) {
       _atAdd('SUBST-NOHEALTHY',
@@ -1903,7 +1874,6 @@ static void _resetCoreDeadStreak() { _atCoreDeadStreak = 0; }
     final dead = good
         .where((x) => !healthySet.contains(x) &&
             (x.badAt != null || x.checkedAt != null))
-        .take(_atSubstServers)
         .toList();
     // IPSWEEP: IP‌ها اول با ترافیک تونل سنجیده می‌شوند؛ فقط IP‌های ترافیک‌دار در پروژه می‌مانند
     autoTestText.value = 'سنجش IP تمیز با تونل...';
@@ -1941,7 +1911,7 @@ static void _resetCoreDeadStreak() { _atCoreDeadStreak = 0; }
     final rows = <String>[];
     var total = 0, baseOk = 0, substServers = 0, brokenServers = 0;
     final t0 = DateTime.now();
-    // جایگزینی فقط با توقف دستی یا پایان وقت متوقف می‌شود (جدید)
+    // The full server/mode inventory is traversed; explicit user cancellation is the stop condition.
     bool stop() => _abortRequested || _phase != _AtPhase.running;
 
     Future<bool> tryVar(Server s, String key, int v) async {
@@ -1961,8 +1931,8 @@ static void _resetCoreDeadStreak() { _atCoreDeadStreak = 0; }
     }
 
     wantVpn = true;
-    // دور اول: همه‌ی سرورها، هر کدام تا ۱۲ حالت از فهرست «هنوز امتحان نشده» که با آن سازگارند
-    // دور دوم (اگر وقت بود): فقط سرورهای سالم، برای حالت‌هایی که یک بار جواب ندادند
+    // دور اول: همهٔ سرورها و تمام حالت‌های سازگارِ هنوز امتحان‌نشده.
+    // دور دوم: همهٔ سرورهای سالم برای حالت‌هایی که در دور اول جواب ندادند.
     for (var pass = 0; pass < 2; pass++) {
       final list = pass == 0
           ? order
@@ -2001,8 +1971,8 @@ static void _resetCoreDeadStreak() { _atCoreDeadStreak = 0; }
 
         // (ب) حالت‌های این سرور
         final cands = pass == 0
-            ? untried.where((v) => _natAppliesF(f, v)).take(_atSubstPerServer).toList()
-            : failedOnce.where((v) => _natAppliesF(f, v)).take(_atSubstPerServer).toList();
+            ? untried.where((v) => _natAppliesF(f, v)).toList()
+            : failedOnce.where((v) => _natAppliesF(f, v)).toList();
         final passed = <String>[];
         int? winner;
         for (final v in cands) {
@@ -2063,7 +2033,7 @@ static void _resetCoreDeadStreak() { _atCoreDeadStreak = 0; }
       } else if (noServerVars.contains(v)) {
         _atSubstUntried.add('$nm: با هیچ سرور تست‌شده سازگار نبود');
       } else {
-        _atSubstUntried.add('$nm: تست نشد (وقت تمام شد)');
+        _atSubstUntried.add('$nm: تست نشد (چرخهٔ تست متوقف شد)');
       }
     }
     final tested = perTry.keys.length;
@@ -2106,14 +2076,9 @@ static void _resetCoreDeadStreak() { _atCoreDeadStreak = 0; }
     final rows = <String>[];
     _atNatRows.clear();
     _atNatWorking = false;
-    final matrixEnd = DateTime.now().add(_atMatrixCap);
     for (var lvl = 0; lvl <= 10; lvl++) {
       if (_abortRequested || _phase != _AtPhase.running) break;
-      if (DateTime.now().isAfter(matrixEnd)) {
-        _atAdd('NATMODES-TIME', 'ماتریس: سطوح بعدی به‌خاطر سقف زمانی ماتریس رد شدند');
-        break;
-      }
-      natFloor = lvl;
+natFloor = lvl;
       natLevel = lvl;
       final s0 = natIpScanned, f0 = natIpFound, t0 = natIpTested, o0 = natIpOk;
       final connected = await _atConnectItem('$name • سطح $lvl',
@@ -2297,11 +2262,8 @@ static void _resetCoreDeadStreak() { _atCoreDeadStreak = 0; }
           timeout: const Duration(minutes: 5), label: 'وصل برای مانیتور');
     }
 
-    final remain = _startedAt == null
-        ? const Duration(minutes: 5)
-        : _testDuration - DateTime.now().difference(_startedAt!);
-    // تا پایان ۶۰ دقیقه روی اتصال می‌ماند (همه‌ی باقی‌مانده‌ی وقت)
-    final watchFor = remain.isNegative ? Duration.zero : remain;
+    // A bounded soak window is a deliberate stability scenario, not a global deadline.
+    const watchFor = Duration(minutes: 10);
 
     if (watchFor.inSeconds < 10) return;
 
