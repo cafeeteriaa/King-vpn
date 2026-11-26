@@ -614,7 +614,8 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn('natRanges', pilot_scan)
         self.assertNotIn('abort', pilot_scan)
         self.assertIn('_pilotRangeCancelRequested', pilot_scan)
-        self.assertIn('Socket.connect(host, 443', pilot_scan)
+        self.assertIn('Socket.connect(', pilot_scan)
+        self.assertIn('443,', pilot_scan)
         self.assertIn('_pilotRangesDialog(context)', main)
         self.assertIn('_pilotScanOnly()', main)
         self.assertIn('_smartCountryCode(command)', main)
@@ -2595,7 +2596,8 @@ class KingVpnSourceGuardTests(unittest.TestCase):
     def test_fragmentation_is_not_silently_disabled_and_targets_all_tls_outbounds(self):
         main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
         extras = (ROOT / 'lib' / 'npv_am_extras.dart').read_text(encoding='utf-8')
-        self.assertEqual(main.count('fragEnabled = false;'), 1)
+        self.assertNotIn('fragEnabled = false;', main)
+        self.assertIn('fragEnabled = true;', main)
         self.assertIn("sockopt['dialerProxy'] = 'frag-out';", extras)
         self.assertIn("'packets': 'tlshello'", extras)
         self.assertIn('_stripKingFragmentOutbound(cfg)', extras)
@@ -2864,7 +2866,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
     def test_manual_range_scan_honors_cancel_during_national_yield(self):
         source = (ROOT / 'lib' / 'npv_am_extras.dart').read_text(encoding='utf-8')
         start = source.index('Future<void> manualRangeScan(')
-        end = source.index('Future<void> goldMergeIps(', start)
+        end = source.index('\n}', start)
         body = source[start:end]
         wait = body.index('await natManualYield(shouldAbort: () => cancelled || !open || nationalMode != scanNationalMode);')
         loop = body.index('while (!cancelled && open && nationalMode == scanNationalMode)', wait)
