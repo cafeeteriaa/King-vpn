@@ -1907,8 +1907,7 @@ static void _resetCoreDeadStreak() { _atCoreDeadStreak = 0; }
         .toList();
     // IPSWEEP: IP‌ها اول با ترافیک تونل سنجیده می‌شوند؛ فقط IP‌های ترافیک‌دار در پروژه می‌مانند
     autoTestText.value = 'سنجش IP تمیز با تونل...';
-    final ipWin = await _atIpSweep(
-        healthy, _atCap(const Duration(minutes: 30))); // جدید: رزرو ۶۰ دقیقه‌ای مال خلبان بود و حذف شد
+    final ipWin = await _atIpSweep(healthy);
     if (ipWin.isNotEmpty) {
       cleanIps = List<CleanIp>.of(ipWin);
       cleanIpsAt = DateTime.now();
@@ -1928,7 +1927,7 @@ static void _resetCoreDeadStreak() { _atCoreDeadStreak = 0; }
     // هیچ حالتی بی‌صدا رد نمی‌شود: یا تست می‌شود، یا با دلیل مشخص در گزارش «جواب نداد» / «تست نشد» می‌آید.
     final allVars = [
       for (var v = 1; v < _natSpecs.length; v++)
-        if (!natDisabled.contains(v) && !natRetired(v)) v
+        if (!natDisabled.contains(v)) v
     ];
     final untried = <int>[...allVars]; // هنوز روی هیچ سروری امتحان نشده
     final failedOnce = <int>{}; // یک بار امتحان شده و ترافیک نداده (برای دور دوم)
