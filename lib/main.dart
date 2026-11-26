@@ -9547,8 +9547,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     // 2) Mux = parallel streams on one tunnel (concurrency بالاتر = سرعت بیشتر)
     muxEnabled = muxEnabled || kTurboEnabled;
     if (kTurboEnabled && muxConc < 32) muxConc = 32;
-    // 3) do not force global Fragment outside national crisis (Fragment سرعت را می‌کشد)
-    if (!nationalMode) fragEnabled = false;
+    // 3) Preserve the user's Fragment choice; the core applies it only to TLS/REALITY.
     // 4) rank by real speed, not ping
     sortSpeed = true;
     // 5) تعویض فقط نزدیک صفر یا سرور ۵۰٪ بهتر — minSpeedKB را بالا نبر
