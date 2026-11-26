@@ -2068,7 +2068,7 @@ Future<List<String>> _natDomainFirst(List<Server> known,
     // neighboring subnets or arbitrary ports.
     final endpoints = <String, Set<int>>{};
     for (final server in known) {
-      if (cancelled()) return const <String>[];
+      if (cancelled()) return out;
       final host = server.host.trim();
       final port = server.port;
       if (host.isEmpty || port < 1 || port > 65535) continue;
@@ -2083,12 +2083,12 @@ Future<List<String>> _natDomainFirst(List<Server> known,
     natDomainHosts = endpoints.length;
     final resolved = <String, Set<int>>{};
     for (final entry in endpoints.entries) {
-      if (cancelled()) return const <String>[];
+      if (cancelled()) return out;
       final parsed = InternetAddress.tryParse(entry.key);
       final addresses = parsed == null
           ? await safeLookup(entry.key)
           : <InternetAddress>[parsed];
-      if (cancelled()) return const <String>[];
+      if (cancelled()) return out;
       for (final address in addresses) {
         (resolved[address.address] ??= <int>{}).addAll(entry.value);
       }
@@ -2104,11 +2104,11 @@ Future<List<String>> _natDomainFirst(List<Server> known,
     }
     const endpointBatchSize = 512;
     for (final entry in grouped.entries) {
-      if (cancelled()) return const <String>[];
+      if (cancelled()) return out;
       // Batch only bounds transient memory and socket fan-out. It never caps
       // the total inventory: every endpoint is visited unless the caller cancels.
       for (var offset = 0; offset < entry.value.length; offset += endpointBatchSize) {
-        if (cancelled()) return const <String>[];
+        if (cancelled()) return out;
         final batch = entry.value.skip(offset).take(endpointBatchSize).toList(growable: false);
         final hits = await natScanIps(
           batch,
@@ -2117,7 +2117,7 @@ Future<List<String>> _natDomainFirst(List<Server> known,
           timeout: const Duration(milliseconds: 1200),
           cancelled: cancelled,
         );
-        if (cancelled()) return const <String>[];
+        if (cancelled()) return out;
         for (final hit in hits) {
           out.add('${hit.ip}|${entry.key}');
           natDomainOpen = out.length;
@@ -2127,7 +2127,7 @@ Future<List<String>> _natDomainFirst(List<Server> known,
   } catch (e, stk) {
     logError(e, stk);
   }
-  if (cancelled()) return const <String>[];
+  if (cancelled()) return out;
   return out;
 }
 
