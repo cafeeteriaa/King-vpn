@@ -50,7 +50,7 @@ Future<void> _loadPersonalFolder() async {
     final journal = await _personalJournal();
     final loaded = <String>[];
     final seen = <String>{};
-    if (await journal.exists()) {
+    if (await journal.exists() && await journal.length() > 0) {
       await for (final line in journal
           .openRead()
           .transform(utf8.decoder)
@@ -111,43 +111,45 @@ Future<void> setPersonalLastGood(String link) async {
 Future<void> removeFromPersonalFolder(String link) async {
   await loadPersonalFolder();
   final normalized = link.trim();
-  if (normalized.isEmpty || !personalFolderCache.contains(normalized)) return;
+  if (normalized.isEmpty) return;
   try {
     final journal = await _personalJournal();
-    await _enqueuePersonalWrite(() => journal.writeAsString(
-      jsonEncode(<String, Object>{'v': 1, 'op': 'remove', 'link': normalized}) + '\n',
-      mode: FileMode.append,
-      flush: true,
-    ));
+    await _enqueuePersonalWrite(() async {
+      if (!personalFolderCache.contains(normalized)) return;
+      await journal.writeAsString(
+        jsonEncode(<String, Object>{'v': 1, 'op': 'remove', 'link': normalized}) + '\n',
+        mode: FileMode.append,
+        flush: true,
+      );
+      personalFolderCache.remove(normalized);
+    });
   } catch (e, stk) {
     errJournalAdd(e, kind: 'PERSONAL-FOLDER', st: stk);
   }
-  personalFolderCache.remove(normalized);
 }
 
 /// Add every distinct non-empty link. No fixed inventory cap or silent truncation.
 Future<int> addToPersonalFolder(Iterable<String> links) async {
   await loadPersonalFolder();
-  final seen = personalFolderCache.toSet();
   final addedLinks = <String>[];
-  for (final raw in links) {
-    final link = raw.trim();
-    if (link.isNotEmpty && seen.add(link)) addedLinks.add(link);
-  }
-  if (addedLinks.isEmpty) return 0;
   try {
     final journal = await _personalJournal();
-    final payload = '${addedLinks.map((link) => jsonEncode(
-      <String, Object>{'v': 1, 'op': 'add', 'link': link},
-    )).join('\n')}\n';
-    await _enqueuePersonalWrite(() => journal.writeAsString(
-      payload,
-      mode: FileMode.append,
-      flush: true,
-    ));
+    await _enqueuePersonalWrite(() async {
+      final seen = personalFolderCache.toSet();
+      for (final raw in links) {
+        final link = raw.trim();
+        if (link.isNotEmpty && seen.add(link)) addedLinks.add(link);
+      }
+      if (addedLinks.isEmpty) return;
+      final payload = '${addedLinks.map((link) => jsonEncode(
+        <String, Object>{'v': 1, 'op': 'add', 'link': link},
+      )).join('\n')}\n';
+      await journal.writeAsString(payload, mode: FileMode.append, flush: true);
+      personalFolderCache.addAll(addedLinks);
+    });
   } catch (e, stk) {
     errJournalAdd(e, kind: 'PERSONAL-FOLDER', st: stk);
+    return 0;
   }
-  personalFolderCache.addAll(addedLinks);
   return addedLinks.length;
 }
