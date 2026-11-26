@@ -1,11 +1,11 @@
 # KING VPN Revision Ledger
 
-Current revision: 59
-Next revision: 60
+Current revision: 60
+Next revision: 61
 Repository: cafeeteriaa/King-vpn
-Revision branch: fix/healthy-folder-small-sample-outage-20261126
-Parent revision branch: fix/revision-58-network-identity-fragmentation-20261126
-Revision PR: chained from PR #58; standalone PR not opened
+Revision branch: fix/healthy-folder-unbounded-retention-20261127
+Parent revision branch: fix/healthy-folder-small-sample-outage-20261126
+Revision PR: pending creation
 
 ## Revision history
 
@@ -41,12 +41,25 @@ Revision PR: chained from PR #58; standalone PR not opened
 - No IP Clean sources, CIDRs, address ranges, ports, scan cursors, or scan capabilities were changed.
 - Exact-head CI is pending; no device-level outage test has yet been run.
 
+### Revision 60 — remove destructive healthy-folder count eviction
+- Removed the fixed 50,000-entry ceiling and oldest-entry eviction from _resAdd; newly verified healthy servers are no longer discarded solely because the in-memory map reached an arbitrary count.
+- Removed the obsolete capacity field from the persisted snapshot metadata.
+- Preserved duplicate refresh, personal-server exclusion, atomic file snapshot replacement, and the small-inventory outage guard from Revision 59.
+- Added a regression source guard proving that _resAdd no longer contains a count ceiling or oldest-entry eviction.
+- Important remaining scalability work: _resMap is still an in-memory working map and the current JSON snapshot is loaded as a whole. This revision removes data loss but does not yet claim memory-bounded paging or multi-million-entry scalability. The next stage must migrate to a disk-backed indexed/paged store before such scale is claimed.
+- Exact-head CI and runtime/device validation are pending.
+
 ## Mandatory three-pass review protocol
 
 Each numbered revision must be a substantial functional change and pass three separate reviews:
 1. Architecture and behavior: feature preservation, global/National Net isolation, complete inventory traversal and no hidden truncation.
 2. Persistence and concurrency: atomic/serialized writes, cursor commit rules, cancellation, partial-result retention and recovery.
 3. Compatibility and verification: source guards, unit tests, static analysis, Android build and final diff review.
+
+### Revision 60 review status
+1. Architecture and behavior: pending independent review.
+2. Persistence and concurrency: pending; verify atomic snapshot replacement and migration after capacity metadata removal.
+3. Compatibility and verification: pending exact-head source guards, Flutter tests, Dart analysis and Android build.
 
 ### Revision 58 review status
 1. Architecture and behavior: completed; function inventory compared against Revision 57 base and no existing NPV functions were lost.
