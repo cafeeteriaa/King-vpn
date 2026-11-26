@@ -11,6 +11,10 @@ import java.io.File
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
+import com.wireguard.android.backend.GoBackend
+import com.wireguard.android.backend.Tunnel
+import java.io.ByteArrayInputStream
+import java.nio.charset.StandardCharsets
 
 // KINGVPN: کانال ارتباطی Flutter با سرویس VPN خودمان (کانال: king/vpn)
 //
@@ -35,6 +39,8 @@ class MainActivity : FlutterActivity() {
     @Volatile private var engineAttached = false
     private var mySink: KingVpnService.StatusSink? = null
 
+    private fun kingWireGuardCore(): KingWireGuardCore = KingWireGuardCore.shared(applicationContext)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         // KINGDIAG: install the crash recorder before super.onCreate so crashes
         // during startup are also captured. If it fails, the app must still open.
@@ -56,6 +62,33 @@ class MainActivity : FlutterActivity() {
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
         engineAttached = true
+
+        // ---- Independent core: WireGuard (libwg-go, not an Xray profile) ----
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "king/wireguard")
+            .setMethodCallHandler { call, result ->
+                val config = call.argument<String>("config") ?: ""
+                Thread {
+                    try {
+                        when (call.method) {
+                            "connect" -> {
+                                val version = kingWireGuardCore().connect(config)
+                                runOnUiThread { result.success(mapOf("connected" to true, "version" to version, "core" to "wireguard")) }
+                            }
+                            "disconnect" -> {
+                                kingWireGuardCore().disconnect()
+                                runOnUiThread { result.success(true) }
+                            }
+                            "status" -> {
+                                val state = kingWireGuardCore().state()
+                                runOnUiThread { result.success(mapOf("state" to state, "core" to "wireguard")) }
+                            }
+                            else -> runOnUiThread { result.notImplemented() }
+                        }
+                    } catch (t: Throwable) {
+                        runOnUiThread { result.error("KING_WIREGUARD_ERROR", t.message ?: t.javaClass.simpleName, t.stackTraceToString()) }
+                    }
+                }.start()
+            }
 
         // ---- Channel 1: king/vpn (start / stop the own VPN service) ----
         val kingVpnChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "king/vpn")
