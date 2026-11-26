@@ -4840,7 +4840,6 @@ final rowDefs = <RowDef>[
           .contains(s.net)),
   RowDef('trojan', '🌑 Trojan', (s) => s.link.startsWith('trojan://')),
   RowDef('ss', '🔐 Shadowsocks (ss://)', (s) => s.link.startsWith('ss://')),
-  RowDef('wireguard', '🛡 WireGuard', (s) => s.wireGuard),
   
   // shown as its own fixed row (second line of the list), see build()
   RowDef('ai', '🌐 سرورهای دارای دسترسی وب', (s) => s.ai == true && s.ping != null),
@@ -8798,7 +8797,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     if (!s.wireGuard) _aiLoop(aiGen); // legacy AI tuning is Xray-specific until selector integration
     // the personal server has its own row, it never joins the healthy list
     if (!s.personal && !s.wireGuard && !good.contains(s)) good.add(s);
-    if (nationalMode && !s.personal) unawaited(_natAdd(s));
+    if (nationalMode && !s.personal && !s.wireGuard) unawaited(_natAdd(s));
     // HEALTHY-STORE: every genuinely connected non-personal server is saved,
     // regardless of discovery source or mode. Reads/injection remain NAT-only.
     if (!s.personal && !s.wireGuard) _resAdd(s);
