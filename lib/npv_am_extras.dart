@@ -961,6 +961,31 @@ const _iranMoreDomains = <String>[
   'domain:tgju.org',
 ];
 
+String _stripKingFragmentOutbound(String cfg) {
+  try {
+    final decoded = jsonDecode(cfg);
+    if (decoded is! Map<String, dynamic>) return cfg;
+    final outs = (decoded['outbounds'] as List?) ?? <dynamic>[];
+    for (final outbound in outs) {
+      if (outbound is! Map) continue;
+      final stream = outbound['streamSettings'];
+      if (stream is! Map) continue;
+      final sockopt = stream['sockopt'];
+      if (sockopt is! Map || sockopt['dialerProxy'] != 'frag-out') continue;
+      sockopt.remove('dialerProxy');
+      if (sockopt.isEmpty) {
+        stream.remove('sockopt');
+      } else {
+        stream['sockopt'] = sockopt;
+      }
+    }
+    outs.removeWhere((entry) => entry is Map && entry['tag'] == 'frag-out');
+    return jsonEncode(decoded);
+  } catch (_) {
+    return cfg;
+  }
+}
+
 String withNpvAmCore(String cfg) {
   final moreIr = iranRoute && iranMore;
   if (!fragEnabled &&
@@ -970,12 +995,83 @@ String withNpvAmCore(String cfg) {
       !blockQuic &&
       !lanDirect &&
       !routeOnly) {
-    return cfg;
+    return _stripKingFragmentOutbound(cfg);
   }
   try {
     final j = jsonDecode(cfg);
     if (j is! Map<String, dynamic>) return cfg;
     final outs = (j['outbounds'] as List?) ?? <dynamic>[];
+
+    // Apply one app-owned fragment outbound to every TLS/REALITY proxy,
+    // including multi-hop profiles with more than one proxy outbound.
+    if (fragEnabled) {
+      final fragmentTargets = <Map>[];
+      for (final outbound in outs) {
+        if (outbound is! Map ||
+            !const {'vmess', 'vless', 'trojan', 'shadowsocks'}
+                .contains(outbound['protocol'])) {
+          continue;
+        }
+        final stream = outbound['streamSettings'];
+        if (stream is! Map) continue;
+        final security = (stream['security'] ?? 'none').toString();
+        if (security == 'tls' || security == 'reality') {
+          fragmentTargets.add(outbound);
+        }
+      }
+      if (fragmentTargets.isNotEmpty) {
+        outs.removeWhere((entry) => entry is Map && entry['tag'] == 'frag-out');
+        outs.add({
+          'tag': 'frag-out',
+          'protocol': 'freedom',
+          'settings': {
+            'fragment': {
+              'packets': 'tlshello',
+              'length': fragLen,
+              'interval': fragInt,
+            }
+          },
+        });
+        for (final outbound in fragmentTargets) {
+          final stream = outbound['streamSettings'] as Map;
+          final sockopt = stream['sockopt'] is Map
+              ? stream['sockopt'] as Map
+              : <String, dynamic>{};
+          sockopt['dialerProxy'] = 'frag-out';
+          stream['sockopt'] = sockopt;
+        }
+      } else {
+        for (final outbound in outs) {
+          if (outbound is! Map) continue;
+          final stream = outbound['streamSettings'];
+          if (stream is! Map) continue;
+          final sockopt = stream['sockopt'];
+          if (sockopt is! Map || sockopt['dialerProxy'] != 'frag-out') continue;
+          sockopt.remove('dialerProxy');
+          if (sockopt.isEmpty) {
+            stream.remove('sockopt');
+          } else {
+            stream['sockopt'] = sockopt;
+          }
+        }
+        outs.removeWhere((entry) => entry is Map && entry['tag'] == 'frag-out');
+      }
+    } else {
+      for (final outbound in outs) {
+        if (outbound is! Map) continue;
+        final stream = outbound['streamSettings'];
+        if (stream is! Map) continue;
+        final sockopt = stream['sockopt'];
+        if (sockopt is! Map || sockopt['dialerProxy'] != 'frag-out') continue;
+        sockopt.remove('dialerProxy');
+        if (sockopt.isEmpty) {
+          stream.remove('sockopt');
+        } else {
+          stream['sockopt'] = sockopt;
+        }
+      }
+      outs.removeWhere((entry) => entry is Map && entry['tag'] == 'frag-out');
+    }
 
     String directTag() {
       for (final o in outs) {
@@ -1051,26 +1147,7 @@ String withNpvAmCore(String cfg) {
     }
     if (proxy != null) {
       final st = proxy['streamSettings'];
-      final sec = st is Map ? (st['security'] ?? 'none').toString() : 'none';
       final net = st is Map ? (st['network'] ?? 'tcp').toString() : 'tcp';
-      if (fragEnabled && st is Map && (sec == 'tls' || sec == 'reality')) {
-        if (!outs.any((o) => o is Map && o['tag'] == 'frag-out')) {
-          outs.add({
-            'tag': 'frag-out',
-            'protocol': 'freedom',
-            'settings': {
-              'fragment': {
-                'packets': 'tlshello',
-                'length': fragLen,
-                'interval': fragInt,
-              }
-            },
-          });
-        }
-        final so = st['sockopt'] is Map ? st['sockopt'] as Map : <String, dynamic>{};
-        so['dialerProxy'] = 'frag-out';
-        st['sockopt'] = so;
-      }
       // MUXWORKER: کلودفلر (workers.dev) mux را نمی‌پذیرد؛ برای آن mux خاموش است
       if (muxEnabled && (net == 'tcp' || net == 'ws') && !_isWorkerOutbound(proxy)) {
         var flow = '';
