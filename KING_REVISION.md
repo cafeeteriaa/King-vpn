@@ -1,7 +1,7 @@
 # KING VPN Revision Ledger
 
-Current revision: 62
-Next revision: 63
+Current revision: 64
+Next revision: 65
 Repository: cafeeteriaa/King-vpn
 Revision branch: fix/revision-58-network-identity-fragmentation-20261126
 Revision PR: https://github.com/cafeeteriaa/King-vpn/pull/58
@@ -92,3 +92,24 @@ Increment the revision number by exactly one for each substantial edit set. Reco
 - Low-confidence results cannot mutate saved Fragment, DNS, IP-mode or clean-IP settings. The user can still run diagnostics and inspect raw probe results.
 - Added source-guard coverage for probe groups, confidence handling, evidence reporting and the auto-configuration safety gate.
 - Verification: source committed; Python tests, Dart analysis, Flutter tests, Android build and real-device network checks have not yet been run for this revision.
+
+
+### 63 — Order-independent network probe identity
+- Replaced positional probe-index classification with explicit typed groups: TCP, TLS/SNI, web, source mirrors and national-network endpoints.
+- Every probe carries its group through both success and failure paths; evidence counts and denominators are computed from the actual group membership, so adding or reordering probes cannot silently change classification.
+- Source availability is derived by endpoint identity rather than a fixed list index.
+- TLS/SNI probes retain normal certificate validation; an invalid certificate is not accepted as a healthy handshake.
+- Added source guards for explicit group propagation, order-independent aggregation and strict TLS validation.
+- Review: architecture/evidence grouping and compatibility paths reviewed; CI is tracked under Revision 64 below.
+
+### 64 — Complete auto-test path orchestration
+- Rebuilt the automatic test plan to execute all currently implemented connection paths in sequence: initial network diagnosis, global, fresh resources, national discovery, every defined national matrix level, offline folder-only, online sources, VMess, VLESS, Trojan, Shadowsocks, country selection, local AI pilot, all compatible substitution modes and the existing stability/recovery scenarios.
+- Removed the fixed 90-minute global test cutoff, 30-minute national discovery cutoff, 120-minute matrix deadline, fixed substitution budget, 20-server substitution limit and 12-mode-per-server limit. National discovery now ends on actual queue exhaustion; substitution traverses the complete available server/mode inventory. Explicit user cancellation remains available.
+- Removed the silent 500-sample diagnostic-history truncation. Progress is based on completed test stages, not elapsed wall-clock time.
+- Added idle recovery to re-enter the ordinary national search path when a pass becomes idle, and restore global mode after a failed stage so later paths do not inherit a half-applied mode.
+- Added Python source guards for complete path coverage, queue-exhaustion completion, matrix traversal, uncapped substitution inventory, manual cancellation and progress accounting.
+- Operational timeouts for an individual connection/probe remain to prevent a single hung operation from deadlocking the test. The long-stability scenario has a deliberate 10-minute soak window; neither is a global suite cutoff or inventory limit.
+- Important scope note: the current executable tunnel engine remains Xray/V2Ray only. This revision expands coverage of the paths and protocols that are actually implemented; it does not claim that 12 independent tunnel cores have been added.
+- Review status: passes 1 and 2 completed (architecture/behavior and state/cancellation/regression review); pass 3 is awaiting CI for the latest commit.
+- CI: run #45780872947 on intermediate commit `e4eaf9276a06aa818c00ff0fc6145043d7c77374` passed Python/unit tests and Dart analysis; Android arm64 release build was still in progress at the last check. Latest source commit `10c99af7d8e7b3e17684bd88929e09b19467add6` has a separate CI run #45780979743 pending. Do not treat the intermediate result as final verification of the latest commit.
+- PR #58 remains open and unmerged.
