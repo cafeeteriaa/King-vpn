@@ -63,7 +63,10 @@ Future<bool> _autoPortOk(String ip, int port) async {
 }
 
 Future<void> autoScanRun(void Function(String) say,
-    {bool Function()? isVpnActive, bool Function()? isVpnWanted}) async {
+    {bool Function()? isVpnActive,
+    bool Function()? isVpnWanted,
+    List<Server> configuredServers = const <Server>[],
+    List<String> frontSnis = const <String>[]}) async {
   bool vpnActive() => isVpnActive?.call() ?? false;
   bool vpnWanted() => isVpnWanted?.call() ?? false;
   // Scanning through an active VPN tunnel can produce misleading direct-IP results
@@ -95,11 +98,6 @@ Future<void> autoScanRun(void Function(String) say,
     // Scan the complete saved IP inventory and exact endpoints from the user's
     // own server profiles. Do not synthesize fallback IPs or expand unrelated
     // public/neighboring subnets.
-    final configuredServers = <Server>[
-      ...good,
-      ...pending,
-      ..._resMap.values.map((entry) => entry.s),
-    ];
     final ipSet = <String>{
       for (final entry in _goldIps.values) entry.ip,
       for (final server in configuredServers)
@@ -126,7 +124,7 @@ Future<void> autoScanRun(void Function(String) say,
     }.toList()..sort();
     final sniDomains = <String>{
       ...kAutoSniDomains,
-      ...natFrontSnis(),
+      ...frontSnis,
     }.toList(growable: false);
     say('بررسی کامل موجودی: ${ips.length} IP • ${sniDomains.length} نام SNI • ${ports.length} پورت');
     // SNI: خروجی خود دامنه‌هاست. هر دامنه یک بار؛ به محض یک IP سالم، همان دامنه ثبت می‌شود
@@ -225,7 +223,10 @@ Future<void> autoScanRun(void Function(String) say,
 }
 
 Future<void> autoScanSheet(BuildContext context,
-    {bool Function()? isVpnActive, bool Function()? isVpnWanted}) async {
+    {bool Function()? isVpnActive,
+    bool Function()? isVpnWanted,
+    List<Server> configuredServers = const <Server>[],
+    List<String> frontSnis = const <String>[]}) async {
   var status = _autoScanRunning ? 'در حال اجرا...' : 'آماده';
   var open = true;
   StateSetter? setS;
@@ -271,7 +272,10 @@ Future<void> autoScanSheet(BuildContext context,
             onPressed: _autoScanRunning
                 ? null
                 : () => autoScanRun(say,
-                    isVpnActive: isVpnActive, isVpnWanted: isVpnWanted),
+                    isVpnActive: isVpnActive,
+                    isVpnWanted: isVpnWanted,
+                    configuredServers: configuredServers,
+                    frontSnis: frontSnis),
             child: const Text('شروع'),
           ),
           TextButton(
