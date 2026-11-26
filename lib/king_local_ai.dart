@@ -1635,28 +1635,36 @@ was tested unless supplied evidence proves it. Keep the answer concise and usefu
     };
   }
 
+  // Serialize appends so concurrent foreground/background research workers
+  // cannot interleave JSONL records. Storage is append-only and has no total
+  // record ceiling; ranking streams the file and retains only top matches.
+  Future<void> _researchWriteQueue = Future<void>.value();
+
   Future<void> _rememberResearch(List<Map<String, String>> notes) async {
+    final valid = notes.where(isValidKingAiResearchNote).toList(growable: false);
+    if (valid.isEmpty) return;
     final root = await getApplicationSupportDirectory();
     final file = File('${root.path}/king_ai_research_memory.jsonl');
-    final lines = await file.exists()
-        ? await file.readAsLines()
-        : <String>[];
-    for (final note in notes) {
-      lines.add(jsonEncode(note));
+    final previous = _researchWriteQueue;
+    final release = Completer<void>();
+    _researchWriteQueue = release.future;
+    await previous;
+    try {
+      final payload = valid.map(jsonEncode).join('\\n') + '\\n';
+      await file.writeAsString(payload, mode: FileMode.append, flush: true);
+    } finally {
+      release.complete();
     }
-    final retained = mergeKingAiResearchMemory(lines, notes);
-    await file.writeAsString(
-      retained.join('\n') + (retained.isEmpty ? '' : '\n'),
-      flush: true,
-    );
   }
 
   Future<List<Map<String, String>>> _relevantResearchMemory(String query) async {
     final root = await getApplicationSupportDirectory();
     final file = File('${root.path}/king_ai_research_memory.jsonl');
     if (!await file.exists()) return const [];
-    final lines = await file.readAsLines();
-    return rankKingAiResearchMemory(query, lines, maxItems: 3);
+    final lines = file.openRead()
+        .transform(utf8.decoder)
+        .transform(const LineSplitter());
+    return rankKingAiResearchMemoryStream(lines, query, maxItems: 3);
   }
 
   Future<List<String>> _selectRelevantPaths(
