@@ -2496,6 +2496,29 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('quick source mode: parsing the complete returned list', main)
         self.assertIn('for (final l in lines)', main)
 
+    def test_ip_and_domain_memory_is_file_backed_without_count_or_age_expiry(self):
+        nat = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
+        self.assertIn('king_vpn_ip_inventory.jsonl', nat)
+        self.assertIn('king_vpn_domain_inventory.jsonl', nat)
+        self.assertIn('FileMode.append', nat)
+        self.assertIn('_natReadInventory', nat)
+        self.assertNotIn('_ipMemMax', nat)
+        self.assertNotIn('_domMemMax', nat)
+        self.assertNotIn('Duration(days: 14)', nat)
+
+    def test_range_scan_has_no_hidden_port_or_address_hit_quota(self):
+        nat = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
+        self.assertNotIn('natRanges.take(128)', nat)
+        self.assertNotIn('known.take(100)', nat)
+        self.assertNotIn('ports.take(10)', nat)
+        self.assertNotIn('want: 50', nat)
+        self.assertIn('addressBatchSize', nat)
+        self.assertIn('min(256, remaining)', nat)
+        self.assertIn('_natNationalRangeCursors', nat)
+        self.assertIn('if (modeSnapshot) ...natRanges', nat)
+        self.assertIn('Duration? budget,', nat)
+        self.assertIn('final slice = (generated[\'addrs\'] as List).cast<String>();', nat)
+
     def test_matrix_order_is_not_truncated_by_the_old_5000_variant_ceiling(self):
         main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
         nat = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
