@@ -5179,7 +5179,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   String _backupsJson(Server cur) {
     final out = <Map<String, String>>[];
     for (final x in _usable()) {
-      if (identical(x, cur) || out.length >= 8) continue;
+      if (identical(x, cur)) continue;
       try {
         out.add({
           'config': buildCoreConfig(x.useLink),
