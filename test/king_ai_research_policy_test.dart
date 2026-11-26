@@ -176,14 +176,14 @@ void main() {
           jsonEncode(note(
             url: 'https://docs.flutter.dev/testing',
             title: 'Flutter testing',
-            excerpt: 'Old test reference',
-            date: '2026-11-01T00:00:00Z',
+            excerpt: 'New test reference',
+            date: '2026-11-25T00:00:00Z',
           )),
           jsonEncode(note(
             url: 'https://docs.flutter.dev/testing',
             title: 'Flutter testing',
-            excerpt: 'New test reference',
-            date: '2026-11-25T00:00:00Z',
+            excerpt: 'Old replayed reference',
+            date: '2026-11-01T00:00:00Z',
           )),
         ]),
         'Flutter testing',
