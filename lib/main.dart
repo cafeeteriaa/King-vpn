@@ -4059,7 +4059,7 @@ Future<double?> measure(
   // viaCore / default when VPN is up: always hit the core's local HTTP proxy
   // so we test the REAL outbound. DIRECT from the VPN app often bypasses the
   // tunnel on Android and gives false "OK" while Telegram/apps still hang.
-  final useProxy = await _useCoreProxy(viaCore || !direct);
+  final useProxy = await _useCoreProxy((viaCore || !direct) && !_kingWireGuardActive);
   final c = HttpClient()
     ..findProxy = ((_) =>
         useProxy ? 'PROXY 127.0.0.1:$httpProxyPort' : 'DIRECT')
@@ -4092,7 +4092,7 @@ String lastPingErr = '';
 // (only the headers are read, then the connection is closed)
 Future<bool> _siteOpens(String url, {bool viaCore = true}) async {
   // Default viaCore=true: verify through the core proxy (real tunnel path)
-  final useProxy = await _useCoreProxy(viaCore);
+  final useProxy = await _useCoreProxy(viaCore && !_kingWireGuardActive);
   final c = HttpClient()
     ..findProxy = ((_) =>
         useProxy ? 'PROXY 127.0.0.1:$httpProxyPort' : 'DIRECT')
@@ -4111,6 +4111,11 @@ Future<bool> _siteOpens(String url, {bool viaCore = true}) async {
 }
 
 Future<int> _sitesOpen() async {
+  if (_kingWireGuardActive) {
+    final urls = nationalMode ? _tunnelTestUrlsNational : <String>[delayTestUrl];
+    final results = await Future.wait(urls.map((url) => _siteOpens(url, viaCore: false)));
+    return results.any((ok) => ok) ? 1 : 0;
+  }
   // اگر پورت پروکسی هسته آماده نیست، تست را بی‌اعتبار بدان
   // (قبلاً باعث تعویض الکی «سایت‌ها باز نمی‌شوند» می‌شد)
   try {
@@ -4211,7 +4216,7 @@ Future<int?> pingProxy(
   try {
     if (cancelled?.call() ?? false) return null;
     var useProxy = await _useCoreProxy(
-      viaCore || !direct,
+      (viaCore || !direct) && !_kingWireGuardActive,
       budget: left(),
       cancelled: cancelled,
     );
@@ -5936,6 +5941,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       if (Platform.isAndroid && _kingWireGuardActive) {
         await _kingWireGuardCore.disconnect().timeout(const Duration(seconds: 8));
         _kingWireGuardActive = false;
+        kVpnLastStateTop = 'DISCONNECTED';
       }
       if (kOwnVpnService) await ownVpnStop(); // KINGVPN
       await v2ray.stopV2Ray().timeout(const Duration(seconds: 8), onTimeout: () {});
@@ -8283,10 +8289,12 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         if (abort || !wantVpn) {
           await _kingWireGuardCore.disconnect();
           _kingWireGuardActive = false;
+          kVpnLastStateTop = 'DISCONNECTED';
           return false;
         }
         _kingWireGuardActive = true;
         lastState = 'CONNECTED';
+        kVpnLastStateTop = 'CONNECTED';
         tunWarn = false;
         dbg('KING CORE: WireGuard UP • ${result['version'] ?? 'wireguard-go'}');
         return true;
@@ -8295,6 +8303,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         try { await _kingWireGuardCore.disconnect(); } catch (stopError, stopStack) { logError(stopError, stopStack); }
         _kingWireGuardActive = false;
         lastState = 'DISCONNECTED';
+        kVpnLastStateTop = 'DISCONNECTED';
         lastFail = 'WireGuard: $wgError';
         return false;
       }
