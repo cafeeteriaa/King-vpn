@@ -360,6 +360,15 @@ void main() {
       expect(profiles, hasLength(1));
       expect(profiles.single.format, KingServerConfigFormat.hysteria2Uri);
       expect(profiles.single.raw, 'hy2://token@example.org:443?sni=example.org');
+      expect(
+        parser.parse(engineId: KingEngineId.hysteria2,
+            payload: 'hy2://token@example.org:443'),
+        hasLength(1),
+      );
+      expect(
+        KingEngineServerSourceCatalog.forEngine(KingEngineId.hysteria2),
+        isNotEmpty,
+      );
     });
 
     test('isolates failed sources and retains healthy Hysteria2 profiles', () async {
