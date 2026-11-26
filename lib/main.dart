@@ -12081,7 +12081,7 @@ ListTile( // KINGEXTRAS row
   /// خروجی: نقشه‌ی link -> ms فقط برای سرورهای سالم
   Future<Map<String, int>> _personalPingAll(List<Server> list) async {
     final gen = ++_personalPingGen;
-    bool cancelled() => gen != _personalPingGen || autoTestAbortRequested;
+    bool cancelled() => gen != _personalPingGen || AutoTestEngine.autoTestAbortRequested;
     final ok = <String, int>{};
     final rows = _personalRows.value;
     var doneCount = 0;
@@ -12191,7 +12191,7 @@ ListTile( // KINGEXTRAS row
     _set('اتصال به سرورهای شخصی...');
     await prep;
     _personalPrep = null;
-    if (autoTestAbortRequested) return;
+    if (AutoTestEngine.autoTestAbortRequested) return;
     // V5: نتیجه‌ی پینگ پیش‌گرم (که هنگام تبلیغ اجرا شده) گاهی خالی است؛ یک بار دوباره پینگ می‌گیریم
     if (_personalRanked.isEmpty && personalFolderCache.isNotEmpty) {
       _set('دوباره پینگ سرورهای شخصی...');
@@ -12299,14 +12299,14 @@ ListTile( // KINGEXTRAS row
   Future<void> _personalConnectAt(int i) async {
     // Iterate rather than recurse: a large personal folder must not grow the call stack.
     for (var index = i; index < _personalRanked.length; index++) {
-      if (abort || autoTestAbortRequested) return;
+      if (abort || AutoTestEngine.autoTestAbortRequested) return;
       _personalIdx = index;
       final ok = await _connectPersonalFast(_personalRanked[index]);
       if (ok) {
         _personalWatchOn();
         return;
       }
-      if (_personalHardFail || abort || autoTestAbortRequested || !wantVpn) return;
+      if (_personalHardFail || abort || AutoTestEngine.autoTestAbortRequested || !wantVpn) return;
     }
     _set('هیچ سرور شخصی وصل نشد');
   }
