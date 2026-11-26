@@ -8797,7 +8797,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     if (!nationalMode) natVarNormal.remove(s.key);
     // IPSWEEP-PROJECT: فقط در نت ملی
     if (nationalMode && socialGate != null && cleanIps.isEmpty) {
-      final w = await _atIpSweep(_usable(), const Duration(seconds: 45)); // کوتاه: قبلاً ۲۰ دقیقه بود و اتصال را قفل می‌کرد
+      final w = await _atIpSweep(_usable());
       if (abort || !wantVpn) return false; // FIXLADDERABORT: کاربر وسط اسکن لغو کرده
       if (w.isNotEmpty) {
         cleanIps = List<CleanIp>.of(w);
@@ -17276,11 +17276,10 @@ extension ProjectNatSweep on _HomePageState {
         const {'360', 'qq'}.contains(x.fp); // NEWFP
   }
 
-  // IPSWEEP: هر IP تمیز را با اتصال واقعی روی یک سرور پشت کلودفلر امتحان می‌کند.
-  // فقط IP‌هایی که ترافیک تونل (google و youtube) بدهند نگه داشته می‌شوند (حداکثر ۱۰ تا).
-  // IPSWEEP: IP‌های باز را روی همه‌ی پورت‌های CDN (_natCfPorts) پیدا می‌کند، سپس هر جفت IP:پورت
-  // را با اتصال واقعی و بررسی تونل (google و youtube) می‌سنجد. فقط جفت‌های ترافیک‌دار نگه داشته می‌شوند.
-  Future<List<CleanIp>> _atIpSweep(List<Server> pool, Duration budget) async {
+  // IPSWEEP: traverse the complete Cloudflare IPv4 inventory with a durable
+  // cursor, test every supported CDN port, then verify every reachable pair
+  // through a real tunnel. AutoTestEngine cancellation is the stop condition.
+  Future<List<CleanIp>> _atIpSweep(List<Server> pool) async {
     Server? server;
     for (final value in pool) {
       if (_natCdnNets.contains(value.net)) {
@@ -17302,21 +17301,28 @@ extension ProjectNatSweep on _HomePageState {
     // random per-CIDR sample, per-port hit quota, or hidden scan deadline.
     final addresses = await _cleanCandidates();
     final opened = <CleanIp>[];
-    for (final port in _natCfPorts) {
-      if (abort || AutoTestEngine._abortRequested) break;
-      final hits = await natScanIps(
-        addresses,
-        port: port,
-        concurrency: 24,
-        timeout: const Duration(milliseconds: 900),
-        cancelled: () => abort || AutoTestEngine._abortRequested,
-      );
-      for (final hit in hits) {
-        opened.add(CleanIp(hit.ip, hit.ms, port));
+    try {
+      for (final port in _natCfPorts) {
+        if (abort || AutoTestEngine._abortRequested) break;
+        final hits = await natScanIps(
+          addresses,
+          port: port,
+          concurrency: 24,
+          timeout: const Duration(milliseconds: 900),
+          cancelled: () => abort || AutoTestEngine._abortRequested,
+        );
+        for (final hit in hits) {
+          opened.add(CleanIp(hit.ip, hit.ms, port));
+        }
       }
-    }
-    if (!abort && !AutoTestEngine._abortRequested) {
-      await goldCommitCleanCandidates();
+      if (!abort && !AutoTestEngine._abortRequested) {
+        await goldCommitCleanCandidates();
+      } else {
+        goldDiscardCleanCandidates();
+      }
+    } catch (_) {
+      goldDiscardCleanCandidates();
+      rethrow;
     }
     dbg('IPSCAN: ${opened.length} جفت IP:پورت باز از ${addresses.length} آدرس بررسی‌شده');
     final cands = opened;
@@ -17325,18 +17331,15 @@ extension ProjectNatSweep on _HomePageState {
     final saved = List<CleanIp>.of(cleanIps);
     final key = _nk(sv);
     final prevNatVar = natVar[key]; // FIXSWEEP: حالت یادگرفته‌شده‌ی قبلی را پاک نکن
-    final t0 = DateTime.now();
     final prevWant = wantVpn;
     try {
       wantVpn = true;
       for (var i = 0; i < cands.length; i++) {
         if (abort || AutoTestEngine._abortRequested || AutoTestEngine._phase != _AtPhase.running) break;
-        if (winners.length >= 10) break;
-        if (DateTime.now().difference(t0) > budget) break;
         final c = cands[i];
         cleanIps = [c];
         natVar[key] = vIdx;
-        autoTestText.value = 'سنجش IP تمیز ${winners.length}/10 • ${i + 1}/${cands.length}';
+        autoTestText.value = 'سنجش IP تمیز ${winners.length} • ${i + 1}/${cands.length}';
         var ok = false;
         try {
           if (await _start(sv)) {
