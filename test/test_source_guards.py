@@ -2593,6 +2593,15 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn('_goldIps', hunt)
         self.assertNotIn('goldLoad()', hunt)
         self.assertIn('natNationalDomMem', nat)
+        self.assertIn('final saved = nationalMode ? natNationalIpMem : natIpMem;', nat)
+        self.assertIn('includeSavedIpMemory: true', nat)
+        self.assertIn('natNationalDomMemLoad()', nip)
+        self.assertIn('for (final entry in natNationalDomMem)', nip)
+        self.assertIn('savedIps.addAll(await nipResolveAll(host))', nip)
+        dns = (ROOT / 'lib' / 'dns_scanner.dart').read_text(encoding='utf-8')
+        self.assertIn('nationalMode ? natNationalTemplateSeeds : natGlobalTemplateSeeds', dns)
+        self.assertIn('...natNationalDomMem.map', dns)
+        self.assertIn('...natDomMem.map', dns)
 
     def test_fragmentation_is_not_silently_disabled_and_targets_all_tls_outbounds(self):
         main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
