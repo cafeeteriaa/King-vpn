@@ -1230,7 +1230,7 @@ String _natFrag(String cfg, int fi,
         fragmentTargets.add(outbound);
       }
     }
-    if (fragmentTargets.isEmpty) return cfg;
+    if (fragmentTargets.isEmpty) return _stripKingFragmentOutbound(cfg);
 
     // A single app-owned fragmentation outbound is shared by every eligible
     // TLS/REALITY proxy in multi-hop profiles; preserve all unrelated outbounds.
