@@ -8794,10 +8794,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     plusHistAdd(s);
     connBaseDelay = s.ping;
     betterRun = 0;
-    if (!s.wireGuard) {
-      aiGen++; // FASTPATCH-AI: analyse+apply after Xray-compatible connections
-      _aiLoop(aiGen);
-    }
+    aiGen++; // cancel analysis for the previous engine on every core switch
+    if (!s.wireGuard) _aiLoop(aiGen); // legacy AI tuning is Xray-specific until selector integration
     // the personal server has its own row, it never joins the healthy list
     if (!s.personal && !s.wireGuard && !good.contains(s)) good.add(s);
     if (nationalMode && !s.personal) unawaited(_natAdd(s));
