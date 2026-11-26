@@ -41,7 +41,7 @@ class VpnEngineOwnershipSourceGuard(unittest.TestCase):
 
     def test_handoff_does_not_clear_user_failover_state(self):
         source = (ROOT / "android_src" / "KingVpnService.java").read_text()
-        start = source.index("public void stopForEngineHandoff()")
+        start = source.index("public boolean stopForEngineHandoff(long timeoutMs)")
         end = source.index("\n    }", start)
         method = source[start:end]
         self.assertIn("requestStop(false)", method)
