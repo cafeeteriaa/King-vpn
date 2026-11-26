@@ -1346,7 +1346,7 @@ extension NpvAmExtras on _HomePageState {
                     child: ListView(
                       shrinkWrap: true,
                       children: [
-                        for (final e in cleanIps.take(10))
+                        for (final e in cleanIps)
                           Directionality(
                             textDirection: TextDirection.ltr,
                             child: Text('${e.ip}    ${e.ms} ms'),
@@ -1819,19 +1819,19 @@ Future<void> goldShowList(BuildContext context) async {
                 const Divider(),
                 const Text('سرورهای سالم (سریع → کند):',
                     style: TextStyle(fontWeight: FontWeight.bold)),
-                for (final v in srvL.take(200))
+                for (final v in srvL)
                   Text('${v.ping} ms  •  ${Server.parse(v.link)?.name ?? v.link}',
                       style: const TextStyle(fontSize: 12)),
                 const Divider(),
                 const Text('IP تمیز (سریع → کند):',
                     style: TextStyle(fontWeight: FontWeight.bold)),
-                for (final v in ipL.take(200))
+                for (final v in ipL)
                   Text('${v.ms} ms  •  ${v.ip}:${v.port}',
                       style: const TextStyle(fontSize: 12, fontFamily: 'monospace')),
                 const Divider(),
                 const Text('DNS سالم (سریع → کند):',
                     style: TextStyle(fontWeight: FontWeight.bold)),
-                for (final e in dnsL.take(200))
+                for (final e in dnsL)
                   Text('${e.value} ms  •  ${e.key}',
                       style: const TextStyle(fontSize: 12, fontFamily: 'monospace')),
                 for (final k in const ['sni', 'port', 'tls']) ...[
@@ -1840,7 +1840,7 @@ Future<void> goldShowList(BuildContext context) async {
                       {'sni': 'SNI سالم', 'port': 'پورت سالم', 'tls': 'پروتکل TLS سالم'}[k]! +
                           ' (${(_goldScan[k] ?? const []).length}):',
                       style: const TextStyle(fontWeight: FontWeight.bold)),
-                  for (final x in (_goldScan[k] ?? const <String>[]).take(200))
+                  for (final x in (_goldScan[k] ?? const <String>[]))
                     Text(x, style: const TextStyle(fontSize: 12, fontFamily: 'monospace')),
                 ],
               ],
@@ -1954,7 +1954,6 @@ void goldNoteServer(Server srv) {
     ex.okAt = now;
     ex.testAt = now;
   }
-  _goldTrimSrv();
   _goldSaveT ??= Timer(const Duration(seconds: 20), () {
     _goldSaveT = null;
     unawaited(goldSave());
@@ -2069,10 +2068,8 @@ Future<void> manualRangeScan(BuildContext context, List<String> userAddrs) async
     if (!cancelled) {
       result = await natScanIps(
         addrs,
-        want: 1000,
         concurrency: nationalMode ? kNatManualConc : natAdaptiveWorkers(),
         // RANGEFIX: بازه‌ی کوچک ۲ دقیقه؛ بازه‌ی بزرگ (بیش از ۴۰۹۶ IP) ۸ دقیقه
-        budget: Duration(minutes: userAddrs.length > 4096 ? 8 : 2),
         timeout: const Duration(milliseconds: 1500),
         cancelled: () => cancelled || !open,
         onProgress: (d, t, h) => upd(() {
