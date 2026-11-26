@@ -22,7 +22,8 @@ class AmneziaWgIntegrationSourceGuard(unittest.TestCase):
     def test_adapter_uses_shared_tun_and_does_not_start_upstream_vpn_service(self):
         source = (ROOT / "android_src" / "KingAmneziaWgCore.kt").read_text()
         self.assertIn("establishTun: () -> ParcelFileDescriptor?", source)
-        self.assertIn("GoBackend.awgTurnOn(INTERFACE_NAME, descriptor.fd, userspaceSettings)", source)
+        self.assertIn("GoBackend.awgTurnOn(INTERFACE_NAME, activeDescriptor.fd, userspaceSettings)", source)
+        self.assertIn("check(started >= 0)", source)
         self.assertIn("GoBackend.awgGetSocketV4(started)", source)
         self.assertIn("GoBackend.awgGetSocketV6(started)", source)
         self.assertIn("service.protect(socket4)", source)
