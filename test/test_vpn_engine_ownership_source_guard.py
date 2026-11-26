@@ -48,6 +48,9 @@ class VpnEngineOwnershipSourceGuard(unittest.TestCase):
         self.assertIn("CountDownLatch completed", method)
         self.assertIn("return !\"xray\".equals(KingVpnEngineCoordinator.currentOwner())", method)
         self.assertNotIn("requestStop(true)", method)
+        self.assertIn("handoff must not block the Android main thread", method)
+        activity = (ROOT / "android_src" / "MainActivity.kt").read_text()
+        self.assertIn("stopForEngineHandoff(timeoutMs) == true", activity)
 
 
 
