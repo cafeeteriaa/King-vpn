@@ -94,6 +94,17 @@ class LibboxDependencyGuard(unittest.TestCase):
         self.assertIn("import java.util.zip.ZipEntry\n", patched_existing)
         self.assertIn("import java.util.zip.ZipOutputStream\n", patched_existing)
 
+        stale_patch = patched.replace(
+            "compileOnly(files(libboxGoCompileJar).builtBy(prepareLibboxGoRuntimeJar))",
+            "",
+        )
+        upgraded = module.install_go_runtime_merge(stale_patch)
+        self.assertIn(
+            "compileOnly(files(libboxGoCompileJar).builtBy(prepareLibboxGoRuntimeJar))",
+            upgraded,
+        )
+        self.assertEqual(upgraded.count("val libboxGoCompileJar ="), 1)
+
     def test_third_party_license_and_build_provenance_exist(self):
         folder = ROOT / "licenses" / "sing_box"
         for name in ("LICENSE", "THIRD_PARTY_NOTICES.md", "SING_BOX_CORE_LICENSE", "BUILD_PROVENANCE.md"):
