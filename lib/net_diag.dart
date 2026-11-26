@@ -156,10 +156,9 @@ Future<_DiagItem> _diagTls(String label, String ip, String sni) async {
   Socket? raw;
   try {
     raw = await Socket.connect(ip, 443, timeout: const Duration(seconds: 4));
-    // This probe measures TLS handshake/SNI reachability only; it sends no
-    // application data, so certificate trust is intentionally not its signal.
-    k = await SecureSocket.secure(raw,
-            host: sni, onBadCertificate: (_) => true)
+    // Keep normal certificate validation: an SNI probe must not accept an
+    // invalid certificate and mistake an untrusted endpoint for a healthy one.
+    k = await SecureSocket.secure(raw, host: sni)
         .timeout(const Duration(seconds: 5));
     return _DiagItem(label, true, sw.elapsedMilliseconds, _DiagGroup.tls);
   } catch (e, stk) {
