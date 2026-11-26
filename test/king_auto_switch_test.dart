@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:king_vpn/king_auto_switch.dart';
 
@@ -22,6 +24,22 @@ class FakeAdapter implements KingConnectionAdapter {
   Future<void> disconnect() async => events?.add('disconnect:${id.name}');
 }
 
+class _BlockingAdapter implements KingConnectionAdapter {
+  _BlockingAdapter(this.delegate, this.started);
+  final FakeAdapter delegate;
+  final Completer<KingEngineConnectResult> started;
+  @override
+  KingEngineId get id => delegate.id;
+  @override
+  bool get available => delegate.available;
+  @override
+  Future<KingEngineConnectResult> connect() => started.future;
+  @override
+  Future<bool> verifyTraffic() => delegate.verifyTraffic();
+  @override
+  Future<void> disconnect() => delegate.disconnect();
+}
+
 void main() {
   group('KING AutoSwitch', () {
     test('tries Xray before Psiphon and verifies actual traffic', () async {
@@ -44,6 +62,25 @@ void main() {
       ]).connect();
       expect(result.engine, KingEngineId.psiphon);
       expect(events, ['connect:psiphon']);
+    });
+
+    test('user disconnect cancels a late engine startup', () async {
+      final started = Completer<KingEngineConnectResult>();
+      final events = <String>[];
+      final adapter = FakeAdapter(KingEngineId.xray, events: events);
+      final blocking = _BlockingAdapter(adapter, started);
+      final coordinator = KingAutoSwitchCoordinator(adapters: [blocking]);
+      final pending = coordinator.connect();
+      await Future<void>.delayed(Duration.zero);
+      await coordinator.disconnect();
+      started.complete(const KingEngineConnectResult(
+        started: true,
+        trafficVerified: true,
+      ));
+      final result = await pending;
+      expect(result.connected, isFalse);
+      expect(result.engine, isNull);
+      expect(events, ['disconnect:xray']);
     });
 
     test('rejects duplicate engine adapters', () {
