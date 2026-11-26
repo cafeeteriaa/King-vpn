@@ -29,7 +29,7 @@ void main() {
       );
     });
 
-    test('deduplicates case-insensitively and enforces input bounds', () {
+    test('deduplicates case-insensitively', () {
       final values = FreshResourceStore.normalizeLinks([
         'vless://id@example.com:443',
         'VLESS://id@example.com:443',
@@ -38,11 +38,25 @@ void main() {
       expect(values, hasLength(2));
     });
 
-    test('rejects oversized individual links', () {
-      expect(
-        FreshResourceStore.normalizeLink('vless://' + ('a' * 65537)),
-        isNull,
+    test('retains every distinct entry beyond the former 20000-entry ceiling', () {
+      final links = List<String>.generate(
+        20005,
+        (index) => 'vless://id$index@example.com:443',
       );
+
+      final normalized = FreshResourceStore.normalizeLinks(links);
+
+      expect(normalized, hasLength(20005));
+      expect(normalized.first, 'vless://id0@example.com:443');
+      expect(normalized.last, 'vless://id20004@example.com:443');
+    });
+
+    test('accepts supported links longer than the former 65536-character ceiling', () {
+      final longLink =
+          'vless://id@example.com:443?metadata=' + ('x' * 65537);
+
+      expect(longLink.length, greaterThan(65536));
+      expect(FreshResourceStore.normalizeLink(longLink), longLink);
     });
   });
 }
