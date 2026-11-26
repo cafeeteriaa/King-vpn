@@ -337,6 +337,39 @@ void main() {
       expect(result.failures, hasLength(1));
     });
 
+    test('honors sub-hour publisher cadence without inventing unknown schedules', () {
+      const fast = KingEngineServerSource(
+        id: 'fast', name: 'Fast feed', url: 'https://example.org/feed',
+        kind: KingServerSourceKind.publicSubscription,
+        formats: {KingServerConfigFormat.hysteria2Uri},
+        engineIds: {'hysteria2'}, updateCadence: '15m',
+      );
+      const hourly = KingEngineServerSource(
+        id: 'hourly', name: 'Hourly feed', url: 'https://example.org/hourly',
+        kind: KingServerSourceKind.publicSubscription,
+        formats: {KingServerConfigFormat.hysteria2Uri},
+        engineIds: {'hysteria2'}, updateCadence: 'hourly',
+      );
+      const unknown = KingEngineServerSource(
+        id: 'unknown', name: 'Unknown feed', url: 'https://example.org/unknown',
+        kind: KingServerSourceKind.publicSubscription,
+        formats: {KingServerConfigFormat.hysteria2Uri},
+        engineIds: {'hysteria2'},
+      );
+      expect(KingServerSourceRefreshScheduler.intervalForSource(fast),
+          const Duration(minutes: 15));
+      expect(KingServerSourceRefreshScheduler.intervalForSource(hourly),
+          const Duration(hours: 1));
+      expect(KingServerSourceRefreshScheduler.intervalForSource(unknown), isNull);
+    });
+
+    test('rejects cleartext feed URLs before making a network request', () async {
+      final fetcher = KingHttpSourceFetcher();
+      await expectLater(fetcher.fetch('http://example.org/feed'),
+          throwsFormatException);
+      fetcher.close(force: true);
+    });
+
     test('coalesces concurrent refreshes for the same engine', () async {
       final gate = Completer<String>();
       var calls = 0;
