@@ -71,9 +71,10 @@ class KingAmneziaWgCore private constructor() {
             GoBackend.awgVersion() ?: "AmneziaWG"
         } catch (failure: Throwable) {
             var nativeStopped = handle == null
-            if (handle != null) {
+            val failedHandle = handle
+            if (failedHandle != null) {
                 nativeStopped = runCatching {
-                    GoBackend.awgTurnOff(handle)
+                    GoBackend.awgTurnOff(failedHandle)
                     true
                 }.getOrDefault(false)
             }
