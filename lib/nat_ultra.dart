@@ -349,7 +349,7 @@ List<_NatSpec> _natGenerate() {
     add(_natMk(frag: g));
   }
   for (final g in top) {
-    for (final p in fps.take(7)) {
+    for (final p in fps) {
       add(_natMk(frag: g, fp: p));
     }
   }
@@ -376,9 +376,7 @@ List<_NatSpec> _natGenerate() {
   for (var k = 0; k < _natCfPorts.length; k++) {
     mods.add((f, p) => _natMk(frag: f, fp: p, port: true, portIdx: k));
   }
-  for (var k = 0; k < 5; k++) {
-    mods.add((f, p) => _natMk(frag: f, fp: p, clean: true, cleanIdx: k));
-  }
+  mods.add((f, p) => _natMk(frag: f, fp: p, clean: true));
   for (final d in _natDnsList) {
     mods.add((f, p) => _natMk(frag: f, fp: p, doh: d));
   }
@@ -386,7 +384,7 @@ List<_NatSpec> _natGenerate() {
     add(m(null, null));
   }
   for (final m in mods) {
-    for (final g in top.take(12)) {
+    for (final g in top) {
       add(m(g, null));
     }
   }
@@ -396,14 +394,14 @@ List<_NatSpec> _natGenerate() {
     }
   }
   for (final m in mods) {
-    for (final g in top.take(6)) {
+    for (final g in top) {
       for (final p in const ['chrome', 'firefox', 'randomized']) {
         add(m(g, p));
       }
     }
   }
-  for (final g in top.take(20)) {
-    for (final p in fps.take(5)) {
+  for (final g in top) {
+    for (final p in fps) {
       for (final a in alpns) {
         add(_natMk(frag: g, fp: p, alpn: a));
       }
@@ -435,7 +433,7 @@ int natGrow(int n) {
     final port = rnd.nextBool();
     final portIdx = port ? rnd.nextInt(_natCfPorts.length) : null;
     final clean = rnd.nextBool();
-    final cleanIdx = clean ? rnd.nextInt(10) : null;
+    const int? cleanIdx = null;
     // DNSNAT: جایگزین‌ها از DNSهای سالم اسکن (اگر هست) انتخاب می‌شوند
     // نیمی از انتخاب‌ها از DNSهای اسکن‌شده و نیمی از لیست ثابت، تا تنوع حفظ شود
     final dnsPool = (dnsxBestCache.isNotEmpty && rnd.nextBool()) ? dnsxBestCache : _natDnsList;
@@ -519,7 +517,6 @@ String _natPickOf(String k, bool reuse, String Function() gen) {
     if (old != null) return old;
   }
   final v = gen();
-  if (_natPick.length > 3000) _natPick.remove(_natPick.keys.first);
   _natPick[k] = v;
   return v;
 }
@@ -728,7 +725,7 @@ List<int> _natTopWinners(int n) {
       if (v != null && v > 0 && v < _natSpecs.length) rows.add(MapEntry(v, c));
     });
     rows.sort((a, b) => b.value.compareTo(a.value));
-    _topWinCache = [for (final r in rows.take(30)) r.key];
+    _topWinCache = [for (final r in rows) r.key];
     _topWinKey = key;
   }
   return _topWinCache!.take(n).toList();
