@@ -2634,6 +2634,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('_stripKingFragmentOutbound(cfg)', extras)
         self.assertIn('for (final outbound in fragmentTargets)', extras)
         self.assertIn("outs.removeWhere((entry) => entry is Map && entry['tag'] == 'frag-out')", extras)
+        self.assertIn('bool fragEnabled = true;', extras)
 
     def test_clean_ip_probe_requires_verified_cloudflare_tls_and_keeps_full_results(self):
         source = (ROOT / 'lib' / 'npv_am_extras.dart').read_text(encoding='utf-8')
