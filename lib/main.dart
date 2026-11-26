@@ -4081,7 +4081,7 @@ Future<double?> measure(
   // viaCore / default when VPN is up: always hit the core's local HTTP proxy
   // so we test the REAL outbound. DIRECT from the VPN app often bypasses the
   // tunnel on Android and gives false "OK" while Telegram/apps still hang.
-  final useProxy = await _useCoreProxy((viaCore || !direct) && !_kingWireGuardActive);
+  final useProxy = await _useCoreProxy((viaCore || !direct) && !_kingWireGuardActive && !_kingSingBoxActive);
   final c = HttpClient()
     ..findProxy = ((_) =>
         useProxy ? 'PROXY 127.0.0.1:$httpProxyPort' : 'DIRECT')
@@ -4114,7 +4114,7 @@ String lastPingErr = '';
 // (only the headers are read, then the connection is closed)
 Future<bool> _siteOpens(String url, {bool viaCore = true}) async {
   // Default viaCore=true: verify through the core proxy (real tunnel path)
-  final useProxy = await _useCoreProxy(viaCore && !_kingWireGuardActive);
+  final useProxy = await _useCoreProxy(viaCore && !_kingWireGuardActive && !_kingSingBoxActive);
   final c = HttpClient()
     ..findProxy = ((_) =>
         useProxy ? 'PROXY 127.0.0.1:$httpProxyPort' : 'DIRECT')
@@ -4133,7 +4133,7 @@ Future<bool> _siteOpens(String url, {bool viaCore = true}) async {
 }
 
 Future<int> _sitesOpen() async {
-  if (_kingWireGuardActive) {
+  if (_kingWireGuardActive || _kingSingBoxActive) {
     final urls = nationalMode ? _tunnelTestUrlsNational : <String>[delayTestUrl];
     final results = await Future.wait(urls.map((url) => _siteOpens(url, viaCore: false)));
     return results.any((ok) => ok) ? 1 : 0;
@@ -4238,7 +4238,7 @@ Future<int?> pingProxy(
   try {
     if (cancelled?.call() ?? false) return null;
     var useProxy = await _useCoreProxy(
-      (viaCore || !direct) && !_kingWireGuardActive,
+      (viaCore || !direct) && !_kingWireGuardActive && !_kingSingBoxActive,
       budget: left(),
       cancelled: cancelled,
     );
