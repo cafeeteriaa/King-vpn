@@ -10154,12 +10154,12 @@ ListTile( // KINGEXTRAS row
           if (localPilotOn && cpuHot == 0 &&
               DateTime.now().difference(natRangeLast) >
                   const Duration(minutes: 5) &&
-              pending.length < 3000) {
+              true) {
             natRangeLast = DateTime.now();
             unawaited(() async {
               final ips = await natRangeScanStep(
                   known: [...pending, ...natRestPending],
-                  maxAddrs: 2048, // NATBG-BUDGET: اسکن پس‌زمینه‌ی متصل سبک و مرحله‌ای است
+                  maxAddrs: 256, // resumable batch; cursor continues through every configured range
                   conc: min(2, natAdaptiveWorkers()),
                   stop: () => !mounted ||
                       !connected ||
@@ -10168,7 +10168,7 @@ ListTile( // KINGEXTRAS row
                       !localPilotOn ||
                       appGone ||
                       abort,
-                  budget: const Duration(seconds: 90));
+                  );
               // Do not publish stale discoveries after the tunnel/pilot stops.
               if (mounted &&
                   connected &&
@@ -11434,10 +11434,10 @@ ListTile( // KINGEXTRAS row
       if (!runNationalMode || abort) return;
       final ips = await natRangeScanStep(
           known: [...pending, ...natRestPending],
-          maxAddrs: 30000, // SCANCAP: قبلاً ۱۰۰ هزار با بودجه ۱۲ دقیقه
+          maxAddrs: 256, // resumable batch; no total address quota
           conc: natAdaptiveWorkers(),
           stop: () => abort || nationalMode != runNationalMode,
-          budget: const Duration(minutes: 3));
+          );
       if (abort || nationalMode != runNationalMode) return;
       await _natRangeAdd(ips);
     } catch (e, stk) {
@@ -11505,10 +11505,10 @@ ListTile( // KINGEXTRAS row
       if (runNationalMode && !abort && !ipWaiting && pending.isEmpty && hasTpl) {
         final ips = await natRangeScanStep(
             known: [...pending, ...natRestPending],
-            maxAddrs: 100000, // هر دور تا ۱۰۰ هزار آدرس
+            maxAddrs: 256, // resumable batch; all ranges continue via independent cursors
             conc: natAdaptiveWorkers(),
             stop: () => abort || modeChanged(),
-            budget: const Duration(minutes: 3));
+            );
         if (abort || modeChanged()) return;
         await _natRangeAdd(ips);
       }
@@ -11595,27 +11595,7 @@ ListTile( // KINGEXTRAS row
           await _natQuickStart();
           if (pending.isEmpty) {
             try {
-              final goldIps = goldIpList();
-              final tpl = [...good, ...natTemplateSeeds].take(2).toList();
-              if (goldIps.isNotEmpty && tpl.isNotEmpty) {
-                final made = <Server>[];
-                for (final gip in goldIps.take(20)) {
-                  for (final t in tpl) {
-                    try {
-                      made.add(Server(
-                        _natSetPort(_natSetHost(t.link, gip.ip, t.host), gip.port),
-                        '${t.name} (gold)',
-                        gip.ip,
-                        gip.port,
-                      ));
-                    } catch (e, stk) { logError(e, stk); }
-                  }
-                }
-                if (made.isNotEmpty) {
-                  pending.insertAll(0, made);
-                  dbg('V9-NATGOLD: ${made.length} gold configs injected');
-                }
-              }
+              // National and global discovery inventories remain independent.
             } catch (e, stk) { logError(e, stk); }
           }
         }
