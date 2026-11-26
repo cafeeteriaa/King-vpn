@@ -812,7 +812,7 @@ bool isValidCloudflareTraceResponse(String response) {
   final headers = response.substring(0, headerEnd);
   final lines = headers.split('\r\n');
   if (lines.isEmpty ||
-      !RegExp(r'^HTTP/1\\.[01] 200(?:\\s|$)').hasMatch(lines.first)) {
+      !RegExp(r'^HTTP/1\.[01] 200(?:\s|$)').hasMatch(lines.first)) {
     return false;
   }
   final normalizedHeaders = headers.toLowerCase();
@@ -821,7 +821,7 @@ bool isValidCloudflareTraceResponse(String response) {
     return false;
   }
   final body = response.substring(headerEnd + 4);
-  final bodyLines = body.split(RegExp(r'\\r?\\n'));
+  final bodyLines = body.split(RegExp(r'\r?\n'));
   bool hasField(String name) =>
       bodyLines.any((line) => line.toLowerCase().startsWith('$name='));
   return hasField('ip') && hasField('colo') && hasField('http');
@@ -839,7 +839,7 @@ Future<int?> _cfProbeMs(String ip, Duration t) async {
       supportedProtocols: const ['http/1.1'],
     ).timeout(t);
     secure.write(
-        'GET /cdn-cgi/trace HTTP/1.1\\r\\nHost: cloudflare.com\\r\\nConnection: close\\r\\n\\r\\n');
+        'GET /cdn-cgi/trace HTTP/1.1\r\nHost: cloudflare.com\r\nConnection: close\r\n\r\n');
     await secure.flush();
     final response = await _cfRead(secure, t);
     sw.stop();
