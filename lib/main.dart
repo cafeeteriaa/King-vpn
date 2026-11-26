@@ -3665,7 +3665,8 @@ class Server {
     // نکته: npvClean خودش trim می‌کند؛ double-trim لازم نیست.
     // اگر npvParse خاموش باشد، npvClean no-op است و کش روی لینک خام
     // کار می‌کند — همان رفتار قبلی.
-    final key = npvClean(link);
+    final raw = link.trim();
+    final key = raw.toLowerCase().startsWith('[interface]') ? raw : npvClean(link);
     if (_serverCache.containsKey(key)) {
       final c = _serverCache[key];
       return c == null ? null : _freshFrom(c);
@@ -3693,7 +3694,8 @@ class Server {
       link = link.trim();
       // Parse complete wg-quick profiles before URI normalization.
       if (link.toLowerCase().startsWith('[interface]')) {
-        final endpointLine = link.split('\\n').firstWhere((line) => line.trim().toLowerCase().startsWith('endpoint'), orElse: () => '');
+        if (!link.toLowerCase().contains('[peer]')) return null;
+        final endpointLine = link.split('\n').firstWhere((line) => line.trim().toLowerCase().startsWith('endpoint'), orElse: () => '');
         final equals = endpointLine.indexOf('=');
         if (equals < 0) return null;
         final endpoint = Uri.tryParse('udp://${endpointLine.substring(equals + 1).trim()}');
@@ -4866,6 +4868,7 @@ Map<String, String> _favsRef = {};
 
 bool inRowGid(Server s, String gid) {
   if (gid.startsWith('p:')) return s.personal;
+  if (gid == 'f:wireguard') return s.wireGuard;
   if (gid.startsWith('f:')) return _favsRef.containsKey(s.key);
   if (gid.startsWith('s:')) {
     return gid.length > 2 && ownerOf(s) == gid.substring(2);
