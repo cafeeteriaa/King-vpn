@@ -56,10 +56,10 @@ def install_go_runtime_merge(gradle_text):
     )
     missing_imports = [
         item for item in required_imports
-        if not re.search(r"(?m)^" + re.escape(item) + r"\\s*$", gradle_text)
+        if not re.search(r"(?m)^" + re.escape(item) + r"\s*$", gradle_text)
     ]
     if missing_imports:
-        gradle_text = "\\n".join(missing_imports) + "\\n" + gradle_text
+        gradle_text = "\n".join(missing_imports) + "\n" + gradle_text
     task = r'''
 // Both libbox and the existing Xray/V2Ray AAR ship gomobile's shared
 // Go runtime bridge. Keep the bridge already supplied by libv2ray and
