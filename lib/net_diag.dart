@@ -28,13 +28,79 @@ class _NetVerdict {
   final String op;
   // V7-LAYERS: which filter layer this network uses (0 = none, 1..4)
   final int filterLayer;
+  final String confidence;
+  final String evidence;
   final DateTime at;
   _NetVerdict(this.tcp, this.tls, this.web, this.home, this.dnsPoison,
-      this.dohOk, this.srcRaw, this.srcMir, this.op, this.filterLayer)
+      this.dohOk, this.srcRaw, this.srcMir, this.op, this.filterLayer,
+      this.confidence, this.evidence)
       : at = DateTime.now();
 }
 
 _NetVerdict? lastNetVerdict;
+
+class _NetClassification {
+  final int filterLayer;
+  final String confidence;
+  final String evidence;
+  const _NetClassification(this.filterLayer, this.confidence, this.evidence);
+}
+
+_NetClassification _classifyNetEvidence(
+  List<_DiagItem> probes, {
+  required bool dnsPoison,
+}) {
+  int successes(int start, int end) =>
+      probes.skip(start).take(end - start + 1).where((p) => p.ok).length;
+
+  final tcp = successes(0, 4);
+  final tls = successes(5, 8);
+  final web = successes(9, 13);
+  final sources = successes(14, 17);
+  final national = successes(18, 20);
+
+  if (tcp == 0 && national > 0) {
+    return _NetClassification(
+      1,
+      national >= 2 ? 'high' : 'medium',
+      'TCP خارجی ۰/۵؛ مقصد ملی $national/۳',
+    );
+  }
+  if (tcp >= 3 && tls == 0) {
+    return _NetClassification(
+      2,
+      'medium',
+      'TCP خارجی $tcp/۵؛ TLS با SNI برابر ۰/۴',
+    );
+  }
+  if (tcp >= 2 && tls >= 2 && web == 0) {
+    return _NetClassification(
+      3,
+      dnsPoison ? 'high' : 'medium',
+      'TCP $tcp/۵ و TLS $tls/۴؛ وب $web/۵'
+          '${dnsPoison ? '؛ اختلاف/نشانه DNS نیز دیده شد' : ''}',
+    );
+  }
+  if (web >= 2 && sources == 0) {
+    return _NetClassification(
+      4,
+      'medium',
+      'وب $web/۵؛ منابع $sources/۴',
+    );
+  }
+  if (web >= 2 || (tcp >= 3 && tls >= 2)) {
+    return _NetClassification(
+      0,
+      'high',
+      'اتصال در چند مقصد مستقل تأیید شد (TCP $tcp/۵، TLS $tls/۴، وب $web/۵)',
+    );
+  }
+  return _NetClassification(
+    0,
+    'low',
+    'نمونه‌ها برای نتیجه‌گیری کافی نیستند (TCP $tcp/۵، TLS $tls/۴، وب $web/۵، ملی $national/۳)',
+  );
+}
 
 class _DiagItem {
   final String label;
@@ -187,28 +253,18 @@ Future<String> netDiagnose() async {
   final srcMir = any(15, 17);
   final home = any(18, 20);
 
-  // ===== V7-LAYERS: تشخیص لایه‌ی فیلترینگ =====
-  // Layer 1 (IP/Port): TCP به IP خارجی بسته ولی نت ملی باز → فیلتر در سطح IP
-  // Layer 2 (SNI/DPI): TCP باز است ولی TLS با هر SNI بسته → DPI روی SNI
-  // Layer 3 (Domain/DNS): TCP و TLS باز است ولی سایت‌ها نه → DNS poisoning
-  // Layer 4 (Sources): سایت باز است ولی منابع لیست بسته → فیلتر منابع
-  // Layer 0: هیچ فیلتری نیست
-  int filterLayer = 0;
-  if (!tcp && home) {
-    filterLayer = 1;
-  } else if (tcp && !tls) {
-    filterLayer = 2;
-  } else if (tls && !web) {
-    filterLayer = 3;
-  } else if (web && !srcRaw && !srcMir) {
-    filterLayer = 4;
-  }
+  // Classification is evidence-weighted. A single reachable endpoint must
+  // not be treated as proof that an entire network layer is open or blocked.
+  final classification = _classifyNetEvidence(r, dnsPoison: dnsPoison);
+  final filterLayer = classification.filterLayer;
 
   lastNetVerdict = _NetVerdict(
       tcp, tls, web, home, dnsPoison, dnsDoh != null, srcRaw, srcMir,
-      natOpKey, filterLayer);
+      natOpKey, filterLayer, classification.confidence,
+      classification.evidence);
 
   b.writeln('— نتیجه و پیشنهاد —');
+  b.writeln('اطمینان تشخیص: ${classification.confidence} • ${classification.evidence}');
   if (!tcp && !web && home) {
     b.writeln('🔴 اینترنت بین‌الملل قطع است و فقط نت ملی کار می‌کند.\n'
         '• خلبان هوشمند اصلی را بزن؛ خودش راهبرد داخلی را انتخاب می‌کند. در صورت نیاز می‌توانی از پوشه‌ی سرورهای سالم هم دستی استفاده کنی.\n'
@@ -270,8 +326,13 @@ Future<String> netDiagnose() async {
       b.writeln('  • جستجوهای قبلی خوب هستند — فقط اتصال عادی بزن.');
       break;
     default:
-      b.writeln('✅ لایه فیلتر مشخصی شناسایی نشد — اینترنت آزاد است.');
-      b.writeln('تنظیمات v7 همه در حالت «خودکار» می‌مانند.');
+      if (classification.confidence == 'low') {
+        b.writeln('ℹ️ شواهد برای تعیین لایه کافی نیست؛ نتیجه را اینترنت آزاد تلقی نکن.');
+        b.writeln('تنظیم خودکار تغییری نمی‌دهد تا نمونه‌های بیشتری جمع شود.');
+      } else {
+        b.writeln('✅ در نمونه‌های کافی، لایه فیلتر مشخصی دیده نشد.');
+        b.writeln('تنظیمات v7 در حالت خودکار می‌مانند.');
+      }
   }
   b.writeln();
   b.writeln('(v7: Port Hopping · Dynamic DNS Fallback · Aggressive TLS Fragment · IP-Scan=ON)');
@@ -285,6 +346,8 @@ extension NetDiagExt on _HomePageState {
   // the network needs them; Fragment is also turned off when it is not needed.
   List<String> autoNetApply(_NetVerdict v) {
     final ch = <String>[];
+    // Do not mutate persistent network settings on a low-confidence sample.
+    if (v.confidence == 'low') return ch;
     if (v.tcp) {
       final wantFrag = !v.tls;
       if (fragEnabled != wantFrag) {
