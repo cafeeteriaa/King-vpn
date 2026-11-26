@@ -3140,6 +3140,8 @@ class WireGuardIntegrationGuards(unittest.TestCase):
         self.assertIn("com.wireguard.android:tunnel:1.0.20260102", self.prepare)
         self.assertIn("coreLibraryDesugaring", self.prepare)
         self.assertIn("isCoreLibraryDesugaringEnabled", self.prepare)
+        self.assertIn("com.wireguard.android.backend.GoBackend$VpnService", self.prepare)
+        self.assertIn("android.permission.BIND_VPN_SERVICE", self.prepare)
 
 if __name__ == '__main__':
     unittest.main()
