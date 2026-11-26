@@ -429,9 +429,14 @@ extension NipHunt on _HomePageState {
         return false;
       }
 
-      // National Net discovery reads only its own relay inventory and the
-      // endpoints present in National Net profiles; global Gold IPs stay isolated.
-      final savedIps = <String>{...natRelayHosts};
+      // National Net discovery reads only its own persisted inventory,
+      // user-entered relay IPs and endpoints present in National Net profiles.
+      await natNationalIpMemLoad();
+      await natRelayHostsLoad();
+      final savedIps = <String>{
+        ...natNationalIpMemHosts(),
+        ...natRelayHosts,
+      };
       for (final server in templates) {
         if (abort) return false;
         if (server.isIp) {
