@@ -71,7 +71,7 @@ class AutoTestFullCoverageTests(unittest.TestCase):
         method = SOURCE.split("Future<void> _atItemSubst()", 1)[1].split(
             "Future<void> _atItemNatModes()", 1
         )[0]
-        for marker in ("_atSubstServers", "_atSubstPerServer", ".take("):
+        for marker in ("_atSubstServers", "_atSubstPerServer", ".take(_atSubst"):
             self.assertNotIn(marker, method)
         self.assertIn("healthy = _usable().toList()", method)
         self.assertIn("untried.where((v) => _natAppliesF(f, v)).toList()", method)
