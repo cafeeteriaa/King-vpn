@@ -232,7 +232,6 @@ Future<List<String>> nipResolveAll(String host) async {
 Future<void> natPrefetchAsn(List<Server> list) async {
   var n = 0;
   for (final s in list) {
-    if (n >= 20) break;
     if (s.cdn) continue;
     final ip = s.isIp ? s.host : await nipResolve(s.host);
     if (ip == null) continue;
@@ -267,7 +266,7 @@ Future<List<String>> nipAsnPrefixes(String ip) async {
     }
     final asns = ((jsonDecode(r.body)['data']?['asns']) as List?) ?? const [];
     final out = <String>[];
-    for (final a in asns.take(2)) {
+    for (final a in asns) {
       final rr = await http
           .get(Uri.parse('https://stat.ripe.net/data/announced-prefixes/data.json?resource=AS$a'))
           .timeout(const Duration(seconds: 12));
