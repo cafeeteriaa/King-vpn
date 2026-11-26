@@ -983,11 +983,14 @@ String _natSetPort(String link, int port) {
 String _natSetHost(String link, String ip, String host) {
   try {
     // An IP literal is a transport address, never a TLS SNI or HTTP Host name.
+    final endpoint = InternetAddress.tryParse(ip.trim());
+    if (endpoint == null) return link;
+    final endpointIp = endpoint.address;
     final safeHost = _nipHostnameOrEmpty(host);
     if (link.toLowerCase().startsWith('vmess://')) {
       final b = natB64Normalize(link.substring(8));
       final j = jsonDecode(utf8.decode(base64.decode(b)));
-      j['add'] = ip;
+      j['add'] = endpointIp;
       if ((j['sni'] ?? '').toString().isEmpty && safeHost.isNotEmpty) {
         j['sni'] = safeHost;
       }
@@ -1003,7 +1006,7 @@ String _natSetHost(String link, String ip, String host) {
     if (q['type'] == 'ws' && (q['host'] ?? '').isEmpty && safeHost.isNotEmpty) {
       q['host'] = safeHost;
     }
-    return u.replace(host: ip, queryParameters: q).toString();
+    return u.replace(host: endpointIp, queryParameters: q).toString();
   } catch (e, stk) {
     logError(e, stk);
     return link;
