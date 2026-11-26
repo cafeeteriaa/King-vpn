@@ -140,7 +140,9 @@ class MainActivity : FlutterActivity() {
                                 val previous = KingVpnEngineCoordinator.currentOwner()
                                 if (previous != null && previous != engine) {
                                     when (previous) {
-                                        "xray" -> KingVpnService.instance?.stopForEngineHandoff()
+                                        "xray" -> check(
+                                            KingVpnService.instance?.stopForEngineHandoff(timeoutMs) == true
+                                        ) { "Xray TUN handoff timed out before the native core was verified stopped" }
                                         "wireguard" -> kingWireGuardCore().disconnect()
                                         "libbox" -> check(KingVpnEngineCoordinator.stopLibboxAndRelease(this, timeoutMs)) {
                                                 "libbox TUN handoff timed out"
