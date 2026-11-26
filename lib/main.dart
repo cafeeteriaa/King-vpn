@@ -8772,8 +8772,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     plusHistAdd(s);
     connBaseDelay = s.ping;
     betterRun = 0;
-    aiGen++; // FASTPATCH-AI: analyse+apply after ANY connection
-    _aiLoop(aiGen);
+    if (!s.wireGuard) {
+      aiGen++; // FASTPATCH-AI: analyse+apply after Xray-compatible connections
+      _aiLoop(aiGen);
+    }
     // the personal server has its own row, it never joins the healthy list
     if (!s.personal && !s.wireGuard && !good.contains(s)) good.add(s);
     if (nationalMode && !s.personal) unawaited(_natAdd(s));
@@ -8822,13 +8824,15 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     if (mounted) setState(() {});
     if (mounted) uiJoinPrompt(context);
     _set(_connStatus());
-    autoAiAfterConnect();
-    // TURBO: بعد از هر اتصال واقعی حتماً توربو سرعت فعال شود
+    if (!s.wireGuard) autoAiAfterConnect();
+    // TURBO: after Xray-compatible connections only; WireGuard has no Xray mux/fragment settings.
     // مهم: تست سرعت را قبل از توربو شروع نکن — توربو هسته را ریستارت می‌کند
     // و تست سرعت ممکن بود صفر ببیند و به‌اشتباه failover کند
-    turboSpeed = true;
-    muxEnabled = muxEnabled || kTurboEnabled;
-    muxConc = max(muxConc, kTurboEnabled ? 32 : 8);
+    if (!s.wireGuard) {
+      turboSpeed = true;
+      muxEnabled = muxEnabled || kTurboEnabled;
+      muxConc = max(muxConc, kTurboEnabled ? 32 : 8);
+    }
     // SPEEDFIRST: اگر هنوز سرعتی اندازه‌گیری نشده، بعد از ۸ ثانیه اندازه‌گیری کن
     if ((s.speed ?? 0) <= 0) {
       Future.delayed(const Duration(seconds: 8), () {
@@ -8846,8 +8850,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   // server that almost works is not discarded after one failed traffic check.
   Future<bool> _natLadder(Server s,
       {Future<bool> Function()? socialGate}) async {
-    // NATONLYLADDER: نردبان حالت‌ها فقط در نت ملی اجرا می‌شود
-    if (!nationalMode) return false;
+    // NATONLYLADDER: the variant ladder is Xray-specific; never feed wg-quick text to natCfg.
+    if (s.wireGuard || !nationalMode) return false;
     if (abort || !wantVpn) return false; // FIXLADDERABORT: قبل از هر کار سنگین
     final first = natVarFor(s);
     // CACHEGUARD: نسخه‌ی کش‌شده همین الان fail شد (فقط بعد از fail به
@@ -9329,7 +9333,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           dbg('اتصال: ${s.name} ترافیک تونل OK (google + youtube)');
           // SUBSTPROJ: در نت ملی، پایه‌ی سالم هم یک بار جایگزین‌ها را با تونل می‌سنجد.
           // اگر جایگزینی ترافیک بدهد، برای همین سرور ذخیره و اعمال می‌شود؛ وگرنه پایه می‌ماند.
-          if (nationalMode && natVar[_nk(s)] == null && !natSubstSearched.contains(s.key)) {
+          if (!s.wireGuard && nationalMode && natVar[_nk(s)] == null && !natSubstSearched.contains(s.key)) {
             natSubstSearched.add(s.key);
             await _stopV2();
             final sub = await _natLadder(s, socialGate: _tunnelTrafficOk);
@@ -14034,10 +14038,23 @@ ListTile( // KINGEXTRAS row
       watchBusy = true;
       _wbSince = DateTime.now();
       try {
+        if (_kingWireGuardActive) {
+          try {
+            final state = await _kingWireGuardCore.status().timeout(const Duration(seconds: 5));
+            if (state.toUpperCase() == 'UP') {
+              lastState = 'CONNECTED';
+              kVpnLastStateTop = 'CONNECTED';
+            } else if (state.toUpperCase() == 'DOWN') {
+              lastState = 'DISCONNECTED';
+              kVpnLastStateTop = 'DISCONNECTED';
+            }
+          } catch (wgStatusError, wgStatusStack) {
+            logError(wgStatusError, wgStatusStack);
+          }
+        }
         if (_syncCore()) return; // SELFHEALPATCH
-        // خودترمیمی اول اجرا شود؛ اگر وارد عمل شد واچ‌داگ این تیک را رد کند
-        // تا دو موتور هم‌زمان تعویض نکنند
-        await kingSelfHeal(reason: 'watch');
+        // Existing HEAL actions are Xray-specific until the multi-core coordinator is integrated.
+        if (!_kingWireGuardActive) await kingSelfHeal(reason: 'watch');
         if (busy || switching || !wantVpn) return;
         if (!connected) {
           // connection lost and the last replacement attempt failed: retry
