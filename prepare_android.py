@@ -333,6 +333,7 @@ if os.path.exists(old_java_main):
 ka = os.path.join(APP, 'android/app/src/main/kotlin/com/kingvpn/king_vpn')
 os.makedirs(ka, exist_ok=True)
 shutil.copy('android_src/MainActivity.kt', os.path.join(ka, 'MainActivity.kt'))
+shutil.copy('android_src/KingWireGuardCore.kt', os.path.join(ka, 'KingWireGuardCore.kt'))
 xml_dir = os.path.join(APP, 'android/app/src/main/res/xml')
 os.makedirs(xml_dir, exist_ok=True)
 shutil.copy('android_src/king_file_paths.xml', os.path.join(xml_dir, 'king_file_paths.xml'))
