@@ -95,8 +95,7 @@ List<String> mergeKingAiResearchMemory(
   final entries = byUrl.values.toList()
     ..sort((a, b) => DateTime.parse(b['fetchedAt']!)
         .compareTo(DateTime.parse(a['fetchedAt']!)));
-  final bounded = entries.take(maxEntries.clamp(1, 500).toInt()).toList();
-  return bounded.map(jsonEncode).toList();
+  return entries.map(jsonEncode).toList();
 }
 
 
