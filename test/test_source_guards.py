@@ -2663,7 +2663,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
     def test_live_cdn_range_refresh_keeps_all_provider_ranges_and_partial_results(self):
         source = (ROOT / 'lib' / 'npv_am_extras.dart').read_text(encoding='utf-8')
         start = source.index('Future<void> refreshCdnRanges()')
-        end = source.index('String? _npvOutboundLink', start)
+        end = source.index('// ECH: Encrypted Client Hello', start)
         refresh = source[start:end]
         self.assertIn('Future<void> pull(String label, List<String> fallback,', refresh)
         self.assertIn('got = await fetch().timeout(const Duration(seconds: 30));', refresh)
