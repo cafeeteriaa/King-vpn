@@ -1,7 +1,7 @@
 # KING VPN Revision Ledger
 
-Current revision: 63
-Next revision: 64
+Current revision: 64
+Next revision: 65
 Repository: cafeeteriaa/King-vpn
 Revision branch: fix/personal-folder-uncapped-20261127
 Parent revision branch: fix/healthy-folder-unbounded-retention-20261127
@@ -73,12 +73,24 @@ Consolidated integration PR: https://github.com/cafeeteriaa/King-vpn/pull/66
 - Per-batch concurrency and staged quick-start behavior remain separate from total inventory retention; further adaptive batching and disk-backed storage remain follow-up work.
 - Exact-head CI and runtime validation are pending.
 
+### Revision 64 — preserve all learned national winners and variants
+- Removed the 50,000-key truncation from the learned national-network winner set (natGood).
+- Removed the 3,000-entry eviction from the persisted normal-network variant-learning map (natVarNormal), so successful per-server learning is not discarded by a fixed count.
+- Added source guards against reintroducing either count-based eviction.
+- These collections can now grow with discovered/learned endpoints; a disk-backed/indexed design and profiling are required before very-large-scale claims. Other short-lived memoization caches remain bounded for actual memory safety and are not authoritative server inventories.
+- Exact-head CI and runtime validation are pending.
+
 ## Mandatory three-pass review protocol
 
 Each numbered revision must be a substantial functional change and pass three separate reviews:
 1. Architecture and behavior: feature preservation, global/National Net isolation, complete inventory traversal and no hidden truncation.
 2. Persistence and concurrency: atomic/serialized writes, cursor commit rules, cancellation, partial-result retention and recovery.
 3. Compatibility and verification: source guards, unit tests, static analysis, Android build and final diff review.
+
+### Revision 64 review status
+1. Learning retention behavior: pending independent review.
+2. Persistence/memory growth: pending profiling and disk-backed migration.
+3. Compatibility/verification: pending exact-head CI, Flutter tests, Dart analysis and Android build.
 
 ### Revision 63 review status
 1. Queue and inventory behavior: pending independent review of queue consumers and retry/cursor semantics.
