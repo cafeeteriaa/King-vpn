@@ -10944,58 +10944,18 @@ ListTile( // KINGEXTRAS row
     } catch (e, st) { logError(e, st); }
   }
 
-  int? _pilotIpNumber(String value) {
-    final ip = InternetAddress.tryParse(value.trim());
-    if (ip == null || ip.type != InternetAddressType.IPv4) return null;
-    var n = 0;
-    for (final b in ip.rawAddress) { n = (n << 8) | b; }
-    return n;
-  }
-
-  String _pilotIpText(int n) =>
-      '${(n >> 24) & 255}.${(n >> 16) & 255}.${(n >> 8) & 255}.${n & 255}';
-
-  List<String> _pilotExpandRanges(String raw) {
-    final out = <String>{};
-    for (final source in raw.split(String.fromCharCode(10))) {
-      final line = source.trim();
-      if (line.isEmpty) continue;
-      final cidr = RegExp(r'^([0-9.]+)/([0-9]{1,2})$').firstMatch(line);
-      if (cidr != null) {
-        final base = _pilotIpNumber(cidr.group(1)!);
-        final prefix = int.tryParse(cidr.group(2)!);
-        if (base == null || prefix == null || prefix < 24 || prefix > 32) continue;
-        final mask = (0xffffffff << (32 - prefix)) & 0xffffffff;
-        final network = base & mask;
-        final count = 1 << (32 - prefix);
-        for (var i = 0; i < count && out.length < 256; i++) {
-          out.add(_pilotIpText(network + i));
-        }
-      } else if (_pilotIpNumber(line) != null) {
-        out.add(line);
-      }
-      if (out.length >= 256) break;
-    }
-    return out.take(256).toList();
-  }
-
   bool _pilotRangesValid(String raw) {
-    final lines = raw.split(String.fromCharCode(10))
-        .map((v) => v.trim()).where((v) => v.isNotEmpty).toList();
+    final lines = raw
+        .split(String.fromCharCode(10))
+        .map((value) => value.trim())
+        .where((value) => value.isNotEmpty)
+        .toList(growable: false);
     if (lines.isEmpty) return false;
     for (final line in lines) {
-      final cidr = RegExp(r'^([0-9.]+)/([0-9]{1,2})$').firstMatch(line);
-      if (cidr == null) {
-        if (_pilotIpNumber(line) == null) return false;
-        continue;
-      }
-      final base = _pilotIpNumber(cidr.group(1)!);
-      final prefix = int.tryParse(cidr.group(2)!);
-      if (base == null || prefix == null || prefix < 24 || prefix > 32) {
-        return false;
-      }
+      final page = natExpandAddressRangeBatch(line, cursor: '0', limit: 1);
+      if (page.addresses.isEmpty) return false;
     }
-    return _pilotExpandRanges(raw).isNotEmpty;
+    return true;
   }
 
   Future<void> _pilotRangesDialog(BuildContext context) async {
@@ -11006,7 +10966,7 @@ ListTile( // KINGEXTRAS row
     await showDialog<void>(context: context, builder: (ctx) => AlertDialog(
       title: const Text('بازه‌های مستقل IP خلبان'),
       content: TextField(controller: c, minLines: 3, maxLines: 8,
-        decoration: const InputDecoration(hintText: 'هر خط یک IPv4 یا CIDR از /24 تا /32؛ نمونه: 1.2.3.0/24')),
+        decoration: const InputDecoration(hintText: 'هر خط یک IP، CIDR یا بازه IPv4/IPv6؛ نمونه: 1.2.3.0/24 یا 2001:db8::/64')),
       actions: [
         TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('بستن')),
         FilledButton(onPressed: () async {
@@ -11017,7 +10977,7 @@ ListTile( // KINGEXTRAS row
           _pilotRanges = c.text.split(String.fromCharCode(10)).map((v) => v.trim()).where((v) => v.isNotEmpty).toList();
           await prefs.setStringList('king_pilot_ip_ranges_v1', _pilotRanges);
           if (ctx.mounted) Navigator.pop(ctx);
-          _set('بازه‌های مستقل خلبان ذخیره شد؛ حداکثر ۲۵۶ IP در هر اجرا.');
+          _set('بازه‌های مستقل خلبان ذخیره شد؛ اسکن با cursor پایدار در بسته‌های قابل‌ادامه انجام می‌شود.');
         }, child: const Text('ذخیره')),
       ],
     ));
@@ -11031,34 +10991,114 @@ ListTile( // KINGEXTRAS row
     }
     final prefs = await SharedPreferences.getInstance();
     _pilotRanges = prefs.getStringList('king_pilot_ip_ranges_v1') ?? _pilotRanges;
-    final targets = _pilotExpandRanges(_pilotRanges.join(String.fromCharCode(10)));
-    if (targets.isEmpty) { _set('ابتدا بازه‌های اختصاصی خلبان را تعریف کن.'); return; }
-    _pilotRangeCancelRequested = false;
-    setState(() => _pilotRangeBusy = true);
-    _set('اسکن مستقل خلبان آغاز شد: ${targets.length} نشانی، فقط TCP/443.');
-    final alive = <String>[];
+    final ranges = _pilotRanges
+        .map((value) => value.trim())
+        .where((value) => value.isNotEmpty)
+        .toSet()
+        .toList(growable: false);
+    if (ranges.isEmpty || !_pilotRangesValid(ranges.join(String.fromCharCode(10)))) {
+      _set('ابتدا بازه‌های معتبر IPv4/IPv6 را تعریف کن.');
+      return;
+    }
+
+    final savedCursors = <String, String>{};
     try {
-      for (var i = 0; i < targets.length; i += 12) {
-        if (_pilotRangeCancelRequested) break;
-        final batch = targets.skip(i).take(12).toList();
-        final result = await Future.wait(batch.map((host) async {
-          Socket? socket;
-          try {
-            socket = await Socket.connect(host, 443, timeout: const Duration(milliseconds: 900));
-            return host;
-          } catch (_) { return null; }
-          finally { socket?.destroy(); }
-        }));
-        alive.addAll(result.whereType<String>());
+      final raw = prefs.getString('king_pilot_ip_cursors_v1');
+      if (raw != null && raw.isNotEmpty) {
+        final decoded = jsonDecode(raw);
+        if (decoded is Map) {
+          for (final entry in decoded.entries) {
+            savedCursors[entry.key.toString()] = entry.value.toString();
+          }
+        }
       }
-      await prefs.setStringList('king_pilot_scan_results_v1', alive);
+    } catch (e, st) {
+      logError(e, st);
+    }
+
+    _pilotRangeCancelRequested = false;
+    if (mounted) setState(() => _pilotRangeBusy = true);
+    final alive = <String>{
+      ...(prefs.getStringList('king_pilot_scan_results_v1') ?? const <String>[]),
+    };
+    var scanned = 0;
+    _set('اسکن مستقل خلبان آغاز شد: همهٔ بازه‌های تعریف‌شده با cursor و بسته‌های ۲۵۶تایی ادامه می‌یابند.');
+    try {
+      final active = ranges.toSet();
+      while (active.isNotEmpty && !_pilotRangeCancelRequested) {
+        for (final range in active.toList(growable: false)) {
+          if (_pilotRangeCancelRequested) break;
+          final cursor = savedCursors[range] ?? '0';
+          final page = natExpandAddressRangeBatch(
+            range,
+            cursor: cursor,
+            limit: 256,
+          );
+          if (page.addresses.isEmpty) {
+            active.remove(range);
+            savedCursors.remove(range);
+            continue;
+          }
+
+          final batchAlive = <String>[];
+          var batchCompleted = 0;
+          for (var offset = 0; offset < page.addresses.length; offset += 12) {
+            if (_pilotRangeCancelRequested) break;
+            final batch = page.addresses.skip(offset).take(12).toList();
+            final result = await Future.wait(batch.map((host) async {
+              Socket? socket;
+              try {
+                socket = await Socket.connect(
+                  host,
+                  443,
+                  timeout: const Duration(milliseconds: 900),
+                );
+                return host;
+              } catch (_) {
+                return null;
+              } finally {
+                socket?.destroy();
+              }
+            }));
+            batchCompleted += batch.length;
+            batchAlive.addAll(result.whereType<String>());
+          }
+          alive.addAll(batchAlive);
+          scanned += batchCompleted;
+          await prefs.setStringList('king_pilot_scan_results_v1', alive.toList());
+          if (_pilotRangeCancelRequested) {
+            // Keep valid partial hits, but leave the cursor unchanged so the
+            // uncompleted page is retried rather than silently skipped.
+            break;
+          }
+
+          final oldCursor = BigInt.tryParse(cursor) ?? BigInt.zero;
+          final nextCursor = BigInt.tryParse(page.nextCursor) ?? BigInt.zero;
+          if (nextCursor <= oldCursor) {
+            active.remove(range);
+            savedCursors.remove(range);
+          } else {
+            savedCursors[range] = page.nextCursor;
+          }
+          await prefs.setString(
+            'king_pilot_ip_cursors_v1',
+            jsonEncode(savedCursors),
+          );
+          if (mounted) {
+            _set('اسکن خلبان: ${scanned} IP بررسی شد؛ ${alive.length} میزبان TCP/443 پاسخ‌گو، ${active.length} بازه در حال ادامه');
+          }
+        }
+      }
       if (_pilotRangeCancelRequested) {
-        _set('اسکن خلبان به درخواست کاربر متوقف شد؛ ${alive.length} میزبان پاسخ‌گو تا این لحظه ذخیره شدند.');
+        _set('اسکن خلبان به درخواست کاربر متوقف شد؛ ${scanned} IP در این اجرا بررسی و ${alive.length} میزبان ذخیره شدند.');
       } else {
-        _set('اسکن مستقل خلبان تمام شد: ${alive.length} میزبان TCP/443 پاسخ دادند؛ این نتیجه اثبات اتصال VPN نیست.');
+        await prefs.remove('king_pilot_ip_cursors_v1');
+        _set('اسکن مستقل خلبان کامل شد: ${scanned} IP بررسی شد؛ ${alive.length} میزبان TCP/443 پاسخ دادند. این نتیجه اثبات اتصال VPN نیست.');
       }
-    } catch (e, st) { logError(e, st); _set('اسکن خلبان ناموفق بود: $e'); }
-    finally {
+    } catch (e, st) {
+      logError(e, st);
+      _set('اسکن خلبان ناموفق بود: $e');
+    } finally {
       _pilotRangeCancelRequested = false;
       if (mounted) setState(() => _pilotRangeBusy = false);
     }
