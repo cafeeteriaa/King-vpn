@@ -211,7 +211,7 @@ void main() {
       expect(result, isEmpty);
     });
 
-    test('bounds retained history', () {
+    test('retains every valid history entry without a total-entry ceiling', () {
       final notes = List<Map<String, String>>.generate(
         5,
         (i) => note(
@@ -221,8 +221,7 @@ void main() {
           date: '2026-11-${(i + 1).toString().padLeft(2, '0')}T00:00:00Z',
         ),
       );
-      expect(mergeKingAiResearchMemory(const [], notes, maxEntries: 3),
-          hasLength(3));
+      expect(mergeKingAiResearchMemory(const [], notes), hasLength(5));
     });
   });
 }
