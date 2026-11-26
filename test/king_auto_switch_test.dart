@@ -319,7 +319,7 @@ void main() {
       final privateKey = base64Encode(List<int>.filled(32, 7));
       final publicKey = base64Encode(List<int>.filled(32, 9));
       final wg = '[Interface]\nPrivateKey = $privateKey\n[Peer]\nPublicKey = $publicKey\nAllowedIPs = 0.0.0.0/0, ::/0\nEndpoint = vpn.example.org:51820\n';
-      final awg = '[Interface]\nPrivateKey = $privateKey\nJc = 4\n[Peer]\nPublicKey = $publicKey\nAllowedIPs = 0.0.0.0/0\nEndpoint = vpn.example.org:51820\n';
+      final awg = '[Interface]\nPrivateKey = $privateKey\nS4 = 20\n[Peer]\nPublicKey = $publicKey\nAllowedIPs = 0.0.0.0/0\nEndpoint = vpn.example.org:51820\n';
       expect(parser.parse(engineId: KingEngineId.openVpn, payload: ovpn).single.format,
           KingServerConfigFormat.openVpnProfile);
       expect(parser.parse(engineId: KingEngineId.wireGuard, payload: wg).single.format,
