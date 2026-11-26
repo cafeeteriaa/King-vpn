@@ -47,6 +47,7 @@ Revision PR: https://github.com/cafeeteriaa/King-vpn/pull/58
 - The learning loop now records the verified repair result after the data-plane check, rather than trusting an action's early return value (which could say CONNECTED while tunneled traffic is still broken).
 - Removed the unused in-memory recent-event list so journal growth does not create a second unbounded RAM history.
 - Added Python source-guard tests for persistence, streaming replay, lock usage, restore-before-planning, and verified-outcome ordering.
+- Journal rows are checked against the finite action vocabulary of the heal engine before they can influence planner scores; arbitrary or tampered action names are ignored.
 - Verification: CI pending for this commit; no Dart/Android success is claimed before the workflow completes.
 
 ## Mandatory three-pass review protocol
