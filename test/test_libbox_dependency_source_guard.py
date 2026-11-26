@@ -42,7 +42,15 @@ class LibboxDependencyGuard(unittest.TestCase):
             self.assertLess(first.index("sing_box:"), first.index("dev_dependencies:"))
             self.assertIn("72f76fb714e07637a560774a7f2fdd3ae11884c4", first)
 
-    def test_third_party_license_and_build_provenance_exist(self):
+
+    def test_gomobile_runtime_collision_is_reconciled_without_shading_jni(self):
+        patch = (ROOT / "tools" / "patch_sing_box_gradle.py").read_text()
+        self.assertIn("go/Universe$proxyerror.class", patch)
+        self.assertIn("go/error.class", patch)
+        self.assertIn("prepareLibboxGoRuntimeJar", patch)
+        self.assertIn("libboxGoRuntimeJar", patch)
+        self.assertIn("Refusing an unsafe merge", patch)
+\n    def test_third_party_license_and_build_provenance_exist(self):
         folder = ROOT / "licenses" / "sing_box"
         for name in ("LICENSE", "THIRD_PARTY_NOTICES.md", "SING_BOX_CORE_LICENSE", "BUILD_PROVENANCE.md"):
             self.assertTrue((folder / name).is_file())

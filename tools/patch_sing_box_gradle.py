@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Align pinned libbox plugin Gradle versions and Maven mirrors."""
+"""Align libbox Gradle and reconcile gomobile's shared Go runtime classes."""
 import json
 from pathlib import Path
 import re
@@ -13,6 +13,10 @@ MIRRORS = (
     'maven { url = uri("https://maven-central.storage-download.googleapis.com/maven2/") }',
     'maven { url = uri("https://maven.aliyun.com/repository/central/") }',
     'maven { url = uri("https://maven.aliyun.com/repository/gradle-plugin/") }',
+)
+GO_RUNTIME_COLLISIONS = (
+    "go/Universe$proxyerror.class",
+    "go/error.class",
 )
 
 def matching_brace(text, start):
@@ -40,6 +44,59 @@ def add_mirrors(text, scope):
     extra = "".join("\n        " + m for m in MIRRORS if m not in repo_body)
     return text[:repo_open + 1] + extra + text[repo_open + 1:] if extra else text
 
+def install_go_runtime_merge(gradle_text):
+    marker = "val libboxProperties = Properties().apply {"
+    if "prepareLibboxGoRuntimeJar" in gradle_text:
+        return gradle_text
+    task = r'''
+// Both libbox and the existing Xray/V2Ray AAR ship gomobile's shared
+// Go runtime bridge. Keep the bridge already supplied by libv2ray and
+// remove only the two duplicate bridge classes from libbox's classes.jar.
+// All protocol-specific libbox classes and native .so files remain intact.
+val libboxGoRuntimeJar = layout.buildDirectory.file("generated/libbox/libbox-classes.jar")
+val prepareLibboxGoRuntimeJar = tasks.register("prepareLibboxGoRuntimeJar") {
+    val original = File(libboxDir, "classes.jar")
+    inputs.file(original)
+    outputs.file(libboxGoRuntimeJar)
+    doLast {
+        val output = libboxGoRuntimeJar.get().asFile
+        output.parentFile.mkdirs()
+        val collisions = setOf("go/Universe\$proxyerror.class", "go/error.class")
+        val found = mutableSetOf<String>()
+        java.util.zip.ZipFile(original).use { source ->
+            java.util.zip.ZipOutputStream(output.outputStream().buffered()).use { target ->
+                val entries = source.entries()
+                while (entries.hasMoreElements()) {
+                    val entry = entries.nextElement()
+                    if (entry.name in collisions) {
+                        found.add(entry.name)
+                        continue
+                    }
+                    val copied = java.util.zip.ZipEntry(entry.name)
+                    if (entry.time >= 0) copied.time = entry.time
+                    target.putNextEntry(copied)
+                    source.getInputStream(entry).use { it.copyTo(target) }
+                    target.closeEntry()
+                }
+            }
+        }
+        if (found != collisions) {
+            output.delete()
+            throw GradleException("libbox gomobile runtime layout changed; expected duplicate bridge classes $collisions, found $found. Refusing an unsafe merge.")
+        }
+        logger.lifecycle("KING VPN: retained libbox API and native libraries; shared go runtime bridge resolved by libv2ray")
+    }
+}
+'''
+    if marker not in gradle_text:
+        raise SystemExit("HARD FAIL: cannot locate libbox Gradle dependency declarations")
+    gradle_text = gradle_text.replace(marker, task + "\n" + marker, 1)
+    old = 'implementation(files(File(libboxDir, "classes.jar")))'
+    new = 'implementation(files(libboxGoRuntimeJar).builtBy(prepareLibboxGoRuntimeJar))'
+    if gradle_text.count(old) != 1:
+        raise SystemExit("HARD FAIL: unexpected libbox classes.jar dependency declaration")
+    return gradle_text.replace(old, new, 1)
+
 def main():
     host = Path(sys.argv[1] if len(sys.argv) > 1 else "build_app").resolve()
     config = host / ".dart_tool" / "package_config.json"
@@ -60,9 +117,10 @@ def main():
     if (a, k, c) != (1, 1, 1): raise SystemExit("HARD FAIL: unexpected plugin Gradle declarations")
     text = add_mirrors(text, "buildscript")
     text = add_mirrors(text, "allprojects")
+    text = install_go_runtime_merge(text)
     gradle.write_text(text, encoding="utf-8")
     check = gradle.read_text(encoding="utf-8")
-    for item in (f'classpath("com.android.tools.build:gradle:{AGP_VERSION}")', f'val kotlinVersion = "{KOTLIN_VERSION}"', f"compileSdk = {COMPILE_SDK}", "minSdk = 24", *MIRRORS):
+    for item in (f'classpath("com.android.tools.build:gradle:{AGP_VERSION}")', f'val kotlinVersion = "{KOTLIN_VERSION}"', f"compileSdk = {COMPILE_SDK}", "minSdk = 24", *MIRRORS, "prepareLibboxGoRuntimeJar", "libboxGoRuntimeJar"):
         if item not in check: raise SystemExit(f"HARD FAIL: Gradle patch verification missing {item}")
     state_file = root / "android" / "src" / "main" / "kotlin" / "com" / "qusadprod" / "sing_box" / "core" / "ServiceState.kt"
     if not state_file.is_file():
@@ -78,7 +136,7 @@ def main():
         elif public_decl not in state_source:
             raise SystemExit(f"HARD FAIL: unexpected ServiceState declaration: {private_decl}")
     state_file.write_text(state_source, encoding="utf-8")
-    print("OK: libbox Gradle aligned; minSdk 24 retained; native ServiceState exposed")
+    print("OK: libbox Gradle aligned; minSdk 24 retained; Go runtime collision merge installed; ServiceState exposed")
 
 if __name__ == "__main__":
     main()
