@@ -1658,8 +1658,10 @@ Future<void> _goldIpStep() async {
       final v = _goldIps[ip];
       if (v == null) continue;
       final ms = r[ip];
+      // A failed retest is not proof that the historical endpoint never
+      // existed. Keep the record and timestamp the attempt instead of deleting it.
       if (ms == null) {
-        _goldIps.remove(ip);
+        v.testAt = nowMs;
       } else {
         v.ms = ms;
         v.okAt = nowMs;
@@ -1722,13 +1724,15 @@ Future<void> _goldSrvStep(_HomePageState h) async {
       if (!h.mounted || !h.connected || h.busy || h.switching) break;
       final sv = Server.parse(v.link);
       if (sv == null) {
-        _goldSrv.remove(v.link);
+        v.ping = 0;
+        v.testAt = nowMs;
         changed = true;
         continue;
       }
       final ms = await h._delayOf(sv);
       if (ms == null || ms <= 0) {
-        _goldSrv.remove(v.link);
+        v.ping = 0;
+        v.testAt = nowMs;
       } else {
         v.ping = ms;
         v.okAt = nowMs;
