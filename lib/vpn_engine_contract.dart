@@ -168,7 +168,7 @@ class KingVpnEngineCatalog {
       capabilities: {KingEngineCapability.ipv4, KingEngineCapability.ipv6,
         KingEngineCapability.udp, KingEngineCapability.trafficStatistics},
     ),
-  ];;
+  ];
 }
 
 class KingEngineStartRequest {
