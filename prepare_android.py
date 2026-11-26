@@ -288,6 +288,16 @@ KSVC = ('<service android:name="com.kingvpn.king_vpn.KingVpnService"\n'
         '        </service>\n    ')
 if 'com.kingvpn.king_vpn.KingVpnService' not in m and '</application>' in m:
     m = m.replace('</application>', KSVC + '</application>', 1)
+
+# GoBackend owns a second, independent Android VpnService implementation.
+# The WireGuard AAR manifest does not inject this app service declaration.
+WGSVC = ('<service android:name="com.wireguard.android.backend.GoBackend$VpnService"\n'
+         '            android:permission="android.permission.BIND_VPN_SERVICE"\n'
+         '            android:exported="false">\n'
+         '            <intent-filter><action android:name="android.net.VpnService"/></intent-filter>\n'
+         '        </service>\n    ')
+if 'com.wireguard.android.backend.GoBackend$VpnService' not in m and '</application>' in m:
+    m = m.replace('</application>', WGSVC + '</application>', 1)
 # FileProvider exposes only the app-cache subfolder used for SHA-256 verified
 # APK updates. Never use file:// URIs for Android package installation.
 UPDATE_PROVIDER = ('<provider android:name="androidx.core.content.FileProvider"\n'
