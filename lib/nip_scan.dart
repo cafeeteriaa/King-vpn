@@ -118,7 +118,7 @@ String _nipHostnameOrEmpty(String value) {
 String? nipSwapLink(Server t, String ip, {int? port}) {
   final l = t.link;
   final lower = l.toLowerCase();
-  if (lower.startsWith('ss://') || t.reality) return null;
+  if (lower.startsWith('ss://') || t.reality || InternetAddress.tryParse(ip.trim()) == null) return null;
   try {
     if (lower.startsWith('vmess://')) {
       final b = natB64Normalize(l.substring(8));
@@ -373,6 +373,7 @@ String? nipSwapSni(Server t, String ip, String sni, {int? port}) {
   final l = t.link;
   final lower = l.toLowerCase();
   if (lower.startsWith('ss://') || !t.tls || t.reality ||
+      InternetAddress.tryParse(ip.trim()) == null ||
       echFromLink(l).isNotEmpty ||
       _nipHostnameOrEmpty(sni).isEmpty) {
     return null;
