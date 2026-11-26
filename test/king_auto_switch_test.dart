@@ -154,6 +154,20 @@ void main() {
       final catalog = KingNetworkEngineCatalog();
       final alternatives = catalog.all.where((engine) => engine.id != KingEngineId.xray);
       expect(alternatives, hasLength(12));
+      expect(alternatives.map((engine) => engine.id).toSet(), {
+        KingEngineId.vpnGate,
+        KingEngineId.calyxVpn,
+        KingEngineId.nthLink,
+        KingEngineId.tor,
+        KingEngineId.i2p,
+        KingEngineId.lantern,
+        KingEngineId.cloudflareWarp,
+        KingEngineId.aviraPhantom,
+        KingEngineId.shroudly,
+        KingEngineId.ceno,
+        KingEngineId.byeDpi,
+        KingEngineId.powerTunnel,
+      });
       expect(catalog[KingEngineId.vpnGate]?.role, KingEngineRole.fullDeviceVpn);
       expect(catalog[KingEngineId.ceno]?.role, KingEngineRole.browserNetwork);
       expect(catalog[KingEngineId.byeDpi]?.role, KingEngineRole.localTransport);
