@@ -40,8 +40,8 @@ void main() {
       return <String, Object?>{'connected': true};
     });
 
-    expect(
-      () => KingWireGuardCore().connect('vless://example'),
+    await expectLater(
+      KingWireGuardCore().connect('vless://example'),
       throwsFormatException,
     );
     expect(invoked, isFalse);
