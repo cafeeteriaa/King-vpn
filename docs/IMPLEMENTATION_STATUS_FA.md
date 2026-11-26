@@ -71,3 +71,11 @@
 - نمایش وضعیت نیز از شمارنده‌های پایدار استفاده می‌کند و به فهرست موقت حذف‌شده وابسته نیست.
 - CI و Build اندروید این تغییر هنوز تأیید نشده‌اند.
 
+
+ 
+## Revision 62 — Evidence-weighted network diagnosis
+- Network layer classification now counts independent endpoint outcomes instead of treating one success/failure as a definitive network-wide result.
+- Verdicts carry confidence (high/medium/low) and explain the observed evidence. Inconclusive probes are no longer labelled as an unfiltered network.
+- Automatic network-setting changes are skipped for low-confidence results, preventing a transient endpoint failure from changing persistent settings.
+- Added `test/test_net_diag_evidence.py` source guards for classification coverage and the low-confidence safety gate.
+- Validation status: changes are committed, but test execution, Dart analysis, Flutter test suite, Android release build and real-device checks remain unverified.
