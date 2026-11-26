@@ -2427,6 +2427,17 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn("if (fragEnabled && st is Map", extras)
         self.assertIn("'packets': 'tlshello'", extras)
 
+    def test_dns_policy_preserves_imported_resolvers_and_validates_dns_answers(self):
+        main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        nat = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
+        dns = (ROOT / 'lib' / 'nnie_core.dart').read_text(encoding='utf-8')
+        self.assertIn('final existingList = existing is List ? existing : const <dynamic>[];', main)
+        self.assertIn('for (final item in [...existingList, ...globalDefaults])', main)
+        self.assertIn("d['servers'] = merged;", main)
+        self.assertIn('_probeDoh(query, expectedDomain:', nat)
+        self.assertIn("qname != domain.toLowerCase()", dns)
+        self.assertIn('allowedOwners.contains(rr.owner)', dns)
+
     def test_matrix_order_is_not_truncated_by_the_old_5000_variant_ceiling(self):
         main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
         nat = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
