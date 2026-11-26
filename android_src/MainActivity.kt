@@ -11,10 +11,6 @@ import java.io.File
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
-import com.wireguard.android.backend.GoBackend
-import com.wireguard.android.backend.Tunnel
-import java.io.ByteArrayInputStream
-import java.nio.charset.StandardCharsets
 
 // KINGVPN: کانال ارتباطی Flutter با سرویس VPN خودمان (کانال: king/vpn)
 //
