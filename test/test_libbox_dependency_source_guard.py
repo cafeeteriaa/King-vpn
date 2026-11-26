@@ -45,8 +45,21 @@ class LibboxDependencyGuard(unittest.TestCase):
 
     def test_gomobile_runtime_collision_is_reconciled_without_shading_jni(self):
         patch = (ROOT / "tools" / "patch_sing_box_gradle.py").read_text()
-        self.assertIn("go/Universe$proxyerror.class", patch)
-        self.assertIn("go/error.class", patch)
+        for bridge_class in (
+            "go/Seq.class",
+            "go/Seq$GoObject.class",
+            "go/Seq$GoRef.class",
+            "go/Seq$GoRefQueue.class",
+            "go/Seq$GoRefQueue$1.class",
+            "go/Seq$Proxy.class",
+            "go/Seq$Ref.class",
+            "go/Seq$RefMap.class",
+            "go/Seq$RefTracker.class",
+            "go/Universe.class",
+            "go/Universe$proxyerror.class",
+            "go/error.class",
+        ):
+            self.assertIn(bridge_class, patch)
         self.assertIn("prepareLibboxGoRuntimeJar", patch)
         self.assertIn("libboxGoRuntimeJar", patch)
         self.assertIn("Refusing an unsafe merge", patch)
