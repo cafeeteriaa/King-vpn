@@ -2,24 +2,24 @@
 
 ## Source of truth
 - Repository: cafeeteriaa/King-vpn
-- Active branch: fix/healthy-folder-unbounded-retention-20261127
-- Parent branch: fix/healthy-folder-small-sample-outage-20261126
-- Revision: 60
-- Main remains untouched. This work is isolated from the default branch and prior PRs.
+- Active branch: fix/personal-folder-uncapped-20261127
+- Parent branch: fix/healthy-folder-unbounded-retention-20261127
+- Revision: 61
+- Pull request: pending creation; parent Revision 60 is PR #64.
+- Default branch is untouched.
 
-## Revision 60 changes
-- Removed the fixed 50,000-entry healthy-server count ceiling and oldest-entry eviction from lib/main.dart.
-- Removed obsolete capacity metadata from the persisted snapshot.
-- Updated test/test_healthy_folder_policy.py to guard against reintroducing a fixed count ceiling or eviction.
-- Preserved Revision 59's network-outage protection and Revision 58's independent scan inventories.
+## Revision 61 changes
+- Removed the personal-folder 1,000-entry insertion ceiling.
+- Removed the 100-entry limit from the personal folder's display/preparation and direct-connect selection paths.
+- All valid personal entries are now passed to the existing personal-only ping/connect path; personal servers remain isolated from public/healthy server pools.
+- Updated source guards and Persian UI wording.
 
-## Explicit remaining work
-- The healthy-folder map and JSON snapshot are still whole-inventory/in-memory. Do not claim paging, memory-bounded operation, or multi-million-entry readiness yet.
-- Next implement a disk-backed indexed/paged inventory with transactional writes, migration/rollback, async page iteration for all consumers, and restart/cancellation tests.
-- Exact-head CI, Flutter tests, Dart analysis, Android build and device tests are not yet confirmed for Revision 60.
-- Do not merge to main until three independent reviews and exact-head CI pass.
+## Remaining work and validation
+- SharedPreferences string-list storage and the in-memory personalFolderCache remain. This is not yet a file-backed, memory-bounded inventory; design and migrate transactionally before claiming very-large-folder readiness.
+- Exact-head CI, Flutter tests, Dart analysis, Android build, and device tests are pending.
+- Preserve personal-only routing and owner-supplied server data during any storage migration.
 
 ## Three review passes
-1. Architecture and behavior: pending.
-2. Persistence, concurrency, migration and recovery: pending.
-3. Compatibility, regression tests, Dart analysis and Android build: pending.
+1. Architecture/behavior: pending.
+2. Persistence/concurrency/migration: pending.
+3. Compatibility/tests/build/final diff: pending.

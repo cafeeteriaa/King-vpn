@@ -5,6 +5,16 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class KingVpnSourceGuardTests(unittest.TestCase):
+    def test_personal_folder_has_no_fixed_caps(self):
+        folder = (ROOT / "lib" / "personal_folder.dart").read_text(encoding="utf-8")
+        source = (ROOT / "lib" / "main.dart").read_text(encoding="utf-8")
+        self.assertNotIn("kPersonalFolderCap", folder)
+        self.assertNotIn("kPersonalShowCap", folder)
+        self.assertNotIn("personalFolderCache.length >=", folder)
+        self.assertIn("List<Server> personalFolderServers()", source)
+        self.assertNotIn("personalFolderServers(max:", source)
+        self.assertNotIn("out.length >= max", source)
+
     def test_auto_scan_sheet_forwards_live_vpn_guards(self):
         source = (ROOT / 'lib' / 'auto_scanners.dart').read_text(encoding='utf-8')
         start = source.index('Future<void> autoScanSheet(')

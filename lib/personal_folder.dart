@@ -1,15 +1,12 @@
 // پوشه‌ی «سرورهای شخصی»
 // هر سروری که خودت به برنامه می‌دهی، و هر سروری که با «ساخت خودکار کلودفلر»
-// ساخته‌ای، به این پوشه اضافه می‌شود. تا ۱۰۰۰ سرور ذخیره می‌شود.
-// اتصال از این پوشه: ۵۰ سرور اول پینگ گرفته می‌شود و به بهترینش وصل می‌شود.
+// ساخته‌ای، به این پوشه اضافه می‌شود. همهٔ ورودی‌های معتبر نگهداری می‌شوند.
+// بررسی سلامت و انتخاب اتصال، به کل ورودی‌های معتبر دسترسی دارد.
 
 // از همان لایه‌ی ذخیره‌ی برنامه استفاده می‌کند (پکیج shared_preferences در پروژه نیست)
 import 'prefs_store.dart';
 import 'errjournal.dart';
 
-const int kPersonalFolderCap = 1000;
-/// PERSPING: تا ۱۰۰ سرور شخصی اول پینگ گرفته می‌شوند و از بین سالم‌ها بهترین وصل می‌شود
-const int kPersonalShowCap = 100;
 const String _kPersonalFolderPref = 'personal_folder_v1';
 
 /// کش درون‌حافظه‌ای لینک‌های پوشه (برای نمایش سریع در صفحه‌ی اصلی)
@@ -54,7 +51,7 @@ Future<void> removeFromPersonalFolder(String link) async {
   }
 }
 
-/// لینک‌ها را به پوشه اضافه می‌کند (تکراری‌ها نادیده گرفته می‌شوند، تا سقف ۱۰۰۰).
+/// لینک‌ها را به پوشه اضافه می‌کند؛ فقط ورودی خالی و تکراری نادیده گرفته می‌شود.
 /// تعداد سرورهای تازه‌اضافه‌شده را برمی‌گرداند.
 Future<int> addToPersonalFolder(Iterable<String> links) async {
   var added = 0;
@@ -62,7 +59,6 @@ Future<int> addToPersonalFolder(Iterable<String> links) async {
   for (final l in links) {
     final t = l.trim();
     if (t.isEmpty || set.contains(t)) continue;
-    if (personalFolderCache.length >= kPersonalFolderCap) break;
     personalFolderCache.add(t);
     set.add(t);
     added++;
