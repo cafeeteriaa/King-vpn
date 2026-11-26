@@ -147,6 +147,7 @@ class MainActivity : FlutterActivity() {
                                         "libbox" -> check(KingVpnEngineCoordinator.stopLibboxAndRelease(this, timeoutMs)) {
                                                 "libbox TUN handoff timed out"
                                             }
+                                        "amneziawg" -> KingAmneziaWgCore.shared().disconnect()
                                     }
                                 }
                                 val acquired = KingVpnEngineCoordinator.acquire(engine, timeoutMs)
