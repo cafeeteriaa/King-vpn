@@ -62,14 +62,14 @@ class LibboxDependencyGuard(unittest.TestCase):
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
         gradle = (
-            "plugins { id('com.android.library') }\\n"
-            "val libboxProperties = Properties().apply { }\\n"
-            'implementation(files(File(libboxDir, "classes.jar")))\\n'
+            "plugins { id('com.android.library') }\n"
+            "val libboxProperties = Properties().apply { }\n"
+            'implementation(files(File(libboxDir, "classes.jar")))\n'
         )
         patched = module.install_go_runtime_merge(gradle)
-        expected = "import java.util.zip.ZipEntry\\nimport java.util.zip.ZipFile\\nimport java.util.zip.ZipOutputStream\\n"
+        expected = "import java.util.zip.ZipEntry\nimport java.util.zip.ZipFile\nimport java.util.zip.ZipOutputStream\n"
         self.assertTrue(patched.startswith(expected))
-        self.assertNotIn("ZipEntry\\\\nimport", patched)
+        self.assertNotIn("ZipEntry\\nimport", patched)
 
     def test_third_party_license_and_build_provenance_exist(self):
         folder = ROOT / "licenses" / "sing_box"
