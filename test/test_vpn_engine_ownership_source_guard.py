@@ -31,6 +31,8 @@ class VpnEngineOwnershipSourceGuard(unittest.TestCase):
         self.assertIn('KingVpnEngineCoordinator.release("xray")', source)
         self.assertIn('KingWireGuardCore.Companion.shared(this).disconnect()', source)
         self.assertIn("engineReleasePending", source)
+        self.assertIn("if (!isCurrent(myAttempt)) return false;", source)
+        self.assertIn("if (engineReleasePending)", source)
 
     def test_android_prepare_copies_the_coordinator_into_the_generated_host(self):
         source = (ROOT / "prepare_android.py").read_text()

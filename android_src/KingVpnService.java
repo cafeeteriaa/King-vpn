@@ -673,7 +673,24 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
     }
 
     /** Acquire the single process-wide Android VPN slot before establishing TUN. */
-    private boolean acquireEngineOwnership() {
+    private boolean acquireEngineOwnership(int myAttempt) {
+        // A previous native stop may still own the TUN. Do not re-enter the same
+        // engine owner while its deferred release is pending.
+        final long deadline = System.nanoTime()
+                + TimeUnit.MILLISECONDS.toNanos(BRING_UP_TIMEOUT_MS);
+        while (engineReleasePending) {
+            if (!isCurrent(myAttempt)) return false;
+            long remaining = deadline - System.nanoTime();
+            if (remaining <= 0L) return false;
+            try {
+                Thread.sleep(Math.min(50L,
+                        Math.max(1L, TimeUnit.NANOSECONDS.toMillis(remaining))));
+            } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+                return false;
+            }
+        }
+        if (!isCurrent(myAttempt)) return false;
         if ("wireguard".equals(KingVpnEngineCoordinator.currentOwner())) {
             try {
                 KingWireGuardCore.Companion.shared(this).disconnect();
@@ -683,7 +700,14 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
                 return false;
             }
         }
-        return KingVpnEngineCoordinator.acquire("xray", 30_000L);
+        long remainingMs = Math.max(0L,
+                TimeUnit.NANOSECONDS.toMillis(deadline - System.nanoTime()));
+        if (!KingVpnEngineCoordinator.acquire("xray", remainingMs)) return false;
+        if (!isCurrent(myAttempt)) {
+            KingVpnEngineCoordinator.release("xray");
+            return false;
+        }
+        return true;
     }
 
     /**
@@ -730,7 +754,7 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
                 return false;
             }
 
-            if (!acquireEngineOwnership()) {
+            if (!acquireEngineOwnership(myAttempt)) {
                 lastError = "Android VPN slot is owned by another KING VPN engine";
                 Log.e(TAG, lastError);
                 return false;
