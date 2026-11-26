@@ -8766,10 +8766,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     turboSpeed = true;
     muxEnabled = muxEnabled || kTurboEnabled;
     muxConc = max(muxConc, kTurboEnabled ? 32 : 8);
-    // NORMALFRAG: در اتصال عادی Fragment کاربر حفظ می‌شود.
-    if (!nationalMode && (localPilotOn || aiSession || isAutoTesting)) {
-      fragEnabled = false;
-    }
     // SPEEDFIRST: اگر هنوز سرعتی اندازه‌گیری نشده، بعد از ۸ ثانیه اندازه‌گیری کن
     if ((s.speed ?? 0) <= 0) {
       Future.delayed(const Duration(seconds: 8), () {
@@ -9514,7 +9510,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         speedTopN = max(speedTopN, 5);
         muxEnabled = kTurboEnabled;
         muxConc = max(muxConc, kTurboEnabled ? 24 : 8);
-        fragEnabled = false;
         sortSpeed = true;
         break;
       case 'weak':
@@ -9530,7 +9525,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         speedTopN = max(speedTopN, 8);
         muxEnabled = kTurboEnabled;
         muxConc = max(muxConc, kTurboEnabled ? 32 : 8);
-        fragEnabled = false;
         sortSpeed = true;
         betterSwitch = true;
         minSpeedKB = 0; // دیگر با ۸۰۰KB تعویض نمی‌کند
@@ -11786,7 +11780,6 @@ ListTile( // KINGEXTRAS row
       cleanIpMode = false;
       ultraMode = false;
       indestructibleMode = false;
-      fragEnabled = false;
     }
   }
 
@@ -11835,7 +11828,6 @@ ListTile( // KINGEXTRAS row
       autoSpeed = false;
       turboSpeed = false;
     } else if (pilot) {
-      fragEnabled = false;
       sniSpoofAll = true; // SNIALL: جعل SNI برای همه‌ی اتصال‌ها روشن است
       ultraMode = true;
       indestructibleMode = false;
@@ -11863,7 +11855,6 @@ ListTile( // KINGEXTRAS row
       autoSpeed = true;
       turboSpeed = true;
     } else {
-      fragEnabled = false;
       sniSpoofAll = true; // SNIALL: جعل SNI برای همه‌ی اتصال‌ها روشن است
       ultraMode = false;
       indestructibleMode = false;
@@ -11908,14 +11899,10 @@ ListTile( // KINGEXTRAS row
   Future<bool> _connectPersonalFast(Server s) async {
     _personalFast = true;
     _personalBusy = true;
-    // PERSNOFRAG: قطعه‌قطعه کردن TLS (fragment) روی ورکر شخصی ترافیک را می‌بست؛
-    // برنامه‌های دیگر این کار را نمی‌کنند. فقط برای همین اتصال خاموش و بعد برگردانده می‌شود.
-    final savedFrag = fragEnabled;
-    fragEnabled = false;
+    // Respect the user's Fragment setting for personal profiles as well.
     try {
       return await _connectPersonalFastImpl(s);
     } finally {
-      fragEnabled = savedFrag;
       _personalFast = false;
       _personalBusy = false;
     }
@@ -12491,11 +12478,6 @@ ListTile( // KINGEXTRAS row
             seconds: max(delayTimeout.inSeconds, 12));
         tcpTimeout = Duration(
             milliseconds: max(tcpTimeout.inMilliseconds, 4000));
-      }
-      // NORMALFRAG: در اتصال عادی تنظیمات کاربر (از جمله Fragment) حفظ می‌شود.
-      // در pilot/nat/test، خودشان مقادیر را تعیین می‌کنند.
-      if (!nationalMode && (localPilotOn || aiSession || isAutoTesting)) {
-        fragEnabled = false;
       }
       // all throughput levers (Mux, no Fragment, speed-test top servers, ...)
       if (nationalMode || localPilotOn || aiSession || isAutoTesting) {
