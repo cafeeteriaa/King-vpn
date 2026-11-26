@@ -2519,6 +2519,17 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('Duration? budget,', nat)
         self.assertIn('final slice = (generated[\'addrs\'] as List).cast<String>();', nat)
 
+    def test_hot_source_inventory_is_disk_streamed_without_entry_ceilings(self):
+        nat = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
+        self.assertNotIn('natHotPerSource', nat)
+        self.assertNotIn('natHotMax', nat)
+        self.assertNotIn('natHotFetchDeadline', nat)
+        self.assertIn('final int lineCount;', nat)
+        self.assertIn('final int byteLength;', nat)
+        self.assertIn('File(h.file).openRead(offset)', nat)
+        self.assertIn('_hotCursorOffset = offset;', nat)
+        self.assertIn('await for (final _ in file', nat)
+
     def test_matrix_order_is_not_truncated_by_the_old_5000_variant_ceiling(self):
         main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
         nat = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
