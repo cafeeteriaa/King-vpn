@@ -2148,8 +2148,10 @@ class KingVpnSourceGuardTests(unittest.TestCase):
     def test_ip_range_expanders_reject_non_positive_limits(self):
         scan = (ROOT / 'lib' / 'nat_ip_scan.dart').read_text(encoding='utf-8')
         ultra = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
-        self.assertIn('if (maxPerBlock <= 0) return const [];', scan)
-        self.assertIn('if (maxCount <= 0) return const [];', scan)
+        self.assertIn('final batchSize = batchLimit ?? 4096;', scan)
+        self.assertIn('if (batchSize <= 0) return const <String>[];', scan)
+        self.assertIn('_natExpandRangeAll(cidr, batchLimit: maxPerBlock)', scan)
+        self.assertIn('_natExpandRangeAll(range, batchLimit: maxCount)', scan)
         start = ultra.index('List<String> natExpandAny(')
         self.assertIn('if (maxPerBlock <= 0) return const [];', ultra[start:start + 180])
 
@@ -2405,7 +2407,9 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('List<String> natFrontSnis()', nip)
         self.assertIn('...kAutoSniDomains', nip)
         self.assertIn('...dnsxFullDomains()', nip)
-        self.assertIn('for (final sni in natFrontSnis())', nip)
+        self.assertIn('final names = natFrontSnis();', nip)
+        self.assertIn('final batch = names.skip(offset).take(workers);', nip)
+        self.assertIn('batch.map((sni) => nipFrontProbe(ip, port, sni))', nip)
         self.assertIn('final workers = max(2, min(12, natAdaptiveWorkers()));', nip)
 
     def test_ip_grafting_preserves_host_and_the_actual_scanned_port(self):
@@ -2854,17 +2858,23 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         close_pop = body.index('Navigator.pop(ctx);', close)
         completion = body.index('open = false;', body.index(').then((_) {'))
         completion_cancel = body.index('cancelled = true;', completion)
-        scan = body.index('result = await natScanIps(')
-        stop = body.index('cancelled: () => cancelled || !open,', scan)
-        persist_guard = body.index('if (!cancelled && open && nationalMode == scanNationalMode)', scan)
-        persist = body.index('await goldMergeIps(', persist_guard)
-        abort = body.index('shouldAbort: () => cancelled || !open,', persist)
+        scan = body.index('final batchHits = await natScanIps(')
+        stop = body.index('cancelled: () => cancelled || !open || nationalMode != scanNationalMode,', scan)
+        partial = body.index('// Valid partial hits are retained even when the user stops the scan.', scan)
+        persist_guard = body.index('if (newHits.isNotEmpty && nationalMode == scanNationalMode)', partial)
+        persist_national = body.index('await natNationalIpMemSave(', persist_guard)
+        persist_global = body.index('await goldMergeIps(', persist_guard)
+        should_abort = body.index('shouldAbort: () => nationalMode != scanNationalMode,', persist_global)
+        loop_stop = body.index('if (cancelled || !open || nationalMode != scanNationalMode) break;', should_abort)
         self.assertLess(close, close_pop)
         self.assertLess(completion, completion_cancel)
         self.assertLess(scan, stop)
-        self.assertLess(stop, persist_guard)
-        self.assertLess(persist_guard, persist)
-        self.assertLess(persist, abort)
+        self.assertLess(stop, partial)
+        self.assertLess(partial, persist_guard)
+        self.assertLess(persist_guard, persist_national)
+        self.assertLess(persist_guard, persist_global)
+        self.assertLess(persist_global, should_abort)
+        self.assertLess(should_abort, loop_stop)
 
     def test_gold_merge_ips_checks_abort_before_atomic_file_mutation(self):
         source = (ROOT / 'lib' / 'npv_am_extras.dart').read_text(encoding='utf-8')
@@ -2914,9 +2924,13 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         sheet = dns[dns.index('void dnsxSheet('):]
         scan = sheet.index('r = await dnsxScan(')
         guard = sheet.index('if (stopFlag || !sheetOpen)', scan)
-        save = sheet.index('goldAddDns(r,', guard)
+        global_save = sheet.index('goldAddDns(', guard)
+        national_save = sheet.index('natNationalDnsSave(', guard)
         self.assertLess(scan, guard)
-        self.assertLess(guard, save)
+        self.assertLess(guard, global_save)
+        self.assertLess(guard, national_save)
+        self.assertIn('shouldAbort: () => stopFlag || !sheetOpen || nationalMode != scanNationalMode,', sheet[global_save:])
+        self.assertIn('shouldAbort: () => stopFlag || !sheetOpen || nationalMode != scanNationalMode,', sheet[national_save:])
 
 
 if __name__ == '__main__':
