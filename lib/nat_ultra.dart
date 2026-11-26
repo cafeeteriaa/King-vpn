@@ -2493,12 +2493,10 @@ Future<List<String>> _natRangeScanStepBody({
   final scanClock = Stopwatch()..start();
   bool scanExpired() => budget != null && scanClock.elapsed >= budget;
   for (final port in portList) {
-    if (shouldAbort()) return const <String>[];
+    if (shouldAbort()) return out;
     final remainingBudget =
         budget == null ? null : budget - scanClock.elapsed;
-    if (remainingBudget != null && remainingBudget <= Duration.zero) {
-      return const <String>[];
-    }
+    if (remainingBudget != null && remainingBudget <= Duration.zero) return out;
     final hits = await natScanIps(
       slice,
       port: port,
