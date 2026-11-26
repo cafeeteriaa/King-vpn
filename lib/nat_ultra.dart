@@ -1978,22 +1978,26 @@ Future<List<String>> _natDomainFirst(List<Server> known,
         (grouped[port] ??= <String>[]).add(entry.key);
       }
     }
+    const endpointBatchSize = 512;
     for (final entry in grouped.entries) {
       if (cancelled()) return const <String>[];
-      // No implicit hit quota or short wall-clock deadline: the caller may
-      // cancel, otherwise every configured address for this configured port
-      // is checked. Concurrency remains device-adaptive.
-      final hits = await natScanIps(
-        entry.value,
-        port: entry.key,
-        concurrency: conc.clamp(1, 32).toInt(),
-        timeout: const Duration(milliseconds: 1200),
-        cancelled: cancelled,
-      );
-      if (cancelled()) return const <String>[];
-      for (final hit in hits) {
-        out.add('${hit.ip}|${entry.key}');
-        natDomainOpen = out.length;
+      // Batch only bounds transient memory and socket fan-out. It never caps
+      // the total inventory: every endpoint is visited unless the caller cancels.
+      for (var offset = 0; offset < entry.value.length; offset += endpointBatchSize) {
+        if (cancelled()) return const <String>[];
+        final batch = entry.value.skip(offset).take(endpointBatchSize).toList(growable: false);
+        final hits = await natScanIps(
+          batch,
+          port: entry.key,
+          concurrency: conc.clamp(1, 32).toInt(),
+          timeout: const Duration(milliseconds: 1200),
+          cancelled: cancelled,
+        );
+        if (cancelled()) return const <String>[];
+        for (final hit in hits) {
+          out.add('${hit.ip}|${entry.key}');
+          natDomainOpen = out.length;
+        }
       }
     }
   } catch (e, stk) {
