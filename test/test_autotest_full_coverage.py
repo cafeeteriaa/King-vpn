@@ -83,6 +83,9 @@ class AutoTestFullCoverageTests(unittest.TestCase):
     def test_progress_tracks_completed_stages_not_elapsed_minutes(self):
         self.assertIn("_atCompletedSteps / _atTotalSteps", SOURCE)
         self.assertNotIn("now.difference(_startedAt!).inMilliseconds", SOURCE)
+        self.assertNotIn("autoTestProgress.value = i /", SOURCE)
+        self.assertNotIn("autoTestProgress.value = 1;", SOURCE)
+        self.assertIn("(_atCompletedSteps + localProgress) / _atTotalSteps", SOURCE)
 
 
 if __name__ == "__main__":
