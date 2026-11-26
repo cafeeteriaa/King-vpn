@@ -226,8 +226,8 @@ void main() {
 
     test('uses only sources that declare compatible formats for each engine', () {
       expect(KingEngineServerSourceCatalog.forEngine(KingEngineId.hysteria2), hasLength(4));
-      expect(KingEngineServerSourceCatalog.forEngine(KingEngineId.singBox), hasLength(9));
-      expect(KingEngineServerSourceCatalog.forEngine(KingEngineId.shadowsocks), hasLength(3));
+      expect(KingEngineServerSourceCatalog.forEngine(KingEngineId.singBox), hasLength(10));
+      expect(KingEngineServerSourceCatalog.forEngine(KingEngineId.shadowsocks), hasLength(4));
       expect(KingEngineServerSourceCatalog.forEngine(KingEngineId.openVpn), isEmpty);
       expect(KingEngineServerSourceCatalog.forEngine(KingEngineId.amneziaWg), isEmpty);
       expect(KingEngineServerSourceCatalog.forEngine(KingEngineId.wireGuard), hasLength(1));
