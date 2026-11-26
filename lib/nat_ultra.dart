@@ -623,8 +623,6 @@ bool _natAppliesF(_NatFacts f, int v) {
   if (x.clean && !(f.sec && !f.reality && f.hasClean && f.cdnLike)) {
     return false;
   }
-  if (x.mux) return false;
-  if (x.noise) return false;
   if (x.mode != null && (!x.mode!.startsWith('kcp:') || f.reality)) return false;
   if (x.doh != null && f.isIp) return false;
   // V13: SNI swap only makes sense for CDN configs with TLS (not reality).
