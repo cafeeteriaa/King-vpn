@@ -49,7 +49,7 @@ class KingWireGuardCore private constructor(context: Context) {
             lastState = Tunnel.State.UP
             return backend.version
         } catch (failure: Throwable) {
-            if (runCatching { backend.getState(tunnel) }.getOrNull() != Tunnel.State.UP) {
+            if (runCatching { backend.getState(tunnel) }.getOrNull() == Tunnel.State.DOWN) {
                 KingVpnEngineCoordinator.release("wireguard")
             }
             throw failure

@@ -20,6 +20,8 @@ class VpnEngineOwnershipSourceGuard(unittest.TestCase):
         self.assertIn('KingVpnEngineCoordinator.release("wireguard")', source)
         self.assertIn("KingVpnService.instance?.stopForEngineHandoff()", source)
         self.assertIn("backend.getState(tunnel) == Tunnel.State.DOWN", source)
+        self.assertIn("getOrNull() == Tunnel.State.DOWN", source)
+        self.assertNotIn("getOrNull() != Tunnel.State.UP", source)
 
     def test_xray_acquires_before_establish_and_releases_after_stop(self):
         source = (ROOT / "android_src" / "KingVpnService.java").read_text()
