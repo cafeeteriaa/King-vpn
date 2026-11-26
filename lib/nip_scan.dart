@@ -12,30 +12,10 @@ class NipHit {
 
 /// بلوک CIDR مثل «5.160.0.0/16» را به فهرست IP تبدیل می‌کند.
 /// برای بلوک‌های بزرگ فقط [maxPerBlock] آدرس پراکنده برمی‌گرداند.
-List<String> nipExpandCidr(String cidr, {int maxPerBlock = 4096}) {
-  final parts = cidr.trim().split('/');
-  if (parts.length != 2) return const [];
-  final octets = parts[0].split('.');
-  final prefix = int.tryParse(parts[1].trim());
-  if (octets.length != 4 || prefix == null || prefix < 8 || prefix > 32) {
-    return const [];
-  }
-  int base = 0;
-  for (final o in octets) {
-    final v = int.tryParse(o.trim());
-    if (v == null || v < 0 || v > 255) return const [];
-    base = (base << 8) | v;
-  }
-  final size = 1 << (32 - prefix);
-  final start = base & ~(size - 1) & 0xFFFFFFFF;
-  final step = size > maxPerBlock ? size ~/ maxPerBlock : 1;
-  final out = <String>[];
-  for (var i = 0; i < size; i += step) {
-    final v = start + i;
-    out.add('${(v >> 24) & 255}.${(v >> 16) & 255}.${(v >> 8) & 255}.${v & 255}');
-  }
-  return out;
-}
+/// Full IPv4/IPv6 CIDR expansion by default. Pass maxPerBlock only when
+/// deliberately requesting one bounded page; large scans should use cursors.
+List<String> nipExpandCidr(String cidr, {int? maxPerBlock}) =>
+    natExpandCidr(cidr, maxPerBlock: maxPerBlock);
 
 /// اتصال TCP به ip:port. اگر جواب داد زمان پاسخ (ms) را برمی‌گرداند، وگرنه null.
 Future<int?> nipTcpProbe(String ip, int port, Duration timeout) async {
