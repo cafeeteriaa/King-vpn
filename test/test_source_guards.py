@@ -52,9 +52,9 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn("servers.jsonl.bak", store)
         self.assertIn("servers.jsonl.tmp", store)
         self.assertIn("await temp.writeAsString(contents, flush=True)", store)
-        self.assertIn("await temp.rename(target.path)", store)
+        self.assertIn("await _replaceByRename(temp, target)", store)
         self.assertIn("PersonalFolderStore.readOrMigrate", folder)
-        self.assertIn("PersonalFolderStore.writeSnapshot(personalFolderCache)", folder)
+        self.assertIn("await PersonalFolderStore.writeSnapshot(next)", folder)
         self.assertIn("await p.remove(_kPersonalFolderPref)", folder)
 
     def test_personal_folder_store_never_overwrites_good_backup_with_corrupt_primary(self):
