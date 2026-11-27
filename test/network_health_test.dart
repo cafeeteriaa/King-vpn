@@ -30,6 +30,26 @@ void main() {
       expect(evidence.confidence, lessThan(1));
     });
 
+    test('keeps IPv6 reachability separate from TLS route classification', () {
+      const evidence = NetworkEvidence(
+        domestic: LinkHealth.healthy,
+        global: LinkHealth.unreachable,
+        domesticSamples: 3,
+        globalSamples: 3,
+        domesticSuccesses: 3,
+        globalSuccesses: 0,
+        domesticTlsReachabilityVerified: true,
+        domesticIpv6Successes: 2,
+        globalIpv6Successes: 0,
+        domesticIpv6LatencyMs: 85,
+      );
+      expect(evidence.mode, DetectedNetworkMode.domesticOnly);
+      expect(evidence.toMap()['domesticIpv6Successes'], 2);
+      expect(evidence.toMap()['globalIpv6Successes'], 0);
+      expect(evidence.toMap()['domesticIpv6LatencyMs'], 85);
+      expect(choosePilotNetworkStrategy(evidence), PilotNetworkStrategy.domestic);
+    });
+
     test('failed attempts do not inflate reachability confidence', () {
       const evidence = NetworkEvidence(
         domestic: LinkHealth.unreachable,
