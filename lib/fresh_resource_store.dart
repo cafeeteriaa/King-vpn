@@ -102,13 +102,13 @@ class FreshResourceStore {
     final link = value.trim().replaceAll('\r', '');
     if (link.isEmpty || link.length > 65536) return null;
     final lower = link.toLowerCase();
+    // Keep only profiles the currently wired Xray parser/core can consume.
+    // Hysteria2/TUIC are intentionally not counted as usable offline configs
+    // until their native engine adapters are actually integrated and tested.
     if (!(lower.startsWith('vless://') ||
         lower.startsWith('vmess://') ||
         lower.startsWith('trojan://') ||
-        lower.startsWith('ss://') ||
-        lower.startsWith('hysteria2://') ||
-        lower.startsWith('hy2://') ||
-        lower.startsWith('tuic://'))) return null;
+        lower.startsWith('ss://'))) return null;
     return link;
   }
 
