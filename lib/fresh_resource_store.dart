@@ -29,6 +29,27 @@ class FreshResourceStore {
   static final Set<String> _shardTailChecked = <String>{};
   static final Map<String, Future<void>> _migrationFutures = <String, Future<void>>{};
   static Future<void> _replacementQueue = Future<void>.value();
+  static int _activeStreams = 0;
+  static Completer<void>? _streamsDrained;
+
+  static void _streamStarted() {
+    if (_activeStreams++ == 0) _streamsDrained = Completer<void>();
+  }
+
+  static void _streamFinished() {
+    _activeStreams--;
+    if (_activeStreams == 0) {
+      final drained = _streamsDrained;
+      _streamsDrained = null;
+      if (drained != null && !drained.isCompleted) drained.complete();
+    }
+  }
+
+  static Future<void> _waitForStreams() async {
+    if (_activeStreams == 0) return;
+    final pending = _streamsDrained?.future;
+    if (pending != null) await pending;
+  }
 
   static Future<Directory> directory({Directory? root}) async {
     // Default-root readers/writers wait while a staged refresh swaps the store.
@@ -130,29 +151,34 @@ class FreshResourceStore {
   /// Streams normalized, deduplicated records without loading the inventory.
   static Stream<String> streamLinks({Directory? root}) async* {
     final dir = await directory(root: root);
-    await _migrateLegacy(dir);
-    final shards = dir.list(followLinks: false)
-        .where((entity) => entity is File &&
-            RegExp(r'^[0-9a-f]{2}\.jsonl$').hasMatch(entity.uri.pathSegments.last));
-    await for (final entity in shards) {
-      final file = entity as File;
-      await for (final line in file.openRead()
-          .transform(utf8.decoder)
-          .transform(const LineSplitter())) {
-        if (line.isEmpty) continue;
-        try {
-          final row = jsonDecode(line);
-          if (row is! Map || row['v'] != 1 ||
-              row['id'] is! String || row['link'] is! String) continue;
-          final link = normalizeLink(row['link'] as String);
-          if (link != null && _id(link) == row['id']) yield link;
-        } catch (_) {
-          // A damaged record is skipped; subsequent valid records remain readable.
+    _streamStarted();
+    try {
+        await _migrateLegacy(dir);
+      final shards = dir.list(followLinks: false)
+          .where((entity) => entity is File &&
+              RegExp(r'^[0-9a-f]{2}\.jsonl$').hasMatch(entity.uri.pathSegments.last));
+      await for (final entity in shards) {
+        final file = entity as File;
+        await for (final line in file.openRead()
+            .transform(utf8.decoder)
+            .transform(const LineSplitter())) {
+          if (line.isEmpty) continue;
+          try {
+            final row = jsonDecode(line);
+            if (row is! Map || row['v'] != 1 ||
+                row['id'] is! String || row['link'] is! String) continue;
+            final link = normalizeLink(row['link'] as String);
+            if (link != null && _id(link) == row['id']) yield link;
+          } catch (_) {
+            // A damaged record is skipped; subsequent valid records remain readable.
+          }
         }
       }
     }
+    } finally {
+      _streamFinished();
+    }
   }
-
   static Future<List<String>> readPreview({int limit = 100, Directory? root}) async {
     final result = <String>[];
     if (limit <= 0) return result;
@@ -473,6 +499,7 @@ class FreshResourceStore {
         _mergeQueues[targetPath] ?? Future<void>.value(),
         _readQueues[targetPath] ?? Future<void>.value(),
       ]);
+      await _waitForStreams();
       // Recover a prior interrupted swap before preparing another snapshot.
       if (!await target.exists() && await backup.exists()) {
         await backup.rename(target.path);
