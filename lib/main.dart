@@ -42,6 +42,7 @@ import 'nat_ip_scan.dart'; // اسکن TCP آدرس IP و دامنه
 import 'help_page.dart';
 import 'conn_specs.dart';
 import 'personal_folder.dart'; // پوشه‌ی «سرورهای شخصی»
+import 'personal_folder_store.dart'; // صفحه‌بندی فایل‌محور پوشه شخصی
 import 'king_extras2.dart'; // KINGEXTRAS: share sheet / UUID / check-host.net
 part 'iran_ai_extras.dart';
 part 'npv_am_extras.dart';
@@ -12307,69 +12308,204 @@ ListTile( // KINGEXTRAS row
   /// فهرست پوشه‌ی سرورهای شخصی: تست ۵۰تایی، یا وصل به یک سرور مشخص، یا حذف (نگه‌داشتن)
   Future<void> personalFolderSheet() async {
     if (!mounted) return;
-    await showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      builder: (ctx) {
-        final links = List<String>.of(personalFolderCache);
-        return SafeArea(
-          child: SizedBox(
-            height: MediaQuery.of(ctx).size.height * 0.75,
-            child: Column(children: [
-              ListTile(
-                leading: const Icon(Icons.dns_outlined),
-                title: Text('🗂 سرورهای شخصی: ${links.length} سرور'),
-                subtitle: const Text(
-                    'روی یک سرور بزن تا همان وصل شود. نگه‌دار تا از پوشه حذف شود.'),
-              ),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 12),
-                child: FilledButton(
-                  onPressed: links.isEmpty
-                      ? null
-                      : () {
-                          Navigator.pop(ctx);
-                          unawaited(pickEngineThenStart(
-                              () => _personalAdThen(personalFolderConnect),
-                              askMode: false));
-                        },
-                  child: const Text('اتصال به سرورهای شخصی (کمترین پینگ)'),
-                ),
-              ),
-              const Divider(height: 1),
-              Expanded(
-                child: links.isEmpty
-                    ? const Center(child: Text('خالی'))
-                    : ListView.builder(
-                        itemCount: links.length,
-                        itemBuilder: (_, i) {
-                          final s = Server.parse(links[i]);
-                          return ListTile(
-                            title: Text(s?.name ?? links[i],
-                                maxLines: 1, overflow: TextOverflow.ellipsis),
-                            subtitle: Text(s?.host ?? ''),
-                            onTap: s == null
-                                ? null
-                                : () {
-                                    Navigator.pop(ctx);
-                                    unawaited(pickEngineThenStart(
-                                        () => _personalAdThen(() => personalFolderConnect()),
-                                        askMode: false));
-                                  },
-                            onLongPress: () async {
-                              await removeFromPersonalFolder(links[i]);
-                              if (ctx.mounted) Navigator.pop(ctx);
-                              unawaited(personalFolderSheet());
-                            },
-                          );
-                        },
-                      ),
-              ),
-            ]),
-          ),
-        );
-      },
+    const pageSize = 50;
+    var pageIndex = 0;
+    var searchQuery = '';
+    final searchController = TextEditingController();
+    Future<PersonalFolderPage> pageFuture = PersonalFolderStore.readPage(
+      offset: 0,
+      limit: pageSize,
     );
+    try {
+      await showModalBottomSheet<void>(
+        context: context,
+        isScrollControlled: true,
+        builder: (ctx) {
+          return StatefulBuilder(
+            builder: (ctx, setSheetState) {
+              void reload({bool resetPage = false}) {
+                if (resetPage) pageIndex = 0;
+                pageFuture = PersonalFolderStore.readPage(
+                  offset: pageIndex * pageSize,
+                  limit: pageSize,
+                  query: searchQuery,
+                );
+                setSheetState(() {});
+              }
+
+              return SafeArea(
+                child: SizedBox(
+                  height: MediaQuery.of(ctx).size.height * 0.82,
+                  child: Column(
+                    children: [
+                      ListTile(
+                        leading: const Icon(Icons.dns_outlined),
+                        title: const Text('🗂 سرورهای شخصی'),
+                        subtitle: const Text(
+                          'فهرست صفحه‌بندی‌شده؛ جست‌وجو روی کل آرشیو انجام می‌شود',
+                        ),
+                      ),
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+                        child: TextField(
+                          controller: searchController,
+                          textInputAction: TextInputAction.search,
+                          decoration: InputDecoration(
+                            hintText: 'جست‌وجوی لینک، دامنه یا IP',
+                            prefixIcon: const Icon(Icons.search),
+                            suffixIcon: IconButton(
+                              tooltip: 'پاک کردن جست‌وجو',
+                              onPressed: () {
+                                searchController.clear();
+                                searchQuery = '';
+                                reload(resetPage: true);
+                              },
+                              icon: const Icon(Icons.clear),
+                            ),
+                            border: const OutlineInputBorder(),
+                            isDense: true,
+                          ),
+                          onSubmitted: (value) {
+                            searchQuery = value.trim();
+                            reload(resetPage: true);
+                          },
+                        ),
+                      ),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 12),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: FilledButton(
+                                onPressed: personalFolderCache.isEmpty
+                                    ? null
+                                    : () {
+                                        Navigator.pop(ctx);
+                                        unawaited(pickEngineThenStart(
+                                          () => _personalAdThen(personalFolderConnect),
+                                          askMode: false,
+                                        ));
+                                      },
+                                child: const Text('اتصال هوشمند به کل پوشه'),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const Divider(height: 1),
+                      Expanded(
+                        child: FutureBuilder<PersonalFolderPage>(
+                          future: pageFuture,
+                          builder: (context, snapshot) {
+                            if (snapshot.connectionState != ConnectionState.done) {
+                              return const Center(child: CircularProgressIndicator());
+                            }
+                            if (snapshot.hasError) {
+                              return Center(
+                                child: Text('خواندن صفحه ناموفق بود: ${snapshot.error}'),
+                              );
+                            }
+                            final page = snapshot.data!;
+                            final first = page.totalCount == 0 ? 0 : page.offset + 1;
+                            final last = page.offset + page.items.length;
+                            return Column(
+                              children: [
+                                Padding(
+                                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                  child: Row(
+                                    children: [
+                                      Expanded(
+                                        child: Text(
+                                          'نمایش $first تا $last از ${page.totalCount} سرور',
+                                          style: const TextStyle(fontWeight: FontWeight.w600),
+                                        ),
+                                      ),
+                                      IconButton(
+                                        tooltip: 'صفحه قبل',
+                                        onPressed: page.hasPrevious
+                                            ? () {
+                                                pageIndex--;
+                                                reload();
+                                              }
+                                            : null,
+                                        icon: const Icon(Icons.chevron_left),
+                                      ),
+                                      Text('${pageIndex + 1}'),
+                                      IconButton(
+                                        tooltip: 'صفحه بعد',
+                                        onPressed: page.hasNext
+                                            ? () {
+                                                pageIndex++;
+                                                reload();
+                                              }
+                                            : null,
+                                        icon: const Icon(Icons.chevron_right),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                Expanded(
+                                  child: page.items.isEmpty
+                                      ? Center(
+                                          child: Text(searchQuery.isEmpty
+                                              ? 'پوشه خالی است'
+                                              : 'نتیجه‌ای برای جست‌وجو پیدا نشد'),
+                                        )
+                                      : ListView.builder(
+                                          itemCount: page.items.length,
+                                          itemBuilder: (_, i) {
+                                            final link = page.items[i];
+                                            final server = Server.parse(link);
+                                            return ListTile(
+                                              dense: true,
+                                              leading: Text('${page.offset + i + 1}'),
+                                              title: Text(
+                                                server?.name ?? link,
+                                                maxLines: 1,
+                                                overflow: TextOverflow.ellipsis,
+                                              ),
+                                              subtitle: Text(
+                                                server?.host ?? link,
+                                                maxLines: 1,
+                                                overflow: TextOverflow.ellipsis,
+                                              ),
+                                              onTap: server == null
+                                                  ? null
+                                                  : () {
+                                                      Navigator.pop(ctx);
+                                                      unawaited(pickEngineThenStart(
+                                                        () => _personalAdThen(
+                                                          () => connect(server, 'p:personal'),
+                                                        ),
+                                                        askMode: false,
+                                                      ));
+                                                    },
+                                              onLongPress: () async {
+                                                await removeFromPersonalFolder(link);
+                                                if (ctx.mounted) {
+                                                  reload();
+                                                }
+                                              },
+                                            );
+                                          },
+                                        ),
+                                ),
+                              ],
+                            );
+                          },
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            },
+          );
+        },
+      );
+    } finally {
+      searchController.dispose();
+    }
   }
 
   // TAPRESET: سقف‌های هر-اتصال و کش DoH فقط در نقاط ورود کاربر ریست می‌شوند
