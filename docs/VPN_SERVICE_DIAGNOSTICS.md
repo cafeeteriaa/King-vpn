@@ -6,7 +6,7 @@
 
 ## نسخه و فیلدها
 
-نسخه فعلی قرارداد: `protocolVersion = 2` (Dart برای سازگاری، نسخهٔ ۱ را نیز می‌پذیرد).
+نسخه فعلی قرارداد: `protocolVersion = 3` (Dart نسخه‌های ۱ و ۲ را نیز برای سازگاری می‌پذیرد).
 
 فیلدهای عملیاتی:
 - وضعیت سرویس: `serviceRunning`, `active`, `stopping`, `retryWaiting`
