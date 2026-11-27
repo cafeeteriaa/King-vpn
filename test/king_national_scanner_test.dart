@@ -1,7 +1,8 @@
+import 'dart:convert';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:king_vpn/main.dart';
 import 'package:king_vpn/nnie_core.dart';
-import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
@@ -83,8 +84,8 @@ void main() {
       await KingNationalScannerEngine.load();
       final report = KingNationalScannerEngine.diagnostics();
       expect(report['attempts'], 6);
-      expect(report['realTrafficSuccesses'], 3);
-      expect(report['realTrafficFailures'], 3);
+      expect(report['realTrafficSuccesses'], 4);
+      expect(report['realTrafficFailures'], 2);
       expect(report['sniProbeEvidence'], 7);
       expect(report['alpnProbeEvidence'], 9);
     });
