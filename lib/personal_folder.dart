@@ -3,15 +3,14 @@
 // ساخته‌ای، به این پوشه اضافه می‌شود. همهٔ ورودی‌های معتبر نگهداری می‌شوند.
 // بررسی سلامت و انتخاب اتصال، به کل ورودی‌های معتبر دسترسی دارد.
 
-// از همان لایه‌ی ذخیره‌ی برنامه استفاده می‌کند (پکیج shared_preferences در پروژه نیست)
 import 'prefs_store.dart';
 import 'personal_folder_store.dart';
 import 'errjournal.dart';
 
 const String _kPersonalFolderPref = 'personal_folder_v1';
 
-// Serialize load/add/remove/last-good writes. SharedPreferences is a shared
-// JSON snapshot, so overlapping read-modify-write operations must not race.
+// Serialize load/add/remove/last-good writes so concurrent operations cannot
+// overwrite each other's snapshots or cache state.
 Future<void> _personalMutationQueue = Future<void>.value();
 
 Future<T> _serializePersonalMutation<T>(Future<T> Function() action) {
@@ -36,11 +35,14 @@ Future<void> loadPersonalFolder() {
     try {
       final p = await SharedPreferences.getInstance();
       final hasLegacy = p.containsKey(_kPersonalFolderPref);
-      personalFolderCache = await PersonalFolderStore.readOrMigrate(() async {
+      final loaded = await PersonalFolderStore.readOrMigrate(() async {
         return p.getStringList(_kPersonalFolderPref) ?? const <String>[];
       });
+      personalFolderCache = loaded;
+
       if (hasLegacy) {
-        // Remove the legacy copy only after the new durable snapshot exists.
+        // The durable file is already committed. If preference cleanup fails,
+        // the file remains authoritative and the legacy copy is harmless.
         await p.remove(_kPersonalFolderPref);
         await p.flush();
       }
@@ -65,40 +67,45 @@ Future<void> setPersonalLastGood(String link) {
   });
 }
 
-/// یک لینک را از پوشه حذف می‌کند
+/// یک لینک را از پوشه حذف می‌کند. کش فقط پس از commit موفق تغییر می‌کند.
 Future<void> removeFromPersonalFolder(String link) {
   return _serializePersonalMutation(() async {
-    personalFolderCache.remove(link.trim());
+    final normalized = link.trim().toLowerCase();
+    final next = personalFolderCache
+        .where((entry) => entry.trim().toLowerCase() != normalized)
+        .toList(growable: false);
+    if (next.length == personalFolderCache.length) return;
     try {
-      final p = await SharedPreferences.getInstance();
-      await PersonalFolderStore.writeSnapshot(personalFolderCache);
+      await PersonalFolderStore.writeSnapshot(next);
+      personalFolderCache = next;
     } catch (e, stk) {
       errJournalAdd(e, kind: 'PERSONAL-FOLDER', st: stk);
     }
   });
 }
 
-/// لینک‌ها را به پوشه اضافه می‌کند؛ فقط ورودی خالی و تکراری نادیده گرفته می‌شود.
-/// تعداد سرورهای تازه‌اضافه‌شده را برمی‌گرداند.
+/// لینک‌ها را اضافه می‌کند؛ فقط ورودی خالی و تکراری نادیده گرفته می‌شود.
+/// تعداد سرورهای تازه‌ثبت‌شده را فقط پس از ذخیره‌ی موفق برمی‌گرداند.
 Future<int> addToPersonalFolder(Iterable<String> links) {
   final input = List<String>.of(links);
   return _serializePersonalMutation(() async {
+    final next = List<String>.of(personalFolderCache);
+    final seen = next.map((value) => value.trim().toLowerCase()).toSet();
     var added = 0;
-    final set = personalFolderCache.toSet();
-    for (final l in input) {
-      final t = l.trim();
-      if (t.isEmpty || set.contains(t)) continue;
-      personalFolderCache.add(t);
-      set.add(t);
+    for (final raw in input) {
+      final value = raw.trim();
+      if (value.isEmpty || !seen.add(value.toLowerCase())) continue;
+      next.add(value);
       added++;
     }
     if (added == 0) return 0;
     try {
-      final p = await SharedPreferences.getInstance();
-      await PersonalFolderStore.writeSnapshot(personalFolderCache);
+      await PersonalFolderStore.writeSnapshot(next);
+      personalFolderCache = next;
+      return added;
     } catch (e, stk) {
       errJournalAdd(e, kind: 'PERSONAL-FOLDER', st: stk);
+      return 0;
     }
-    return added;
   });
 }
