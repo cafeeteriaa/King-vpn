@@ -153,7 +153,7 @@ class FreshResourceStore {
     final dir = await directory(root: root);
     _streamStarted();
     try {
-        await _migrateLegacy(dir);
+      await _migrateLegacy(dir);
       final shards = dir.list(followLinks: false)
           .where((entity) => entity is File &&
               RegExp(r'^[0-9a-f]{2}\.jsonl$').hasMatch(entity.uri.pathSegments.last));
@@ -174,11 +174,11 @@ class FreshResourceStore {
           }
         }
       }
-    }
     } finally {
       _streamFinished();
     }
   }
+
   static Future<List<String>> readPreview({int limit = 100, Directory? root}) async {
     final result = <String>[];
     if (limit <= 0) return result;
