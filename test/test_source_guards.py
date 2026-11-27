@@ -2802,5 +2802,29 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('await _natDynamicSpecsLoad();', load)
         self.assertLess(load.index('await _natDynamicSpecsLoad();'), load.index("(j['v'] as Map)"))
 
+    def test_national_scanner_journal_resumes_every_phase_without_advancing_partial_work(self):
+        source = (ROOT / 'lib' / 'king_national_scanner.dart').read_text(encoding='utf-8')
+        self.assertIn('KingScanJournal.open(', source)
+        self.assertIn("const phaseOrder = <String>['dns', 'domain', 'ip', 'sni', 'config', 'complete'];", source)
+        self.assertIn("resumeCursor['serverKeyHash']", source)
+        self.assertIn('await flushLearning();', source)
+        self.assertIn("await persistPhase(\n                'ip',", source)
+        self.assertIn('king_national_scanner.lock', source)
+        self.assertIn('const sliceBudget = Duration(seconds: 35);', source)
+        self.assertIn('if (!didCancel && !didYield && !phaseDeferred)', source)
+
+    def test_national_scanner_background_schedule_reuses_the_single_workmanager_dispatcher(self):
+        main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        worker = (ROOT / 'lib' / 'king_ai_background.dart').read_text(encoding='utf-8')
+        self.assertIn("part 'king_ai_background.dart';", main)
+        self.assertIn('Workmanager().initialize(kingAiBackgroundDispatcher)', worker)
+        self.assertIn("const String _nationalScannerTaskName = 'kingNationalNetworkScan';", worker)
+        self.assertIn('frequency: const Duration(hours: 24)', worker)
+        self.assertIn('registerOneOffTask(', worker)
+        self.assertIn('_runKingNationalScannerBackgroundTask()', worker)
+        self.assertIn('addDiscovered: natIpMemMergeHits', worker)
+        self.assertIn('if (vpnActive() || vpnWanted()) return true;', worker)
+        self.assertIn('requiresBatteryNotLow: true', worker)
+
 if __name__ == '__main__':
     unittest.main()
