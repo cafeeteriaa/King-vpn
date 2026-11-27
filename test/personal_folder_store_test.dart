@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
 import '../lib/personal_folder_store.dart';
 
@@ -43,4 +45,59 @@ void main() {
       expect(decoded, input);
     });
   });
+
+  group('PersonalFolderStore file recovery', () {
+    late Directory tempDirectory;
+
+    setUp(() async {
+      tempDirectory = await Directory.systemTemp.createTemp('king-personal-store-');
+      PersonalFolderStore.directoryProviderForTesting = () async => tempDirectory;
+    });
+
+    tearDown(() async {
+      PersonalFolderStore.directoryProviderForTesting = null;
+      if (await tempDirectory.exists()) {
+        await tempDirectory.delete(recursive: true);
+      }
+    });
+
+    test('keeps the last valid snapshot when the primary becomes corrupt', () async {
+      const first = <String>['vless://a@example.com:443'];
+      const second = <String>[
+        'vless://a@example.com:443',
+        'trojan://b@example.com:443',
+      ];
+      await PersonalFolderStore.writeSnapshot(first);
+      await PersonalFolderStore.writeSnapshot(second);
+
+      final primary = File('${tempDirectory.path}/servers.jsonl');
+      await primary.writeAsString('corrupt-record\\n');
+
+      expect(await PersonalFolderStore.readSnapshot(), first);
+
+      await PersonalFolderStore.writeSnapshot(<String>[
+        ...first,
+        'ss://c@example.com:443',
+      ]);
+      expect(
+        await PersonalFolderStore.readSnapshot(),
+        <String>[...first, 'ss://c@example.com:443'],
+      );
+      final backup = File('${tempDirectory.path}/servers.jsonl.bak');
+      expect(await PersonalFolderStore.decodeSnapshot(await backup.readAsString()), first);
+    });
+
+    test('migrates legacy profiles once and then prefers the file snapshot', () async {
+      final migrated = await PersonalFolderStore.readOrMigrate(
+        () async => <String>['vless://legacy@example.com:443'],
+      );
+      expect(migrated, <String>['vless://legacy@example.com:443']);
+
+      final next = await PersonalFolderStore.readOrMigrate(
+        () async => <String>['vless://stale-legacy@example.com:443'],
+      );
+      expect(next, migrated);
+    });
+  });
+
 }
