@@ -498,8 +498,7 @@ class FreshResourceStore {
           final row = jsonDecode(line);
           if (row is Map && row['v'] == 1 && row['id'] is String &&
               row['link'] is String &&
-              (_id(row['link'] as String) == row['id'] ||
-               _legacyId(row['link'] as String) == row['id'])) {
+              _id(row['link'] as String) == row['id']) {
             total++;
             if (total >= maxEntries) break;
           }
