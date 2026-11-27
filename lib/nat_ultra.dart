@@ -2061,7 +2061,7 @@ Future<void> natRangesSave(String text) async {
   natRanges = <String>{
     ...text.split(RegExp(r'[\r\n,; ]+'))
         .where((x) => x.contains('/') || x.contains('-') ||
-            InternetAddress.tryParse(x)?.type == InternetAddressType.IPv4),
+            InternetAddress.tryParse(x) != null),
   }.toList(growable: false);
   _natConfiguredRangeCursor = 0;
   _natConfiguredRangeCursors.clear();
