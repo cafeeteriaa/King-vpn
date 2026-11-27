@@ -10297,7 +10297,7 @@ ListTile( // KINGEXTRAS row
         // independent DNS + multi-host diagnosis. General discovery scanners
         // (DNS/IP/SNI inventory sweeps) are never started by this path.
         final samples = await Future.wait<Object>(<Future<Object>>[
-          PilotNetworkProbe.refresh(),
+          refreshPilotNetworkEvidence(),
           NatNetworkDiagnosis.refresh(),
         ]).timeout(const Duration(seconds: 12));
         final evidence = samples[0] as NetworkEvidence;
