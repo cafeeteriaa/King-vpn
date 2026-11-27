@@ -87,6 +87,34 @@ void main() {
       expect(await PersonalFolderStore.decodeSnapshot(await backup.readAsString()), first);
     });
 
+    test('failed staged write leaves the committed primary readable', () async {
+      const stable = <String>['vless://stable@example.com:443'];
+      await PersonalFolderStore.writeSnapshot(stable);
+      PersonalFolderStore.directoryProviderForTesting = () async {
+        throw StateError('injected directory failure');
+      };
+      await expectLater(
+        PersonalFolderStore.writeSnapshot(<String>['vless://new@example.com:443']),
+        throwsStateError,
+      );
+      PersonalFolderStore.directoryProviderForTesting = () async => tempDirectory;
+      expect(await PersonalFolderStore.readSnapshot(), stable);
+    });
+
+    test('serializes overlapping writes and preserves the final requested snapshot', () async {
+      final first = <String>['vless://first@example.com:443'];
+      final second = <String>['vless://second@example.com:443'];
+      final third = <String>['vless://third@example.com:443'];
+      await Future.wait([
+        PersonalFolderStore.writeSnapshot(first),
+        PersonalFolderStore.writeSnapshot(second),
+        PersonalFolderStore.writeSnapshot(third),
+      ]);
+      expect(await PersonalFolderStore.readSnapshot(), third);
+      final backup = File('${tempDirectory.path}/servers.jsonl.bak');
+      expect(await PersonalFolderStore.decodeSnapshot(await backup.readAsString()), second);
+    });
+
     test('migrates legacy profiles once and then prefers the file snapshot', () async {
       final migrated = await PersonalFolderStore.readOrMigrate(
         () async => <String>['vless://legacy@example.com:443'],
