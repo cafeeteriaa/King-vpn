@@ -157,6 +157,34 @@ void main() {
     });
 
 
+    test('persistent cursor exhausts shards without replay and resumes after append', () async {
+      final root = await Directory.systemTemp.createTemp('king-offline-cursor-eof-');
+      try {
+        final initial = <String>[
+          for (var i = 0; i < 80; i++) 'vless://cursor-$i@example.test:443',
+        ];
+        expect(await FreshResourceStore.merge(initial, root: root), 80);
+
+        final firstPass = await FreshResourceStore.readBatch(limit: 300, root: root);
+        expect(firstPass, hasLength(80));
+        expect(firstPass.toSet(), hasLength(80));
+
+        // All shards are exhausted. The next batch must not rewind to byte zero.
+        expect(await FreshResourceStore.readBatch(limit: 300, root: root), isEmpty);
+
+        const appended = <String>[
+          'vless://cursor-appended-1@example.test:443',
+          'vless://cursor-appended-2@example.test:443',
+        ];
+        expect(await FreshResourceStore.merge(appended, root: root), 82);
+        final afterAppend = await FreshResourceStore.readBatch(limit: 300, root: root);
+        expect(afterAppend.toSet(), appended.toSet());
+        expect(await FreshResourceStore.readBatch(limit: 300, root: root), isEmpty);
+      } finally {
+        await root.delete(recursive: true);
+      }
+    });
+
     test('fills the final capacity slot even when earlier batch entries are duplicates', () async {
       final root = await Directory.systemTemp.createTemp('king-offline-capacity-edge-');
       try {
