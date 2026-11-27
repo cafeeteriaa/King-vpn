@@ -106,6 +106,27 @@ void main() {
       }
     });
 
+
+    test('clear serializes with the store and removes legacy and sharded data', () async {
+      final root = await Directory.systemTemp.createTemp('king-offline-clear-');
+      try {
+        await FreshResourceStore.merge(
+          <String>[
+            'vless://clear-one@example.test:443',
+            'vless://clear-two@example.test:443',
+          ],
+          root: root,
+        );
+        await FreshResourceStore.clear(root: root);
+        expect(await FreshResourceStore.count(root: root), 0);
+        expect(await FreshResourceStore.readBatch(limit: 10, root: root), isEmpty);
+        final folder = Directory('${root.path}/${FreshResourceStore.directoryName}');
+        expect(await File('${folder.path}/00.jsonl').exists(), isFalse);
+      } finally {
+        await root.delete(recursive: true);
+      }
+    });
+
     test('migrates the legacy flat file and repairs interrupted count metadata', () async {
       final root = await Directory.systemTemp.createTemp('king-offline-migrate-');
       try {
