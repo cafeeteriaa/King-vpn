@@ -1767,12 +1767,16 @@ Future<void> _natRangeStateLoad(SharedPreferences prefs) async {
     ..addAll(decodeCursors(loaded['endpointCursors']));
 }
 
-Future<void> _natRangeStateSave() => _natWriteJsonSnapshot(
+Future<void> _natRangeStateSave({
+  int? configuredCursor,
+  Map<String, int>? configuredCursors,
+  Map<String, int>? endpointCursors,
+}) => _natWriteJsonSnapshot(
   'king_nat_range_state.json',
   <String, Object?>{
-    'configuredCursor': _natConfiguredRangeCursor,
-    'configuredCursors': _natConfiguredRangeCursors,
-    'endpointCursors': _cfRangeCursors,
+    'configuredCursor': configuredCursor ?? _natConfiguredRangeCursor,
+    'configuredCursors': configuredCursors ?? _natConfiguredRangeCursors,
+    'endpointCursors': endpointCursors ?? _cfRangeCursors,
   },
 );
 
@@ -2508,20 +2512,31 @@ Future<List<String>> _natRangeScanStepBody({
   await natIpMemMergeHits(out);
   if (shouldAbort()) return const <String>[];
 
+  final nextConfiguredCursor =
+      modeSnapshot ? configuredBatch.nextCursor : _natConfiguredRangeCursor;
+  final nextConfiguredCursors = modeSnapshot
+      ? configuredBatch.nextRangeCursors
+      : Map<String, int>.of(_natConfiguredRangeCursors);
+  final passComplete = configuredBatch.passCompleted && endpointPassComplete;
+  if (shouldAbort()) return const <String>[];
+  // Persist the staged cursors before publishing them in memory. A failed
+  // durable write therefore cannot silently skip an uncommitted batch.
+  await _natRangeStateSave(
+    configuredCursor: nextConfiguredCursor,
+    configuredCursors: nextConfiguredCursors,
+    endpointCursors: generatedCursors,
+  );
+  if (shouldAbort()) return const <String>[];
   _cfRangeCursors
     ..clear()
     ..addAll(generatedCursors);
   if (modeSnapshot) {
-    _natConfiguredRangeCursor = configuredBatch.nextCursor;
+    _natConfiguredRangeCursor = nextConfiguredCursor;
     _natConfiguredRangeCursors
       ..clear()
-      ..addAll(configuredBatch.nextRangeCursors);
+      ..addAll(nextConfiguredCursors);
   }
-  natRangeInventoryPassComplete =
-      configuredBatch.passCompleted && endpointPassComplete;
-  if (shouldAbort()) return const <String>[];
-  await _natRangeStateSave();
-  if (shouldAbort()) return const <String>[];
+  natRangeInventoryPassComplete = passComplete;
   natTemplateSeeds = List<Server>.of(seeds);
   natRandomLast = 0;
   natIpScanned += slice.length;
