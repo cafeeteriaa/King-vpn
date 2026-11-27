@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
 import 'package:path_provider/path_provider.dart';
@@ -15,11 +16,15 @@ class FreshResourceStore {
   static const int maxEntries = 4000000;
   static const int shardCount = 256;
   static const int _batchSize = 512;
+  static const int _bloomBytesPerShard = 32768;
+  static const int _bloomHashCount = 7;
   static const String directoryName = 'KingVPN/ResourcesFresh';
   static const String _legacyFileName = 'configs.txt';
   static const String _metadataFileName = 'metadata.json';
   static const String _dirtyFileName = '.inventory_dirty';
   static final Map<String, Future<void>> _mergeQueues = <String, Future<void>>{};
+  static final Map<String, Uint8List> _shardBlooms = <String, Uint8List>{};
+  static final Map<String, Future<void>> _migrationFutures = <String, Future<void>>{};
 
   static Future<Directory> directory() async {
     final root = await getApplicationSupportDirectory();
@@ -155,6 +160,53 @@ class FreshResourceStore {
     return total;
   }
 
+  static void _bloomAdd(Uint8List bits, String id) {
+    final h1 = int.parse(id.substring(0, 8), radix: 16);
+    final h2 = int.parse(id.substring(8, 16), radix: 16) | 1;
+    final bitCount = bits.length * 8;
+    for (var i = 0; i < _bloomHashCount; i++) {
+      final bit = (h1 + i * h2 + i * i) % bitCount;
+      bits[bit >> 3] |= 1 << (bit & 7);
+    }
+  }
+
+  static bool _bloomMayContain(Uint8List bits, String id) {
+    final h1 = int.parse(id.substring(0, 8), radix: 16);
+    final h2 = int.parse(id.substring(8, 16), radix: 16) | 1;
+    final bitCount = bits.length * 8;
+    for (var i = 0; i < _bloomHashCount; i++) {
+      final bit = (h1 + i * h2 + i * i) % bitCount;
+      if ((bits[bit >> 3] & (1 << (bit & 7))) == 0) return false;
+    }
+    return true;
+  }
+
+  /// A small in-memory Bloom filter avoids rescanning large shards for every
+  /// 512-item batch. Positive matches are always confirmed against the shard,
+  /// so false positives can never discard a valid profile.
+  static Future<Uint8List> _loadShardBloom(Directory dir, String shard) async {
+    final cacheKey = '${dir.path}/$shard';
+    final cached = _shardBlooms[cacheKey];
+    if (cached != null) return cached;
+    final bits = Uint8List(_bloomBytesPerShard);
+    final file = await _shardFile(dir, shard);
+    if (await file.exists()) {
+      await for (final line in file.openRead()
+          .transform(utf8.decoder)
+          .transform(const LineSplitter())) {
+        try {
+          final row = jsonDecode(line);
+          if (row is Map && row['id'] is String &&
+              row['link'] is String && _id(row['link'] as String) == row['id']) {
+            _bloomAdd(bits, row['id'] as String);
+          }
+        } catch (_) {}
+      }
+    }
+    _shardBlooms[cacheKey] = bits;
+    return bits;
+  }
+
   static Future<int> _appendBatch(Directory dir, List<String> links) async {
     final grouped = <String, Map<String, String>>{};
     for (final link in links) {
@@ -164,15 +216,20 @@ class FreshResourceStore {
     var added = 0;
     for (final group in grouped.entries) {
       final file = await _shardFile(dir, group.key);
+      final bloom = await _loadShardBloom(dir, group.key);
+      final wanted = <String>{
+        for (final id in group.value.keys)
+          if (_bloomMayContain(bloom, id)) id,
+      };
       final existing = <String>{};
-      if (await file.exists()) {
+      if (wanted.isNotEmpty && await file.exists()) {
         await for (final line in file.openRead()
             .transform(utf8.decoder)
             .transform(const LineSplitter())) {
           try {
             final row = jsonDecode(line);
             if (row is Map && row['id'] is String &&
-                group.value.containsKey(row['id'])) {
+                wanted.contains(row['id'])) {
               existing.add(row['id'] as String);
             }
           } catch (_) {}
@@ -195,6 +252,7 @@ class FreshResourceStore {
           sink.writeln(jsonEncode(<String, Object?>{
             'v': 1, 'id': entry.key, 'link': entry.value,
           }));
+          _bloomAdd(bloom, entry.key);
           added++;
         }
         await sink.flush();
@@ -255,7 +313,19 @@ class FreshResourceStore {
     return merge(links, source: source);
   }
 
-  static Future<void> _migrateLegacy(Directory dir) async {
+  static Future<void> _migrateLegacy(Directory dir) {
+    final existing = _migrationFutures[dir.path];
+    if (existing != null) return existing;
+    final task = _migrateLegacyImpl(dir);
+    _migrationFutures[dir.path] = task;
+    return task.whenComplete(() {
+      if (identical(_migrationFutures[dir.path], task)) {
+        _migrationFutures.remove(dir.path);
+      }
+    });
+  }
+
+  static Future<void> _migrateLegacyImpl(Directory dir) async {
     final marker = File('${dir.path}/.migration_v2_done');
     if (await marker.exists()) return;
     final legacy = File('${dir.path}/$_legacyFileName');
@@ -323,6 +393,7 @@ class FreshResourceStore {
         await entity.delete();
       }
     }
+    _shardBlooms.removeWhere((key, _) => key.startsWith('${dir.path}/'));
     await _writeMetadata(dir, 0, source: 'cleared');
     await File('${dir.path}/.migration_v2_done').writeAsString('v2', flush: true);
   }
