@@ -202,7 +202,7 @@ class KingNetworkFingerprint {
   KingNetworkFingerprint._();
 
   static final RegExp _vpnInterfaceName =
-      RegExp(r'^(tun|tap|ppp|wg|utun|vpn)[0-9]*', caseSensitive: false);
+      RegExp(r'^(tun|tap|ppp|wg|utun|vpn|ipsec|xfrm|tailscale|wireguard)[0-9]*', caseSensitive: false);
 
   static String fromInterfaces(
     Iterable<KingNetworkInterfaceSnapshot> interfaces,
