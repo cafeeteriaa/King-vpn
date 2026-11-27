@@ -1439,6 +1439,18 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertLess(stop.index('core.stopCore();'), stop.index('if (!stillRunning && closeTunAfterCoreStop)'))
         self.assertLess(stop.index('if (coreStopping)'), stop.index('final boolean running;'))
 
+    def test_vpn_service_fails_closed_when_ipv6_tun_route_cannot_be_installed(self):
+        service = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
+        start = service.index('private ParcelFileDescriptor establish(V2rayConfig cfg)')
+        end = service.index('/** جدید: wires libv2ray exactly once', start)
+        establish = service[start:end]
+        self.assertIn('b.addAddress("fd00:1:fd00:1:fd00:1:fd00:1", 126);', establish)
+        self.assertIn('b.addRoute("::", 0);', establish)
+        self.assertIn('b.addRoute("0.0.0.0", 0);', establish)
+        self.assertNotIn('ipv6 sinkhole not supported', establish)
+        self.assertLess(establish.index('b.addRoute("::", 0);'),
+                        establish.index('b.addRoute("0.0.0.0", 0);'))
+
     def test_android_backup_excludes_vpn_credentials_and_local_ai_secrets(self):
         prepare = (ROOT / 'prepare_android.py').read_text(encoding='utf-8')
         backup = (ROOT / 'android_src' / 'king_backup_rules.xml').read_text(encoding='utf-8')
