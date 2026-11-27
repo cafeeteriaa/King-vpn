@@ -284,7 +284,13 @@ class MainActivity : FlutterActivity() {
                                         "lastProbeResult" to "never",
                                         "lastProbeMode" to "unknown",
                                         "lastProbeDurationMs" to 0L,
-                                        "lastProbeAgeMs" to -1L
+                                        "lastProbeAgeMs" to -1L,
+                                        "physicalNetworkProtocolVersion" to 1,
+                                        "physicalNetworkChangeCount" to 0L,
+                                        "lastPhysicalNetworkChangeAgeMs" to -1L,
+                                        "validatedWifiNetworkCount" to 0,
+                                        "validatedCellularNetworkCount" to 0,
+                                        "physicalNetworkTransportSummary" to "unavailable"
                                     )
                                 } catch (_: Throwable) {
                                     mapOf(
