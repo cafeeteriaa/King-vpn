@@ -59,10 +59,18 @@ class _FreshResourcesPageState extends State<FreshResourcesPage> {
     }
   }
 
+  Iterable<String> _splitImportLines(String text) sync* {
+    var start = 0;
+    for (final match in RegExp(r'[\r\n\s]+').allMatches(text)) {
+      if (match.start > start) yield text.substring(start, match.start);
+      start = match.end;
+    }
+    if (start < text.length) yield text.substring(start);
+  }
+
   Future<void> _importText() async {
     final before = _totalCount;
-    final incoming = _importController.text
-        .split(RegExp(r'[\r\n\s]+'))
+    final incoming = _splitImportLines(_importController.text)
         .where((value) => value.trim().isNotEmpty);
     try {
       final total = await FreshResourceStore.merge(incoming, source: 'manual-import');
@@ -110,11 +118,12 @@ class _FreshResourcesPageState extends State<FreshResourcesPage> {
         if (mounted) setState(() => _message = 'بانک منابع خالی است.');
         return;
       }
+      final outputPath = output.path;
       final result = await SharePlus.instance.share(
         ShareParams(
           title: 'KING VPN offline resources',
           text: 'خروجی کامل منابع آفلاین KING VPN؛ تعداد: $exported',
-          files: <XFile>[XFile(output.path)],
+          files: <XFile>[XFile(outputPath)],
         ),
       );
       if (!mounted) return;
@@ -123,10 +132,10 @@ class _FreshResourcesPageState extends State<FreshResourcesPage> {
           setState(() => _message = 'فایل کامل $exported کانفیگ ساخته و به پنجرهٔ اشتراک‌گذاری تحویل شد.');
           break;
         case ShareResultStatus.dismissed:
-          setState(() => _message = 'فایل کامل ساخته شد؛ پنجرهٔ اشتراک‌گذاری بسته شد. مسیر فایل: ${output?.path ?? ''}');
+          setState(() => _message = 'فایل کامل ساخته شد؛ پنجرهٔ اشتراک‌گذاری بسته شد. مسیر فایل: ${outputPath}');
           break;
         case ShareResultStatus.unavailable:
-          setState(() => _message = 'فایل کامل ساخته شد اما اشتراک‌گذاری در این دستگاه در دسترس نیست. مسیر فایل: ${output?.path ?? ''}');
+          setState(() => _message = 'فایل کامل ساخته شد اما اشتراک‌گذاری در این دستگاه در دسترس نیست. مسیر فایل: ${output.path}');
           break;
       }
     } catch (error) {
