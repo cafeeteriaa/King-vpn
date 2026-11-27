@@ -2843,5 +2843,17 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('!report.completed && !report.sliceYielded', caller)
         self.assertIn('ادامهٔ موجودی با حافظهٔ پایدار در پس‌زمینه', caller)
 
+    def test_ipv6_reachability_remains_independent_from_tls_route_quorum(self):
+        engine = (ROOT / 'lib' / 'national_engine.dart').read_text(encoding='utf-8')
+        scanner = (ROOT / 'lib' / 'king_national_scanner.dart').read_text(encoding='utf-8')
+        diagnostics = (ROOT / 'lib' / 'net_diag.dart').read_text(encoding='utf-8')
+        self.assertIn('class PilotIpv6Probe', engine)
+        self.assertIn('InternetAddressType.IPv6', engine)
+        self.assertIn('Socket.connect(address, 443', engine)
+        self.assertIn('PilotIpv6Probe.refresh()', scanner)
+        self.assertIn('PilotIpv6Probe.current.toMap()', scanner)
+        self.assertIn('PilotIpv6Probe.refresh()', diagnostics)
+        self.assertIn('final ipv6 = routeSamples[2] as PilotIpv6Evidence;', diagnostics)
+
 if __name__ == '__main__':
     unittest.main()
