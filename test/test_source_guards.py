@@ -540,7 +540,8 @@ class KingVpnSourceGuardTests(unittest.TestCase):
     def test_owner_console_is_reachable_from_command_panel_and_code_requests_are_gated(self):
         main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
         extras = (ROOT / 'lib' / 'iran_ai_extras.dart').read_text(encoding='utf-8')
-        self.assertIn("import 'king_ai_console.dart';", main)
+        self.assertIn("part 'king_ai_console.dart';", main)
+        self.assertIn("part 'king_chat_page.dart';", main)
         self.assertIn("import 'king_ai_owner_auth.dart';", main)
         self.assertIn('const KingAiConsolePage()', main)
         self.assertIn('final codeRequest = !KingCommandSafety.isQuestionRequest(command) && RegExp(', main)
