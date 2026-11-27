@@ -1903,7 +1903,7 @@ Future<void> natNationalIpMemSave(String ip, int port) async {
   }
 }
 
-Future<void> natNationalIpMemSaveMany(Iterable<String> endpoints) async {
+Future<bool> natNationalIpMemSaveMany(Iterable<String> endpoints) async {
   final rows = <Map<String, dynamic>>[];
   final keys = <String>{};
   final now = DateTime.now().millisecondsSinceEpoch;
@@ -1921,14 +1921,16 @@ Future<void> natNationalIpMemSaveMany(Iterable<String> endpoints) async {
       't': now,
     });
   }
-  if (rows.isEmpty) return;
+  if (rows.isEmpty) return true;
   natNationalIpMem.removeWhere((entry) =>
       keys.contains('${entry['ip']}|${entry['port']}'));
   natNationalIpMem.insertAll(0, rows);
   try {
     await _natAppendInventoryRecords(_natNationalIpMemFileName, rows);
+    return true;
   } catch (error, stackTrace) {
     logError(error, stackTrace);
+    return false;
   }
 }
 
