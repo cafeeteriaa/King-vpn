@@ -173,6 +173,8 @@ void main() {
       final report = KingNationalScannerEngine.diagnostics();
       expect(report, contains('variantCatalogSize'));
       expect(report, contains('realTrafficSuccesses'));
+      expect(report, contains('routeEvidence'));
+      expect((report['routeEvidence'] as Map), contains('domesticIpv6Successes'));
       expect(report, isNot(contains('uuid')));
       expect(report, isNot(contains('vless://')));
       expect(report, isNot(contains('password')));
