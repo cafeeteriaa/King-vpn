@@ -76,6 +76,11 @@ void main() {
           await FreshResourceStore.readPreview(limit: 7, root: root),
           hasLength(7),
         );
+        final firstBatch = await FreshResourceStore.readBatch(limit: 20, root: root);
+        final secondBatch = await FreshResourceStore.readBatch(limit: 20, root: root);
+        expect(firstBatch, hasLength(20));
+        expect(secondBatch, hasLength(20));
+        expect(firstBatch.toSet().intersection(secondBatch.toSet()), isEmpty);
         expect(await FreshResourceStore.streamLinks(root: root).length, 1100);
       } finally {
         await root.delete(recursive: true);
