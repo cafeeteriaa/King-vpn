@@ -1,11 +1,4 @@
-import 'dart:ui';
-
-import 'package:flutter/widgets.dart';
-import 'package:workmanager/workmanager.dart';
-
-import 'king_local_ai.dart';
-import 'king_ai_autonomy_policy.dart';
-import 'king_ai_owner_auth.dart';
+part of 'main.dart';
 
 const String _taskName = 'kingAiCiRepair';
 const String _uniqueName = 'king-ai-ci-repair-periodic';
@@ -21,6 +14,11 @@ const String _auditTaskName = 'kingAiIranNetworkAudit';
 const String _auditUniqueName = 'king-ai-iran-network-audit-periodic';
 const String _auditInitialName = 'king-ai-iran-network-audit-initial';
 const String _auditTag = 'king-ai-iran-network-audit';
+
+const String _nationalScannerTaskName = 'kingNationalNetworkScan';
+const String _nationalScannerUniqueName = 'king-national-network-scan-daily';
+const String _nationalScannerInitialName = 'king-national-network-scan-initial';
+const String _nationalScannerTag = 'king-national-network-scan';
 const String _researchQuery =
     'Iran mobile internet domestic routing national network DNS IPv4 IPv6 '
     'Android VPNService network changes DoH TLS SNI Xray V2Ray sing-box '
@@ -32,7 +30,10 @@ const String _researchQuery =
 void kingAiBackgroundDispatcher() {
   Workmanager().executeTask((task, inputData) async {
     WidgetsFlutterBinding.ensureInitialized();
-    DartPluginRegistrant.ensureInitialized();
+    ui.DartPluginRegistrant.ensureInitialized();
+    if (task == _nationalScannerTaskName) {
+      return _runKingNationalScannerBackgroundTask();
+    }
     if (task != _taskName &&
         task != _researchTaskName &&
         task != _auditTaskName) return true;
@@ -153,6 +154,49 @@ void kingAiBackgroundDispatcher() {
   });
 }
 
+Future<bool> _runKingNationalScannerBackgroundTask() async {
+  try {
+    // Never compete with a live VPN tunnel. WorkManager will retry on its
+    // next periodic window; the foreground scanner remains available.
+    if (vpnActive() || vpnWanted()) return true;
+    await natLoadPersisted();
+    final detectedMode = await KingNationalScannerEngine.detectNationalMode();
+    // Preserve unknown/ambiguous networks rather than guessing a route policy.
+    if (detectedMode == null) return true;
+    nationalMode = detectedMode;
+    final seeds = await natHotNext(80, fetch: false);
+    final report = await KingNationalScannerEngine.runPreflight(
+      knownServers: seeds,
+      onStatus: (_) {},
+      cancelled: () => vpnActive() || vpnWanted(),
+      addDiscovered: natIpMemMergeHits,
+    );
+    final needsContinuation = report.sliceYielded ||
+        report.warnings.contains('ip_inventory_cursor_preserved_for_next_slice');
+    if (needsContinuation) {
+      final constraints = Constraints(
+        networkType: NetworkType.connected,
+        requiresBatteryNotLow: true,
+      );
+      await Workmanager().registerOneOffTask(
+        'king-national-scan-resume-${DateTime.now().microsecondsSinceEpoch}',
+        _nationalScannerTaskName,
+        initialDelay: const Duration(minutes: 2),
+        constraints: constraints,
+        existingWorkPolicy: ExistingWorkPolicy.keep,
+        backoffPolicy: BackoffPolicy.exponential,
+        backoffPolicyDelay: const Duration(minutes: 2),
+        tag: _nationalScannerTag,
+      );
+      return true;
+    }
+    return report.completed;
+  } catch (e, st) {
+    logError(e, st);
+    return false;
+  }
+}
+
 class KingAiBackgroundSupervisor {
   KingAiBackgroundSupervisor._();
 
@@ -165,6 +209,35 @@ class KingAiBackgroundSupervisor {
   static Future<void> initialize() async {
     await Workmanager().initialize(kingAiBackgroundDispatcher);
     await _scheduleOfficialResearch();
+    await _scheduleNationalScanner();
+  }
+
+  /// Daily, network-constrained scanner maintenance. WorkManager is
+  /// best-effort (Doze/OEM policy may defer it); bounded one-off continuations
+  /// resume the durable journal until the configured inventory pass completes.
+  static Future<void> _scheduleNationalScanner() async {
+    final constraints = Constraints(
+      networkType: NetworkType.connected,
+      requiresBatteryNotLow: true,
+    );
+    await Workmanager().registerPeriodicTask(
+      _nationalScannerUniqueName,
+      _nationalScannerTaskName,
+      frequency: const Duration(hours: 24),
+      constraints: constraints,
+      existingWorkPolicy: ExistingPeriodicWorkPolicy.keep,
+      tag: _nationalScannerTag,
+    );
+    await Workmanager().registerOneOffTask(
+      _nationalScannerInitialName,
+      _nationalScannerTaskName,
+      initialDelay: const Duration(minutes: 5),
+      constraints: constraints,
+      existingWorkPolicy: ExistingWorkPolicy.keep,
+      backoffPolicy: BackoffPolicy.exponential,
+      backoffPolicyDelay: const Duration(minutes: 5),
+      tag: _nationalScannerTag,
+    );
   }
 
   /// Research runs automatically without an owner session because it is
