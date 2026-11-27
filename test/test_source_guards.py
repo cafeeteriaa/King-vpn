@@ -3753,5 +3753,21 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('requestStopIfCurrent(requestAttempt, requestGeneration)', body)
 
 
+    def test_national_hot_sources_use_unified_resource_intelligence(self):
+        nat = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
+        start = nat.index('List<String> natHotUrls()')
+        end = nat.index('// فیکس ۱۱:', start)
+        source_block = nat[start:end]
+        self.assertIn('KingResourceIntelligence.orderSources(', source_block)
+        self.assertIn('nationalMode: true', source_block)
+        self.assertIn('userProvidedSources: userListUrls', source_block)
+
+        fetch_start = nat.index('Future<void> _natHotEnsureImpl')
+        fetch_end = nat.index('bool natHotReady()', fetch_start)
+        fetch_block = nat[fetch_start:fetch_end]
+        self.assertIn('sourcePriorities', fetch_block)
+        self.assertIn('sourcePriorities[b].compareTo(sourcePriorities[a])', fetch_block)
+        self.assertIn('natSrcRates[urls[b]]', fetch_block)
+
 if __name__ == '__main__':
     unittest.main()

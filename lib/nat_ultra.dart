@@ -2510,10 +2510,17 @@ Future<void> hotExportToDownload() async {
 
 List<String> natHotUrls() {
   final seen = <String>{};
-  return [
+  final sources = [
     for (final u in [...userListUrls, ...listUrls])
       if (u.startsWith('http') && seen.add(u)) u
   ];
+  // Net Melli must try reachable domestic catalogs first, while preserving
+  // every user-provided (including paid) source as an existing input.
+  return KingResourceIntelligence.orderSources(
+    sources,
+    nationalMode: true,
+    userProvidedSources: userListUrls,
+  );
 }
 
 // فیکس ۱۱: split خط‌ها برای بدنه‌ی بزرگ لیست (top-level تا با compute کار کند)
@@ -2606,10 +2613,23 @@ Future<void> _natHotEnsureImpl({bool force = false}) async {
         ];
         await File(extraPath).writeAsString(ex.join('\n'), flush: true);
       }
+      final sourcePriorities = <int>[
+        for (final url in urls)
+          KingResourceIntelligence.describe(
+            url,
+            userProvided: userListUrls.contains(url),
+            nationalMode: true,
+          ).priority,
+      ];
       final order = natStableSorted<int>(
-          [for (var i = 0; i < urls.length; i++) i],
-          (a, b) => (natSrcRates[urls[b]] ?? 0.3)
-              .compareTo(natSrcRates[urls[a]] ?? 0.3));
+        [for (var i = 0; i < urls.length; i++) i],
+        (a, b) {
+          final priority = sourcePriorities[b].compareTo(sourcePriorities[a]);
+          if (priority != 0) return priority;
+          return (natSrcRates[urls[b]] ?? 0.3)
+              .compareTo(natSrcRates[urls[a]] ?? 0.3);
+        },
+      );
       final mixed = order;
       final newPath = '${_hotPath()}.new';
       final offs = <int>[0];

@@ -212,3 +212,18 @@
 - This exact-head CI result supersedes the earlier historical notes above that described CI as pending for earlier checkpoints. No physical-device, IPv4/IPv6 traffic-leak, VPN carrier, Iranian operator-network, production-signing, or Play-install validation is claimed. CI's APK uses the configured CI signing key and is not a production release.
 - Smart Pilot standby candidates now require positive endpoint ping evidence no older than four minutes; NNIE history is separated by domestic/global route. Endpoint ping and TLS reachability are not equivalent to proof of application traffic through the Android VPN TUN.
 - Next integration decision: only integrate this exact tested head after reconfirming the PR head and successful checks; preserve this distinction between automated CI evidence and real-device acceptance.
+
+
+## Latest continuation — 2026-11-27 (unified resource-source prioritization)
+
+- Implementation is confined to the active development branch; main is unchanged.
+- Added lib/king_resource_intelligence.dart as a shared source-classification and stable-priority layer.
+- Integrated it into fetchServers() (global/shared source path) and natHotUrls() / _natHotEnsureImpl() (Net Melli hot-source cache).
+- Net Melli prioritizes known domestic public hosts, then user-provided sources, then community/public sources. Global mode prioritizes user-provided sources, then community/public sources, then domestic hints.
+- Every source supplied to the ordering function is retained; no new source-count cap or automatic subscription purchase was added. Existing fetch deadlines, cancellation, parsing, deduplication, and cache safeguards remain in place.
+- User-provided URLs are classified as requiring user-supplied access; this does not assert that every such URL is paid. A paid source is only fetched with the user's existing access; no account creation or purchase occurs.
+- Host classification is a scheduling hint only. It does not prove that a host is domestic, reachable, safe, or capable of providing a working tunnel.
+- Added 8 focused Dart unit tests and a Python source guard for the national hot-source integration.
+- Validation status: NOT RUN in this environment. No Dart/Flutter SDK is available here, and no CI workflow run or commit status was returned for the implementation commit at the last check. Do not mark the new tests, analyzer, APK build, or device behavior as passed.
+- Scope boundary: this change implements unified source classification and ordering. It does not by itself implement arbitrary gateway creation, bypass the absence of an upstream route, or claim component-level repair / real-tunnel success. Existing server parsing and connection verification remain responsible for deciding whether a fetched configuration is usable.
+- Next acceptance: obtain exact-head CI for source guards, Flutter tests, Dart analysis, and arm64 build; then continue the full scanner audit and perform real tunnel traffic validation on separate domestic and global networks.
