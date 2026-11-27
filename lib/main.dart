@@ -3,7 +3,8 @@ import 'network_health.dart';
 import 'king_local_ai.dart';
 import 'king_ai_console.dart';
 import 'king_chat_page.dart';
-import 'king_ai_background.dart';
+import 'king_ai_autonomy_policy.dart';
+import 'package:workmanager/workmanager.dart';
 import 'king_ai_owner_auth.dart';
 import 'king_command_safety.dart';
 import 'fresh_resource_store.dart';
@@ -42,6 +43,7 @@ import 'help_page.dart';
 import 'conn_specs.dart';
 import 'personal_folder.dart'; // پوشه‌ی «سرورهای شخصی»
 import 'king_extras2.dart'; // KINGEXTRAS: share sheet / UUID / check-host.net
+part 'king_ai_background.dart';
 part 'iran_ai_extras.dart';
 part 'npv_am_extras.dart';
 part 'nat_ultra.dart';
