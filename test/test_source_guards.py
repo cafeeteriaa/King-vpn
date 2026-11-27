@@ -2828,7 +2828,8 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('registerOneOffTask(', worker)
         self.assertIn('_runKingNationalScannerBackgroundTask()', worker)
         self.assertIn('addDiscovered: natIpMemMergeHits', worker)
-        self.assertIn('if (vpnActive() || vpnWanted()) return false;', worker)
+        self.assertIn('final vpnInterfaceActive = await _kingHasVpnInterface();', worker)
+        self.assertIn('if (vpnInterfaceActive) return false;', worker)
         self.assertIn('requiresBatteryNotLow: true', worker)
 
     def test_foreground_scanner_slice_schedules_resume_without_blocking_vpn_start(self):
