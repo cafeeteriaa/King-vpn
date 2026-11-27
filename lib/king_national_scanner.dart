@@ -901,7 +901,9 @@ class KingNationalScannerEngine {
           (report.sliceYielded ||
            report.warnings.contains('ip_inventory_cursor_preserved_for_next_slice'))) {
         try {
-          await KingAiBackgroundSupervisor.scheduleNationalScannerContinuation();
+          await KingAiBackgroundSupervisor.scheduleNationalScannerContinuation(
+            cancelled: cancelled,
+          );
         } catch (e, st) {
           logError(e, st);
         }
