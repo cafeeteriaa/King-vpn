@@ -1618,7 +1618,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         scan = source[start:end]
         self.assertIn('if (halted()) return false;', scan)
         self.assertIn('return true;', scan)
-        bg_start = source.index('Future<void> ipAutoBackground()')
+        bg_start = source.index('Future<void> ipAutoBackground({bool Function()? stop})')
         bg_end = source.index('/// دلیل رد شدن شروع اسکن', bg_start)
         background = source[bg_start:bg_end]
         completed = background.index('final completed = await _ipAutoRunOnce(')
@@ -2379,7 +2379,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
 
     def test_ip_auto_background_acquires_shared_locks_before_async_work(self):
         source = (ROOT / 'lib' / 'ip_auto_scan.dart').read_text(encoding='utf-8')
-        start = source.index('Future<void> ipAutoBackground() async {')
+        start = source.index('Future<void> ipAutoBackground({bool Function()? stop}) async {')
         end = source.index('/// دلیل رد شدن شروع اسکن', start)
         body = source[start:end]
         lock = body.index('ipAutoBusy = true;')
@@ -2399,20 +2399,26 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertLess(prefs_guard, run)
         self.assertLess(run, save)
         self.assertLess(save, unlock)
-        self.assertIn('if (completed && !_ipAutoHalt(modeSnapshot: runNationalMode))', body)
+        self.assertIn('if (completed &&', body)
+        self.assertIn('!externallyStopped())', body)
 
     def test_ip_auto_address_generation_does_not_commit_after_stop(self):
         source = (ROOT / 'lib' / 'ip_auto_scan.dart').read_text(encoding='utf-8')
-        start = source.index('Future<List<String>> _ipAutoNextAddrs(')
+        start = source.index('Future<_IpAutoAddressBatch?> _ipAutoNextAddrs(')
         end = source.index('extension IpAutoExt', start)
         body = source[start:end]
-        compute = body.index('await compute(_genAddrsIso, args)')
+        compute = body.index('await compute(_genAddrsIso, <String, dynamic>{')
         abort = body.index('if (nationalMode != modeSnapshot || (shouldAbort?.call() ?? false))')
-        cursor_mutation = body.index('ipAutoCursors\n    ..clear()')
-        position_mutation = body.index('ipAutoPos = start + slice.length;')
         self.assertLess(compute, abort)
-        self.assertLess(abort, cursor_mutation)
-        self.assertLess(abort, position_mutation)
+        self.assertNotIn('ipAutoCursors', body)
+        self.assertIn('nextCursors', body)
+        run_start = source.index('Future<bool> _ipAutoRunOnce(')
+        run_end = source.index('Future<void> ipAutoSheet(', run_start)
+        run = source[run_start:run_end]
+        completed = run.index("if (halted()) {\n      say('متوقف شد؛ نتایج این اجرا کامل نیستند.');")
+        commit = run.index('ipAutoCursors\n      ..clear()\n      ..addAll(addressBatch.nextCursors);')
+        self.assertLess(completed, commit)
+        self.assertIn('addressBatch.modeSnapshot != runNationalMode', run)
         self.assertIn('bool Function()? shouldAbort', body)
 
     def test_ip_auto_scan_aborts_when_network_mode_changes_mid_run(self):
@@ -2422,7 +2428,8 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         end = source.index('Future<void> ipAutoSheet(', start)
         body = source[start:end]
         self.assertIn('final runNationalMode = nationalMode;', body)
-        self.assertIn('bool halted() => _ipAutoHalt(modeSnapshot: runNationalMode);', body)
+        self.assertIn('_ipAutoHalt(modeSnapshot: runNationalMode) ||', body)
+        self.assertIn('(shouldAbort?.call() ?? false);', body)
         self.assertIn('shouldAbort: halted,', body)
         self.assertIn('cancelled: halted,', body)
         self.assertIn('if (halted()) return false;', body)
