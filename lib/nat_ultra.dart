@@ -1924,9 +1924,10 @@ Future<void> natIpMemLoad() async {
     final inventory = await _natIpInventory();
     if (await inventory.records().isEmpty) {
       final legacyFile = await _natMemoryFile('king_nat_ip_inventory.json');
-      final legacy = await legacyFile.exists()
+      var legacy = await legacyFile.exists()
           ? await legacyFile.readAsString()
-          : p.getString(_ipMemKey);
+          : null;
+      if (legacy == null || legacy.isEmpty) legacy = p.getString(_ipMemKey);
       if (legacy != null && legacy.isNotEmpty) {
         final decoded = jsonDecode(legacy);
         if (decoded is List) {
@@ -1996,9 +1997,10 @@ Future<void> natDomMemLoad() async {
     final inventory = await _natDomainInventory();
     if (await inventory.records().isEmpty) {
       final legacyFile = await _natMemoryFile('king_nat_domain_inventory.json');
-      final legacy = await legacyFile.exists()
+      var legacy = await legacyFile.exists()
           ? await legacyFile.readAsString()
-          : p.getString(_domMemKey);
+          : null;
+      if (legacy == null || legacy.isEmpty) legacy = p.getString(_domMemKey);
       if (legacy != null && legacy.isNotEmpty) {
         final decoded = jsonDecode(legacy);
         if (decoded is List) {
