@@ -1461,7 +1461,7 @@ String _natSmartSni(String cfg, Server s, {bool forceAll = false}) {
       if (tls is! Map) continue;
       if (tlsHasEch(tls)) continue;
       tls['serverName'] = 'cdnjs.cloudflare.com';
-      tls['allowInsecure'] = true;
+      tls['allowInsecure'] = false;
     }
     return jsonEncode(j);
   } catch (_) { return cfg; }
