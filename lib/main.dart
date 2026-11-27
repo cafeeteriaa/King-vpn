@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'king_dynamic_source_discovery.dart';
 import 'network_health.dart';
 import 'king_local_ai.dart';
 import 'king_ai_console.dart';
@@ -4718,8 +4719,25 @@ Future<List<Server>> fetchServers({bool Function()? stop, int? quickCap}) async 
   final all = <String, Server>{};
   final sw = Stopwatch()..start();
   final dl = quickCap != null ? const Duration(seconds: 12) : fetchDeadline;
-  // لینک‌های اضافه‌ی کاربر اول دریافت می‌شوند
-  await pool<String>([...userListUrls, ...listUrls], fetchWorkers, (u) async {
+  // Dynamic feeds extend the curated inventory from a validated local cache.
+  // Discovery refresh runs asynchronously and never delays the first connection.
+  // National mode stays isolated from global public subscription discovery.
+  var discoveredUrls = <String>[];
+  if (!nationalMode && !(stop?.call() ?? false)) {
+    try {
+      discoveredUrls = await KingDynamicSourceDiscovery.cachedFeeds();
+      unawaited(KingDynamicSourceDiscovery.refresh(shouldStop: stop));
+    } catch (e, stk) {
+      logError(e, stk);
+    }
+  }
+  final sourceUrls = <String>{
+    ...userListUrls,
+    ...listUrls,
+    ...discoveredUrls,
+  }.toList(growable: false);
+  // Keep custom feeds first, deduplicate every source, and retain existing pool controls.
+  await pool<String>(sourceUrls, fetchWorkers, (u) async {
     if ((stop?.call() ?? false) || sw.elapsed > dl || (quickCap != null && all.length >= quickCap)) {
       srcFetchState[u] = 'skip';
       return;
