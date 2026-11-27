@@ -11461,13 +11461,17 @@ ListTile( // KINGEXTRAS row
     final runNationalMode = nationalMode;
     try {
       if (!runNationalMode || abort) return;
-      final ips = await natRangeScanStep(
-          known: [...pending, ...natRestPending],
-          maxAddrs: 30000, // SCANCAP: قبلاً ۱۰۰ هزار با بودجه ۱۲ دقیقه
-          conc: natAdaptiveWorkers(),
-          stop: () => abort || nationalMode != runNationalMode);
-      if (abort || nationalMode != runNationalMode) return;
-      await _natRangeAdd(ips);
+      await natRangeStartNextPass();
+      while (!abort && nationalMode == runNationalMode &&
+          !natRangeInventoryPassComplete) {
+        final ips = await natRangeScanStep(
+            known: [...pending, ...natRestPending],
+            maxAddrs: 30000,
+            conc: natAdaptiveWorkers(),
+            stop: () => abort || nationalMode != runNationalMode);
+        if (abort || nationalMode != runNationalMode) return;
+        if (ips.isNotEmpty) await _natRangeAdd(ips);
+      }
     } catch (e, stk) {
       logError(e, stk);
     }
@@ -11531,13 +11535,16 @@ ListTile( // KINGEXTRAS row
       final hasTpl = pending.isNotEmpty || natRestPending.isNotEmpty ||
           natTemplateSeeds.isNotEmpty || good.isNotEmpty;
       if (runNationalMode && !abort && !ipWaiting && pending.isEmpty && hasTpl) {
-        final ips = await natRangeScanStep(
-            known: [...pending, ...natRestPending],
-            maxAddrs: 100000, // هر دور تا ۱۰۰ هزار آدرس
-            conc: natAdaptiveWorkers(),
-            stop: () => abort || modeChanged());
-        if (abort || modeChanged()) return;
-        await _natRangeAdd(ips);
+        await natRangeStartNextPass();
+        while (!abort && !modeChanged() && !natRangeInventoryPassComplete) {
+          final ips = await natRangeScanStep(
+              known: [...pending, ...natRestPending],
+              maxAddrs: 8192,
+              conc: natAdaptiveWorkers(),
+              stop: () => abort || modeChanged());
+          if (abort || modeChanged()) return;
+          if (ips.isNotEmpty) await _natRangeAdd(ips);
+        }
       }
       if (abort || modeChanged()) return;
       // CRITICAL for نت ملی: do NOT destroy existing configs.
