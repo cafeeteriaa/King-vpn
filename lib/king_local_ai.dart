@@ -1710,7 +1710,9 @@ was tested unless supplied evidence proves it. Keep the answer concise and usefu
     final repo = '${Uri.encodeComponent(owner)}/${Uri.encodeComponent(repository)}';
     final commitSha = baseCommitSha ??
         ((await _github('GET', '/repos/$repo/git/ref/heads/${Uri.encodeComponent(baseBranch)}'))['object'] as Map)['sha'] as String;
-    if (!RegExp(r'^[a-fA-F0-9]{40}
+    if (!RegExp(r'^[a-fA-F0-9]{40}$').hasMatch(commitSha)) {
+      throw StateError('Repository context is not pinned to a valid commit SHA');
+    }
     final commit = await _github('GET', '/repos/$repo/git/commits/$commitSha');
     final treeSha = (commit['tree'] as Map)['sha'] as String;
     final tree = await _github('GET', '/repos/$repo/git/trees/$treeSha?recursive=1');
@@ -1887,6 +1889,10 @@ was tested unless supplied evidence proves it. Keep the answer concise and usefu
     final baseRef = await _github('GET', '/repos/$repoPath/git/ref/heads/main');
     final baseCommitSha = (baseRef['object'] as Map)['sha'] as String;
     if (!RegExp(r'^[a-fA-F0-9]{40}
+    if (!RegExp(r'^[a-fA-F0-9]{40}$').hasMatch(baseCommitSha)) {
+      throw StateError('Could not pin the owner feature request to a valid main commit.');
+    }
+    final bundle = KingAiPatchBundle();
     final stageSummaries = <String>[];
 
     for (var index = 0; index < plan.stages.length; index++) {
