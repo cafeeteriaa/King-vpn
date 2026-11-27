@@ -5667,6 +5667,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       _natRangeScanBusy ||
       ipAutoBusy ||
       dnsxManualBusy ||
+      _dnsxAutoBusy ||
       appGone;
 
   void _startScanMaintenance() {
