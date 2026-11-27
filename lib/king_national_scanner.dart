@@ -981,7 +981,7 @@ class KingNationalScannerEngine {
           await dnsxAutoPick(
             force: true,
             coordinatorOwned: true,
-            stop: stopped,
+            stop: () => stopped() || shouldYield(),
           );
           dnsCount = dnsxBestCache.length;
           if (dnsClock.elapsed >= const Duration(seconds: 60)) warnings.add('dns_phase_extended_over_60s');
@@ -992,7 +992,7 @@ class KingNationalScannerEngine {
       if (!stopped() && !shouldYield() && seeds.isNotEmpty && kNatIpScanOn) {
         final found = await _natDomainFirst(
           seeds, conc: max(2, natAdaptiveWorkers()).toInt(),
-          stop: stopped,
+          stop: () => stopped() || shouldYield(),
         );
         if (!stopped() && found.isNotEmpty) {
           domainHits = found.length;
@@ -1009,7 +1009,9 @@ class KingNationalScannerEngine {
         final workers = max(1, natAdaptiveWorkers()).toInt();
         final found = await natRangeScanStep(
           known: seeds,
-          maxAddrs: max(256, workers * 512).toInt(),
+          // Keep worst-case timeout work within the foreground slice while
+          // preserving full-range progress across repeated cursor-backed batches.
+          maxAddrs: (workers * 24).clamp(96, 768).toInt(),
           conc: workers,
           stop: stopped,
           coordinatorOwned: true,
