@@ -1594,7 +1594,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         escalate_start = main.index('Future<void> _natEscalate(int round)')
         escalate_end = main.index('// CRITICAL for نت ملی: do NOT destroy existing configs.', escalate_start)
         escalate = main[escalate_start:escalate_end]
-        self.assertIn('stop: () => abort || modeChanged(),', escalate)
+        self.assertIn('stop: () => abort || modeChanged())', escalate)
         self.assertIn('if (abort || modeChanged()) return;', escalate)
         self.assertLess(escalate.index('if (abort || modeChanged()) return;', escalate.index('await natRangeScanStep(')),
                         escalate.index('await _natRangeAdd(ips);'))
