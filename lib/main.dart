@@ -2611,8 +2611,9 @@ Future<void> _logVpnServiceDiagnostics() async {
       'attemptSequence', 'inFlightOperations'
     ];
     final summary = fields.map((key) => '$key=${info[key]}').join(' ');
-    final error = (info['lastError'] ?? '').toString().replaceAll(RegExp(r'[\\r\\n]'), ' ');
-    dbg('NATIVE-VPN-DIAG: $summary${error.isEmpty ? '' : ' lastError=$error'}');
+    final category = (info['lastErrorCategory'] ?? 'unknown').toString();
+    final hasError = info['lastErrorPresent'] == true;
+    dbg('NATIVE-VPN-DIAG: $summary lastErrorPresent=$hasError category=$category');
   } on MissingPluginException {
     dbg('NATIVE-VPN-DIAG: unavailable (older native bridge)');
   } catch (e, st) {
