@@ -2772,5 +2772,18 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('for (var i = 0; i < n; i++)', growth)
         self.assertIn('_natSpecs.add(_natMk(', growth)
 
+    def test_dynamic_strategy_growth_is_persisted_before_learning_indices(self):
+        source = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
+        self.assertIn("king_nat_dynamic_specs.jsonl", source)
+        save_start = source.index('Future<void> natSavePersisted()')
+        save_end = source.index('// NATLOADED-ONCE:', save_start)
+        save = source[save_start:save_end]
+        self.assertIn('await _natAppendDynamicSpecs();', save)
+        load_start = source.index('Future<void> natLoadPersisted()')
+        load_end = source.index('const String _ipMemKey', load_start)
+        load = source[load_start:load_end]
+        self.assertIn('await _natDynamicSpecsLoad();', load)
+        self.assertLess(load.index('await _natDynamicSpecsLoad();'), load.index("(j['v'] as Map)"))
+
 if __name__ == '__main__':
     unittest.main()

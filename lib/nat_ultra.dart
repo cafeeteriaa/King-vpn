@@ -199,6 +199,52 @@ const List<_NatSpec> _natBase = [
 
 final List<_NatSpec> _natSpecs = [..._natBase, ..._natGenerate(), ..._natExtra];
 
+final int _natInitialSpecCount = _natSpecs.length;
+int _natDynamicPersistedCount = 0;
+
+Map<String, Object?> _natSpecToJson(_NatSpec s) => <String, Object?>{
+  'name': s.name, 'other': s.other, 'fp': s.fp, 'alpn': s.alpn,
+  'frag': s.frag, 'port': s.port, 'clean': s.clean, 'mux': s.mux,
+  'sniHost': s.sniHost, 'v4': s.v4, 'tfo': s.tfo, 'ed': s.ed,
+  'noise': s.noise, 'doh': s.doh, 'muxN': s.muxN, 'noiseK': s.noiseK,
+  'nodelay': s.nodelay, 'mode': s.mode, 'edN': s.edN,
+  'portIdx': s.portIdx, 'cleanIdx': s.cleanIdx, 'keep': s.keep,
+  'mss': s.mss, 'sniSwap': s.sniSwap,
+};
+
+_NatSpec _natSpecFromJson(Object? raw) {
+  if (raw is! Map) throw const FormatException('Invalid NAT strategy record');
+  String? stringValue(Object? value) => value is String ? value : null;
+  int? intValue(Object? value) => value is num ? value.toInt() : null;
+  bool boolValue(Object? value) => value is bool ? value : false;
+  return _NatSpec(
+    stringValue(raw['name']) ?? 'Recovered strategy',
+    other: boolValue(raw['other']),
+    fp: stringValue(raw['fp']),
+    alpn: stringValue(raw['alpn']),
+    frag: intValue(raw['frag']),
+    port: boolValue(raw['port']),
+    clean: boolValue(raw['clean']),
+    mux: boolValue(raw['mux']),
+    sniHost: boolValue(raw['sniHost']),
+    v4: boolValue(raw['v4']),
+    tfo: boolValue(raw['tfo']),
+    ed: boolValue(raw['ed']),
+    noise: boolValue(raw['noise']),
+    doh: stringValue(raw['doh']),
+    muxN: intValue(raw['muxN']) ?? 0,
+    noiseK: intValue(raw['noiseK']) ?? 0,
+    nodelay: boolValue(raw['nodelay']),
+    mode: stringValue(raw['mode']),
+    edN: intValue(raw['edN']),
+    portIdx: intValue(raw['portIdx']),
+    cleanIdx: intValue(raw['cleanIdx']),
+    keep: intValue(raw['keep']),
+    mss: intValue(raw['mss']),
+    sniSwap: intValue(raw['sniSwap']),
+  );
+}
+
 const List<_NatSpec> _natExtra = [
   _NatSpec('MTU 1280 (MSS 1240)', mss: 1240),
   _NatSpec('MTU 1320 (MSS 1280)', mss: 1280),
@@ -450,7 +496,11 @@ int natGrow(int n) {
     ));
     added++;
   }
-  if (added > 0) { _natNamesC = null; _natGenRankKey = ''; }
+  if (added > 0) {
+    _natNamesC = null;
+    _natGenRankKey = '';
+    natSaveSoon();
+  }
   return added;
 }
 
@@ -1601,6 +1651,7 @@ void natSaveSoon() {
 
 Future<void> natSavePersisted() async {
   try {
+    await _natAppendDynamicSpecs();
     await _natWriteJsonSnapshot('king_nat_learning_state.json', <String, Object?>{
       'v': natVar,
       'w': natWins,
@@ -1626,6 +1677,7 @@ Future<void> natLoadPersisted() async {
   await natDomMemLoad();
   await userListsLoad();
   try {
+    await _natDynamicSpecsLoad();
     final p = await SharedPreferences.getInstance();
     final file = await _natMemoryFile('king_nat_learning_state.json');
     final hasDiskStore = await file.exists();
@@ -1708,6 +1760,78 @@ Future<void> _natWriteJsonSnapshot(String name, Object value) {
     final temporary = File('${file.path}.tmp');
     await temporary.writeAsString(jsonEncode(value), flush: true);
     await temporary.rename(file.path);
+  });
+  _natFileWriteQueue = next.catchError((Object error, StackTrace stack) {
+    logError(error, stack);
+  });
+  return next;
+}
+
+
+const String _natDynamicSpecsFileName = 'king_nat_dynamic_specs.jsonl';
+bool _natDynamicSpecsLoaded = false;
+
+Future<void> _natDynamicSpecsLoad() async {
+  if (_natDynamicSpecsLoaded) return;
+  _natDynamicSpecsLoaded = true;
+  try {
+    final file = await _natMemoryFile(_natDynamicSpecsFileName);
+    if (!await file.exists()) return;
+    final lines = await file.readAsLines();
+    if (lines.isEmpty) return;
+    final header = jsonDecode(lines.first);
+    if (header is! Map ||
+        header['kind'] != 'king-nat-dynamic-specs' ||
+        header['version'] != 1 ||
+        header['baseCount'] != _natInitialSpecCount) {
+      final legacy = File('${file.path}.incompatible');
+      if (await legacy.exists()) await legacy.delete();
+      await file.rename(legacy.path);
+      return;
+    }
+    final validLines = <String>[lines.first];
+    for (final line in lines.skip(1)) {
+      if (line.trim().isEmpty) continue;
+      try {
+        _natSpecs.add(_natSpecFromJson(jsonDecode(line)));
+        validLines.add(line);
+        _natDynamicPersistedCount++;
+      } catch (e, stk) {
+        logError(e, stk);
+        break;
+      }
+    }
+    if (validLines.length != lines.length) {
+      await file.writeAsString('${validLines.join('\n')}\n', flush: true);
+    }
+    _natNamesC = null;
+    _natGenRankKey = '';
+  } catch (e, stk) {
+    logError(e, stk);
+  }
+}
+
+Future<void> _natAppendDynamicSpecs() {
+  final next = _natFileWriteQueue.then((_) async {
+    final pendingStart = _natInitialSpecCount + _natDynamicPersistedCount;
+    final targetLength = _natSpecs.length;
+    if (targetLength <= pendingStart) return;
+    final file = await _natMemoryFile(_natDynamicSpecsFileName);
+    if (!await file.exists()) {
+      final header = <String, Object?>{
+        'kind': 'king-nat-dynamic-specs',
+        'version': 1,
+        'baseCount': _natInitialSpecCount,
+      };
+      await file.writeAsString('${jsonEncode(header)}\n', flush: true);
+    }
+    final sink = file.openWrite(mode: FileMode.append);
+    for (var index = pendingStart; index < targetLength; index++) {
+      sink.writeln(jsonEncode(_natSpecToJson(_natSpecs[index])));
+    }
+    await sink.flush();
+    await sink.close();
+    _natDynamicPersistedCount = targetLength - _natInitialSpecCount;
   });
   _natFileWriteQueue = next.catchError((Object error, StackTrace stack) {
     logError(error, stack);
