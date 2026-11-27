@@ -36,16 +36,14 @@ class _FreshResourcesPageState extends State<FreshResourcesPage> {
     if (!mounted) return;
     setState(() => _busy = true);
     try {
-      final values = await Future.wait<Object>([
-        FreshResourceStore.readPreview(limit: 100),
-        FreshResourceStore.metadata(),
-        FreshResourceStore.storagePath,
-      ]);
+      final metadata = await FreshResourceStore.metadata();
+      final preview = await FreshResourceStore.readPreview(limit: 100);
+      final path = await FreshResourceStore.storagePath;
       if (!mounted) return;
       setState(() {
-        _links = values[0] as List<String>;
-        _metadata = values[1] as Map<String, Object?>;
-        _path = values[2] as String;
+        _links = preview;
+        _metadata = metadata;
+        _path = path;
         _totalCount = (_metadata['count'] as int?) ?? 0;
         _message = '';
       });
