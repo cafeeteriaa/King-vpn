@@ -45,39 +45,40 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn("natGood.add(s.key)", source)
         self.assertIn("natVarNormal[s.key] = v;", source)
 
-    def test_personal_folder_uses_atomic_file_backed_store(self):
+    def test_personal_folder_uses_streaming_file_backed_store(self):
         store = (ROOT / "lib" / "personal_folder_store.dart").read_text(encoding="utf-8")
         folder = (ROOT / "lib" / "personal_folder.dart").read_text(encoding="utf-8")
         self.assertIn("servers.jsonl", store)
         self.assertIn("servers.jsonl.bak", store)
         self.assertIn("servers.jsonl.tmp", store)
-        self.assertIn("await temp.writeAsString(contents, flush=True)", store)
-        self.assertIn("await _replaceByRename(temp, target)", store)
-        self.assertIn("PersonalFolderStore.readOrMigrate", folder)
-        self.assertIn("await PersonalFolderStore.writeSnapshot(next)", folder)
+        self.assertIn("static Future<int> appendAll(", store)
+        self.assertIn("static Future<bool> removeLink(", store)
+        self.assertIn("PersonalFolderStore.appendAll(input)", folder)
+        self.assertIn("PersonalFolderStore.removeLink(link)", folder)
         self.assertIn("await p.remove(_kPersonalFolderPref)", folder)
+        self.assertNotIn("readOrMigrate(", folder)
+        self.assertNotIn("List<String>.of(personalFolderCache)", folder)
 
     def test_personal_folder_store_never_overwrites_good_backup_with_corrupt_primary(self):
         store = (ROOT / "lib" / "personal_folder_store.dart").read_text(encoding="utf-8")
-        start = store.index("if (await target.exists() && await _readFile(target) != null)")
-        end = store.index("// On Android/Linux", start)
+        start = store.index("static Future<void> _commitStreamedTemp(")
+        end = store.index("static Future<int> appendAll(", start)
         rotation = store[start:end]
-        self.assertIn("await backupTemp.writeAsBytes(await target.readAsBytes(), flush: true)", rotation)
+        self.assertIn("_validFileStreaming(primary)", rotation)
+        self.assertIn("await primary.openRead().pipe(backupTemp.openWrite())", rotation)
         self.assertIn("await _replaceByRename(backupTemp, backup)", rotation)
+        self.assertIn("await _replaceByRename(temp, primary)", rotation)
         self.assertNotIn("await backup.delete()", rotation)
-        self.assertNotIn("await target.delete()", rotation)
+        self.assertNotIn("await primary.delete()", rotation)
 
-    def test_personal_folder_cache_changes_only_after_durable_store_commit(self):
+    def test_personal_folder_cache_is_bounded_to_the_visible_page(self):
         folder = (ROOT / "lib" / "personal_folder.dart").read_text(encoding="utf-8")
-        add_start = folder.index("Future<int> addToPersonalFolder(")
-        remove_start = folder.index("Future<void> removeFromPersonalFolder(")
-        add_body = folder[add_start:folder.index("\n}", add_start) + 2]
-        remove_body = folder[remove_start:folder.index("\n}", remove_start) + 2]
-        self.assertLess(add_body.index("await PersonalFolderStore.writeSnapshot(next)"),
-                        add_body.index("personalFolderCache = next"))
-        self.assertLess(remove_body.index("await PersonalFolderStore.writeSnapshot(next)"),
-                        remove_body.index("personalFolderCache = next"))
-        self.assertIn("return 0;", add_body)
+        self.assertIn("personalFolderCount = page.totalCount", folder)
+        self.assertIn("personalFolderCache = List<String>.of(page.items)", folder)
+        self.assertIn("PersonalFolderStore.appendAll(input)", folder)
+        self.assertIn("PersonalFolderStore.removeLink(link)", folder)
+        self.assertNotIn("personalFolderCache = next", folder)
+        self.assertNotIn("final next = List<String>.of(personalFolderCache)", folder)
 
     def test_personal_folder_store_has_testable_lossless_jsonl_codec(self):
         store = (ROOT / "lib" / "personal_folder_store.dart").read_text(encoding="utf-8")
