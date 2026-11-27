@@ -334,6 +334,22 @@ class FreshResourceStore {
     return result;
   }
 
+  /// Re-reads and validates every staged record without materializing the
+  /// inventory. Used before destructive snapshot swaps; unlike [count], this
+  /// does not trust cached metadata.
+  static Future<int> verifyCount({Directory? root}) async {
+    final dir = await directory(root: root);
+    await _migrateLegacy(dir);
+    var total = 0;
+    await for (final _ in streamLinks(root: root)) {
+      total++;
+      if (total > maxEntries) {
+        throw StateError('Resource inventory exceeds configured capacity.');
+      }
+    }
+    return total;
+  }
+
   static Future<int> count({Directory? root}) async {
     final dir = await directory(root: root);
     await _migrateLegacy(dir);
@@ -542,7 +558,7 @@ class FreshResourceStore {
       if (total <= 0 || total > maxEntries) {
         throw StateError('Fresh resource refresh produced no valid profiles; previous inventory preserved.');
       }
-      final verified = await count(root: stageRoot);
+      final verified = await verifyCount(root: stageRoot);
       if (verified != total) {
         throw StateError('Staged resource count mismatch ($verified != $total); previous inventory preserved.');
       }
