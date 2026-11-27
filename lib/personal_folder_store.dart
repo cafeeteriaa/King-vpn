@@ -285,6 +285,107 @@ class PersonalFolderStore {
     return total;
   }
 
+
+  static Future<bool> _validFileStreaming(File file) async {
+    if (!await file.exists()) return false;
+    try {
+      await for (final line in file
+          .openRead()
+          .transform(utf8.decoder)
+          .transform(const LineSplitter())) {
+        if (line.isEmpty) continue;
+        if (jsonDecode(line) is! String) return false;
+      }
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// Commits a streamed rewrite without materializing the archive.
+  /// A corrupt primary is never promoted over the last valid backup.
+  static Future<void> _commitStreamedTemp(File temp) async {
+    final primary = await _file(fileName);
+    final backup = await _file(backupName);
+    final backupTemp = await _file(backupTempName);
+    if (await _validFileStreaming(primary)) {
+      await backupTemp.writeAsBytes(await primary.readAsBytes(), flush: true);
+      await _replaceByRename(backupTemp, backup);
+    }
+    await _replaceByRename(temp, primary);
+  }
+
+  /// Adds profiles with a bounded working set. Only the incoming batch is
+  /// indexed in memory; existing archive rows are copied one at a time.
+  static Future<int> appendAll(Iterable<String> links) {
+    final incoming = _normalize(links);
+    return _serializeMutation(() async {
+      if (incoming.isEmpty) return 0;
+      final pending = <String, String>{
+        for (final value in incoming) value.toLowerCase(): value,
+      };
+      final temp = await _file(tempName);
+      final sink = temp.openWrite();
+      var added = 0;
+      try {
+        await for (final batch in streamBatches(batchSize: 256)) {
+          for (final existing in batch) {
+            pending.remove(existing.toLowerCase());
+            sink.writeln(jsonEncode(existing));
+          }
+        }
+        for (final value in pending.values) {
+          sink.writeln(jsonEncode(value));
+          added++;
+        }
+        await sink.flush();
+        await sink.close();
+        await _commitStreamedTemp(temp);
+        return added;
+      } catch (_) {
+        await sink.close();
+        if (await temp.exists()) await temp.delete();
+        rethrow;
+      }
+    });
+  }
+
+  /// Removes one exact profile using a streamed rewrite; all other entries
+  /// retain their original order and duplicates/metadata semantics.
+  static Future<bool> removeLink(String link) {
+    final target = link.trim().toLowerCase();
+    return _serializeMutation(() async {
+      if (target.isEmpty) return false;
+      final temp = await _file(tempName);
+      final sink = temp.openWrite();
+      var removed = false;
+      try {
+        await for (final batch in streamBatches(batchSize: 256)) {
+          for (final existing in batch) {
+            if (existing.toLowerCase() == target) {
+              removed = true;
+              continue;
+            }
+            sink.writeln(jsonEncode(existing));
+          }
+        }
+        if (!removed) {
+          await sink.close();
+          if (await temp.exists()) await temp.delete();
+          return false;
+        }
+        await sink.flush();
+        await sink.close();
+        await _commitStreamedTemp(temp);
+        return true;
+      } catch (_) {
+        await sink.close();
+        if (await temp.exists()) await temp.delete();
+        rethrow;
+      }
+    });
+  }
+
   static Future<void> _writeSnapshotUnlocked(Iterable<String> links) async {
     final values = _normalize(links);
     final target = await _file(fileName);
@@ -317,8 +418,17 @@ class PersonalFolderStore {
     Future<List<String>> Function() readLegacy,
   ) {
     return _serializeMutation(() async {
-      final saved = await readSnapshot();
-      if (saved != null) return saved;
+      final primary = await _validFileStreaming(await _file(fileName));
+      final backup = primary ? false : await _validFileStreaming(await _file(backupName));
+      if (primary || backup) {
+        final values = <String>[];
+        // This API is retained for compatibility callers. New startup paths
+        // use count/readPage and do not call readOrMigrate.
+        await for (final batch in streamBatches(batchSize: 256)) {
+          values.addAll(batch);
+        }
+        return values;
+      }
       final legacy = _normalize(await readLegacy());
       await _writeSnapshotUnlocked(legacy);
       return legacy;
