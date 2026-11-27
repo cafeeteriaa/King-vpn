@@ -13,6 +13,7 @@ void main() {
       expect(KingDynamicSourceDiscovery.isCandidatePath('README.md', size: 10), isFalse);
       expect(KingDynamicSourceDiscovery.isCandidatePath('docs/sub.txt', size: 10), isFalse);
       expect(KingDynamicSourceDiscovery.isCandidatePath('.github/sub.txt', size: 10), isFalse);
+      expect(KingDynamicSourceDiscovery.isCandidatePath('vendor/.git/sub.txt', size: 10), isFalse);
       expect(KingDynamicSourceDiscovery.isCandidatePath('src/main.dart', size: 10), isFalse);
       expect(KingDynamicSourceDiscovery.isCandidatePath('sub/all.txt', size: 1500001), isFalse);
     });
