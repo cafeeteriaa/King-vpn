@@ -1948,6 +1948,8 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn('upBusy || nationalMode ||', method)
         self.assertIn('FreshResourceStore.isSufficientSnapshotReplacement(', method)
         self.assertIn('previousCount: previousCount', method)
+        self.assertIn('minimumSnapshotReplacementCount(previousCount)', method)
+        self.assertIn('minimumEntries: minimumEntries', method)
         self.assertIn('FreshResourceStore.replaceSnapshot(', method)
 
     def test_net_melli_uses_bounded_on_device_archive_when_domestic_only(self):
