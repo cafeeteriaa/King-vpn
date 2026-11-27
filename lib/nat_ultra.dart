@@ -1936,7 +1936,7 @@ Future<void> natIpMemLoad() async {
         : (p.getString(_rangeKey) ?? '')
             .split(RegExp(r'[\r\n,; ]+'))
             .where((x) => x.contains('/') || x.contains('-') ||
-                InternetAddress.tryParse(x)?.type == InternetAddressType.IPv4)
+                InternetAddress.tryParse(x) != null)
             .toList();
     natRanges = savedRanges is List
         ? savedRanges.map((value) => value.toString()).toList()
@@ -2242,7 +2242,8 @@ Future<List<String>> _natDomainFirst(List<Server> known,
       final addresses = parsed == null ? await safeLookup(entry.key) : <InternetAddress>[parsed];
       if (cancelled()) return const <String>[];
       for (final address in addresses) {
-        if (address.type != InternetAddressType.IPv4) continue;
+        // Both address families are valid endpoint results; the socket scanner
+        // performs family-aware connects and preserves IPv6 evidence.
         (resolved[address.address] ??= <int>{}).addAll(entry.value);
       }
     }
@@ -2316,14 +2317,16 @@ Future<List<String>> natDeviceHosts() async {
 }
 
 List<String> natSeedBlocks(List<String> hosts) {
-  // Known host endpoints become exact-host blocks. Broader CIDR inventories
-  // are expanded independently by the persistent configured-range cursor.
+  // A discovered/configured endpoint is an exact target only. IPv6 is stored
+  // as /128; no neighboring IPv6 subnet is inferred from one address.
   final out = <String>[];
   final seen = <String>{};
   for (final host in hosts) {
     final parsed = InternetAddress.tryParse(host.trim());
-    if (parsed == null || parsed.type != InternetAddressType.IPv4) continue;
-    final cidr = '${parsed.address}/32';
+    if (parsed == null) continue;
+    final cidr = parsed.type == InternetAddressType.IPv4
+        ? '${parsed.address}/32'
+        : '${parsed.address}/128';
     if (seen.add(cidr)) out.add(cidr);
   }
   return out;
@@ -2395,24 +2398,33 @@ List<String> _getCfIps({
 (List<String>, int) _natExpandAnyCursor(String item, int cursor, int maxPerBlock) {
   String? startIp;
   int span = 0;
-  if (item.contains('/')) {
-    final parts = item.split('/');
-    if (parts.length != 2) return (<String>[], 0);
+  final raw = item.trim();
+  if (raw.contains('/')) {
+    final parts = raw.split('/');
+    if (parts.length != 2) return (<String>[], -1);
     final ip = InternetAddress.tryParse(parts[0].trim());
     final prefix = int.tryParse(parts[1]);
-    if (ip == null || ip.type != InternetAddressType.IPv4 || prefix == null || prefix < 0 || prefix > 32) {
-      return (<String>[], 0);
+    if (ip == null || prefix == null) return (<String>[], -1);
+    if (ip.type == InternetAddressType.IPv6) {
+      // Explicit IPv6 endpoints are supported. Broad IPv6 prefixes are not
+      // enumerated; the caller must supply an exact /128 endpoint.
+      if (prefix != 128) return (<String>[], -1);
+      if (cursor != 0 || maxPerBlock <= 0) return (<String>[], -1);
+      return (<String>[ip.address], -1);
     }
+    if (prefix < 0 || prefix > 32) return (<String>[], -1);
     final base = _ipToInt(ip.address) & (0xffffffff << (32 - prefix));
     span = 1 << (32 - prefix);
     startIp = _intToIp(base);
-  } else if (item.contains('-')) {
-    final parts = item.split('-');
-    if (parts.length != 2) return (<String>[], 0);
+  } else if (raw.contains('-')) {
+    final parts = raw.split('-');
+    if (parts.length != 2) return (<String>[], -1);
     final a = InternetAddress.tryParse(parts[0].trim());
     final b = InternetAddress.tryParse(parts[1].trim());
-    if (a == null || b == null || a.type != InternetAddressType.IPv4 || b.type != InternetAddressType.IPv4) {
-      return (<String>[], 0);
+    if (a == null || b == null ||
+        a.type != InternetAddressType.IPv4 ||
+        b.type != InternetAddressType.IPv4) {
+      return (<String>[], -1);
     }
     final first = _ipToInt(a.address);
     final last = _ipToInt(b.address);
@@ -2420,12 +2432,16 @@ List<String> _getCfIps({
     span = (max(first, last) - low) + 1;
     startIp = _intToIp(low);
   } else {
-    final ip = InternetAddress.tryParse(item.trim());
-    if (ip == null || ip.type != InternetAddressType.IPv4) return (<String>[], 0);
+    final ip = InternetAddress.tryParse(raw);
+    if (ip == null) return (<String>[], -1);
+    if (ip.type == InternetAddressType.IPv6) {
+      if (cursor != 0 || maxPerBlock <= 0) return (<String>[], -1);
+      return (<String>[ip.address], -1);
+    }
     startIp = ip.address;
     span = 1;
   }
-  if (span <= 0 || cursor < 0) return (<String>[], -1);
+  if (span <= 0 || cursor < 0 || maxPerBlock <= 0) return (<String>[], -1);
   final base = _ipToInt(startIp);
   final offset = cursor.clamp(0, span).toInt();
   if (offset >= span) return (<String>[], -1);
@@ -2437,11 +2453,8 @@ List<String> _getCfIps({
   return (out, offset + count >= span ? -1 : offset + count);
 }
 
-// فیکس ۳: ساخت رشته‌های IP (صدها هزار تا چند میلیون) از ترد UI به isolate منتقل شد.
-// args: {cfIpsBatch:int, blocks:List<String>, nationalMode:bool,
-//        liveRanges:List<String>, cursors:Map<String,int>}
-// خروجی: {'addrs': List<String>, 'cursors': Map<String,int>} — cursor به‌روزشده باید
-// به ترد اصلی برگردد چون isolate نسخه‌ی کپی را تغییر می‌دهد (بدون آن اسکن هر دور از اول شروع می‌شد).
+// Cursor-aware exact endpoint and configured IPv4 range expansion. The batch
+// size limits only transient memory; it never reduces the total range coverage.
 Map<String, dynamic> _genAddrsIso(Map<String, dynamic> args) {
   final int cfIpsBatch = args['cfIpsBatch'] as int;
   final List<String> blocks = List<String>.from(args['blocks'] as List);
