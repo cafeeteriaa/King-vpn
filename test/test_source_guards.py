@@ -59,12 +59,25 @@ class KingVpnSourceGuardTests(unittest.TestCase):
 
     def test_personal_folder_store_never_overwrites_good_backup_with_corrupt_primary(self):
         store = (ROOT / "lib" / "personal_folder_store.dart").read_text(encoding="utf-8")
-        start = store.index("if (await target.exists())")
-        end = store.index("try {", start)
-        replacement = store[start:end]
-        self.assertIn("final primaryIsValid = await _readFile(target) != null;", replacement)
-        self.assertIn("if (primaryIsValid)", replacement)
-        self.assertLess(replacement.index("if (primaryIsValid)"), replacement.index("await target.delete()"))
+        start = store.index("if (await target.exists() && await _readFile(target) != null)")
+        end = store.index("// On Android/Linux", start)
+        rotation = store[start:end]
+        self.assertIn("await backupTemp.writeAsBytes(await target.readAsBytes(), flush: true)", rotation)
+        self.assertIn("await _replaceByRename(backupTemp, backup)", rotation)
+        self.assertNotIn("await backup.delete()", rotation)
+        self.assertNotIn("await target.delete()", rotation)
+
+    def test_personal_folder_cache_changes_only_after_durable_store_commit(self):
+        folder = (ROOT / "lib" / "personal_folder.dart").read_text(encoding="utf-8")
+        add_start = folder.index("Future<int> addToPersonalFolder(")
+        remove_start = folder.index("Future<void> removeFromPersonalFolder(")
+        add_body = folder[add_start:folder.index("\n}", add_start) + 2]
+        remove_body = folder[remove_start:folder.index("\n}", remove_start) + 2]
+        self.assertLess(add_body.index("await PersonalFolderStore.writeSnapshot(next)"),
+                        add_body.index("personalFolderCache = next"))
+        self.assertLess(remove_body.index("await PersonalFolderStore.writeSnapshot(next)"),
+                        remove_body.index("personalFolderCache = next"))
+        self.assertIn("return 0;", add_body)
 
     def test_personal_folder_store_has_testable_lossless_jsonl_codec(self):
         store = (ROOT / "lib" / "personal_folder_store.dart").read_text(encoding="utf-8")
