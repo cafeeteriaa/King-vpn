@@ -214,9 +214,11 @@ Future<String> netDiagnose() async {
     final routeSamples = await Future.wait<Object>(<Future<Object>>[
       PilotNetworkProbe.refresh(),
       NatNetworkDiagnosis.refresh(),
+      PilotIpv6Probe.refresh(),
     ]);
     final evidence = routeSamples[0] as NetworkEvidence;
     final diagnosis = routeSamples[1] as NatNetworkClass;
+    final ipv6 = routeSamples[2] as PilotIpv6Evidence;
     final strategy = choosePilotNetworkStrategy(evidence);
     final strategyLabel = switch (strategy) {
       PilotNetworkStrategy.domestic => 'مسیر داخلی',
@@ -231,8 +233,10 @@ Future<String> netDiagnose() async {
         ' • تأخیر میانه: ${evidence.domesticLatencyMs ?? '-'}ms');
     b.writeln('TLS جهانی: ${evidence.globalSuccesses}/${evidence.globalSamples}'
         ' • تأخیر میانه: ${evidence.globalLatencyMs ?? '-'}ms');
-    b.writeln('IPv6 داخلی: ${evidence.domesticIpv6Successes}/${evidence.domesticSamples}'
-        ' • IPv6 جهانی: ${evidence.globalIpv6Successes}/${evidence.globalSamples}');
+    b.writeln('IPv6 داخلی: ${ipv6.domesticIpv6Successes}'
+        ' • تأخیر: ${ipv6.domesticIpv6LatencyMs ?? '-'}ms');
+    b.writeln('IPv6 جهانی: ${ipv6.globalIpv6Successes}'
+        ' • تأخیر: ${ipv6.globalIpv6LatencyMs ?? '-'}ms');
     b.writeln('اطمینان شواهد TLS: ${(evidence.confidence * 100).toStringAsFixed(0)}%');
     b.writeln('نکته: این بررسی مسیر مستقیم گوشی است؛ موفقیت تونل فقط با عبور ترافیک واقعی VPN تأیید می‌شود.');
     b.writeln();
