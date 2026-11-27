@@ -2369,7 +2369,9 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertLess(compute, abort)
         self.assertNotIn('ipAutoCursors\n    ..clear()', body)
         self.assertNotIn('ipAutoPos = start + slice.length;', body)
-        self.assertIn('return (addresses: slice, cursors: generatedCursors', body)
+        self.assertIn("'addressBatchSize': _ipAutoBatch", body)
+        self.assertIn('return (addresses: all, cursors: generatedCursors', body)
+        self.assertNotIn('all.skip(start)', body)
         self.assertIn('bool Function()? shouldAbort', body)
 
     def test_ip_auto_range_cursor_commits_only_after_complete_probe_and_core_verification(self):
