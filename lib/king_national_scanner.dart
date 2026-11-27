@@ -149,6 +149,7 @@ class KingNationalScannerEngine {
     _loadFlight = future;
     try {
       await future;
+      if (_persistDirty) _schedulePersist();
     } finally {
       if (identical(_loadFlight, future)) _loadFlight = null;
     }
@@ -162,7 +163,7 @@ class KingNationalScannerEngine {
       final raw = hasDiskStore ? await storeFile.readAsString() : prefs.getString(_prefsKey);
       if (raw == null || raw.isEmpty) return;
       final decoded = jsonDecode(raw);
-      if (decoded is! Map || (decoded['version'] != 1 && decoded['version'] != 2 && decoded['version'] != 3)) return;
+      if (decoded is! Map || (decoded['version'] != 1 && decoded['version'] != 2 && decoded['version'] != 3 && decoded['version'] != 4)) return;
       final profiles = decoded['profiles'];
       if (profiles is! Map) return;
       final rawSni = decoded['sni'];
@@ -316,7 +317,7 @@ class KingNationalScannerEngine {
           }),
           flush: true,
         );
-        if (await file.exists()) await file.delete();
+        // Same-directory rename replaces the previous snapshot atomically on Android.
         await temporary.rename(file.path);
       } catch (e, st) {
         logError(e, st);
