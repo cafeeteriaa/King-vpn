@@ -181,7 +181,7 @@ void main() {
       expect(choosePilotNetworkStrategy(merged), PilotNetworkStrategy.preserve);
     });
 
-    test('does not classify offline when either IPv6 path has independent reachability', () {
+    test('does not classify offline when global IPv6 path has independent reachability', () {
       const evidence = NetworkEvidence(
         domestic: LinkHealth.unreachable,
         global: LinkHealth.unreachable,
@@ -190,7 +190,7 @@ void main() {
         globalIpv6Successes: 2,
       );
       expect(evidence.mode, DetectedNetworkMode.unknown);
-      expect(choosePilotNetworkStrategy(evidence), PilotNetworkStrategy.preserve);
+      expect(choosePilotNetworkStrategy(evidence), PilotNetworkStrategy.global);
     });
 
     test('independent DNS diagnosis vetoes contradictory domestic-only selection', () {
