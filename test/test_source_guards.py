@@ -1934,6 +1934,18 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('Duration(milliseconds: 250)', handler)
 
 
+    def test_48h_archive_refresh_can_use_domestic_sources_without_racing_scans(self):
+        source = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        start = source.index('Future<void> _refreshFreshResourceSnapshotIfDue()')
+        end = source.index('Future<void> _resSave()', start)
+        method = source[start:end]
+        self.assertIn('offlineOnly || connected || busy || searching || switching', method)
+        self.assertIn('localPilotOn', method)
+        self.assertIn('KingNationalScannerEngine.isScanning', method)
+        self.assertNotIn('upBusy || nationalMode ||', method)
+        self.assertIn('successfulSources < requiredSources', method)
+        self.assertIn('FreshResourceStore.replaceSnapshot(', method)
+
     def test_net_melli_uses_bounded_on_device_archive_when_domestic_only(self):
         source = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
         start = source.index('Future<void> _loadPending({')
