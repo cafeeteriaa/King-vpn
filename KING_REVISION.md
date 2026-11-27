@@ -100,6 +100,12 @@ Consolidated integration PR: https://github.com/cafeeteriaa/King-vpn/pull/66
 - Added Flutter tests for Unicode, embedded line breaks, case-insensitive deduplication, valid-empty versus corrupt snapshots, and 6,000-entry retention.
 - Exact-head CI remains required; these tests are committed but have not yet been executed in this session.
 
+### Revision 65.3 — serialize store-level writes and migrations
+- Added a store-owned asynchronous mutation queue so file replacement and legacy migration remain serialized even if future callers bypass the personal-folder wrapper.
+- Snapshot inputs are copied before entering the queue to prevent later caller mutation from changing the pending write.
+- Added a source guard for both serialized entry points.
+- Filesystem and Flutter tests are committed; exact-head CI has not yet run.
+
 ## Mandatory three-pass review protocol
 
 Each numbered revision must be a substantial functional change and pass three separate reviews:
