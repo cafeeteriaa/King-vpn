@@ -17,11 +17,53 @@ const List<int> kAutoPorts = [
 
 bool _autoScanRunning = false;
 bool _autoScanStop = false;
+const String _natAutoScanCandidatesKey = 'nat_auto_scan_candidates_v1';
+bool _natAutoScanLoaded = false;
 final Map<String, List<String>> _natAutoScanCandidates = <String, List<String>>{
+  'ip': <String>[],
   'sni': <String>[],
   'port': <String>[],
   'tls': <String>[],
 };
+
+Future<void> _natAutoScanLoad() async {
+  if (_natAutoScanLoaded) return;
+  try {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(_natAutoScanCandidatesKey);
+    if (raw != null && raw.isNotEmpty) {
+      final decoded = jsonDecode(raw);
+      if (decoded is Map) {
+        for (final key in const <String>['ip', 'sni', 'port', 'tls']) {
+          final values = decoded[key];
+          if (values is List) {
+            _natAutoScanCandidates[key] = values
+                .whereType<String>()
+                .toSet()
+                .toList(growable: false);
+          }
+        }
+      }
+    }
+    natScanHits.addAll(_natAutoScanCandidates['ip']!);
+    _natAutoScanLoaded = true;
+  } catch (error, stackTrace) {
+    logError(error, stackTrace);
+  }
+}
+
+Future<void> _natAutoScanSave() async {
+  final snapshot = <String, List<String>>{
+    for (final key in const <String>['ip', 'sni', 'port', 'tls'])
+      key: List<String>.unmodifiable(_natAutoScanCandidates[key]!),
+  };
+  try {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_natAutoScanCandidatesKey, jsonEncode(snapshot));
+  } catch (error, stackTrace) {
+    logError(error, stackTrace);
+  }
+}
 
 // SNI must be a DNS hostname; an IP literal is never a valid SNI candidate.
 bool _autoValidSni(String value) {
@@ -133,7 +175,7 @@ Future<void> autoScanRun(
     final sourceTemplates = <Server>[];
     try {
       if (scanNationalMode) {
-        sourceTemplates.addAll(await natHotAll(fetch: false));
+        sourceTemplates.addAll(await natHotAll(fetch: true));
       } else {
         sourceTemplates.addAll(await fetchServers(
           stop: () => cancelled(),
@@ -341,6 +383,10 @@ Future<void> autoScanRun(
       for (final domain in nationalDomains) {
         await natNationalDomMemSave(domain, sniHitPorts[domain] ?? 443);
       }
+      _natAutoScanCandidates['ip'] = <String>{
+        ..._natAutoScanCandidates['ip']!,
+        ...nationalIps,
+      }.toList(growable: false);
       _natAutoScanCandidates['sni'] = <String>{
         ..._natAutoScanCandidates['sni']!,
         ...sniHits,
@@ -353,6 +399,7 @@ Future<void> autoScanRun(
         ..._natAutoScanCandidates['tls']!,
         ...tlsHits,
       }.toList(growable: false);
+      await _natAutoScanSave();
     } else {
       final saved = await goldAddScans(
         <String, List<String>>{'tls': tlsHits, 'sni': sniHits, 'port': portHits},
@@ -380,6 +427,7 @@ Future<void> autoScanSheet(
   List<Server> configuredServers = const <Server>[],
   List<String> frontSnis = const <String>[],
 }) async {
+  await _natAutoScanLoad();
   var status = _autoScanRunning ? 'در حال اجرا...' : 'آماده';
   var open = true;
   StateSetter? setS;
@@ -405,13 +453,15 @@ Future<void> autoScanSheet(
                 const SizedBox(height: 8),
                 Text(status),
                 const SizedBox(height: 8),
-                Text('SNI: ${(results['sni'] ?? const <String>[]).length} • Port: ${(results['port'] ?? const <String>[]).length} • TLS: ${(results['tls'] ?? const <String>[]).length}'),
-                for (final key in const <String>['sni', 'port', 'tls'])
+                Text('IP: ${(results['ip'] ?? const <String>[]).length} • SNI: ${(results['sni'] ?? const <String>[]).length} • Port: ${(results['port'] ?? const <String>[]).length} • TLS: ${(results['tls'] ?? const <String>[]).length}'),
+                for (final key in const <String>['ip', 'sni', 'port', 'tls'])
                   if ((results[key] ?? const <String>[]).isNotEmpty) ...<Widget>[
                     const SizedBox(height: 6),
                     Text(key == 'sni'
                         ? 'SNI handshake candidates:'
-                        : key == 'port'
+                        : key == 'ip'
+                            ? 'IP endpoint candidates:'
+                            : key == 'port'
                             ? 'TCP-open port candidates:'
                             : 'ALPN candidates:'),
                     SelectableText((results[key] ?? const <String>[]).join('\n')),
