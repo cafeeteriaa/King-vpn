@@ -168,7 +168,7 @@ class FreshResourceStore {
 
       final result = <String>[];
       var visited = 0;
-      while (result.length < limit && visited < limit * 2) {
+      while (result.length < limit && visited < shardCount * 8) {
         final shard = shardIndex.toRadixString(16).padLeft(2, '0');
         final file = await _shardFile(dir, shard);
         if (!await file.exists()) {
@@ -181,11 +181,13 @@ class FreshResourceStore {
         var offset = offsets[shard] ?? 0;
         if (offset < 0 || offset >= length) offset = 0;
         var consumed = false;
+        var readInShard = 0;
         await for (final line in file.openRead(offset)
             .transform(utf8.decoder)
             .transform(const LineSplitter())) {
           consumed = true;
           final nextOffset = offset + utf8.encode(line).length + 1;
+          offset = nextOffset;
           offsets[shard] = nextOffset;
           try {
             final row = jsonDecode(line);
@@ -195,7 +197,8 @@ class FreshResourceStore {
               if (link != null && _id(link) == row['id']) result.add(link);
             }
           } catch (_) {}
-          break; // One record per shard visit keeps batches fair across the inventory.
+          readInShard++;
+          if (readInShard >= 32 || result.length >= limit) break;
         }
         if (!consumed || (offsets[shard] ?? 0) >= length) {
           offsets[shard] = 0;
