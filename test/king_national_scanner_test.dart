@@ -1,7 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter_test/flutter_test.dart';
-import '../lib/king_national_scanner.dart';
+import '../lib/king_scan_scheduler.dart';
 
 void main() {
   group('KingNationalScannerEngine', () {
