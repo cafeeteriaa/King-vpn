@@ -27,6 +27,7 @@ class NationalScannerIntegrationGuards(unittest.TestCase):
         self.assertIn("natRangeScanStep(", source)
         self.assertIn("_ipAutoRunOnce(", source)
         self.assertIn("await _ipAutoSave()", source)
+        self.assertIn("_natNationalBackgroundBusy", source)
 
     def test_national_dns_is_diagnosed_before_resolver_selection(self):
         source = (ROOT / "lib" / "dns_scanner.dart").read_text(encoding="utf-8")
