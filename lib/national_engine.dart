@@ -8,7 +8,7 @@ part of 'main.dart';
 /// the raw V2Ray link, UUID, password, server name, or full endpoint string.
 class NationalNetworkIntelligence {
   static const String _prefsKey = 'nnie_profiles_v2'; // v2: key includes transport + TLS
-  static const int _maxEntries = 500;
+  static Future<void> _saveTail = Future<void>.value();
   static Map<String, NatEndpointMemory> _memory = <String, NatEndpointMemory>{};
   static bool _loaded = false;
   static Future<void>? _loading;
@@ -19,17 +19,32 @@ class NationalNetworkIntelligence {
     await _loading;
   }
 
+  static Future<File> _evidenceFile() async {
+    final directory = await getApplicationSupportDirectory();
+    return File('${directory.path}/king_nat_strategy_evidence_v1.json');
+  }
+
   static Future<void> _loadImpl() async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final raw = prefs.getString(_prefsKey);
-      if (raw != null) {
+      final file = await _evidenceFile();
+      String? raw;
+      if (await file.exists()) {
+        raw = await file.readAsString();
+      } else {
+        // One-time migration from the old SharedPreferences snapshot.
+        final prefs = await SharedPreferences.getInstance();
+        raw = prefs.getString(_prefsKey);
+      }
+      if (raw != null && raw.isNotEmpty) {
         final decoded = jsonDecode(raw);
         if (decoded is Map) {
           _memory = <String, NatEndpointMemory>{};
           for (final e in decoded.entries) {
-            if (e.key is String) _memory[e.key as String] = NatEndpointMemory.fromJson(e.value);
+            if (e.key is String) {
+              _memory[e.key as String] = NatEndpointMemory.fromJson(e.value);
+            }
           }
+          if (!await file.exists()) await _save();
         }
       }
     } catch (e, st) {
@@ -65,7 +80,7 @@ class NationalNetworkIntelligence {
   }) async {
     await load();
     final old = memoryFor(endpointKey);
-    final attempts = min(10000, old.attempts + 1);
+    final attempts = old.attempts + 1;
     final successes = min(attempts, old.successes + (success ? 1 : 0));
     final ewma = success
         ? (old.ewmaConnectMs <= 0 ? elapsedMs.toDouble() : old.ewmaConnectMs * 0.75 + elapsedMs * 0.25)
@@ -73,10 +88,10 @@ class NationalNetworkIntelligence {
     _memory[endpointKey] = NatEndpointMemory(
       attempts: attempts,
       successes: successes,
-      failStreak: success ? 0 : min(50, old.failStreak + 1),
+      failStreak: success ? 0 : old.failStreak + 1,
       ewmaConnectMs: ewma,
       lastSuccessMs: success ? DateTime.now().millisecondsSinceEpoch : old.lastSuccessMs,
-      stableSuccesses: stableForFiveMinutes ? min(1000, old.stableSuccesses + 1) : old.stableSuccesses,
+      stableSuccesses: stableForFiveMinutes ? old.stableSuccesses + 1 : old.stableSuccesses,
     );
     await _save();
   }
@@ -109,24 +124,25 @@ class NationalNetworkIntelligence {
     _memory[endpointKey] = NatEndpointMemory(
       attempts: old.attempts, successes: old.successes, failStreak: old.failStreak,
       ewmaConnectMs: old.ewmaConnectMs, lastSuccessMs: old.lastSuccessMs,
-      stableSuccesses: min(1000, old.stableSuccesses + 1),
+      stableSuccesses: old.stableSuccesses + 1,
     );
     await _save();
   }
 
-  static Future<void> _save() async {
-    try {
-      // Keep most useful/recent entries; do not let history grow indefinitely.
-      final entries = _memory.entries.toList()
-        ..sort((a, b) => b.value.score.compareTo(a.value.score));
-      if (entries.length > _maxEntries) {
-        _memory = Map<String, NatEndpointMemory>.fromEntries(entries.take(_maxEntries));
-      }
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString(_prefsKey, jsonEncode(_memory.map((k, v) => MapEntry(k, v.toJson()))));
-    } catch (e, st) {
-      logError(e, st);
-    }
+  static Future<void> _save() {
+    final next = _saveTail.then((_) async {
+      final file = await _evidenceFile();
+      final temporary = File('${file.path}.tmp');
+      final snapshot = jsonEncode(
+        _memory.map((key, value) => MapEntry(key, value.toJson())),
+      );
+      await temporary.writeAsString(snapshot, flush: true);
+      await temporary.rename(file.path);
+    });
+    _saveTail = next.catchError((Object error, StackTrace stack) {
+      logError(error, stack);
+    });
+    return next;
   }
 
   /// First stage is cheap and broad; expensive transports are deferred until
