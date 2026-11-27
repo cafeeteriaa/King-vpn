@@ -17,6 +17,17 @@ class PersonalFolderStore {
   /// Injectable only for filesystem tests; production leaves this unset.
   static Future<Directory> Function()? directoryProviderForTesting;
 
+  static Future<void> _mutationQueue = Future<void>.value();
+
+  static Future<T> _serializeMutation<T>(Future<T> Function() action) {
+    final operation = _mutationQueue.then<T>((_) => action());
+    _mutationQueue = operation.then<void>(
+      (_) {},
+      onError: (Object error, StackTrace stackTrace) {},
+    );
+    return operation;
+  }
+
   static Future<Directory> directory() async {
     final override = directoryProviderForTesting;
     if (override != null) {
@@ -110,16 +121,20 @@ class PersonalFolderStore {
     }
   }
 
-  static Future<void> writeSnapshot(Iterable<String> links) =>
-      _writeSnapshotUnlocked(links);
+  static Future<void> writeSnapshot(Iterable<String> links) {
+    final snapshot = List<String>.of(links);
+    return _serializeMutation(() => _writeSnapshotUnlocked(snapshot));
+  }
 
   static Future<List<String>> readOrMigrate(
     Future<List<String>> Function() readLegacy,
-  ) async {
-    final saved = await readSnapshot();
-    if (saved != null) return saved;
-    final legacy = _normalize(await readLegacy());
-    await _writeSnapshotUnlocked(legacy);
-    return legacy;
+  ) {
+    return _serializeMutation(() async {
+      final saved = await readSnapshot();
+      if (saved != null) return saved;
+      final legacy = _normalize(await readLegacy());
+      await _writeSnapshotUnlocked(legacy);
+      return legacy;
+    });
   }
 }
