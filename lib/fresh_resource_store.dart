@@ -19,6 +19,24 @@ class FreshResourceStore {
   static const int _bloomBytesPerShard = 32768;
   static const int _bloomHashCount = 7;
   static const String directoryName = 'KingVPN/ResourcesFresh';
+
+  /// Rejects suspiciously incomplete refreshes before they can replace a
+  /// previously useful offline inventory. This is a quality gate, not a
+  /// capacity limit: small stores can still refresh completely.
+  static bool isSufficientSnapshotReplacement({
+    required int previousCount,
+    required int incomingCount,
+    required int successfulSources,
+    required int configuredSources,
+  }) {
+    if (incomingCount <= 0 || successfulSources <= 0) return false;
+    final requiredSources = configuredSources > 1 ? 2 : 1;
+    if (successfulSources < requiredSources) return false;
+    if (previousCount <= 0) return true;
+    final quarter = (previousCount + 3) ~/ 4;
+    final minimum = previousCount < 100 ? previousCount : (quarter < 100 ? 100 : quarter);
+    return incomingCount >= minimum;
+  }
   static const String _legacyFileName = 'configs.txt';
   static const String _metadataFileName = 'metadata.json';
   static const String _dirtyFileName = '.inventory_dirty';
