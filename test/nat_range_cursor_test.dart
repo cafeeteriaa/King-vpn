@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../lib/main.dart' as app;
@@ -58,6 +59,34 @@ void main() {
     expect(second.addresses.first, '192.0.2.128');
     expect(second.addresses.last, '192.0.2.255');
     expect(second.nextCursor, '0');
+  });
+
+  test('worker batch preserves Dart fallback when native acceleration is disabled', () {
+    final result = app.natExpandAddressRangeBatchForWorker(
+      '192.0.2.0/30',
+      cursor: '0',
+      limit: 4,
+      nativeEnabled: false,
+      verifyNative: true,
+    );
+    expect(result.addresses, ['192.0.2.0', '192.0.2.1', '192.0.2.2', '192.0.2.3']);
+    expect(result.nextCursor, '0');
+    expect(result.nativeRejected, isFalse);
+    expect(result.nativeReady, isFalse);
+  });
+
+  test('worker reports unavailable native acceleration without losing Dart results', () {
+    if (Platform.isAndroid) return;
+    final result = app.natExpandAddressRangeBatchForWorker(
+      '192.0.2.0/30',
+      cursor: '0',
+      limit: 4,
+      nativeEnabled: true,
+      verifyNative: true,
+    );
+    expect(result.addresses, ['192.0.2.0', '192.0.2.1', '192.0.2.2', '192.0.2.3']);
+    expect(result.nativeRejected, isTrue);
+    expect(result.nativeReady, isFalse);
   });
 
   test('IPv4 CIDR cursors remain compatible', () {

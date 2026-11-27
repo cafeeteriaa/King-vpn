@@ -1,12 +1,12 @@
 # KING VPN Revision Ledger
 
-Current revision: 74
-Next revision: 75
+Current revision: 75
+Next revision: 76
 Repository: cafeeteriaa/King-vpn
-Revision branch: feature/unified-scanner-scheduler-rust-production-v4-20261127
-Parent revision branch: feature/adsl-irancell-network-handover-v3-20261127
-Parent PR: https://github.com/cafeeteriaa/King-vpn/pull/78
-Revision PR: https://github.com/cafeeteriaa/King-vpn/pull/79
+Revision branch: feature/isolate-safe-rust-acceleration-v1-20261127
+Parent revision branch: feature/unified-scanner-scheduler-rust-production-v4-20261127
+Parent PR: https://github.com/cafeeteriaa/King-vpn/pull/79
+Revision PR: https://github.com/cafeeteriaa/King-vpn/pull/80
 Consolidated integration PR: https://github.com/cafeeteriaa/King-vpn/pull/66
 
 ## Revision history
@@ -254,3 +254,11 @@ Increment the revision number by exactly one for each substantial edit set. Reco
 - Added a lifecycle-aware idle scheduler that runs DNS then IP, coalesces repeated requests, and cancels safely on connection, mode, lifecycle or competing-scan changes.
 - Added cross-scanner exclusion guards, cancellation propagation, scheduler tests, production-sized cursor tests and Persian architecture documentation.
 - Exact-head CI is pending; no merge or release is authorized until all checks pass and Samsung device validation is completed.
+
+
+### Revision 75 — isolate-safe Rust acceleration calibration
+- Pull request: https://github.com/cafeeteriaa/King-vpn/pull/80
+- Moved Rust-vs-Dart calibration to the long-lived UI isolate so repeated short-lived compute isolates do not independently benchmark the native engine on every scanner batch.
+- Passed the calibrated native-selection decision into worker isolates; each worker validates exact cursor and address parity on its first native batch, then reuses the native path for the rest of that batch.
+- Any missing library, malformed native response or parity mismatch falls back to Dart and disables native selection in the owning UI isolate for subsequent work.
+- Added worker fallback/parity tests and source guards for the calibration boundary. Exact-head CI and independent review are pending; no device-level performance claim is made.

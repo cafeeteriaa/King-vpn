@@ -3351,6 +3351,23 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn("addresses.length > limit", bridge)
         self.assertIn("return null;", bridge)
 
+    def test_rust_acceleration_is_calibrated_in_ui_isolate_before_worker_compute(self):
+        nat = (ROOT / "lib" / "nat_ultra.dart").read_text(encoding="utf-8")
+        ip = (ROOT / "lib" / "ip_auto_scan.dart").read_text(encoding="utf-8")
+        generator_start = nat.index("Map<String, dynamic> _genAddrsIso(")
+        generator_end = nat.index("\n// RANGEGUARD:", generator_start)
+        generator = nat[generator_start:generator_end]
+        self.assertIn("natPrepareNativeAcceleration();", nat)
+        self.assertIn("'nativeAcceleration': KingNativeAccel.useNative", nat)
+        self.assertIn("natExpandAddressRangeBatchForWorker(", generator)
+        self.assertIn("verifyNative: !nativeWorkerVerifiedKinds.contains(nativeKind)", generator)
+        self.assertIn("_natRangeKindForNativeParity(range)", generator)
+        self.assertIn("nativeWorkerVerifiedKinds.add(nativeKind)", generator)
+        self.assertIn("'nativeRejected': nativeRejected", generator)
+        self.assertIn("natPrepareNativeAcceleration();", ip)
+        self.assertIn("if (gen['nativeRejected'] == true) KingNativeAccel.disableNative();", ip)
+        self.assertIn("if (generated['nativeRejected'] == true) KingNativeAccel.disableNative();", nat)
+
     def test_rust_acceleration_is_runtime_benchmarked_before_selection(self):
         nat = (ROOT / "lib" / "nat_ultra.dart").read_text(encoding="utf-8")
         bridge = (ROOT / "lib" / "king_native_accel.dart").read_text(encoding="utf-8")
@@ -3366,10 +3383,12 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         start = source.index("void addBlocks() {")
         end = source.index("\n  if (nationalMode)", start)
         block = source[start:end]
-        self.assertIn("natExpandAddressRangeBatch(", block)
+        self.assertIn("natExpandAddressRangeBatchForWorker(", block)
         self.assertIn("generated.addresses", block)
         self.assertIn("generated.nextCursor", block)
         self.assertNotIn("_natExpandAnyCursor(", block)
+        self.assertIn("natExpandAddressRangeBatch(", source)
+        self.assertIn("nativeRejected", block)
 
     def test_idle_scan_scheduler_is_wired_and_scans_are_serialized(self):
         main = (ROOT / "lib" / "main.dart").read_text(encoding="utf-8")
