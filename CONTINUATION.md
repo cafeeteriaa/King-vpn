@@ -121,6 +121,7 @@
 - Each inference stage reads up to 6 existing files / 7,500 characters and can update up to 3 files. Prior-stage file outputs are reused as the next-stage input when relevant.
 - Stage outputs are collected in KingAiPatchBundle with path validation, sequential-stage enforcement, stale-input conflict detection, an 18-file aggregate limit and a 180,000-character content budget.
 - Only after every stage finishes is one atomic Git tree/commit and one Draft PR created. A missing context or invalid stage stops the run before PR creation; no partial PR is created.
+- Captures one main commit SHA for all stage contexts and aborts if main advances before final PR creation, preventing mixed snapshots and stale overwrites.
 - The autonomous background audit remains limited to at most two changed files and still cannot merge or release.
 - Added test/king_ai_change_pipeline_test.dart and source guards for aggregation, conflict detection, limits and the autonomous safety boundary.
 - Three source review passes are recorded in KING_REVISION.md. Exact-head CI, Flutter tests, Dart analysis, Android build and device validation are still pending until the PR workflow completes.
