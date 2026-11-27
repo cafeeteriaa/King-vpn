@@ -332,8 +332,9 @@ class KingScanJournal {
         }
         safe[key] = value;
       } else {
-        if (value is! int || value < 0) {
-          throw ArgumentError.value(value, key, 'Cursor values must be non-negative integers.');
+        final minimum = key == 'candidateIndex' || key == 'variantIndex' ? -1 : 0;
+        if (value is! int || value < minimum) {
+          throw ArgumentError.value(value, key, 'Cursor value is outside its valid range.');
         }
         safe[key] = value;
       }
