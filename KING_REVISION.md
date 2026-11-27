@@ -1,12 +1,12 @@
 # KING VPN Revision Ledger
 
-Current revision: 68
-Next revision: 69
+Current revision: 69
+Next revision: 70
 Repository: cafeeteriaa/King-vpn
-Revision branch: feat/king-ai-multistage-engineering-20261127
-Parent revision branch: fix/personal-prep-cancellation-20261127
-Parent PR: https://github.com/cafeeteriaa/King-vpn/pull/71
-Revision PR: https://github.com/cafeeteriaa/King-vpn/pull/72
+Revision branch: feature/rust-ip-range-accelerator-20261127
+Parent revision branch: feat/king-ai-multistage-engineering-20261127
+Parent PR: https://github.com/cafeeteriaa/King-vpn/pull/72
+Revision PR: pending
 Consolidated integration PR: https://github.com/cafeeteriaa/King-vpn/pull/66
 
 ## Revision history
@@ -200,3 +200,15 @@ Increment the revision number by exactly one for each substantial edit set. Reco
 - Review pass 2: path validation, stale-stage conflict handling, aggregate file/content budgets, secret checks and no-partial-PR behavior.
 - Review pass 3: tests/source guards, compatibility with the existing local model context limits, and exact-head CI/build review.
 - First exact-head CI run 45973769538 failed in the inherited PersonalFolderStore source guard before Flutter setup; the existing codec call was aligned without changing behavior. A rerun is pending. Flutter tests, Dart analysis, Android arm64 build and device validation are not yet verified. No merge or release is authorized by this revision.
+
+
+### Revision 69 — optional Rust IPv4/IPv6 range accelerator
+- Added a dependency-free Rust native library for IPv4/IPv6 address, CIDR and inclusive range batch generation with decimal cursors, including full IPv6 `/0` without `u128` overflow.
+- Integrated it into `natExpandAddressRangeBatch` through optional Android FFI. The existing Dart BigInt implementation remains the fallback for non-Android platforms, missing libraries, invalid native output and FFI errors.
+- Added Rust unit coverage for IPv4/IPv6 paging, IPv4 page wrap semantics, large IPv6 offsets, descending ranges, single IPs, invalid prefixes/families and the full IPv6 address space.
+- Updated Android CI to run Rust Clippy/tests, compile `arm64-v8a` with the NDK and package the shared library; added direct Dart `ffi` dependency.
+- Preserved scanner entry points, cursor behavior, VPN/Proxy behavior and existing inventories. Performance improvement is not claimed until benchmarked on hardware.
+- Review pass 1 (architecture/behavior): compare CIDR/range semantics, cursor wrap and Dart fallback contract.
+- Review pass 2 (FFI/security/reliability): inspect pointer ownership, output sizing, panic boundary, invalid response handling and ABI-specific packaging.
+- Review pass 3 (compatibility/verification): inspect CI ordering, Cargo lock, existing scanner tests and full diff. Automated execution remains pending; this is not a build/test sign-off.
+- Exact-head GitHub Actions, Flutter tests/analyzer, Android arm64 APK build and physical-device validation are pending. No merge or release is authorized by this revision.

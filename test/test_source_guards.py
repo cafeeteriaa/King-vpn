@@ -3303,5 +3303,29 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('restart from the new head', writer)
 
 
+    def test_rust_range_accelerator_is_optional_and_keeps_dart_fallback(self):
+        main = (ROOT / "lib" / "main.dart").read_text(encoding="utf-8")
+        nat = (ROOT / "lib" / "nat_ultra.dart").read_text(encoding="utf-8")
+        bridge = (ROOT / "lib" / "king_native_accel.dart").read_text(encoding="utf-8")
+        workflow = (ROOT / ".github" / "workflows" / "build.yml").read_text(encoding="utf-8")
+        self.assertIn("import 'king_native_accel.dart';", main)
+        self.assertIn("KingNativeAccel.tryExpandAddressRangeBatch(", nat)
+        self.assertIn("final result = _natExpandAnyCursor(range, cursor, limit);", nat)
+        self.assertIn("DynamicLibrary.open('libking_native_core.so')", bridge)
+        self.assertIn("if (!Platform.isAndroid", bridge)
+        self.assertIn("cargo test --manifest-path native/king_native_core/Cargo.toml --locked", workflow)
+        self.assertIn("cargo ndk -t arm64-v8a", workflow)
+        self.assertIn("ffi:^2.1.3", workflow)
+
+    def test_rust_range_core_covers_full_ipv6_space_and_keeps_ffi_bounds(self):
+        rust = (ROOT / "native" / "king_native_core" / "src" / "lib.rs").read_text(encoding="utf-8")
+        bridge = (ROOT / "lib" / "king_native_accel.dart").read_text(encoding="utf-8")
+        self.assertIn("full_u128_span", rust)
+        self.assertIn("catch_unwind", rust)
+        self.assertIn("output_capacity", rust)
+        self.assertIn("_maxNativeBatch = 8192", bridge)
+        self.assertIn("addresses.length > limit", bridge)
+        self.assertIn("return null;", bridge)
+
 if __name__ == '__main__':
     unittest.main()

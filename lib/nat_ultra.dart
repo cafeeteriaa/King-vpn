@@ -2349,6 +2349,12 @@ String _natBigIntToIPv6(BigInt value) {
 
 ({List<String> addresses, String nextCursor}) natExpandAddressRangeBatch(
     String range, {String cursor = '0', int limit = 256}) {
+  // Prefer the optional Rust implementation. Invalid/unavailable native output
+  // falls back to the established BigInt implementation without behavior loss.
+  final accelerated = KingNativeAccel.tryExpandAddressRangeBatch(
+    range, cursor: cursor, limit: limit,
+  );
+  if (accelerated != null) return accelerated;
   final result = _natExpandAnyCursor(range, cursor, limit);
   return (addresses: result.$1, nextCursor: result.$2);
 }
