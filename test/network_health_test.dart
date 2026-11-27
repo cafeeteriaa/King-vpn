@@ -295,6 +295,18 @@ void main() {
       expect(routes, <String>['v4:wlan0:0101A8C0:100']);
     });
 
+    test('IPv6 default route parser rejects non-zero source-prefix routes', () {
+      final zero = List<String>.filled(32, '0').join();
+      final routes = KingNetworkFingerprint.parseDefaultRoutes(
+        ipv6Lines: <String>[
+          '$zero 00 $zero 00 $zero 00000064 00000000 00000000 00000001 wlan0',
+          '$zero 00 $zero 40 $zero 00000064 00000000 00000000 00000001 wlan0',
+          '$zero 00 $zero 00 $zero 00000001 00000000 00000000 00000001 tun0',
+        ],
+      );
+      expect(routes, <String>['v6:wlan0:$zero:00000064']);
+    });
+
     test('network handover cancels the scan monotonically', () {
       const initial = 'wlan0|192.168.1.10';
       final guard = KingNetworkScanGuard(initialFingerprint: initial);
