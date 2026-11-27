@@ -200,7 +200,13 @@ Future<_IpAutoAddressBatch?> _ipAutoNextAddrs(
 extension IpAutoExt on _HomePageState {
   /// آیا اسکن باید همین الان متوقف شود (VPN وصل شد، یا برنامه مشغول اتصال است، یا کاربر توقف زد)
   bool _ipAutoHalt({bool? modeSnapshot}) =>
-      ipAutoStopFlag || connected || busy ||
+      ipAutoStopFlag ||
+      connected ||
+      wantVpn ||
+      busy ||
+      searching ||
+      switching ||
+      _natRangeScanBusy ||
       (modeSnapshot != null && nationalMode != modeSnapshot);
 
   /// اسکن زمان‌بندی‌شدهٔ IP برای هر دو حالت؛ cadence و inventory هر حالت مستقل است.
@@ -261,10 +267,11 @@ extension IpAutoExt on _HomePageState {
 
   /// دلیل رد شدن شروع اسکن؛ null یعنی می‌شود شروع کرد
   String? _ipAutoRefusal() {
-    // نت ملی کاملاً خودکار است؛ دکمه‌ی دستی فقط برای حالت عادی است
     if (!kNatIpScanOn) return 'اسکن IP از تنظیم اصلی خاموش است.';
     if (ipAutoBusy || dnsxManualBusy) return 'اسکن دیگری در حال اجراست.';
-    if (connected || busy) return 'اول VPN را قطع کنید، بعد اسکن خودکار IP را اجرا کنید.';
+    if (connected || wantVpn || busy || searching || switching) {
+      return 'ابتدا اتصال و جستجوی فعال را متوقف کنید، بعد اسکن را اجرا کنید.';
+    }
     if (nationalMode && _natRangeScanBusy) {
       return 'جستجوی نت ملی در حال اجراست؛ کمی صبر کنید.';
     }
