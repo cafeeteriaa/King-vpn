@@ -2602,8 +2602,9 @@ Future<void> _logVpnServiceDiagnostics() async {
     final info = await _diagChannel
         .invokeMapMethod<String, dynamic>('vpnService')
         .timeout(const Duration(seconds: 5));
-    if (info == null || info['protocolVersion'] != 1) {
-      throw StateError('Native VPN diagnostics protocol mismatch: $info');
+    final version = info?['protocolVersion'];
+    if (info == null || (version != 1 && version != 2)) {
+      throw StateError('Native VPN diagnostics protocol mismatch: $version');
     }
     final fields = <String>[
       'serviceRunning', 'active', 'stopping', 'retryWaiting', 'nativeBusy',
@@ -2613,7 +2614,19 @@ Future<void> _logVpnServiceDiagnostics() async {
     final summary = fields.map((key) => '$key=${info[key]}').join(' ');
     final category = (info['lastErrorCategory'] ?? 'unknown').toString();
     final hasError = info['lastErrorPresent'] == true;
-    dbg('NATIVE-VPN-DIAG: $summary lastErrorPresent=$hasError category=$category');
+    dbg('NATIVE-VPN-DIAG: protocol=$version $summary lastErrorPresent=$hasError category=$category');
+    if (version == 2) {
+      const telemetryFields = <String>[
+        'serviceUptimeMs', 'watchdogChecks', 'healthyProbes',
+        'softProbeFailures', 'hardProbeFailures', 'failoverCount', 'retryCount',
+        'currentFailureStreak', 'healthyStreak', 'lastProbeResult',
+        'lastProbeMode', 'lastProbeDurationMs', 'lastProbeAgeMs',
+      ];
+      final telemetry = telemetryFields
+          .map((key) => '$key=${info[key] ?? "unknown"}')
+          .join(' ');
+      dbg('VPN-WATCHDOG-TELEMETRY: $telemetry');
+    }
   } on MissingPluginException {
     dbg('NATIVE-VPN-DIAG: unavailable (older native bridge)');
   } catch (e, st) {
