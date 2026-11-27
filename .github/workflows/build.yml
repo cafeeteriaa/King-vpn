@@ -88,9 +88,9 @@ jobs:
           export ANDROID_NDK_HOME="${SDK_ROOT}/ndk/${NDK_VERSION}"
           cargo install cargo-ndk --locked
           export RUSTFLAGS="-C link-arg=-Wl,-z,max-page-size=16384"
-          cargo ndk -t arm64-v8a -o build_app/android/app/src/main/jniLibs build \
-            --release --locked --manifest-path native/king_native_core/Cargo.toml
-          test -s build_app/android/app/src/main/jniLibs/arm64-v8a/libking_native_core.so
+          cd native/king_native_core
+          cargo ndk -t arm64-v8a -o ../../build_app/android/app/src/main/jniLibs build --release --locked
+          test -s ../../build_app/android/app/src/main/jniLibs/arm64-v8a/libking_native_core.so
 
       - name: Patch V2Ray plugin
         working-directory: build_app
