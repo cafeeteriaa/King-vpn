@@ -2354,8 +2354,14 @@ Future<List<String>> _natRangeScanStepBody({
       sha256.convert(utf8.encode(blocks.join('\\n'))).toString().substring(0, 12),
       radix: 16);
   if (_cfRangeCursors['__block_inventory_tag'] != inventoryTag) {
+    // Preserve each completed/in-progress block cursor. Only reset the
+    // collection-level walk so newly discovered blocks are appended to work.
+    _cfRangeCursors.removeWhere((key, value) => key.startsWith('__block_'));
     _cfRangeCursors.removeWhere((key, value) =>
-        key.startsWith('block:') || key.startsWith('__block_'));
+        key.startsWith('block:') && !blocks.contains(key.substring(6)));
+    _cfRangeCursors['__block_cursor'] = 0;
+    _cfRangeCursors['__block_pass_start'] = 0;
+    _cfRangeCursors['__block_pass_done'] = 0;
     _cfRangeCursors['__block_inventory_tag'] = inventoryTag;
   }
   // Every call is one bounded memory batch. The coordinator repeats batches
