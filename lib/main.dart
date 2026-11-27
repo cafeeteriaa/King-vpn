@@ -12476,8 +12476,8 @@ ListTile( // KINGEXTRAS row
     if (nationalMode && !connected) {
       if (localPilotOn) {
         // Unified Pilot uses only its dedicated probe snapshot here.
-        await PilotNetworkProbe.refresh()
-            .timeout(const Duration(seconds: 5), onTimeout: () => PilotNetworkProbe.current);
+        await refreshPilotNetworkEvidence()
+            .timeout(const Duration(seconds: 5), onTimeout: currentPilotNetworkEvidence);
       } else {
         await NatNetworkDiagnosis.refresh()
             .timeout(const Duration(seconds: 5), onTimeout: () => NatNetworkDiagnosis.current);
