@@ -2724,5 +2724,22 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertLess(guard, save)
 
 
+    def test_manual_range_scan_has_no_fixed_result_or_time_ceiling(self):
+        source = (ROOT / 'lib' / 'npv_am_extras.dart').read_text(encoding='utf-8')
+        start = source.index('Future<void> manualRangeScan(')
+        end = source.index('\\n}', start)
+        body = source[start:end]
+        self.assertIn('want: null,', body)
+        self.assertIn('budget: null,', body)
+        self.assertNotIn('want: 1000', body)
+        self.assertNotIn('Duration(minutes: userAddrs.length', body)
+
+    def test_connection_strategy_matrix_has_no_global_variant_count_ceiling(self):
+        main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        nat = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
+        self.assertNotIn('natMaxVariants', main)
+        self.assertNotIn('natMaxVariants', nat)
+        self.assertIn('KingNationalScannerEngine.planVariants(s, full: fullMatrix).where((v) => v != 0)', main)
+
 if __name__ == '__main__':
     unittest.main()

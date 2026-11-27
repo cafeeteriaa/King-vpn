@@ -7819,7 +7819,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     final multi = useMatrix;
     if (useMatrix) await KingNationalScannerEngine.load();
     final order = useMatrix
-        ? <int>[0, ...KingNationalScannerEngine.planVariants(s, full: fullMatrix).where((v) => v != 0).take(max(0, natMaxVariants - 1))]
+        ? <int>[0, ...KingNationalScannerEngine.planVariants(s, full: fullMatrix).where((v) => v != 0)]
         : const [0]; // KNS: shared registry + learned compatibility; original config first
     // NATBUDGET: one server may only use a limited time per pass; the rest of
     // its variants continue in the next pass (natCursorAdvance)
