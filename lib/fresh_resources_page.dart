@@ -120,11 +120,14 @@ class _FreshResourcesPageState extends State<FreshResourcesPage> {
       if (!mounted) return;
       switch (result.status) {
         case ShareResultStatus.success:
-          setState(() => _message = 'فایل کامل $exported کانفیگ ساخته و برای اشتراک‌گذاری ارسال شد.');
+          setState(() => _message = 'فایل کامل $exported کانفیگ ساخته و به پنجرهٔ اشتراک‌گذاری تحویل شد.');
+          break;
         case ShareResultStatus.dismissed:
           setState(() => _message = 'فایل کامل ساخته شد؛ پنجرهٔ اشتراک‌گذاری بسته شد. مسیر فایل: ${output.path}');
+          break;
         case ShareResultStatus.unavailable:
           setState(() => _message = 'فایل کامل ساخته شد اما اشتراک‌گذاری در این دستگاه در دسترس نیست. مسیر فایل: ${output.path}');
+          break;
       }
     } catch (error) {
       if (output != null) {
