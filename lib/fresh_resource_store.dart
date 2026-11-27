@@ -106,6 +106,7 @@ class FreshResourceStore {
     final file = File('${dir.path}/$_metadataFileName');
     final temp = File('${file.path}.tmp');
     final now = DateTime.now().toUtc().toIso8601String();
+    final previous = await _readMetadata(dir);
     final snapshot = <String, Object?>{
       'schema': 2,
       'source': source,
@@ -114,9 +115,12 @@ class FreshResourceStore {
       'shards': shardCount,
       'updatedAt': now,
     };
-    if (source == 'online-public-sources' ||
-        source == 'online-public-sources-48h-refresh') {
-      snapshot['onlineRefreshedAt'] = now;
+    final priorOnlineRefresh = previous['onlineSnapshotRefreshedAt'];
+    if (priorOnlineRefresh != null) {
+      snapshot['onlineSnapshotRefreshedAt'] = priorOnlineRefresh;
+    }
+    if (source == 'online-public-sources-48h-refresh') {
+      snapshot['onlineSnapshotRefreshedAt'] = now;
     }
     await temp.writeAsString(jsonEncode(snapshot), flush: true);
     if (await file.exists()) await file.delete();
