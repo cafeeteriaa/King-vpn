@@ -63,7 +63,7 @@ class KingDynamicSourceDiscovery {
     try {
       final segments = rawPath.split('/').map(Uri.decodeComponent).toList();
       if (segments.length < 4 || segments.any((s) =>
-          s.isEmpty || s == '.' || s == '..' || s.contains('/') || s.contains(String.fromCharCode(92)))) {
+          s.isEmpty || s == '.' || s == '..' || s.contains('/') || s.contains(String.fromCharCode(92)) || s.codeUnits.any((unit) => unit < 0x20 || unit == 0x7f))) {
         return null;
       }
     } catch (_) {
@@ -72,7 +72,7 @@ class KingDynamicSourceDiscovery {
     final uri = Uri.tryParse(value);
     if (uri == null || uri.scheme != 'https' ||
         uri.host != 'raw.githubusercontent.com' || uri.userInfo.isNotEmpty ||
-        uri.hasQuery || uri.hasFragment || uri.pathSegments.length < 4) {
+        uri.hasQuery || uri.hasFragment || uri.port != 443 || uri.pathSegments.length < 4) {
       return null;
     }
     return uri.toString();
