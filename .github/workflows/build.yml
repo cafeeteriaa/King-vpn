@@ -27,6 +27,17 @@ jobs:
           python3 -m unittest discover -s test -p 'test_*.py' 2>&1 | tee source-guard.log
           python3 -m py_compile tools/king_ai_training/*.py 2>&1 | tee -a source-guard.log
 
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android
+          components: clippy
+
+      - name: Verify Rust core on host
+        run: |
+          cargo clippy --manifest-path native/king_native_core/Cargo.toml --all-targets --locked -- -D warnings
+          cargo test --manifest-path native/king_native_core/Cargo.toml --locked
+
       - name: Setup Java
         uses: actions/setup-java@v4
         with:
@@ -62,8 +73,24 @@ jobs:
       - name: Resolve Flutter dependencies
         working-directory: build_app
         run: |
-          flutter pub add http webview_flutter flutter_v2ray_client:3.5.0 installed_apps:1.6.0 permission_handler workmanager url_launcher crypto:^3.0.3 flutter_secure_storage:^9.2.2 local_inference:0.1.1 local_inference_flutter:0.1.1 path_provider package_info_plus speech_to_text:^7.4.0 cryptography:^2.7.0 flutter_tts:^4.2.3
+          flutter pub add http webview_flutter flutter_v2ray_client:3.5.0 installed_apps:1.6.0 permission_handler workmanager url_launcher crypto:^3.0.3 flutter_secure_storage:^9.2.2 local_inference:0.1.1 local_inference_flutter:0.1.1 path_provider package_info_plus speech_to_text:^7.4.0 cryptography:^2.7.0 flutter_tts:^4.2.3 ffi:^2.1.3
           flutter pub get
+
+      - name: Build Rust accelerator for Android arm64
+        shell: bash
+        run: |
+          set -euo pipefail
+          SDK_ROOT="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-$HOME/Android/Sdk}}"
+          NDK_VERSION="28.2.13676358"
+          SDKMANAGER="$(command -v sdkmanager || printf '%s' "${SDK_ROOT}/cmdline-tools/latest/bin/sdkmanager")"
+          yes | "${SDKMANAGER}" --licenses >/dev/null || true
+          "${SDKMANAGER}" "ndk;${NDK_VERSION}"
+          export ANDROID_NDK_HOME="${SDK_ROOT}/ndk/${NDK_VERSION}"
+          cargo install cargo-ndk --locked
+          export RUSTFLAGS="-C link-arg=-Wl,-z,max-page-size=16384"
+          cd native/king_native_core
+          cargo ndk -t arm64-v8a -o ../../build_app/android/app/src/main/jniLibs build --release --locked
+          test -s ../../build_app/android/app/src/main/jniLibs/arm64-v8a/libking_native_core.so
 
       - name: Patch V2Ray plugin
         working-directory: build_app

@@ -1,12 +1,12 @@
 # KING VPN Revision Ledger
 
-Current revision: 68
-Next revision: 69
+Current revision: 69
+Next revision: 70
 Repository: cafeeteriaa/King-vpn
-Revision branch: feat/king-ai-multistage-engineering-20261127
-Parent revision branch: fix/personal-prep-cancellation-20261127
-Parent PR: https://github.com/cafeeteriaa/King-vpn/pull/71
-Revision PR: https://github.com/cafeeteriaa/King-vpn/pull/72
+Revision branch: feature/rust-ip-range-accelerator-20261127
+Parent revision branch: feat/king-ai-multistage-engineering-20261127
+Parent PR: https://github.com/cafeeteriaa/King-vpn/pull/72
+Revision PR: https://github.com/cafeeteriaa/King-vpn/pull/73
 Consolidated integration PR: https://github.com/cafeeteriaa/King-vpn/pull/66
 
 ## Revision history
@@ -200,3 +200,33 @@ Increment the revision number by exactly one for each substantial edit set. Reco
 - Review pass 2: path validation, stale-stage conflict handling, aggregate file/content budgets, secret checks and no-partial-PR behavior.
 - Review pass 3: tests/source guards, compatibility with the existing local model context limits, and exact-head CI/build review.
 - First exact-head CI run 45973769538 failed in the inherited PersonalFolderStore source guard before Flutter setup; the existing codec call was aligned without changing behavior. A rerun is pending. Flutter tests, Dart analysis, Android arm64 build and device validation are not yet verified. No merge or release is authorized by this revision.
+
+
+### Revision 69 — optional Rust IPv4/IPv6 range accelerator
+- Added a dependency-free Rust native library for IPv4/IPv6 address, CIDR and inclusive range batch generation with decimal cursors, including full IPv6 `/0` without `u128` overflow.
+- Integrated it into `natExpandAddressRangeBatch` through optional Android FFI. The existing Dart BigInt implementation remains the fallback for non-Android platforms, missing libraries, invalid native output and FFI errors.
+- Added Rust unit coverage for IPv4/IPv6 paging, IPv4 page wrap semantics, large IPv6 offsets, descending ranges, single IPs, invalid prefixes/families and the full IPv6 address space.
+- Updated Android CI to run Rust Clippy/tests, compile `arm64-v8a` with the NDK and package the shared library; added direct Dart `ffi` dependency.
+- Preserved scanner entry points, cursor behavior, VPN/Proxy behavior and existing inventories. Performance improvement is not claimed until benchmarked on hardware.
+- Review pass 1 (architecture/behavior): compare CIDR/range semantics, cursor wrap and Dart fallback contract.
+- Review pass 2 (FFI/security/reliability): inspect pointer ownership, output sizing, panic boundary, invalid response handling and ABI-specific packaging.
+- Review pass 3 (compatibility/verification): inspect CI ordering, Cargo lock, existing scanner tests and full diff. Automated execution remains pending; this is not a build/test sign-off.
+- Exact-head GitHub Actions, Flutter tests/analyzer, Android arm64 APK build and physical-device validation are pending. No merge or release is authorized by this revision.
+
+
+### Revision 69 CI correction note
+- The first Rust CI run exposed an incorrect test expectation: the existing IPv4 batch cursor deliberately wraps within the requested page. The implementation matched the pre-existing Dart behavior; the regression test was corrected to assert the same wrap order.
+- The exact current head includes the corrected test, explicit unsafe blocks, a crate-level unsafe-operation lint, an FFI batch-size guard and preserved dynamic symbols. The new exact-head workflow result is pending.
+
+
+### Revision 69 — restore dynamic source discovery build integrity
+- Root cause of the Flutter test compilation failure was confirmed on the PR #72 base: `king_dynamic_source_discovery.dart` contained repeated class-member blocks and truncated raw string literals; later missing-member errors in `king_local_ai.dart` and switch errors in `iran_ai_extras.dart` were parser cascades.
+- Replaced the duplicated/corrupt source-discovery file with one complete incremental implementation preserving the five GitHub search queries, 100-result pages, 10-page GitHub API boundary, 2-minute cycle budget, four workers, 12-hour cache TTL, 15-minute retry delay, path scoring, safe raw URL policy, and persistent query/page cursor.
+- Added partial-result persistence on cancellation, atomic cache replacement with backup recovery, strict Git-ref and raw URL validation, and truncated-tree handling. Existing cached feeds are retained and merged; no total feed/repository cap is introduced.
+- Expanded policy tests and source guards to prevent duplicate class blocks and loss of the incremental checkpoint/worker behavior.
+
+
+### Revision 69 — remove duplicated KING AI method tails
+- After repairing the dynamic-source parser blocker, the next compiler pass exposed a second pre-existing structural corruption in `king_local_ai.dart`: the complete `KingLocalAi` class closed at line 2014, followed by repeated out-of-class copies of `createRepairPullRequest`, `_createRepairPullRequest`, `_planOwnerFeature`, `createOwnerFeatureProposal` and `dispose`.
+- Kept the complete original class implementation, including GitHub/CI repair, owner planning, proposal generation and disposal; removed only the duplicate invalid tails after the class boundary.
+- Added source guards asserting one class and one copy of each critical method so this duplication cannot silently return.

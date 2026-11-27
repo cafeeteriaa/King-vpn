@@ -3303,5 +3303,59 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('restart from the new head', writer)
 
 
+    def test_rust_range_accelerator_is_optional_and_keeps_dart_fallback(self):
+        main = (ROOT / "lib" / "main.dart").read_text(encoding="utf-8")
+        nat = (ROOT / "lib" / "nat_ultra.dart").read_text(encoding="utf-8")
+        bridge = (ROOT / "lib" / "king_native_accel.dart").read_text(encoding="utf-8")
+        workflow = (ROOT / ".github" / "workflows" / "build.yml").read_text(encoding="utf-8")
+        self.assertIn("import 'king_native_accel.dart';", main)
+        self.assertIn("KingNativeAccel.tryExpandAddressRangeBatch(", nat)
+        self.assertIn("final result = _natExpandAnyCursor(range, cursor, limit);", nat)
+        self.assertIn("DynamicLibrary.open('libking_native_core.so')", bridge)
+        self.assertIn("if (!Platform.isAndroid", bridge)
+        self.assertIn("cargo test --manifest-path native/king_native_core/Cargo.toml --locked", workflow)
+        self.assertIn("cargo ndk -t arm64-v8a", workflow)
+        self.assertIn("ffi:^2.1.3", workflow)
+
+    def test_rust_range_core_covers_full_ipv6_space_and_keeps_ffi_bounds(self):
+        rust = (ROOT / "native" / "king_native_core" / "src" / "lib.rs").read_text(encoding="utf-8")
+        bridge = (ROOT / "lib" / "king_native_accel.dart").read_text(encoding="utf-8")
+        self.assertIn("full_u128_span", rust)
+        self.assertIn("catch_unwind", rust)
+        self.assertIn("output_capacity", rust)
+        self.assertIn("maxNativeBatchSize = 8192", bridge)
+        self.assertIn("addresses.length > limit", bridge)
+        self.assertIn("return null;", bridge)
+
+    def test_rust_acceleration_is_runtime_benchmarked_before_selection(self):
+        nat = (ROOT / "lib" / "nat_ultra.dart").read_text(encoding="utf-8")
+        bridge = (ROOT / "lib" / "king_native_accel.dart").read_text(encoding="utf-8")
+        self.assertIn("KingNativeAccel.shouldBenchmark", nat)
+        self.assertIn("accelerated.nextCursor == dartResult.$2", nat)
+        self.assertIn("nativeWatch.elapsedMicroseconds * 100", nat)
+        self.assertIn("dartWatch.elapsedMicroseconds * 90", nat)
+        self.assertIn("completeBenchmark(", bridge)
+        self.assertIn("disableNative()", bridge)
+
+    def test_dynamic_source_discovery_has_one_complete_incremental_engine(self):
+        source = (ROOT / "lib" / "king_dynamic_source_discovery.dart").read_text(encoding="utf-8")
+        self.assertEqual(source.count("class KingDynamicSourceDiscovery"), 1)
+        self.assertEqual(source.count("static Future<void> refresh("), 1)
+        self.assertIn("_cycleBudget = Duration(minutes: 2)", source)
+        self.assertIn("_workerCount = 4", source)
+        self.assertIn("'nextPage': page", source)
+        self.assertIn("'nextQuery': queryIndex", source)
+        self.assertIn("_writeCacheAtomically", source)
+        self.assertIn("if (treeJson is! Map || treeJson['truncated'] == true)", source)
+
+    def test_king_local_ai_contains_one_complete_class_without_duplicate_tail_blocks(self):
+        source = (ROOT / "lib" / "king_local_ai.dart").read_text(encoding="utf-8")
+        self.assertEqual(source.count("class KingLocalAi"), 1)
+        self.assertEqual(source.count("Future<void> dispose() async"), 1)
+        self.assertEqual(source.count("Future<String> createRepairPullRequest("), 1)
+        self.assertEqual(source.count("createOwnerFeatureProposal("), 1)
+        self.assertIn("Future<Map<String, dynamic>> _github(", source)
+        self.assertIn("_ownerPlannerSystemPrompt", source)
+
 if __name__ == '__main__':
     unittest.main()

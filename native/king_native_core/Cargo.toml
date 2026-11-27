@@ -1,0 +1,16 @@
+[package]
+name = "king_native_core"
+version = "0.1.0"
+edition = "2021"
+license = "UNLICENSED"
+publish = false
+
+[lib]
+name = "king_native_core"
+crate-type = ["cdylib", "rlib"]
+
+[profile.release]
+lto = true
+codegen-units = 1
+panic = "unwind"
+strip = "debuginfo"

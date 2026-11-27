@@ -2349,6 +2349,54 @@ String _natBigIntToIPv6(BigInt value) {
 
 ({List<String> addresses, String nextCursor}) natExpandAddressRangeBatch(
     String range, {String cursor = '0', int limit = 256}) {
+  // Benchmark one representative batch per isolate. Rust is selected only if
+  // its result is byte-for-byte equivalent and at least 10% faster on-device.
+  if (limit >= 128 &&
+      limit <= KingNativeAccel.maxNativeBatchSize &&
+      KingNativeAccel.shouldBenchmark) {
+    final dartWatch = Stopwatch()..start();
+    final dartResult = _natExpandAnyCursor(range, cursor, limit);
+    dartWatch.stop();
+
+    final nativeWatch = Stopwatch()..start();
+    final accelerated = KingNativeAccel.tryExpandAddressRangeBatch(
+      range, cursor: cursor, limit: limit,
+    );
+    nativeWatch.stop();
+
+    var equivalent = accelerated != null &&
+        accelerated.nextCursor == dartResult.$2 &&
+        accelerated.addresses.length == dartResult.$1.length;
+    if (equivalent) {
+      for (var index = 0; index < dartResult.$1.length; index++) {
+        if (accelerated!.addresses[index] != dartResult.$1[index]) {
+          equivalent = false;
+          break;
+        }
+      }
+    }
+    final faster = equivalent &&
+        nativeWatch.elapsedMicroseconds * 100 <
+            dartWatch.elapsedMicroseconds * 90;
+    KingNativeAccel.completeBenchmark(
+      equivalent: equivalent,
+      nativeFaster: faster,
+    );
+    if (faster) return accelerated!;
+    return (addresses: dartResult.$1, nextCursor: dartResult.$2);
+  }
+
+  // Small pages stay in Dart to avoid FFI overhead. After calibration, use
+  // Rust only when it won the real-device benchmark and the response validates.
+  if (limit >= KingNativeAccel.minNativeBatchSize &&
+      limit <= KingNativeAccel.maxNativeBatchSize &&
+      KingNativeAccel.useNative) {
+    final accelerated = KingNativeAccel.tryExpandAddressRangeBatch(
+      range, cursor: cursor, limit: limit,
+    );
+    if (accelerated != null) return accelerated;
+    KingNativeAccel.disableNative();
+  }
   final result = _natExpandAnyCursor(range, cursor, limit);
   return (addresses: result.$1, nextCursor: result.$2);
 }

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'king_native_accel.dart'; // Optional Rust CIDR/range accelerator with Dart fallback
 import 'king_dynamic_source_discovery.dart';
 import 'network_health.dart';
 import 'king_local_ai.dart';
