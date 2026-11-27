@@ -223,9 +223,39 @@ class KingNetworkFingerprint {
     return sorted.join(';');
   }
 
+  static List<String> parseDefaultRoutes({
+    Iterable<String> ipv4Lines = const <String>[],
+    Iterable<String> ipv6Lines = const <String>[],
+  }) {
+    final routes = <String>{};
+    for (final line in ipv4Lines) {
+      final fields = line.trim().split(RegExp(r'\\s+'));
+      if (fields.length < 8 || fields[1] != '00000000' || fields[7] != '00000000') continue;
+      final flags = int.tryParse(fields[3], radix: 16) ?? 0;
+      final iface = fields[0].toLowerCase();
+      if ((flags & 1) == 0 || _vpnInterfaceName.hasMatch(iface)) continue;
+      routes.add('v4:$iface:${fields[2]}:${fields[6]}');
+    }
+    for (final line in ipv6Lines) {
+      final fields = line.trim().split(RegExp(r'\\s+'));
+      if (fields.length < 10 || fields[0] != List<String>.filled(32, '0').join() ||
+          fields[1].toLowerCase() != '00') continue;
+      final flags = int.tryParse(fields[8], radix: 16) ?? 0;
+      final iface = fields[9].toLowerCase();
+      if ((flags & 1) == 0 || _vpnInterfaceName.hasMatch(iface)) continue;
+      routes.add('v6:$iface:${fields[4]}:${fields[5]}');
+    }
+    return routes.toList()..sort();
+  }
+
+  static String withDefaultRoutes(String interfaces, Iterable<String> routes) {
+    final sorted = routes.toList()..sort();
+    return '$interfaces#${sorted.join(';')}';
+  }
+
   static Future<String> capture() async {
     final interfaces = await NetworkInterface.list(includeLoopback: false);
-    return fromInterfaces(interfaces.map((interface) =>
+    final interfaceFingerprint = fromInterfaces(interfaces.map((interface) =>
         KingNetworkInterfaceSnapshot(
           name: interface.name,
           addresses: interface.addresses
@@ -233,6 +263,19 @@ class KingNetworkFingerprint {
               .map((address) => address.address)
               .toList(growable: false),
         )));
+    // Interface lists alone miss a default-route switch when Wi-Fi and cellular
+    // are both up. Linux/Android route tables provide the active default egress.
+    Future<List<String>> readRoutes(String path) async {
+      try {
+        return await File(path).readAsLines();
+      } catch (_) {
+        return const <String>[];
+      }
+    }
+    final ipv4 = await readRoutes('/proc/net/route');
+    final ipv6 = await readRoutes('/proc/net/ipv6_route');
+    final defaults = parseDefaultRoutes(ipv4Lines: ipv4, ipv6Lines: ipv6);
+    return withDefaultRoutes(interfaceFingerprint, defaults);
   }
 
   static bool changed(String before, String after) =>
