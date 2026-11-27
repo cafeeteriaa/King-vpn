@@ -263,7 +263,6 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         auth = (ROOT / 'lib' / 'king_ai_owner_auth.dart').read_text(encoding='utf-8')
         ai = (ROOT / 'lib' / 'king_local_ai.dart').read_text(encoding='utf-8')
         worker = (ROOT / 'lib' / 'king_ai_background.dart').read_text(encoding='utf-8')
-        scanner = (ROOT / 'lib' / 'king_national_scanner.dart').read_text(encoding='utf-8')
         console = (ROOT / 'lib' / 'king_ai_console.dart').read_text(encoding='utf-8')
         self.assertIn('Argon2id(', auth)
         self.assertIn('memory: 32 * 1024', auth)
@@ -2824,6 +2823,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
     def test_national_scanner_background_schedule_reuses_the_single_workmanager_dispatcher(self):
         main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
         worker = (ROOT / 'lib' / 'king_ai_background.dart').read_text(encoding='utf-8')
+        scanner = (ROOT / 'lib' / 'king_national_scanner.dart').read_text(encoding='utf-8')
         self.assertIn("part 'king_ai_background.dart';", main)
         self.assertIn('Workmanager().initialize(kingAiBackgroundDispatcher)', worker)
         self.assertIn("const String _nationalScannerTaskName = 'kingNationalNetworkScan';", worker)
