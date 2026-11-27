@@ -2507,6 +2507,11 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('king_nat_configured_ranges.json', source)
         self.assertIn('king_nat_range_state.json', source)
         self.assertIn('king_nat_learning_state.json', source)
+        cursor_start = source.index('(List<String>, int) _natExpandAnyCursor(')
+        cursor_end = source.index('int natMemQueued', cursor_start)
+        cursor = source[cursor_start:cursor_end]
+        self.assertIn('prefix < 0 || prefix > 32', cursor)
+        self.assertIn('InternetAddress.tryParse(x)?.type == InternetAddressType.IPv4', source)
         self.assertNotIn('natVarNormal.length > 3000', source)
         self.assertNotIn('_ipMemMax', source)
         self.assertNotIn('_domMemMax', source)
