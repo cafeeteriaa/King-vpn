@@ -1160,8 +1160,9 @@ class KingNationalScannerEngine {
     }
     return <String, Object?>{
       'engine': 'KING National Scanner Engine',
-      'version': 1,
+      'version': 2,
       'networkClass': natNetworkClassLabel(NatNetworkDiagnosis.current),
+      'routeEvidence': PilotNetworkProbe.current.toMap(),
       'nationalMode': nationalMode,
       'variantCatalogSize': _natSpecs.length,
       'profileCount': _history.length,
