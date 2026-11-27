@@ -18,6 +18,7 @@ class FreshResourceStore {
   static const String directoryName = 'KingVPN/ResourcesFresh';
   static const String _legacyFileName = 'configs.txt';
   static const String _metadataFileName = 'metadata.json';
+  static const String _dirtyFileName = '.inventory_dirty';
   static final Map<String, Future<void>> _queues = <String, Future<void>>{};
 
   static Future<Directory> directory() async {
@@ -146,14 +147,16 @@ class FreshResourceStore {
     final dir = await directory();
     await _migrateLegacy(dir);
     final metadata = await _readMetadata(dir);
+    final dirty = File('${dir.path}/$_dirtyFileName');
     final cached = metadata['count'];
-    if (cached is int && cached >= 0 && cached <= maxEntries) return cached;
+    if (!await dirty.exists() && cached is int && cached >= 0 && cached <= maxEntries) return cached;
     var total = 0;
     await for (final _ in streamLinks()) {
       total++;
       if (total >= maxEntries) break;
     }
     await _writeMetadata(dir, total, source: 'recount');
+    if (await dirty.exists()) await dirty.delete();
     return total;
   }
 
@@ -213,20 +216,29 @@ class FreshResourceStore {
       if (link == null) continue;
       batch.add(link);
       if (batch.length < _batchSize) continue;
+      final remaining = maxEntries - total;
+      if (remaining <= 0) break;
+      if (batch.length > remaining) batch = batch.take(remaining).toList();
+      await File('${dir.path}/$_dirtyFileName').writeAsString('1', flush: true);
       final added = await _enqueue(path, () => _appendBatch(dir, batch, source: source));
       addedTotal += added;
       total = (total + added).clamp(0, maxEntries);
       batch = <String>[];
       await _writeMetadata(dir, total, source: source);
+      final dirty = File('${dir.path}/$_dirtyFileName');
+      if (await dirty.exists()) await dirty.delete();
       if (total >= maxEntries) break;
     }
     if (batch.isNotEmpty && total < maxEntries) {
       final remaining = maxEntries - total;
       if (batch.length > remaining) batch = batch.take(remaining).toList();
+      await File('${dir.path}/$_dirtyFileName').writeAsString('1', flush: true);
       final added = await _enqueue(path, () => _appendBatch(dir, batch, source: source));
       addedTotal += added;
       total = (total + added).clamp(0, maxEntries);
       await _writeMetadata(dir, total, source: source);
+      final dirty = File('${dir.path}/$_dirtyFileName');
+      if (await dirty.exists()) await dirty.delete();
     }
     return total;
   }
@@ -299,6 +311,7 @@ class FreshResourceStore {
       if (entity is File &&
           (RegExp(r'^[0-9a-f]{2}\.jsonl$').hasMatch(entity.uri.pathSegments.last) ||
            entity.uri.pathSegments.last == _metadataFileName ||
+           entity.uri.pathSegments.last == _dirtyFileName ||
            entity.uri.pathSegments.last == '.migration_v2_done' ||
            entity.uri.pathSegments.last == '$_legacyFileName.migrated')) {
         await entity.delete();
