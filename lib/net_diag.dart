@@ -208,6 +208,27 @@ Future<String> netDiagnose() async {
       tcp, tls, web, home, dnsPoison, dnsDoh != null, srcRaw, srcMir,
       natOpKey, filterLayer);
 
+  // NNIE evidence summary: TLS quorum selects route strategy; IPv6 TCP is
+  // shown independently and is never mistaken for authenticated tunnel traffic.
+  try {
+    final evidence = await PilotNetworkProbe.refresh();
+    final diagnosis = await NatNetworkDiagnosis.refresh();
+    b.writeln('— شواهد مستقل مسیر داخلی/جهانی —');
+    b.writeln('تشخیص: ${natNetworkClassLabel(diagnosis)}');
+    b.writeln('TLS داخلی: ${evidence.domesticSuccesses}/${evidence.domesticSamples}'
+        ' • تأخیر میانه: ${evidence.domesticLatencyMs ?? '-'}ms');
+    b.writeln('TLS جهانی: ${evidence.globalSuccesses}/${evidence.globalSamples}'
+        ' • تأخیر میانه: ${evidence.globalLatencyMs ?? '-'}ms');
+    b.writeln('IPv6 داخلی: ${evidence.domesticIpv6Successes}/${evidence.domesticSamples}'
+        ' • IPv6 جهانی: ${evidence.globalIpv6Successes}/${evidence.globalSamples}');
+    b.writeln('اطمینان شواهد TLS: ${(evidence.confidence * 100).toStringAsFixed(0)}%');
+    b.writeln('نکته: این بررسی مسیر مستقیم گوشی است؛ موفقیت تونل فقط با عبور ترافیک واقعی VPN تأیید می‌شود.');
+    b.writeln();
+  } catch (e, st) {
+    logError(e, st);
+    b.writeln('شواهد مستقل مسیر در این نوبت کامل نشد.');
+  }
+
   b.writeln('— نتیجه و پیشنهاد —');
   if (!tcp && !web && home) {
     b.writeln('🔴 اینترنت بین‌الملل قطع است و فقط نت ملی کار می‌کند.\n'
