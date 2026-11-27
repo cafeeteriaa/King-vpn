@@ -108,18 +108,23 @@ Future<List<String>> _ipAutoBlocks(
   bool Function()? shouldAbort,
 }) async {
   final ips = <String>{};
+  final hostnames = <String>{};
   if (modeSnapshot) {
     ips
       ..addAll(natNationalIpMemHosts())
-      ..addAll(natScanHits)
+      ..addAll(natScanHits);
+    hostnames
+      ..addAll(natNationalDomMemHosts())
       ..addAll(natRelayHosts);
   } else {
     ips
       ..addAll(natIpMemHosts())
       ..addAll(_goldIps.keys);
+    for (final entry in natDomMem) {
+      final host = (entry['h'] ?? '').toString().split(':').first.trim();
+      if (host.isNotEmpty) hostnames.add(host);
+    }
   }
-
-  final hostnames = <String>{};
   for (final server in sourceServers) {
     if (shouldAbort?.call() ?? false) break;
     final host = server.host.trim();
@@ -309,9 +314,11 @@ extension IpAutoExt on _HomePageState {
     if (halted()) return false;
     if (runNationalMode) {
       await natNationalIpMemLoad();
+      await natNationalDomMemLoad();
       await natRelayHostsLoad();
     } else {
       await natIpMemLoad();
+      await natDomMemLoad();
       await goldLoad();
     }
     if (halted()) return false;
