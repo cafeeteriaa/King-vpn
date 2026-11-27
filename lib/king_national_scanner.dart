@@ -876,7 +876,7 @@ class KingNationalScannerEngine {
     required void Function(String) onStatus,
     required bool Function() cancelled,
     required Future<void> Function(List<String>) addDiscovered,
-    Duration sliceBudget = const Duration(seconds: 45),
+    Duration sliceBudget = const Duration(seconds: 60),
   }) async {
     final active = _scanFlight;
     if (active != null) return active;
@@ -1174,7 +1174,7 @@ class KingNationalScannerEngine {
           final portCount = max(1, natAutoPorts(seeds).length).toInt();
           final batchWaves = max(
             1,
-            (sliceBudget.inMilliseconds * 0.70 / (portCount * 1500)).floor(),
+            (sliceBudget.inMilliseconds * 0.50 / (portCount * 1500)).floor(),
           ).toInt();
           final batchAddressBudget = (workers * batchWaves).clamp(1, 768).toInt();
           var batch = 0;
