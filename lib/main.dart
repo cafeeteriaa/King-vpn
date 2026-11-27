@@ -12181,10 +12181,10 @@ ListTile( // KINGEXTRAS row
     final folderCount = await PersonalFolderStore.count();
     _personalTotalInFolder = folderCount;
     final order = <Server>[];
+    _personalShown = order;
     final okMap = <String, int>{};
     final seen = <String>{};
     final rows = <_PRow>[];
-    _personalShown = <Server>[];
     _personalRows.value = <_PRow>[];
     final lastGood = personalLastGood;
     var rowOffset = 0;
@@ -12207,7 +12207,6 @@ ListTile( // KINGEXTRAS row
         rows.add(_PRow(server)..ping = -2);
       }
       if (batch.isEmpty) continue;
-      _personalShown.addAll(batch);
       _personalRows.value = List<_PRow>.of(rows);
       final batchOffset = rowOffset;
       rowOffset += batch.length;
