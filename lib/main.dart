@@ -9742,6 +9742,12 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       if (downloaded.isEmpty) {
         throw StateError('Online source refresh returned no usable profiles; old inventory retained.');
       }
+      final configuredSources = userListUrls.length + listUrls.length;
+      final successfulSources = srcFetchState.values.where((state) => state == 'ok').length;
+      final requiredSources = configuredSources > 1 ? 2 : 1;
+      if (successfulSources < requiredSources) {
+        throw StateError('Source refresh coverage was insufficient ($successfulSources/$configuredSources); old inventory retained.');
+      }
       await FreshResourceStore.replaceSnapshot(
         downloaded.map((server) => server.link),
         source: 'online-public-sources-48h-refresh',
