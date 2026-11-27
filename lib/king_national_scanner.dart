@@ -1044,7 +1044,7 @@ class KingNationalScannerEngine {
               completed: false,
               cursor: <String, Object?>{
                 'rangeIndex': _natConfiguredRangeCursor,
-                'rangeOffsets': Map<String, int>.of(_natConfiguredRangeCursors),
+                'rangeCount': natRanges.length,
                 'batch': batch,
               },
             );
