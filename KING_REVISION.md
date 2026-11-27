@@ -197,3 +197,14 @@ Increment the revision number by exactly one for each substantial edit set. Reco
 - First exact-head run `45962305708` stopped at Python source guards: 244 ran, two inherited assertions failed because they used `flush=True` instead of Dart's `flush: true`, and expected an unnecessary class qualifier for a static method call inside its own class.
 - Corrected the assertions to verify the real Dart syntax and actual call site. No production behavior or test coverage was relaxed.
 - Exact-head rerun is required before Flutter tests, Dart analysis or Android build can be claimed.
+
+### Revision 69 — repair VPN source discovery and restore compile path
+- Reconstructed `lib/king_dynamic_source_discovery.dart` after finding repeated method blocks and incomplete fragments introduced by commit `9efc20b`. The clean implementation keeps extensionless feed support, path traversal checks, canonical HTTPS URL validation and multiple search queries.
+- Removed accidental repository/feed-count truncation. All valid discovered feed URLs are retained; provider page limits and per-response/time/concurrency budgets remain explicit.
+- Added a persisted `processedRepos` cursor so incomplete time-budgeted discovery resumes a page without re-fetching already completed repositories; transiently failed repositories remain eligible for retry.
+- Added a source guard proving the cursor is persisted and that no `_maxRepos`, `_maxFiles` or `.take(...)` inventory truncation is present.
+- Fixed explicit null promotion after the Android bridge contract check and added safe unknown fallbacks to Smart Pilot network-mode switches.
+- Review pass 1: audited discovery path/URL validation, extensionless names and preservation of the complete feed inventory.
+- Review pass 2: audited page/query cursor transitions, retry behavior for transient failures and persistence after a time-budget stop.
+- Review pass 3: audited bridge contract nullability, Smart Pilot fallback behavior and regression-guard coverage. Exact-head tests/analyze/build remain pending.
+- No IP Clean source, range, CIDR, port, cursor or scan capability was removed or limited.

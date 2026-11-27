@@ -1,3 +1,21 @@
+## CI failure analysis and repair plan — run 45962523154
+
+- Exact tested commit: `e4e8473bd690631118b13ff3dc36fdbc3cbd2148`.
+- Run: https://github.com/cafeeteriaa/King-vpn/actions/runs/45962523154 — `failure`.
+- Python source guards passed. The Flutter unit-test step then failed during Dart compilation, so Dart analysis and Android build were skipped.
+- Root cause: `lib/king_dynamic_source_discovery.dart` had grown to 1,664 lines with repeated copies of `normalizeFeedUrl`, `_cacheFile`, `_readCache`, `cachedFeeds`, `refresh`, headers and scoring helpers, plus incomplete regex/method fragments. The corruption was introduced by commit `9efc20bf697f19dede3962c844a6610500bcb2bc`; the preceding `d1d61ef0` version was a clean 214-line implementation.
+- The broken file caused cascading unresolved identifiers and parser errors in the discovery class and `main.dart`. Two independent compile issues were also found: nullable bridge metadata was indexed after a helper call without an explicit null promotion, and Smart Pilot's dynamic mode switches lacked a fallback arm.
+- Repair reconstructs one clean discovery class, preserves extensionless feeds and strict path/URL validation, retains all discovered feeds without repository/feed-count caps, and persists a per-page processed-repository cursor so a time-budgeted cycle does not restart already completed repositories. GitHub's own 1,000-results-per-query limit, per-response byte budgets and background time/concurrency budgets remain provider/resource safeguards, not inventory caps.
+- Also adds explicit bridge-info null promotion and safe unknown-mode fallbacks for Smart Pilot.
+- Repair commit SHA: resolved from branch after commit creation; exact-head rerun pending.
+- Active Actions before repair: none. No workflow was cancelled.
+
+## First next action
+
+Run exact-head CI after this repair. If source guards and Flutter tests pass, proceed through Dart analysis and the ARM64 build; inspect an APK only if the complete run succeeds.
+
+---
+
 ## CI failure analysis — run 45962305708
 
 - Exact implementation commit: `8ba22e9d2f40342800ea24b97d35e859651ab889`.

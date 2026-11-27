@@ -129,11 +129,12 @@ Future<void> _probeBgBridge({bool force = false}) async {
     final info = await bgChannel
         .invokeMapMethod<String, dynamic>('bridgeInfo')
         .timeout(const Duration(seconds: 5));
-    if (!bgBridgeInfoMatches(
-      info,
-      expectedProtocolVersion: _bgBridgeProtocolVersion,
-      expectedPackageName: ownPkg,
-    )) {
+    if (info == null ||
+        !bgBridgeInfoMatches(
+          info,
+          expectedProtocolVersion: _bgBridgeProtocolVersion,
+          expectedPackageName: ownPkg,
+        )) {
       throw StateError('Native bridge protocol/capability mismatch: $info');
     }
     _bgBridgeVerified = true;

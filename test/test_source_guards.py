@@ -570,6 +570,18 @@ class KingVpnSourceGuardTests(unittest.TestCase):
                       'vpnSettings', 'back', 'alive', 'androidSdk'):
             self.assertIn("info['" + field + "']", contract)
 
+    def test_dynamic_source_discovery_resumes_without_inventory_caps(self):
+        source = (ROOT / 'lib' / 'king_dynamic_source_discovery.dart').read_text(encoding='utf-8')
+        self.assertIn("oldCache['processedRepos']", source)
+        self.assertIn("'processedRepos': processedRepos.toList", source)
+        self.assertIn("repos.any((repo) => !processedRepos.contains(repo.fullName))", source)
+        self.assertIn("nextPage", source)
+        self.assertIn("nextQuery", source)
+        self.assertIn("_cycleBudget", source)
+        self.assertNotIn("_maxRepos", source)
+        self.assertNotIn("_maxFiles", source)
+        self.assertNotIn(".take(", source)
+
     def test_background_supervisor_is_initialized_with_its_own_dispatcher(self):
         main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
         self.assertIn("import 'king_ai_background.dart';", main)
