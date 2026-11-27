@@ -58,16 +58,34 @@ class NetworkEvidence {
       nationalOnly ? domesticTlsReachabilityVerified : globalTlsReachabilityVerified;
 
   double get confidence {
-    // Count actual successful TLS handshakes, not attempts. Failed probes are
-    // evidence for route classification but must never inflate reachability confidence.
-    final successfulSamples = (domesticSuccesses + globalSuccesses).clamp(0, 6);
-    if (successfulSamples <= 0) return 0;
-    // The dedicated pilot scanner samples exactly three domestic and three global targets.
-    // Six successful samples with both groups verified reach 100%.
-    final coverage = (successfulSamples / 6).clamp(0, 1).toDouble();
-    final verified = (domesticTlsReachabilityVerified ? 1 : 0) +
-        (globalTlsReachabilityVerified ? 1 : 0);
-    return (coverage * (0.55 + verified * 0.225)).clamp(0, 1).toDouble();
+    // Confidence follows the evidence actually collected. Do not assume a
+    // fixed probe count: scanners may add/remove targets over time.
+    final domesticAttempts = domesticSamples > 0 ? domesticSamples : 0;
+    final globalAttempts = globalSamples > 0 ? globalSamples : 0;
+    final totalAttempts = domesticAttempts + globalAttempts;
+    if (totalAttempts == 0) return 0;
+
+    // Successful handshakes cannot exceed the number of recorded attempts.
+    // Clamp each route independently so malformed counters cannot inflate
+    // the confidence score or let one route hide missing evidence on the other.
+    final domesticOk = domesticSuccesses < 0
+        ? 0
+        : domesticSuccesses > domesticAttempts
+            ? domesticAttempts
+            : domesticSuccesses;
+    final globalOk = globalSuccesses < 0
+        ? 0
+        : globalSuccesses > globalAttempts
+            ? globalAttempts
+            : globalSuccesses;
+    final successfulSamples = domesticOk + globalOk;
+    final coverage = (successfulSamples / totalAttempts).clamp(0.0, 1.0);
+
+    // TLS verification adds confidence only when that route has at least
+    // one successful sample; a stale flag cannot validate an empty route.
+    final verified = (domesticTlsReachabilityVerified && domesticOk > 0 ? 1 : 0) +
+        (globalTlsReachabilityVerified && globalOk > 0 ? 1 : 0);
+    return (coverage * (0.55 + verified * 0.225)).clamp(0.0, 1.0).toDouble();
   }
 }
 

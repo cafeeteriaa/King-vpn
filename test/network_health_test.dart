@@ -3,7 +3,7 @@ import '../lib/network_health.dart';
 
 void main() {
   group('Smart Pilot route policy', () {
-    test('confidence reaches 1.0 when all six dedicated probes are verified', () {
+    test('confidence reaches 1.0 when all collected probes are verified', () {
       const evidence = NetworkEvidence(
         domestic: LinkHealth.healthy,
         global: LinkHealth.healthy,
@@ -17,17 +17,56 @@ void main() {
       expect(evidence.confidence, 1.0);
     });
 
-    test('confidence remains bounded and lower when probe coverage is partial', () {
+    test('confidence scales with dynamically expanded probe coverage', () {
+      const evidence = NetworkEvidence(
+        domestic: LinkHealth.healthy,
+        global: LinkHealth.healthy,
+        domesticSamples: 10,
+        globalSamples: 10,
+        domesticSuccesses: 10,
+        globalSuccesses: 10,
+        domesticTlsReachabilityVerified: true,
+        globalTlsReachabilityVerified: true,
+      );
+      expect(evidence.confidence, 1.0);
+    });
+
+    test('partial evidence uses the actual sample count, not a fixed six-sample denominator', () {
       const evidence = NetworkEvidence(
         domestic: LinkHealth.degraded,
         global: LinkHealth.unknown,
-        domesticSamples: 3,
-        globalSamples: 3,
+        domesticSamples: 10,
+        globalSamples: 10,
         domesticSuccesses: 1,
         globalSuccesses: 0,
       );
-      expect(evidence.confidence, greaterThan(0));
-      expect(evidence.confidence, lessThan(1));
+      expect(evidence.confidence, closeTo(0.55 / 20, 0.0001));
+    });
+
+    test('success counters cannot exceed their route attempt counts', () {
+      const evidence = NetworkEvidence(
+        domestic: LinkHealth.healthy,
+        global: LinkHealth.unknown,
+        domesticSamples: 2,
+        globalSamples: 0,
+        domesticSuccesses: 200,
+        globalSuccesses: 200,
+        domesticTlsReachabilityVerified: true,
+        globalTlsReachabilityVerified: true,
+      );
+      expect(evidence.confidence, closeTo(0.775, 0.0001));
+    });
+
+    test('success counters without recorded attempts do not create confidence', () {
+      const evidence = NetworkEvidence(
+        domestic: LinkHealth.healthy,
+        global: LinkHealth.healthy,
+        domesticSuccesses: 100,
+        globalSuccesses: 100,
+        domesticTlsReachabilityVerified: true,
+        globalTlsReachabilityVerified: true,
+      );
+      expect(evidence.confidence, 0);
     });
 
     test('failed attempts do not inflate reachability confidence', () {
@@ -104,7 +143,6 @@ void main() {
       );
       expect(choosePilotNetworkStrategy(evidence), PilotNetworkStrategy.preserve);
     });
-
 
     test('reports unknown mode when only one domestic endpoint responds', () {
       const evidence = NetworkEvidence(
