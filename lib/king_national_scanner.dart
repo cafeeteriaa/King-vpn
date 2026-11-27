@@ -913,6 +913,8 @@ class KingNationalScannerEngine {
     var configsValidated = 0, dnsCount = 0;
     var networkEvidence = PilotNetworkProbe.current;
     var phaseDeferred = false;
+    File? processLeaseFile;
+    var ownsProcessLease = false;
     KingScanJournal? journal;
     String resumePhase = '';
     Map<String, Object?> resumeCursor = <String, Object?>{};
@@ -974,6 +976,41 @@ class KingNationalScannerEngine {
       } catch (e, st) {
         logError(e, st);
         warnings.add('network_evidence_incomplete');
+      }
+      // The in-memory scanner lease is isolate-local. A small atomic
+      // file lease also prevents the foreground app and WorkManager isolate
+      // from traversing the same inventory concurrently.
+      try {
+        final directory = await getApplicationSupportDirectory();
+        final lockFile = File('${directory.path}/king_national_scanner.lock');
+        if (await lockFile.exists()) {
+          final age = DateTime.now().difference(await lockFile.lastModified());
+          if (age < const Duration(minutes: 15)) {
+            warnings.add('another_scanner_process_running');
+            phaseDeferred = true;
+          } else {
+            await lockFile.delete();
+          }
+        }
+        if (!phaseDeferred) {
+          try {
+            await lockFile.create(exclusive: true);
+            processLeaseFile = lockFile;
+            ownsProcessLease = true;
+            await lockFile.writeAsString(
+              DateTime.now().millisecondsSinceEpoch.toString(),
+              flush: true,
+            );
+          } on FileSystemException {
+            warnings.add('another_scanner_process_running');
+            phaseDeferred = true;
+          }
+        }
+      } catch (e, st) {
+        logError(e, st);
+        // If path-provider is unavailable in a test/headless environment,
+        // the existing in-isolate single-flight/lease remains in force.
+        warnings.add('cross_process_lease_unavailable');
       }
       try {
         final networkClass = NatNetworkDiagnosis.current.name;
@@ -1351,6 +1388,13 @@ class KingNationalScannerEngine {
       );
     } finally {
       if (ownsScannerLease) dnsxManualBusy = false;
+      if (ownsProcessLease && processLeaseFile != null) {
+        try {
+          if (await processLeaseFile!.exists()) await processLeaseFile!.delete();
+        } catch (e, st) {
+          logError(e, st);
+        }
+      }
     }
   }
 
