@@ -33,27 +33,32 @@ void main() {
       final attempts = <String, int>{};
       final lastVisibleResult = <String, int?>{};
       final result = await PersonalFolderProbeCoordinator.rank(
-        batches: Stream<List<String>>.value(<String>['recovers', 'healthy']),
+        batches: Stream<List<String>>.fromIterable(<List<String>>[
+          <String>['recovers', 'healthy'],
+          <String>['recovers-late'],
+        ]),
         probe: (link) async {
           attempts.update(link, (value) => value + 1, ifAbsent: () => 1);
-          if (link == 'recovers' && attempts[link] == 1) return null;
+          if (link != 'healthy' && attempts[link] == 1) return null;
           if (link == 'healthy') return 20;
-          return 50;
+          return link == 'recovers' ? 50 : 60;
         },
         fallbackLinks: () async => <String>[],
         isCancelled: () => false,
         concurrency: 2,
-        total: 2,
+        total: 3,
         retryDelay: Duration.zero,
         onResult: (link, latency) => lastVisibleResult[link] = latency,
       );
 
       expect(lastVisibleResult['recovers'], 50);
+      expect(lastVisibleResult['recovers-late'], 60);
       expect(attempts['recovers'], 2);
+      expect(attempts['recovers-late'], 2);
       expect(attempts['healthy'], 1);
-      expect(result.links, <String>['healthy', 'recovers']);
-      expect(result.probed, 2);
-      expect(result.healthy, 2);
+      expect(result.links, <String>['healthy', 'recovers', 'recovers-late']);
+      expect(result.probed, 3);
+      expect(result.healthy, 3);
     });
 
     test('uses the complete second pass as real-core fallback when all probes fail', () async {
