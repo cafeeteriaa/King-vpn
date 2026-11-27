@@ -2581,51 +2581,14 @@ List<String> _getCfIps({
   return (out, offset + count >= span ? -1 : offset + count);
 }
 
-// Cursor-aware exact endpoint and configured IPv4 range expansion. The batch
-// size limits only transient memory; it never reduces the total range coverage.
-Map<String, dynamic> _genAddrsIso(Map<String, dynamic> args) {
-  final int cfIpsBatch = args['cfIpsBatch'] as int;
-  final List<String> blocks = List<String>.from(args['blocks'] as List);
-  final bool nationalMode = args['nationalMode'] as bool;
-  final List<String> liveRanges = List<String>.from(args['liveRanges'] as List);
-  final Map<String, int> cursors = Map<String, int>.from(args['cursors'] as Map);
-  final addrs = <String>[];
-  // NATMEM: هر بلوک حداکثر ۲۵۶ آدرس پراکنده و کل فهرست سقف دارد. قبلاً هر بلوک تا ۶۵۵۳۶ آدرس
-  // و فهرست ISP حدود ۲۸۰۰ بلوک داشت، یعنی ده‌ها میلیون رشته در isolate و فقط ۶۰۰۰ تای آن استفاده می‌شد.
-  final cap = max(0, (args['outputLimit'] as int?) ?? max(cfIpsBatch * 4, 20000));
-  void addBlocks() {
-    if (blocks.isEmpty || cap <= 0) return;
-    final start = (cursors['__block_cursor'] ?? 0) % blocks.length;
-    var processed = 0;
-    while (processed < blocks.length && addrs.length < cap) {
-      final index = (start + processed) % blocks.length;
-      final range = blocks[index];
-      final key = 'block:$range';
-      final cursor = cursors[key] ?? 0;
-      final generated = _natExpandAnyCursor(
-          range, cursor, min(256, cap - addrs.length).toInt());
-      if (generated.$1.isNotEmpty) {
-        addrs.addAll(generated.$1);
-        cursors[key] = generated.$2;
-      } else {
-        // Persist exhaustion for this endpoint block; zero would restart it
-        // from the beginning and prevent a complete inventory pass.
-        cursors[key] = -1;
-      }
-      processed++;
-    }
-    if (processed > 0) {
-      cursors['__block_cursor'] = (start + processed) % blocks.length;
-    }
-  }
-  if (nationalMode) {
-    addrs.addAll(_getCfIps(batchSize: cfIpsBatch, liveRanges: liveRanges, cursors: cursors));
-    addBlocks();
-  } else {
-    addBlocks();
-    addrs.addAll(_getCfIps(batchSize: cfIpsBatch, liveRanges: liveRanges, cursors: cursors));
-  }
-  return {'addrs': addrs, 'cursors': cursors};
+// Cursor-aware exact endpoint and configured IPv4 range expansion.
+/// The per-call limit bounds transient memory only; each valid configured IPv4
+/// range is traversed completely by its durable offset. No sampling stride or
+/// per-range address ceiling is applied to the runtime inventory.
+(List<String>, int) _natExpandAnyCursor(String item, int cursor, int maxPerBlock) {
+  final range = NatAddressRangeCursor.parse(item);
+  if (range == null) return (<String>[], -1);
+  return range.read(cursor, maxPerBlock);
 }
 
 // Begin another complete pass only after the previous inventory pass finished.
