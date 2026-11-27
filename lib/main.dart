@@ -43,6 +43,7 @@ import 'help_page.dart';
 import 'conn_specs.dart';
 import 'personal_folder.dart'; // پوشه‌ی «سرورهای شخصی»
 import 'personal_folder_store.dart'; // صفحه‌بندی فایل‌محور پوشه شخصی
+import 'personal_folder_probe.dart'; // پینگ جریانی با همزمانی محدود
 import 'king_extras2.dart'; // KINGEXTRAS: share sheet / UUID / check-host.net
 part 'iran_ai_extras.dart';
 part 'npv_am_extras.dart';
@@ -5594,7 +5595,13 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       }
       _restoredGood = <Server>[];
       if (connRow == 'p:personal' && _personalShown.isNotEmpty) {
-        if (_personalRanked.isEmpty) _personalRanked = List<Server>.of(_personalShown);
+        if (_personalRanked.isEmpty) {
+          final restoredLinks = <String>[];
+          await for (final batch in PersonalFolderStore.readBatches(batchSize: 128)) {
+            restoredLinks.addAll(batch);
+          }
+          _personalRanked = restoredLinks;
+        }
         _personalWatchOn();
       }
     } catch (e, stk) { logError(e, stk); }
@@ -12028,7 +12035,7 @@ ListTile( // KINGEXTRAS row
     return ok;
   }
 
-  List<Server> _personalRanked = <Server>[];
+  List<String> _personalRanked = <String>[];
   int _personalIdx = 0;
   bool _personalHardFail = false;
   /// true وقتی اتصال سرور شخصی در جریان است: بررسی سلامت منابع (پس‌زمینه) نباید اجرا شود
@@ -12057,101 +12064,95 @@ ListTile( // KINGEXTRAS row
     _personalPrep = _personalPrepWork();
   }
 
-  /// PERSPING: پینگ همزمان (۸ تایی) برای سرورهای شخصی؛ نتیجه‌ی هر سرور همان لحظه روی صفحه می‌آید.
-  /// خروجی: نقشه‌ی link -> ms فقط برای سرورهای سالم
-  Future<Map<String, int>> _personalPingAll(List<Server> list) async {
-    final gen = ++_personalPingGen;
-    bool cancelled() => gen != _personalPingGen;
-    final ok = <String, int>{};
-    final rows = _personalRows.value;
-    var doneCount = 0;
-    // V5: یک دور پینگ کامل؛ سرورهایی که شکست خوردند یک بار دیگر (بعد از مکث کوتاه) امتحان می‌شوند
-    Future<void> pass(List<int> idxs) async {
-      var next = 0;
-      Future<void> worker() async {
-        while (true) {
-          if (next >= idxs.length || cancelled()) return;
-          final i = idxs[next++];
-          final s = list[i];
-          int? d;
-          try {
-            // V7: پینگ از داخل هسته (همان تست تأییدشده‌ی سرورهای عمومی) به‌جای TCP مستقیم.
-            // TCP مستقیم به workers.dev در نت ملی وقتی DNS جهانی خاموش است شکست می‌خورد.
-            d = await _delayOnce(s, 0, const Duration(seconds: 5), null,
-                    cancelled: cancelled)
-                .timeout(const Duration(seconds: 8));
-          } catch (_) {
-            d = null;
-          }
-          if (d != null && d >= 0) {
-            ok[s.link] = d;
-            if (i < rows.length) rows[i].ping = d;
-          } else if (i < rows.length) {
-            rows[i].ping = -1;
-          }
-          doneCount++;
-          _personalRows.value = List<_PRow>.of(rows);
-          _set('پینگ سرورهای شخصی: $doneCount/${list.length} • سالم: ${ok.length}');
-        }
-      }
-      // مشکل ۷: تعداد کارگرها با سقف گیت هماهنگ است
-      final nW = min(8, max(1, _delayGate.max));
-      await Future.wait([for (var k = 0; k < nW; k++) worker()]);
-    }
-    await pass([for (var i = 0; i < list.length; i++) i]);
-    final failed = [for (var i = 0; i < list.length; i++) if (!ok.containsKey(list[i].link)) i];
-    if (failed.isNotEmpty && failed.length < list.length) {
-      await Future<void>.delayed(const Duration(seconds: 2));
-      doneCount = list.length - failed.length;
-      await pass(failed);
-    }
-    _set('پینگ سرورهای شخصی تمام شد: ${ok.length} سالم از ${list.length}');
-    return ok;
-  }
-
-  /// PERSNOPING (قدیمی): تست پینگ سرورهای شخصی قبلاً حذف شده بود.
-  /// فقط لیست پوشه (تا ۵۰ تای اول) روی صفحه می‌آید و ترتیب اتصال همان ترتیب پوشه است
-  /// (آخرین سرور سالم اول). هر سرور با تست واقعی هسته امتحان می‌شود؛ اگر خراب بود، بعدی.
+  /// PERSSTREAM: parse and probe the durable archive in bounded batches.
+  /// Only successful links and the visible UI page are retained in memory.
   Future<void> _personalPrepWork() async {
+    final generation = ++_personalPingGen;
+    bool cancelled() => generation != _personalPingGen;
+    _personalRanked = <String>[];
+    _personalPrepDone = false;
     if (busy || searching || _natKeepOn || _natRangeScanBusy) {
       await _haltAll(max: const Duration(seconds: 10));
     }
-    // سرور شخصی تکی هم باید داخل پوشه باشد
-    if (personal != null && !personalFolderCache.contains(personal!.link.trim())) {
+    if (cancelled()) return;
+    if (personal != null &&
+        !await PersonalFolderStore.containsLink(personal!.link)) {
+      if (cancelled()) return;
       await addToPersonalFolder([personal!.link]);
     }
-    final folderCount = personalFolderCache.length;
-    final seen = <String>{};
-    final list = <Server>[
-      for (final s in personalFolderServers())
-        if (seen.add(s.link)) s,
-    ];
-    _personalTotalInFolder = folderCount;
-    _personalShown = List<Server>.of(list);
-    _personalRows.value = [for (final s in list) _PRow(s)..ping = -2];
-    final order = List<Server>.of(list);
-    final lg = personalLastGood;
-    if (lg.isNotEmpty) {
-      final i = order.indexWhere((x) => x.link == lg);
-      if (i > 0) order.insert(0, order.removeAt(i));
+    if (cancelled()) return;
+
+    final firstPage = await PersonalFolderStore.readPage(limit: 50);
+    if (cancelled()) return;
+    final folderCount = firstPage.totalCount;
+    final visible = <Server>[];
+    for (final link in firstPage.items) {
+      final server = Server.parse(link);
+      if (server == null) continue;
+      server.personal = true;
+      visible.add(server);
     }
-    // PERSPING: پینگ واقعی همین ۱۰۰ سرور؛ فقط سالم‌ها وارد ترتیب اتصال می‌شوند
-    final okMap = await _personalPingAll(list);
-    final okList = [for (final s in order) if (okMap.containsKey(s.link)) s];
-    // PERSLOWEST: فقط کمترین پینگ تعیین‌کننده است؛ آخرین سرور موفق فقط در برابر پینگ مساوی جلو می‌افتد
-    okList.sort((a, b) {
-      final c = okMap[a.link]!.compareTo(okMap[b.link]!);
-      if (c != 0) return c;
-      return (a.link == lg ? 0 : 1).compareTo(b.link == lg ? 0 : 1);
-    });
-    // V6: اگر پینگ همه‌ی سرورها شکست خورد (مسیر مستقیم DNS در نت ملی)، به‌جای خطا،
-    // همان ترتیب پوشه امتحان می‌شود؛ هر سرور با اتصال واقعی و تست ترافیک بررسی می‌شود.
-    _personalRanked = okList.isEmpty && order.isNotEmpty ? List<Server>.of(order) : okList;
-    if (okList.isEmpty && order.isNotEmpty) {
+    _personalTotalInFolder = folderCount;
+    _personalShown = visible;
+    final rows = <_PRow>[for (final server in visible) _PRow(server)];
+    _personalRows.value = rows;
+    final rowByLink = <String, _PRow>{
+      for (final row in rows) row.s.link: row,
+    };
+
+    final result = await PersonalFolderProbeCoordinator.rank(
+      batches: PersonalFolderStore.readBatches(batchSize: 128),
+      concurrency: min(8, max(1, _delayGate.max)),
+      total: folderCount,
+      preferredLink: personalLastGood,
+      isCancelled: cancelled,
+      probe: (link) async {
+        final server = Server.parse(link);
+        if (server == null) return null;
+        server.personal = true;
+        try {
+          return await _delayOnce(
+            server,
+            0,
+            const Duration(seconds: 5),
+            null,
+            cancelled: cancelled,
+          ).timeout(const Duration(seconds: 8));
+        } catch (_) {
+          return null;
+        }
+      },
+      fallbackLinks: () async {
+        final all = <String>[];
+        await for (final batch in PersonalFolderStore.readBatches(batchSize: 128)) {
+          if (cancelled()) break;
+          all.addAll(batch);
+        }
+        return all;
+      },
+      onResult: (link, latency) {
+        final row = rowByLink[link];
+        if (row != null) {
+          row.ping = latency ?? -1;
+          _personalRows.value = List<_PRow>.of(rows);
+        }
+      },
+      onProgress: (completed, total, healthy) {
+        _set('پینگ سرورهای شخصی: $completed/$total • سالم: $healthy');
+      },
+    );
+
+    // A newer preparation/stop request owns the state; stale work must not
+    // overwrite its ranked links or initiate a connection.
+    if (result.cancelled || cancelled()) return;
+    _personalRanked = result.links;
+    if (result.healthy == 0 && result.links.isNotEmpty) {
       _set('پینگ مستقیم جواب نداد؛ سرورها یکی‌یکی با اتصال واقعی امتحان می‌شوند');
+    } else {
+      _set('پینگ سرورهای شخصی تمام شد: ${result.healthy} سالم از $folderCount');
     }
     _personalPrepDone = true;
-    dbg('PERSFOLDER پوشه=$folderCount • روی صفحه=${list.length} • پینگ گرفته شد');
+    dbg('PERSFOLDER آرشیو=$folderCount • صفحهٔ نمایش=${visible.length} • پینگ جریانی تمام شد');
     unawaited(_persistScreenLists());
     if (mounted) setState(() {});
   }
@@ -12164,8 +12165,9 @@ ListTile( // KINGEXTRAS row
     _set('اتصال به سرورهای شخصی...');
     await prep;
     _personalPrep = null;
+    if (!_personalPrepDone) return;
     // V5: نتیجه‌ی پینگ پیش‌گرم (که هنگام تبلیغ اجرا شده) گاهی خالی است؛ یک بار دوباره پینگ می‌گیریم
-    if (_personalRanked.isEmpty && personalFolderCache.isNotEmpty) {
+    if (_personalRanked.isEmpty && _personalTotalInFolder > 0) {
       _set('دوباره پینگ سرورهای شخصی...');
       await _personalPrepWork();
     }
@@ -12173,7 +12175,8 @@ ListTile( // KINGEXTRAS row
       _set('هیچ سرور شخصی جواب نداد؛ سرور شخصی یا پوشه را بررسی کن');
       return;
     }
-    _set('اتصال به سرور شخصی: ${_personalRanked.first.name}...');
+    final first = Server.parse(_personalRanked.first);
+    _set('اتصال به سرور شخصی: ${first?.name ?? 'سرور شخصی'}...');
     await _personalConnectAt(0);
   }
 
@@ -12213,7 +12216,7 @@ ListTile( // KINGEXTRAS row
                     ListTile(
                       leading: const Icon(Icons.speed),
                       title: Text(
-                          'همه‌ی سرورهای شخصی: ${rows.length} • پینگ گرفته می‌شود'),
+                          'سرورهای شخصی: ${_personalTotalInFolder} • نمایش ${rows.length} مورد'),
                       subtitle: const Text(
                           'به کمترین پینگ وصل می‌شود؛ اگر یکی خراب بود، بعدی امتحان می‌شود'),
                     ),
@@ -12274,7 +12277,13 @@ ListTile( // KINGEXTRAS row
       return;
     }
     _personalIdx = i;
-    final ok = await _connectPersonalFast(_personalRanked[i]);
+    final server = Server.parse(_personalRanked[i]);
+    if (server == null) {
+      await _personalConnectAt(i + 1);
+      return;
+    }
+    server.personal = true;
+    final ok = await _connectPersonalFast(server);
     if (ok) {
       _personalWatchOn();
     } else if (!_personalHardFail && !abort && wantVpn) {
@@ -12547,7 +12556,7 @@ ListTile( // KINGEXTRAS row
     } else {
       // آنلاین/آفلاین/نت ملی: جستجوی پس‌زمینه همان لحظه‌ی تبلیغ متوقف می‌شود
       unawaited(_haltBgForAd());
-      // PERSCANCEL: تپ غیرشخصی؛ پینگ‌های شخصی تپ قبلی لغو شوند. تپ شخصی خودش در _personalPingAll نسل تازه می‌گیرد.
+      // PERSCANCEL: تپ غیرشخصی؛ پینگ‌های شخصی تپ قبلی لغو شوند. تپ شخصی خودش در coordinator نسل تازه می‌گیرد.
       _personalPingGen++;
     }
     final persTap = true; // ADALL: هر تپ اتصال تبلیغ دارد

@@ -15,6 +15,30 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn("personalFolderServers(max:", source)
         self.assertNotIn("out.length >= max", source)
 
+    def test_personal_folder_connection_uses_streaming_probe_pipeline(self):
+        source = (ROOT / "lib" / "main.dart").read_text(encoding="utf-8")
+        coordinator = (ROOT / "lib" / "personal_folder_probe.dart").read_text(encoding="utf-8")
+        prep_start = source.index("Future<void> _personalPrepWork() async")
+        prep_end = source.index("Future<void> personalFolderConnect()", prep_start)
+        prep = source[prep_start:prep_end]
+        self.assertIn("PersonalFolderStore.readBatches(batchSize: 128)", prep)
+        self.assertIn("PersonalFolderProbeCoordinator.rank", prep)
+        self.assertIn("PersonalFolderStore.readPage(limit: 50)", prep)
+        self.assertNotIn("personalFolderServers()", prep)
+        self.assertIn("while (!isCancelled())", coordinator)
+        self.assertIn("concurrency", coordinator)
+        self.assertIn("fallbackLinks()", coordinator)
+        self.assertIn("scores.sort", coordinator)
+        self.assertIn("List<String> _personalRanked", source)
+
+    def test_personal_failover_restores_the_complete_ordered_archive(self):
+        source = (ROOT / "lib" / "main.dart").read_text(encoding="utf-8")
+        adopt_start = source.index("Future<void> _adopt() async")
+        adopt_end = source.index("void _startWatch()", adopt_start)
+        adopt = source[adopt_start:adopt_end]
+        self.assertIn("PersonalFolderStore.readBatches(batchSize: 128)", adopt)
+        self.assertNotIn("_personalShown.map((s) => s.link)", adopt)
+
     def test_personal_folder_mutations_are_serialized(self):
         folder = (ROOT / "lib" / "personal_folder.dart").read_text(encoding="utf-8")
         self.assertIn("Future<void> _personalMutationQueue", folder)
@@ -51,18 +75,19 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn("servers.jsonl", store)
         self.assertIn("servers.jsonl.bak", store)
         self.assertIn("servers.jsonl.tmp", store)
-        self.assertIn("await temp.writeAsString(contents, flush=True)", store)
+        self.assertIn("await temp.writeAsString(contents, flush: true)", store)
         self.assertIn("await _replaceByRename(temp, target)", store)
         self.assertIn("PersonalFolderStore.readOrMigrate", folder)
-        self.assertIn("await PersonalFolderStore.writeSnapshot(next)", folder)
+        self.assertIn("PersonalFolderStore.appendLinks(input)", folder)
+        self.assertIn("PersonalFolderStore.removeLinks([link])", folder)
         self.assertIn("await p.remove(_kPersonalFolderPref)", folder)
 
     def test_personal_folder_store_never_overwrites_good_backup_with_corrupt_primary(self):
         store = (ROOT / "lib" / "personal_folder_store.dart").read_text(encoding="utf-8")
-        start = store.index("if (await target.exists() && await _readFile(target) != null)")
-        end = store.index("// On Android/Linux", start)
+        start = store.index("// Preserve a validated primary before replacing it.")
+        end = store.index("await _replaceByRename(temp, target)", start)
         rotation = store[start:end]
-        self.assertIn("await backupTemp.writeAsBytes(await target.readAsBytes(), flush: true)", rotation)
+        self.assertIn("await _copyFileStreaming(target, backupTemp)", rotation)
         self.assertIn("await _replaceByRename(backupTemp, backup)", rotation)
         self.assertNotIn("await backup.delete()", rotation)
         self.assertNotIn("await target.delete()", rotation)
@@ -73,10 +98,10 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         remove_start = folder.index("Future<void> removeFromPersonalFolder(")
         add_body = folder[add_start:folder.index("\n}", add_start) + 2]
         remove_body = folder[remove_start:folder.index("\n}", remove_start) + 2]
-        self.assertLess(add_body.index("await PersonalFolderStore.writeSnapshot(next)"),
-                        add_body.index("personalFolderCache = next"))
-        self.assertLess(remove_body.index("await PersonalFolderStore.writeSnapshot(next)"),
-                        remove_body.index("personalFolderCache = next"))
+        self.assertLess(add_body.index("await PersonalFolderStore.appendLinks(input)"),
+                        add_body.index("personalFolderCache.addAll(committed)"))
+        self.assertLess(remove_body.index("await PersonalFolderStore.removeLinks([link])"),
+                        remove_body.index("personalFolderCache.removeWhere"))
         self.assertIn("return 0;", add_body)
 
     def test_personal_folder_store_has_testable_lossless_jsonl_codec(self):
@@ -84,7 +109,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn("static String encodeSnapshot(Iterable<String> links)", store)
         self.assertIn("static List<String>? decodeSnapshot(String contents)", store)
         self.assertIn("return null;", store)
-        self.assertIn("PersonalFolderStore.decodeSnapshot", store)
+        self.assertIn("static List<String>? decodeSnapshot(String contents)", store)
 
     def test_personal_folder_store_supports_streaming_paged_reads(self):
         store = (ROOT / "lib" / "personal_folder_store.dart").read_text(encoding="utf-8")
@@ -107,6 +132,17 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn("تازه‌سازی فهرست", sheet)
         self.assertIn("page.totalCount - 1", sheet)
         self.assertNotIn("List<String>.of(personalFolderCache)", sheet)
+
+    def test_personal_folder_mutations_are_memory_bounded(self):
+        store = (ROOT / "lib" / "personal_folder_store.dart").read_text(encoding="utf-8")
+        start = store.index("static Future<List<String>> _rewriteUnlocked")
+        end = store.index("static Future<List<String>> readOrMigrate", start)
+        mutation = store[start:end]
+        self.assertIn("await for (final value in _streamSnapshot(source))", mutation)
+        self.assertIn("sink.writeln(jsonEncode(value))", mutation)
+        self.assertNotIn("readAsBytes", mutation)
+        self.assertIn("static Stream<List<String>> readBatches(", store)
+        self.assertIn("static Future<void> _copyFileStreaming", store)
 
     def test_personal_folder_store_serializes_file_mutations(self):
         store = (ROOT / "lib" / "personal_folder_store.dart").read_text(encoding="utf-8")

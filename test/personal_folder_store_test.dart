@@ -87,6 +87,29 @@ void main() {
       expect(await PersonalFolderStore.decodeSnapshot(await backup.readAsString()), first);
     });
 
+    test('streams snapshot encoding, deduplication and Unicode records to disk', () async {
+      final input = <String>[
+        ...List<String>.generate(
+          6000,
+          (i) => 'vless://node$i@example.com:443?remark=گره-$i',
+        ),
+        '  VLESS://NODE1@example.com:443?remark=duplicate  ',
+        'vmess://unicode@example.com:443?remark=سلام\nجهان',
+      ];
+      await PersonalFolderStore.writeSnapshot(input);
+
+      final page = await PersonalFolderStore.readPage(limit: 6005);
+      expect(page.totalCount, 6001);
+      expect(page.items.first, 'vless://node0@example.com:443?remark=گره-0');
+      expect(page.items.last, 'vmess://unicode@example.com:443?remark=سلام\nجهان');
+
+      var streamed = 0;
+      await for (final batch in PersonalFolderStore.readBatches(batchSize: 97)) {
+        streamed += batch.length;
+      }
+      expect(streamed, 6001);
+    });
+
     test('failed staged write leaves the committed primary readable', () async {
       const stable = <String>['vless://stable@example.com:443'];
       await PersonalFolderStore.writeSnapshot(stable);
@@ -168,6 +191,102 @@ void main() {
       final result = await PersonalFolderStore.readPage(limit: 1);
       expect(result.items, <String>[first.first]);
       expect(result.totalCount, 2);
+    });
+
+
+    test('streams large inventories in bounded batches', () async {
+      final input = List<String>.generate(
+        6000,
+        (i) => 'vless://stream$i@example.com:443',
+      );
+      await PersonalFolderStore.writeSnapshot(input);
+      var count = 0;
+      var largestBatch = 0;
+      await for (final batch in PersonalFolderStore.readBatches(batchSize: 73)) {
+        count += batch.length;
+        if (batch.length > largestBatch) largestBatch = batch.length;
+      }
+      expect(count, 6000);
+      expect(largestBatch, 73);
+    });
+
+    test('appends only new profiles without losing the archive', () async {
+      final original = List<String>.generate(
+        2400,
+        (i) => 'vless://existing$i@example.com:443',
+      );
+      await PersonalFolderStore.writeSnapshot(original);
+      final added = await PersonalFolderStore.appendLinks(<String>[
+        original[10],
+        'trojan://new-one@example.com:443',
+        'trojan://new-two@example.com:443',
+        'TROJAN://NEW-ONE@example.com:443',
+      ]);
+      expect(added, <String>[
+        'trojan://new-one@example.com:443',
+        'trojan://new-two@example.com:443',
+      ]);
+      final page = await PersonalFolderStore.readPage(offset: 2399, limit: 5);
+      expect(page.totalCount, 2402);
+      expect(page.items, <String>[
+        original.last,
+        'trojan://new-one@example.com:443',
+        'trojan://new-two@example.com:443',
+      ]);
+    });
+
+    test('removes profiles transactionally and keeps the previous valid backup', () async {
+      final original = List<String>.generate(
+        300,
+        (i) => 'vless://remove$i@example.com:443',
+      );
+      await PersonalFolderStore.writeSnapshot(original);
+      await PersonalFolderStore.writeSnapshot(<String>[
+        ...original,
+        'trojan://keep@example.com:443',
+      ]);
+      final removed = await PersonalFolderStore.removeLinks(<String>[
+        original[1],
+        original[20],
+        'vless://absent@example.com:443',
+      ]);
+      expect(removed, 2);
+      final result = await PersonalFolderStore.readPage(limit: 500);
+      expect(result.totalCount, 299);
+      expect(result.items, isNot(contains(original[1])));
+      expect(result.items, isNot(contains(original[20])));
+      expect(result.items, contains('trojan://keep@example.com:443'));
+      final backup = File('${tempDirectory.path}/servers.jsonl.bak');
+      expect(await backup.exists(), isTrue);
+      expect(
+        PersonalFolderStore.decodeSnapshot(await backup.readAsString()),
+        hasLength(301),
+      );
+    });
+
+    test('membership lookup and batch reads recover from corrupt primary', () async {
+      const backup = <String>[
+        'vless://recover-one@example.com:443',
+        'trojan://recover-two@example.com:443',
+      ];
+      await PersonalFolderStore.writeSnapshot(backup);
+      await PersonalFolderStore.writeSnapshot(<String>[
+        'vless://new-primary@example.com:443',
+      ]);
+      await File('${tempDirectory.path}/servers.jsonl')
+          .writeAsString('broken-line\n');
+      expect(
+        await PersonalFolderStore.containsLink(backup.last),
+        isTrue,
+      );
+      expect(
+        await PersonalFolderStore.containsLink('vless://missing@example.com:443'),
+        isFalse,
+      );
+      final recovered = await PersonalFolderStore.readBatches(batchSize: 1)
+          .expand((batch) => batch)
+          .toList();
+      expect(recovered, backup);
     });
 
     test('migrates legacy profiles once and then prefers the file snapshot', () async {

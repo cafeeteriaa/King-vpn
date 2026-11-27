@@ -70,14 +70,13 @@ Future<void> setPersonalLastGood(String link) {
 /// یک لینک را از پوشه حذف می‌کند. کش فقط پس از commit موفق تغییر می‌کند.
 Future<void> removeFromPersonalFolder(String link) {
   return _serializePersonalMutation(() async {
-    final normalized = link.trim().toLowerCase();
-    final next = personalFolderCache
-        .where((entry) => entry.trim().toLowerCase() != normalized)
-        .toList(growable: false);
-    if (next.length == personalFolderCache.length) return;
     try {
-      await PersonalFolderStore.writeSnapshot(next);
-      personalFolderCache = next;
+      final removed = await PersonalFolderStore.removeLinks([link]);
+      if (removed == 0) return;
+      final normalized = link.trim().toLowerCase();
+      personalFolderCache.removeWhere(
+        (entry) => entry.trim().toLowerCase() == normalized,
+      );
     } catch (e, stk) {
       errJournalAdd(e, kind: 'PERSONAL-FOLDER', st: stk);
     }
@@ -89,20 +88,13 @@ Future<void> removeFromPersonalFolder(String link) {
 Future<int> addToPersonalFolder(Iterable<String> links) {
   final input = List<String>.of(links);
   return _serializePersonalMutation(() async {
-    final next = List<String>.of(personalFolderCache);
-    final seen = next.map((value) => value.trim().toLowerCase()).toSet();
-    var added = 0;
-    for (final raw in input) {
-      final value = raw.trim();
-      if (value.isEmpty || !seen.add(value.toLowerCase())) continue;
-      next.add(value);
-      added++;
-    }
-    if (added == 0) return 0;
     try {
-      await PersonalFolderStore.writeSnapshot(next);
-      personalFolderCache = next;
-      return added;
+      final committed = await PersonalFolderStore.appendLinks(input);
+      if (committed.isEmpty) return 0;
+      // Keep the legacy UI cache coherent while the store performs the durable
+      // mutation with bounded-memory streaming rather than snapshot rebuilding.
+      personalFolderCache.addAll(committed);
+      return committed.length;
     } catch (e, stk) {
       errJournalAdd(e, kind: 'PERSONAL-FOLDER', st: stk);
       return 0;
