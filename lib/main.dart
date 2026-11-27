@@ -6800,13 +6800,26 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     if (!natHotReady()) unawaited(natHotEnsure());
     final now0 = DateTime.now();
     final age = listTime == null ? null : now0.difference(listTime!);
+    // A 48-hour source refresh is a staged replacement, not an in-place clear.
+    // Failed/empty/invalid downloads leave the previous offline inventory untouched.
+    var freshDiskRefreshDue = false;
+    try {
+      final diskMeta = await FreshResourceStore.metadata();
+      final diskUpdated = DateTime.tryParse(diskMeta['updatedAt']?.toString() ?? '');
+      freshDiskRefreshDue = diskUpdated == null ||
+          now0.difference(diskUpdated.toLocal()) >= const Duration(hours: 48);
+    } catch (e, st) {
+      logError(e, st);
+      freshDiskRefreshDue = true;
+    }
     final limit = (exhausted && autoCycle)
         ? const Duration(minutes: 2)
         : Duration(minutes: listRefreshMin);
-    final fresh = (nationalMode && !connected && fetchedAll.isNotEmpty && !natRefetch) || // NATIONALPATCH
-        (age != null && fetchedAll.length > 200 && age < limit && !(exhausted && _listPartial)); // QUICKLIST: لیست نیمه‌کاره فقط وقتی تمام شد کامل می‌شود، نه هر بار
+    final fresh = !freshDiskRefreshDue &&
+        ((nationalMode && !connected && fetchedAll.isNotEmpty && !natRefetch) || // NATIONALPATCH
+        (age != null && fetchedAll.length > 200 && age < limit && !(exhausted && _listPartial))); // QUICKLIST: لیست نیمه‌کاره فقط وقتی تمام شد کامل می‌شود، نه هر بار
     // EMPTYQ-FIX: با لیست خالی (مثلاً بعد از «پاک کردن») محدودیت ۴۵ ثانیه‌ای دانلود کنار می‌رود
-    final throttled = fetchedAll.isNotEmpty &&
+    final throttled = !freshDiskRefreshDue && fetchedAll.isNotEmpty &&
         now0.difference(lastFetchTry) <= const Duration(seconds: 45);
     if (!fresh && !throttled) {
       lastFetchTry = now0;
@@ -6815,9 +6828,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       try {
         // QUICKLIST: اولین دریافت (و نه بعد از اتصال) فقط ~۲۰۰ سرور؛ لیست کامل بعد از اتصال می‌آید
         // FASTLIST: اتصال عادی هم مثل خلبان با ~۲۰۰ سرور اول شروع می‌کند و سقف ۲۵ ثانیه‌ای دارد
-        final quick = !bg && !connected && !nationalMode && !offlineOnly;
+        final quick = !freshDiskRefreshDue && !bg && !connected && !nationalMode && !offlineOnly;
         final f = await fetchServers(stop: () => abort, quickCap: quick ? 200 : null)
-            .timeout(const Duration(seconds: 25), onTimeout: () => <Server>[]);
+            .timeout(freshDiskRefreshDue ? const Duration(minutes: 8) : const Duration(seconds: 25),
+                onTimeout: () => <Server>[]);
         _listPartial = quick && f.isNotEmpty;
         if (f.isNotEmpty) {
           // lists that were "dead" get a new chance with the new content
@@ -6828,11 +6842,22 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           // Persist freshly fetched public configs for later offline use.
           // Personal servers and the national IP inventory are stored elsewhere.
           try {
-            await FreshResourceStore.merge(
-              f.map((server) => server.link),
-              source: 'online-public-sources',
-            );
-          } catch (e, st) { logError(e, st); }
+            if (freshDiskRefreshDue) {
+              await FreshResourceStore.replaceSnapshot(
+                f.map((server) => server.link),
+                source: 'online-public-sources-48h-refresh',
+              );
+              freshDiskRefreshDue = false;
+            } else {
+              await FreshResourceStore.merge(
+                f.map((server) => server.link),
+                source: 'online-public-sources',
+              );
+            }
+          } catch (e, st) {
+            // Do not advance the 48-hour timestamp when the staged replacement fails.
+            logError(e, st);
+          }
           listTime = DateTime.now();
           _saveList();
         }
