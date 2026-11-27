@@ -193,6 +193,70 @@ class PersonalFolderStore {
         );
   }
 
+  /// Streams the complete archive in bounded batches. Unlike repeated readPage
+  /// calls, this scans the JSONL file only once and never materializes the archive.
+  /// A cancelled scan stops before reading or yielding another batch.
+  static Stream<List<String>> streamBatches({
+    int batchSize = 128,
+    String query = '',
+    bool Function()? shouldAbort,
+  }) async* {
+    if (batchSize <= 0) throw ArgumentError.value(batchSize, 'batchSize');
+    final needle = query.trim().toLowerCase();
+    final primary = await _file(fileName);
+    final backup = await _file(backupName);
+    Future<bool> valid(File file) async => (await _readFile(file)) != null;
+    // Validate the selected snapshot before streaming it. A corrupt primary
+    // falls back to the last committed backup, matching readPage semantics.
+    final source = await valid(primary)
+        ? primary
+        : (await valid(backup) ? backup : null);
+    if (source == null) return;
+    var batch = <String>[];
+    final seen = <String>{};
+    try {
+      await for (final line in source
+          .openRead()
+          .transform(utf8.decoder)
+          .transform(const LineSplitter())) {
+        if (shouldAbort?.call() ?? false) return;
+        if (line.isEmpty) continue;
+        final decoded = jsonDecode(line);
+        if (decoded is! String) return;
+        final value = decoded.trim();
+        if (value.isEmpty || !seen.add(value.toLowerCase())) continue;
+        if (needle.isNotEmpty && !value.toLowerCase().contains(needle)) {
+          continue;
+        }
+        batch.add(value);
+        if (batch.length >= batchSize) {
+          yield List<String>.unmodifiable(batch);
+          batch = <String>[];
+        }
+      }
+      if (batch.isNotEmpty && !(shouldAbort?.call() ?? false)) {
+        yield List<String>.unmodifiable(batch);
+      }
+    } catch (_) {
+      // A read error is not converted into a successful empty inventory.
+      // Existing readPage/readSnapshot APIs retain their explicit recovery path.
+      rethrow;
+    }
+  }
+
+  /// Exact archive count without retaining profile strings in memory.
+  static Future<int> count({String query = '', bool Function()? shouldAbort}) async {
+    var total = 0;
+    await for (final batch in streamBatches(
+      batchSize: 256,
+      query: query,
+      shouldAbort: shouldAbort,
+    )) {
+      total += batch.length;
+    }
+    return total;
+  }
+
   static Future<void> _writeSnapshotUnlocked(Iterable<String> links) async {
     final values = _normalize(links);
     final target = await _file(fileName);
