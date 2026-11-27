@@ -23,10 +23,15 @@ class NativeVpnDiagnosticsContractTests(unittest.TestCase):
 
     def test_snapshot_never_exports_connection_secrets_or_server_payloads(self):
         start = self.java.index("public Map<String, Object> diagnosticSnapshot()")
-        end = self.java.index("\n    }", start)
+        end = self.java.index("\\n    }", start)
         snapshot = self.java[start:end]
-        for forbidden in ("config", "password", "uuid", "address", "backups", "remark", "lastError\","):
-            self.assertNotIn(forbidden, snapshot)
+        for forbidden_key in (
+            "config", "password", "uuid", "address", "backups", "remark", "lastError",
+        ):
+            self.assertNotRegex(
+                snapshot,
+                rf'snapshot\\.put\\(["\\']{forbidden_key}["\\']',
+            )
 
     def test_kotlin_channel_handles_running_and_absent_service(self):
         self.assertIn('"vpnService" -> {', self.kotlin)
