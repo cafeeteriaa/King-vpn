@@ -959,7 +959,7 @@ class KingNationalScannerEngine {
       _scanPhase = didCancel ? KingNatScanPhase.cancelled : KingNatScanPhase.complete;
       if (didTimeout) warnings.add('total_scan_budget_reached');
       final report = KingNatScanReport(
-        completed: !didCancel, timedOut: didTimeout,
+        completed: !didCancel && !didTimeout, timedOut: didTimeout,
         networkClass: NatNetworkDiagnosis.current, nationalMode: modeSnapshot,
         dnsResolvers: dnsCount, domainEndpoints: domainHits, ipEndpoints: ipHits,
         sniHandshakes: sniHits, alpnNegotiations: alpnHits,
@@ -973,7 +973,7 @@ class KingNationalScannerEngine {
       warnings.add('scanner_exception');
       _scanPhase = KingNatScanPhase.complete;
       return KingNatScanReport(
-        completed: !cancelled(), timedOut: expired(),
+        completed: false, timedOut: expired(),
         networkClass: NatNetworkDiagnosis.current, nationalMode: modeSnapshot,
         dnsResolvers: dnsCount, domainEndpoints: domainHits, ipEndpoints: ipHits,
         sniHandshakes: sniHits, alpnNegotiations: alpnHits,
