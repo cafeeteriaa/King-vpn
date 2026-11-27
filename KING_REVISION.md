@@ -1,11 +1,12 @@
 # KING VPN Revision Ledger
 
-Current revision: 67
-Next revision: 68
+Current revision: 68
+Next revision: 69
 Repository: cafeeteriaa/King-vpn
-Revision branch: fix/personal-folder-uncapped-20261127
-Parent revision branch: fix/healthy-folder-unbounded-retention-20261127
-Revision PR: https://github.com/cafeeteriaa/King-vpn/pull/65
+Revision branch: feat/king-ai-multistage-engineering-20261127
+Parent revision branch: fix/personal-prep-cancellation-20261127
+Parent PR: https://github.com/cafeeteriaa/King-vpn/pull/71
+Revision PR: https://github.com/cafeeteriaa/King-vpn/pull/72
 Consolidated integration PR: https://github.com/cafeeteriaa/King-vpn/pull/66
 
 ## Revision history
@@ -183,3 +184,19 @@ Increment the revision number by exactly one for each substantial edit set. Reco
 - Review pass 3: re-read the changed Dart files and tests; no Dart formatter/analyzer or runtime test has been executed yet.
 - Important limitation: the app's startup loader and personal connection/ping path still materialize/use the complete personalFolderCache. This revision pages the folder screen's disk reads; it does not yet deliver end-to-end memory-bounded personal inventory processing.
 - Exact-head CI, Flutter tests, Dart analysis, Android build and device-level connection/recovery validation remain pending. No merge or release is authorized by this revision.
+
+
+### Revision 68 — Multi-stage KING AI engineering pipeline
+- Pull request: https://github.com/cafeeteriaa/King-vpn/pull/72
+- Replaced the single-pass owner feature proposal path with a dependency-ordered plan of up to six implementation stages.
+- Each model pass retains a bounded context (up to six existing files / 7,500 characters) and may change up to three files; completed outputs are passed forward when later stages touch the same file.
+- Added stale-input conflict detection, source-path validation, per-stage and aggregate budgets, and an atomic bundle capped at 18 changed files / 180,000 content characters.
+- All stages are combined into one Git tree/commit and one Draft PR. If a stage fails or the aggregate is invalid, no partial PR is created.
+- Pinned every stage to one captured main commit SHA and aborts PR creation if main advances before the final commit, preventing mixed snapshots and stale overwrites.
+- Preserved the narrower background-autonomous audit policy (at most two files, no merge/release); only explicit owner-authenticated feature requests use the larger staged pipeline.
+- Added pipeline unit tests and source guards. The new pipeline and its tests are protected from local-model self-modification.
+- Behavior-preserving CI unblocker: qualified the existing PersonalFolderStore snapshot decoder call so the inherited source guard can verify the public codec is used.
+- Review pass 1: architecture and dependency ordering; verify the single-PR commit model and preservation of owner authentication.
+- Review pass 2: path validation, stale-stage conflict handling, aggregate file/content budgets, secret checks and no-partial-PR behavior.
+- Review pass 3: tests/source guards, compatibility with the existing local model context limits, and exact-head CI/build review.
+- First exact-head CI run 45973769538 failed in the inherited PersonalFolderStore source guard before Flutter setup; the existing codec call was aligned without changing behavior. A rerun is pending. Flutter tests, Dart analysis, Android arm64 build and device validation are not yet verified. No merge or release is authorized by this revision.
