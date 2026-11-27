@@ -135,7 +135,7 @@ class _FreshResourcesPageState extends State<FreshResourcesPage> {
           setState(() => _message = 'فایل کامل ساخته شد؛ پنجرهٔ اشتراک‌گذاری بسته شد. مسیر فایل: ${outputPath}');
           break;
         case ShareResultStatus.unavailable:
-          setState(() => _message = 'فایل کامل ساخته شد اما اشتراک‌گذاری در این دستگاه در دسترس نیست. مسیر فایل: ${output.path}');
+          setState(() => _message = 'فایل کامل ساخته شد اما اشتراک‌گذاری در این دستگاه در دسترس نیست. مسیر فایل: ${outputPath}');
           break;
       }
     } catch (error) {
