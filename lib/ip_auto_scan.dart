@@ -1,12 +1,12 @@
 part of 'main.dart';
 
-// IPAUTO: اسکن خودکار IP با هسته‌ی VPN، کاملاً جدا از نت ملی.
-// - فقط وقتی VPN قطع است و جستجوی نت ملی یا اسکن DNS در حال اجرا نیست، شروع می‌شود.
-// - هیچ صف، حافظه یا بازه‌ی نت ملی را تغییر نمی‌دهد (natRanges، natIpMem، pending، good).
-//   فقط برای خواندن، سرور نمونه و پورت‌های پرتکرار را از آن‌ها می‌گیرد.
-// - هر IP اول با TCP سنجیده می‌شود؛ فقط پورت‌های باز با هسته‌ی VPN دو بار تست می‌شوند.
-// - نتیجه بر اساس حالت فعلی (ملی یا جهانی) در فهرست جدا ذخیره می‌شود و کپی‌پذیر است.
-// - هر اجرا بخش بعدیِ آدرس‌ها را برمی‌دارد (کرسر خودش)، پس با اجراهای متوالی بلوک‌ها پوشش داده می‌شوند.
+// IPAUTO: کشف IP از منابع تازه و مستقل در دو فضای ملی/جهانی.
+// - فقط وقتی VPN قطع است و اسکن دیگری مالک lane نیست اجرا می‌شود.
+// - endpointهای دقیق از feedهای تازه، DNS resolve و حافظهٔ همان حالت جمع می‌شوند؛ subnet همسایه ساخته نمی‌شود.
+// - TCP فقط فیلتر اولیه است؛ هر endpoint پاسخ‌گو با قالب‌های مستقل و Core outbound دوبار بررسی می‌شود.
+// - نتیجه فقط candidate قابل بررسی است، نه اثبات Android TUN و نه جایگزینی خودکار فیلد کانفیگ.
+// - cursor مستقل هر /32 و /128 با batch دقیق جلو می‌رود؛ آدرس تولیدشده و دورریخته‌شده وجود ندارد.
+// - timestamp، candidateها و cursorهای ملی/جهانی مستقل ذخیره می‌شوند.
 
 const String _ipAutoKeyNat = 'ipauto_nat_v1';
 const String _ipAutoKeyGlob = 'ipauto_glob_v1';
@@ -18,7 +18,7 @@ const int _ipAutoConc = 48; // TCP fan-out ceiling
 bool ipAutoBusy = false;
 bool ipAutoStopFlag = false;
 String ipAutoStatus = '';
-final List<String> ipAutoHits = []; // به شکل «ip|port»
+final List<String> ipAutoHits = []; // Core-outbound candidates only; not TUN-verified
 final Map<String, int> ipAutoCursors = {};
 
 String _ipAutoKeyNow() => nationalMode ? _ipAutoKeyNat : _ipAutoKeyGlob;
@@ -171,8 +171,8 @@ extension IpAutoExt on _HomePageState {
       ipAutoStopFlag || connected || busy ||
       (modeSnapshot != null && nationalMode != modeSnapshot);
 
-  /// نت ملی: اسکن IP خودکار بدون دکمه (هر ۲۴ ساعت، یا ۶ ساعت اگر نتیجه نداشت)، فقط وقتی VPN قطع است.
-  /// نتایج در فهرست نت ملی ذخیره می‌شوند و هیچ صف یا بازه‌ی دیگری را تغییر نمی‌دهد.
+  /// اسکن زمان‌بندی‌شدهٔ IP برای هر دو حالت؛ cadence و inventory هر حالت مستقل است.
+  /// خروجی، candidate مبتنی بر Core outbound است و به‌تنهایی سلامت TUN را اثبات نمی‌کند.
   Future<void> ipAutoBackground({bool Function()? stop}) async {
     final runNationalMode = nationalMode;
     if (!kNatIpScanOn) return;
@@ -466,8 +466,8 @@ extension IpAutoExt on _HomePageState {
                   Text('حالت فعلی: ${_ipAutoModeName()}  •  نتایج این حالت جدا ذخیره می‌شوند.'),
                   const SizedBox(height: 4),
                   const Text(
-                      'اسکن خودکار است: لازم نیست بازه‌ای وارد کنید. فقط وقتی VPN قطع باشد اجرا می‌شود. '
-                      'هر IP که با هسته‌ی VPN جواب بدهد در فهرست می‌آید.'),
+                      'اسکن خودکار است: لازم نیست بازه‌ای وارد کنید. فقط endpointهای دقیقِ feedها و پروفایل‌های منبع بررسی می‌شوند. '
+                      'پاسخ Core outbound فقط candidate می‌سازد؛ سلامت Android TUN و جایگزینی فیلد کانفیگ را ثابت نمی‌کند.'),
                   const SizedBox(height: 8),
                   Text(ipAutoStatus.isEmpty ? 'آماده' : ipAutoStatus),
                   const SizedBox(height: 6),
