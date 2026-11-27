@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:king_vpn/nat_ip_scan.dart';
 
@@ -36,6 +38,31 @@ void main() {
       expect(natAdaptiveConcurrency(0), inInclusiveRange(8, 64));
       expect(natAdaptiveConcurrency(1), 1);
       expect(natAdaptiveConcurrency(999999), lessThanOrEqualTo(256));
+    });
+
+    test('scans an explicit IPv6 endpoint when loopback IPv6 is available', () async {
+      ServerSocket? listener;
+      try {
+        listener = await ServerSocket.bind(InternetAddress.loopbackIPv6, 0);
+      } on SocketException {
+        // Some CI/container environments disable IPv6 loopback entirely.
+        return;
+      }
+      final accepted = listener.listen((socket) => socket.destroy());
+      try {
+        final hits = await natScanIps(
+          <String>['::1'],
+          port: listener.port,
+          concurrency: 1,
+          want: 1,
+          timeout: const Duration(seconds: 2),
+        );
+        expect(hits, hasLength(1));
+        expect(hits.single.ip, '::1');
+      } finally {
+        await accepted.cancel();
+        await listener.close();
+      }
     });
 
     test('cancelled NAT scan exits without opening sockets', () async {
