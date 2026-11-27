@@ -54,3 +54,5 @@
 ## ماندگاری نتایج اسکن ملی
 
 نتایج candidate اسکن SNI/Port/TLS در حالت ملی اکنون به‌صورت یک snapshot JSON در SharedPreferences ذخیره و هنگام بازشدن اسکنر بازیابی می‌شوند. فهرست IPهای دقیق candidate نیز در همان snapshot نگهداری و به inventory حافظه‌ای `natScanHits` بازگردانده می‌شود. این داده‌ها همچنان candidate هستند و به‌عنوان سرور سالم یا مقدار تأییدشدهٔ کانفیگ استفاده نمی‌شوند.
+
+IPهای TCP-open در حالت ملی به‌جای کپی‌کردن در یک blob بزرگ SharedPreferences، از مسیر append-only موجود `natNationalIpMemSave` در inventory فایل‌محور ذخیره می‌شوند. مسیر IP-auto همان inventory را پیش از ساخت endpointها بارگذاری می‌کند؛ بنابراین سقف cache موقت `natScanHits` باعث حذف دادهٔ پایدار نمی‌شود.
