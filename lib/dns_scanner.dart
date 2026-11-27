@@ -314,9 +314,9 @@ Future<void> dnsxAutoPick({bool Function()? stop, bool force = false, bool coord
     final savedDns = await goldDnsList();
     if (nationalMode != scanNationalMode) return;
     final defaults = scanNationalMode ? kDnsxNationalDefaults : kDnsxDefaults;
-    final list = <String>{...savedDns.take(8), ...defaults}.take(12).toList();
-    // Auto discovery uses the bounded, mode-specific probe set. The manual
-    // scanner still retains dnsxFullDomains() for the complete user-requested scan.
+    final list = <String>{...savedDns, ...defaults}.toList(growable: false);
+    // Auto discovery checks the complete saved and mode-specific default resolver inventory.
+    // The manual scanner still retains dnsxFullDomains() for user-selected full scans.
     final r = await dnsxScan(
       list,
       domains: dnsxAutoDomains(),
