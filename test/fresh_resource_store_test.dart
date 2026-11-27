@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
 import '../lib/fresh_resource_store.dart';
@@ -268,6 +269,33 @@ void main() {
         expect(stored, hasLength(2));
         expect(stored, contains(existing));
         expect(stored.any((link) => link.contains('new-')), isTrue);
+      } finally {
+        await root.delete(recursive: true);
+      }
+    });
+
+    test('recovers from a malformed or negative persistent cursor without losing profiles', () async {
+      final root = await Directory.systemTemp.createTemp('king-offline-cursor-corrupt-');
+      try {
+        const links = <String>[
+          'vless://cursor-safe-one@example.test:443',
+          'vless://cursor-safe-two@example.test:443',
+          'vless://cursor-safe-three@example.test:443',
+        ];
+        await FreshResourceStore.merge(links, root: root);
+        final folder = Directory('${root.path}/${FreshResourceStore.directoryName}');
+        await File('${folder.path}/offline_cursor.json').writeAsString(
+          '{"schema":1,"shardIndex":-1,"offsets":{"-1":999999,"zz":12,"00":-5}}',
+          flush: true,
+        );
+
+        final recovered = await FreshResourceStore.readBatch(limit: 300, root: root);
+        expect(recovered.toSet(), links.toSet());
+        expect(recovered, hasLength(3));
+        final cursor = jsonDecode(
+          await File('${folder.path}/offline_cursor.json').readAsString(),
+        ) as Map<String, Object?>;
+        expect(cursor['shardIndex'], inInclusiveRange(0, 255));
       } finally {
         await root.delete(recursive: true);
       }
