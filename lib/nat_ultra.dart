@@ -1922,11 +1922,11 @@ Future<bool> natNationalIpMemSaveMany(Iterable<String> endpoints) async {
     });
   }
   if (rows.isEmpty) return true;
-  natNationalIpMem.removeWhere((entry) =>
-      keys.contains('${entry['ip']}|${entry['port']}'));
-  natNationalIpMem.insertAll(0, rows);
   try {
     await _natAppendInventoryRecords(_natNationalIpMemFileName, rows);
+    natNationalIpMem.removeWhere((entry) =>
+        keys.contains('${entry['ip']}|${entry['port']}'));
+    natNationalIpMem.insertAll(0, rows);
     return true;
   } catch (error, stackTrace) {
     logError(error, stackTrace);
