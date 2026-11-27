@@ -25,8 +25,13 @@ class FreshResourceStore {
   /// capacity limit: small stores can still refresh completely.
   static int minimumSnapshotReplacementCount(int previousCount) {
     if (previousCount <= 0) return 1;
-    final quarter = (previousCount + 3) ~/ 4;
-    return previousCount < 100 ? previousCount : (quarter < 100 ? 100 : quarter);
+    // Retain at least 75% of the previous useful inventory. A source
+    // outage or truncated response must not replace millions of profiles
+    // with a tiny but technically non-empty snapshot.
+    final threeQuarters = (previousCount * 3 + 3) ~/ 4;
+    return previousCount < 100
+        ? previousCount
+        : (threeQuarters < 100 ? 100 : threeQuarters);
   }
 
   static bool isSufficientSnapshotReplacement({
