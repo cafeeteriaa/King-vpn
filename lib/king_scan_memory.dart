@@ -171,13 +171,15 @@ class KingScanJournal {
         'cursor': safeCursor,
         'counters': safeCounters,
       };
-      final sink = _file.openWrite(mode: FileMode.append);
+      final handle = await _file.open(mode: FileMode.append);
       try {
-        if (_needsSeparator) sink.write('\n');
-        sink.writeln(jsonEncode(record));
-        await sink.flush();
+        if (_needsSeparator) await handle.writeString('\n');
+        await handle.writeString('${jsonEncode(record)}\n');
+        // RandomAccessFile.flush asks the platform to flush file contents,
+        // stronger than merely draining an IOSink's in-process buffer.
+        await handle.flush();
       } finally {
-        await sink.close();
+        await handle.close();
       }
       _needsSeparator = false;
       _sequence = nextSequence;
