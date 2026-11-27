@@ -2279,14 +2279,13 @@ Future<List<String>> natRangeScanStep({
   int maxAddrs = 256,
   int conc = 4,
   bool Function()? stop,
-  Duration budget = const Duration(minutes: 2),
   bool coordinatorOwned = false,
 }) async {
   if ((dnsxManualBusy && !coordinatorOwned) || _natRangeScanBusy) return const <String>[];
   _natRangeScanBusy = true;
   try {
     return await _natRangeScanStepBody(
-        known: known, maxAddrs: maxAddrs, conc: conc, stop: stop, budget: budget);
+        known: known, maxAddrs: maxAddrs, conc: conc, stop: stop);
   } finally {
     _natRangeScanBusy = false;
   }
@@ -2297,7 +2296,6 @@ Future<List<String>> _natRangeScanStepBody({
   int maxAddrs = 256,
   int conc = 4,
   bool Function()? stop,
-  Duration budget = const Duration(minutes: 2),
 }) async {
   // A stop request or a network-mode switch invalidates the whole scan batch.
   // Keep all shared cursors and discoveries unchanged until every phase completes.
