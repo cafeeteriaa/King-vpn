@@ -1622,9 +1622,37 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         bg_end = source.index('/// دلیل رد شدن شروع اسکن', bg_start)
         background = source[bg_start:bg_end]
         completed = background.index('final completed = await _ipAutoRunOnce(')
-        timestamp = background.index('await p.setString(_ipAutoAtKey, now.toString());')
-        self.assertIn('if (completed && !_ipAutoHalt(modeSnapshot: runNationalMode))', background)
+        timestamp = background.index('await p.setString(atKey, now.toString());')
+        self.assertIn('final atKey = _ipAutoAtKeyForMode(runNationalMode);', background)
+        self.assertIn('if (!kNatIpScanOn) return;', background)
+        self.assertIn('shouldAbort: externallyStopped,', background)
+        self.assertIn('if (completed &&', background)
         self.assertLess(completed, timestamp)
+
+    def test_ip_auto_uses_fresh_source_templates_exact_addresses_and_transactional_cursors(self):
+        source = (ROOT / 'lib' / 'ip_auto_scan.dart').read_text(encoding='utf-8')
+        self.assertIn('await nipResolveAll(host)', source)
+        self.assertIn('return natSeedBlocks(ips.toList(growable: false));', source)
+        self.assertIn("'addressBatchSize': _ipAutoBatch", source)
+        self.assertIn('final addressBatch = await _ipAutoNextAddrs(', source)
+        self.assertIn('if (templateKeys.add(server.link.trim())) tpl.add(server);', source)
+        self.assertIn('Core-outbound candidates only; not TUN-verified', source)
+        scan_start = source.index('Future<bool> _ipAutoRunOnce(')
+        scan_end = source.index('Future<void> ipAutoSheet', scan_start)
+        scan = source[scan_start:scan_end]
+        self.assertIn('ipAutoCursors\n      ..clear()\n      ..addAll(addressBatch.nextCursors);', scan)
+        self.assertLess(scan.index('if (halted()) {'), scan.index('addressBatch.nextCursors'))
+
+    def test_dns_and_ip_maintenance_runs_through_one_serialized_scheduler(self):
+        scheduler = (ROOT / 'lib' / 'scan_maintenance_scheduler.dart').read_text(encoding='utf-8')
+        main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        self.assertIn('runDns: () => dnsxAutoPick(stop: _scanMaintenanceShouldStop)', main)
+        self.assertIn('runIp: () => ipAutoBackground(stop: _scanMaintenanceShouldStop)', main)
+        self.assertIn('_scanMaintenance?.dispose();', main)
+        self.assertIn('final pending = _flight;', scheduler)
+        self.assertIn('await runDns();', scheduler)
+        self.assertIn('if (!_mayContinue(generation)) return;', scheduler)
+        self.assertIn('await runIp();', scheduler)
 
     def test_test_methods_are_unique(self):
         import ast
