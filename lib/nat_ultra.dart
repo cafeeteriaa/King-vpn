@@ -2423,8 +2423,12 @@ List<String> natSeedBlocks(List<String> hosts) {
   final seen = <String>{};
   for (final host in hosts) {
     final parsed = InternetAddress.tryParse(host.trim());
-    if (parsed == null || parsed.type != InternetAddressType.IPv4) continue;
-    final cidr = '${parsed.address}/32';
+    if (parsed == null) continue;
+    // Only exact known endpoints are promoted to scan targets. IPv6
+    // addresses become /128 entries; no neighboring subnet is inferred.
+    final cidr = parsed.type == InternetAddressType.IPv4
+        ? '${parsed.address}/32'
+        : '${parsed.address}/128';
     if (seen.add(cidr)) out.add(cidr);
   }
   return out;
@@ -2668,9 +2672,6 @@ Future<List<String>> _natRangeScanStepBody({
     ...natIpMemHosts(),
     for (final server in seeds) if (server.isIp) server.host,
   };
-  final ipv6Targets = hosts.where((host) =>
-      InternetAddress.tryParse(host)?.type == InternetAddressType.IPv6)
-      .toList(growable: false);
   final blocks = natSeedBlocks(hosts.toList(growable: false));
   // A changed endpoint inventory starts a fresh traversal generation. This
   // prevents a completed old pass from hiding newly discovered endpoints.
@@ -2750,21 +2751,7 @@ Future<List<String>> _natRangeScanStepBody({
     for (final hit in hits) {
       out.add('${hit.ip}|$port');
     }
-    if (ipv6Targets.isNotEmpty) {
-      final ipv6Hits = await natScanIps(
-        ipv6Targets,
-        port: port,
-        concurrency: conc,
-        want: ipv6Targets.length,
-        budget: null,
-        timeout: const Duration(milliseconds: 1500),
-        cancelled: shouldAbort,
-      );
-      if (shouldAbort()) return const <String>[];
-      for (final hit in ipv6Hits) {
-        out.add('${hit.ip}|$port');
-      }
-    }
+
   }
   if (shouldAbort()) return const <String>[];
   // Persist every responsive IP:port before advancing its range cursor. If the
