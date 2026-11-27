@@ -25,6 +25,88 @@ import 'dart:math';
 import 'errjournal.dart';
 import 'nnie_core.dart'; // natStableSort
 
+
+/// Lazy, cursor-addressable expansion for an explicitly supplied IPv4 range.
+/// A slice is bounded in memory, while [nextOffset] allows the caller to walk
+/// every address in the range over as many resumable passes as necessary.
+/// IPv6 is intentionally accepted only as an exact /128 endpoint: enumerating
+/// broad IPv6 prefixes is not a meaningful address-discovery strategy.
+class NatAddressRangeCursor {
+  NatAddressRangeCursor._(this._first, this.addressCount, this._ipv6);
+
+  final int _first;
+  final int addressCount;
+  final String? _ipv6;
+
+  static int? _ipv4ToInt(String raw) {
+    final parsed = InternetAddress.tryParse(raw.trim());
+    if (parsed == null || parsed.type != InternetAddressType.IPv4) return null;
+    final octets = parsed.address.split('.').map(int.parse).toList();
+    return (octets[0] << 24) | (octets[1] << 16) |
+        (octets[2] << 8) | octets[3];
+  }
+
+  static NatAddressRangeCursor? parse(String input) {
+    final raw = input.trim();
+    if (raw.isEmpty) return null;
+    if (raw.contains('/')) {
+      final parts = raw.split('/');
+      if (parts.length != 2) return null;
+      final address = InternetAddress.tryParse(parts[0].trim());
+      final prefix = int.tryParse(parts[1].trim());
+      if (address == null || prefix == null) return null;
+      if (address.type == InternetAddressType.IPv6) {
+        if (prefix != 128) return null;
+        return NatAddressRangeCursor._(0, 1, address.address);
+      }
+      if (prefix < 0 || prefix > 32) return null;
+      final first = _ipv4ToInt(address.address);
+      if (first == null) return null;
+      final count = 1 << (32 - prefix);
+      final mask = 0xffffffff ^ (count - 1);
+      return NatAddressRangeCursor._(first & mask, count, null);
+    }
+    if (raw.contains('-')) {
+      final parts = raw.split('-');
+      if (parts.length != 2) return null;
+      final left = _ipv4ToInt(parts[0]);
+      final right = _ipv4ToInt(parts[1]);
+      if (left == null || right == null) return null;
+      final first = left < right ? left : right;
+      final last = left < right ? right : left;
+      return NatAddressRangeCursor._(first, last - first + 1, null);
+    }
+    final address = InternetAddress.tryParse(raw);
+    if (address == null) return null;
+    if (address.type == InternetAddressType.IPv6) {
+      return NatAddressRangeCursor._(0, 1, address.address);
+    }
+    final first = _ipv4ToInt(address.address);
+    return first == null ? null : NatAddressRangeCursor._(first, 1, null);
+  }
+
+  /// Returns (addresses, nextOffset); -1 means the range is exhausted.
+  (List<String> addresses, int nextOffset) read(int offset, int limit) {
+    if (offset < 0 || limit <= 0 || offset >= addressCount) {
+      return (<String>[], -1);
+    }
+    if (_ipv6 != null) {
+      return offset == 0
+          ? (<String>[_ipv6!], -1)
+          : (<String>[], -1);
+    }
+    final count = limit < addressCount - offset
+        ? limit : addressCount - offset;
+    final result = <String>[];
+    for (var index = 0; index < count; index++) {
+      final value = _first + offset + index;
+      result.add('${(value >> 24) & 255}.${(value >> 16) & 255}.${(value >> 8) & 255}.${value & 255}');
+    }
+    final next = offset + count;
+    return (result, next >= addressCount ? -1 : next);
+  }
+}
+
 class NatIpHit {
   final String ip;
   final int ms;
