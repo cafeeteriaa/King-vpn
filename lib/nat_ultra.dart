@@ -2503,10 +2503,14 @@ Map<String, dynamic> _genAddrsIso(Map<String, dynamic> args) {
       final cursor = cursors[key] ?? '0';
       final remaining = cap - addrs.length;
       if (remaining <= 0) break;
-      final generated = _natExpandAnyCursor(range, cursor, min(256, remaining));
-      if (generated.$1.isNotEmpty) {
-        addrs.addAll(generated.$1);
-        cursors[key] = generated.$2;
+      final generated = natExpandAddressRangeBatch(
+        range,
+        cursor: cursor,
+        limit: min(256, remaining),
+      );
+      if (generated.addresses.isNotEmpty) {
+        addrs.addAll(generated.addresses);
+        cursors[key] = generated.nextCursor;
       }
       processed++;
     }
@@ -2532,7 +2536,7 @@ Future<List<String>> natRangeScanStep({
   bool Function()? stop,
   Duration? budget,
 }) async {
-  if (_natRangeScanBusy || maxAddrs <= 0) return const <String>[];
+  if (_natRangeScanBusy || dnsxManualBusy || _dnsxAutoBusy || ipAutoBusy || _autoScanRunning || maxAddrs <= 0) return const <String>[];
   _natRangeScanBusy = true;
   try {
     return await _natRangeScanStepBody(
