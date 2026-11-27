@@ -97,7 +97,7 @@ jobs:
         working-directory: build_app
         run: |
           set -o pipefail
-          flutter analyze lib --no-fatal-warnings --no-fatal-infos 2>&1 | tee analyze.log
+          flutter analyze lib test/king_national_scanner_test.dart --no-fatal-warnings --no-fatal-infos 2>&1 | tee analyze.log
 
       - name: Build optimized Android release-mode APK (arm64)
         working-directory: build_app
