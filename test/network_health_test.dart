@@ -223,6 +223,16 @@ void main() {
       );
     });
 
+    test('corroborated offline strategy remains eligible when diagnosis is unknown', () {
+      expect(
+        corroboratePilotStrategy(
+          PilotNetworkStrategy.offline,
+          NatNetworkClass.unknown,
+        ),
+        PilotNetworkStrategy.offline,
+      );
+    });
+
     test('does not infer offline from missing evidence', () {
       const evidence = NetworkEvidence(
         domestic: LinkHealth.unknown,
