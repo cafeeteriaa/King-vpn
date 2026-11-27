@@ -997,6 +997,10 @@ class KingNationalScannerEngine {
               stop: stopped,
             );
             dnsCount = dnsxBestCache.length;
+            // The preferences adapter debounces writes; flush it before the
+            // journal marks DNS complete so restart cannot skip uncommitted data.
+            final preferences = await SharedPreferences.getInstance();
+            await preferences.flush();
             if (dnsClock.elapsed >= const Duration(seconds: 60)) warnings.add('dns_phase_extended_over_60s');
           }
         }
