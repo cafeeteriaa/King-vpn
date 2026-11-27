@@ -204,6 +204,11 @@ class KingNetworkFingerprint {
   static final RegExp _vpnInterfaceName =
       RegExp(r'^(tun|tap|ppp|wg|utun|vpn|ipsec|xfrm|tailscale|wireguard)[0-9]*', caseSensitive: false);
 
+  /// Shared Android/Linux VPN-interface classifier used by fingerprints and
+  /// the background scanner's fail-closed guard.
+  static bool isVpnInterfaceName(String value) =>
+      _vpnInterfaceName.hasMatch(value.trim());
+
   static String fromInterfaces(
     Iterable<KingNetworkInterfaceSnapshot> interfaces,
   ) {
