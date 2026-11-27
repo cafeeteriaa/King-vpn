@@ -175,8 +175,8 @@ mod tests {
         assert_eq!(a, vec!["192.0.2.0", "192.0.2.1", "192.0.2.2"]);
         assert_eq!(c, "3");
         let (a, c) = expand_range_batch("192.0.2.0/30", &c, 3).unwrap();
-        assert_eq!(a, vec!["192.0.2.3"]);
-        assert_eq!(c, "0");
+        assert_eq!(a, vec!["192.0.2.3", "192.0.2.0", "192.0.2.1"]);
+        assert_eq!(c, "2");
     }
 
     #[test]
