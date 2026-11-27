@@ -2274,7 +2274,11 @@ Map<String, dynamic> _genAddrsIso(Map<String, dynamic> args) {
 // Begin another complete pass only after the previous inventory pass finished.
 // Interrupted passes retain their durable cursors and are never reset here.
 Future<void> natRangeStartNextPass() async {
-  if (!natRangeInventoryPassComplete) return;
+  final configuredPassDone = natRanges.isEmpty ||
+      natRanges.every((range) => (_natConfiguredRangeCursors[range] ?? 0) < 0);
+  final endpointPassDone = _cfRangeCursors['__block_pass_done'] == 1;
+  if (!natRangeInventoryPassComplete &&
+      !(configuredPassDone && endpointPassDone)) return;
   _natConfiguredRangeCursor = 0;
   _natConfiguredRangeCursors.clear();
   _cfRangeCursors.removeWhere((key, value) =>
