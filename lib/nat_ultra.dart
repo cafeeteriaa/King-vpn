@@ -1707,6 +1707,27 @@ Future<File> _natInventoryFile(String name) async {
   return File('${dir.path}/$name');
 }
 
+Future<void> _natAppendInventoryRecords(
+    String name, List<Map<String, dynamic>> records) {
+  if (records.isEmpty) return Future<void>.value();
+  final snapshot = List<Map<String, dynamic>>.unmodifiable(records);
+  final next = _natInventoryWriteQueue.catchError((Object _) {}).then((_) async {
+    final file = await _natInventoryFile(name);
+    await file.parent.create(recursive: true);
+    final sink = file.openWrite(mode: FileMode.append);
+    try {
+      for (final record in snapshot) {
+        sink.writeln(jsonEncode(record));
+      }
+      await sink.flush();
+    } finally {
+      await sink.close();
+    }
+  });
+  _natInventoryWriteQueue = next;
+  return next;
+}
+
 Future<void> _natAppendInventoryRecord(
     String name, Map<String, dynamic> record) {
   final next = _natInventoryWriteQueue.catchError((Object _) {}).then((_) async {
@@ -1879,6 +1900,37 @@ Future<void> natNationalIpMemSave(String ip, int port) async {
     await _natAppendInventoryRecord(_natNationalIpMemFileName, row);
   } catch (e, stk) {
     logError(e, stk);
+  }
+}
+
+Future<bool> natNationalIpMemSaveMany(Iterable<String> endpoints) async {
+  final rows = <Map<String, dynamic>>[];
+  final keys = <String>{};
+  final now = DateTime.now().millisecondsSinceEpoch;
+  for (final endpoint in endpoints) {
+    final separator = endpoint.lastIndexOf('|');
+    if (separator <= 0 || separator == endpoint.length - 1) continue;
+    final ip = endpoint.substring(0, separator).trim();
+    final port = int.tryParse(endpoint.substring(separator + 1)) ?? 0;
+    if (InternetAddress.tryParse(ip) == null || port < 1 || port > 65535) continue;
+    final key = '$ip|$port';
+    if (!keys.add(key)) continue;
+    rows.add(<String, dynamic>{
+      'ip': ip,
+      'port': port,
+      't': now,
+    });
+  }
+  if (rows.isEmpty) return true;
+  try {
+    await _natAppendInventoryRecords(_natNationalIpMemFileName, rows);
+    natNationalIpMem.removeWhere((entry) =>
+        keys.contains('${entry['ip']}|${entry['port']}'));
+    natNationalIpMem.insertAll(0, rows);
+    return true;
+  } catch (error, stackTrace) {
+    logError(error, stackTrace);
+    return false;
   }
 }
 

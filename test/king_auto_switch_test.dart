@@ -50,6 +50,16 @@ class BlockingAdapter implements KingConnectionAdapter {
   Future<void> disconnect() => delegate.disconnect();
 }
 
+KingNetworkEngineCatalog _catalogWithRunnable(Set<String> ids) {
+  return KingNetworkEngineCatalog(
+    KingNetworkEngineCatalog.defaultEngines.map((engine) =>
+      ids.contains(engine.id)
+          ? engine.copyWith(state: KingIntegrationState.integrated)
+          : engine,
+    ),
+  );
+}
+
 void main() {
   group('KING multi-engine coordinator', () {
     test('Xray stays primary and falls back only after data-plane failure', () async {
@@ -57,7 +67,9 @@ void main() {
       final result = await KingAutoSwitchCoordinator(adapters: [
         FakeAdapter(KingEngineId.amneziaWg, events: events),
         FakeAdapter(KingEngineId.xray, trafficOk: false, events: events),
-      ]).connect();
+      ], catalog: _catalogWithRunnable({
+        KingEngineId.xray, KingEngineId.amneziaWg,
+      })).connect();
       expect(result.connected, isTrue);
       expect(result.engine, KingEngineId.amneziaWg);
       expect(events, [
@@ -70,7 +82,9 @@ void main() {
       final result = await KingAutoSwitchCoordinator(adapters: [
         FakeAdapter(KingEngineId.xray, available: false, events: events),
         FakeAdapter(KingEngineId.wireGuard, events: events),
-      ]).connect();
+      ], catalog: _catalogWithRunnable({
+        KingEngineId.xray, KingEngineId.wireGuard,
+      })).connect();
       expect(result.engine, KingEngineId.wireGuard);
       expect(events, ['connect:wireguard']);
     });
@@ -133,7 +147,9 @@ void main() {
         FakeAdapter(KingEngineId.xray, trafficOk: false,
             events: events, disconnectError: StateError('TUN still owned')),
         FakeAdapter(KingEngineId.wireGuard, events: events),
-      ]).connect();
+      ], catalog: _catalogWithRunnable({
+        KingEngineId.xray, KingEngineId.wireGuard,
+      })).connect();
       expect(result.connected, isFalse);
       expect(result.engine, isNull);
       expect(result.detail, contains('teardown failed'));
@@ -153,7 +169,10 @@ void main() {
       final events = <String>[];
       final xray = FakeAdapter(KingEngineId.xray, events: events);
       final wireGuard = FakeAdapter(KingEngineId.wireGuard, events: events);
-      final coordinator = KingAutoSwitchCoordinator(adapters: [xray, wireGuard]);
+      final coordinator = KingAutoSwitchCoordinator(
+        adapters: [xray, wireGuard],
+        catalog: _catalogWithRunnable({KingEngineId.xray, KingEngineId.wireGuard}),
+      );
       expect((await coordinator.connect()).engine, KingEngineId.xray);
       xray.trafficOk = false;
       xray.disconnectError = StateError('release not confirmed');
@@ -167,7 +186,10 @@ void main() {
     test('recovers from failed active engine to next healthy engine', () async {
       final xray = FakeAdapter(KingEngineId.xray, trafficOk: false);
       final wg = FakeAdapter(KingEngineId.wireGuard);
-      final coordinator = KingAutoSwitchCoordinator(adapters: [xray, wg]);
+      final coordinator = KingAutoSwitchCoordinator(
+        adapters: [xray, wg],
+        catalog: _catalogWithRunnable({KingEngineId.xray, KingEngineId.wireGuard}),
+      );
       final initial = await coordinator.connect();
       expect(initial.engine, KingEngineId.wireGuard);
       xray.trafficOk = true;
@@ -192,6 +214,30 @@ void main() {
           KingIntegrationState.integrationPathVerified);
       expect(catalog.all.where((e) => e.state == KingIntegrationState.integrated)
           .map((e) => e.id), [KingEngineId.xray]);
+      expect(catalog.runnable.map((e) => e.id), [KingEngineId.xray]);
+      expect(catalog.canExecute(KingEngineId.wireGuard), isFalse);
+      expect(catalog.runtimeBlockReason(KingEngineId.wireGuard),
+          contains('not verified'));
+    });
+
+    test('blocks adapters that are known but not runtime-integrated', () async {
+      final events = <String>[];
+      final result = await KingAutoSwitchCoordinator(adapters: [
+        FakeAdapter(KingEngineId.wireGuard, events: events),
+        FakeAdapter(KingEngineId.hysteria2, events: events),
+      ]).connect();
+      expect(result.connected, isFalse);
+      expect(result.engine, isNull);
+      expect(events, isEmpty);
+    });
+
+    test('rejects adapters with no catalog identity', () {
+      expect(
+        () => KingAutoSwitchCoordinator(adapters: [
+          FakeAdapter('unregistered_engine'),
+        ]),
+        throwsArgumentError,
+      );
     });
 
     test('keeps local DPI tools separate from full-device VPN engines', () {
@@ -323,7 +369,7 @@ void main() {
       expect(parser.parse(engineId: KingEngineId.wireGuard,
           payload: 'wireguard://private-key@example.org:51820').single.format,
           KingServerConfigFormat.wireGuardConfig);
-      final reorderedIpv6 = '[Peer]\\r\\nEndpoint = [2001:db8::1]:51820\\r\\nAllowedIPs = ::/0, 192.0.2.0/24\\r\\nPublicKey = $publicKey\\r\\n[Interface]\\r\\nAddress = 10.0.0.2/32\\r\\nPrivateKey = $privateKey\\r\\n';
+      final reorderedIpv6 = '[Peer]\r\nEndpoint = [2001:db8::1]:51820\r\nAllowedIPs = ::/0, 192.0.2.0/24\r\nPublicKey = $publicKey\r\n[Interface]\r\nAddress = 10.0.0.2/32\r\nPrivateKey = $privateKey\r\n';
       expect(parser.parse(engineId: KingEngineId.wireGuard, payload: reorderedIpv6),
           hasLength(1));
     });

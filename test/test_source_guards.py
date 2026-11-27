@@ -15,6 +15,30 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn("personalFolderServers(max:", source)
         self.assertNotIn("out.length >= max", source)
 
+    def test_personal_folder_connection_uses_streaming_probe_pipeline(self):
+        source = (ROOT / "lib" / "main.dart").read_text(encoding="utf-8")
+        coordinator = (ROOT / "lib" / "personal_folder_probe.dart").read_text(encoding="utf-8")
+        prep_start = source.index("Future<void> _personalPrepWork() async")
+        prep_end = source.index("Future<void> personalFolderConnect()", prep_start)
+        prep = source[prep_start:prep_end]
+        self.assertIn("PersonalFolderStore.readBatches(batchSize: 128)", prep)
+        self.assertIn("PersonalFolderProbeCoordinator.rank", prep)
+        self.assertIn("PersonalFolderStore.readPage(limit: 50)", prep)
+        self.assertNotIn("personalFolderServers()", prep)
+        self.assertIn("while (!isCancelled())", coordinator)
+        self.assertIn("concurrency", coordinator)
+        self.assertIn("fallbackLinks()", coordinator)
+        self.assertIn("scores.sort", coordinator)
+        self.assertIn("List<String> _personalRanked", source)
+
+    def test_personal_failover_restores_the_complete_ordered_archive(self):
+        source = (ROOT / "lib" / "main.dart").read_text(encoding="utf-8")
+        adopt_start = source.index("Future<void> _adopt() async")
+        adopt_end = source.index("void _startWatch()", adopt_start)
+        adopt = source[adopt_start:adopt_end]
+        self.assertIn("PersonalFolderStore.readBatches(batchSize: 128)", adopt)
+        self.assertNotIn("_personalShown.map((s) => s.link)", adopt)
+
     def test_personal_folder_mutations_are_serialized(self):
         folder = (ROOT / "lib" / "personal_folder.dart").read_text(encoding="utf-8")
         self.assertIn("Future<void> _personalMutationQueue", folder)
@@ -51,18 +75,26 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn("servers.jsonl", store)
         self.assertIn("servers.jsonl.bak", store)
         self.assertIn("servers.jsonl.tmp", store)
-        self.assertIn("await temp.writeAsString(contents, flush=True)", store)
-        self.assertIn("await _replaceByRename(temp, target)", store)
+        snapshot_start = store.index("static Future<void> _writeSnapshotUnlocked")
+        snapshot_end = store.index("static Future<void> writeSnapshot", snapshot_start)
+        snapshot_writer = store[snapshot_start:snapshot_end]
+        self.assertIn("for (final raw in links)", snapshot_writer)
+        self.assertIn("final seen = <String>{};", snapshot_writer)
+        self.assertIn("sink.writeln(jsonEncode(value))", snapshot_writer)
+        self.assertIn("await _isValidSnapshot(target)", snapshot_writer)
+        self.assertNotIn("encodeSnapshot(values)", snapshot_writer)
+        self.assertIn("await _replaceByRename(temp, target)", snapshot_writer)
         self.assertIn("PersonalFolderStore.readOrMigrate", folder)
-        self.assertIn("await PersonalFolderStore.writeSnapshot(next)", folder)
+        self.assertIn("PersonalFolderStore.appendLinks(input)", folder)
+        self.assertIn("PersonalFolderStore.removeLinks([link])", folder)
         self.assertIn("await p.remove(_kPersonalFolderPref)", folder)
 
     def test_personal_folder_store_never_overwrites_good_backup_with_corrupt_primary(self):
         store = (ROOT / "lib" / "personal_folder_store.dart").read_text(encoding="utf-8")
-        start = store.index("if (await target.exists() && await _readFile(target) != null)")
-        end = store.index("// On Android/Linux", start)
+        start = store.index("// Preserve a validated primary before replacing it.")
+        end = store.index("await _replaceByRename(temp, target)", start)
         rotation = store[start:end]
-        self.assertIn("await backupTemp.writeAsBytes(await target.readAsBytes(), flush: true)", rotation)
+        self.assertIn("await _copyFileStreaming(target, backupTemp)", rotation)
         self.assertIn("await _replaceByRename(backupTemp, backup)", rotation)
         self.assertNotIn("await backup.delete()", rotation)
         self.assertNotIn("await target.delete()", rotation)
@@ -73,10 +105,10 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         remove_start = folder.index("Future<void> removeFromPersonalFolder(")
         add_body = folder[add_start:folder.index("\n}", add_start) + 2]
         remove_body = folder[remove_start:folder.index("\n}", remove_start) + 2]
-        self.assertLess(add_body.index("await PersonalFolderStore.writeSnapshot(next)"),
-                        add_body.index("personalFolderCache = next"))
-        self.assertLess(remove_body.index("await PersonalFolderStore.writeSnapshot(next)"),
-                        remove_body.index("personalFolderCache = next"))
+        self.assertLess(add_body.index("await PersonalFolderStore.appendLinks(input)"),
+                        add_body.index("personalFolderCache.addAll(committed)"))
+        self.assertLess(remove_body.index("await PersonalFolderStore.removeLinks([link])"),
+                        remove_body.index("personalFolderCache.removeWhere"))
         self.assertIn("return 0;", add_body)
 
     def test_personal_folder_store_has_testable_lossless_jsonl_codec(self):
@@ -84,7 +116,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn("static String encodeSnapshot(Iterable<String> links)", store)
         self.assertIn("static List<String>? decodeSnapshot(String contents)", store)
         self.assertIn("return null;", store)
-        self.assertIn("PersonalFolderStore.decodeSnapshot", store)
+        self.assertIn("static List<String>? decodeSnapshot(String contents)", store)
 
     def test_personal_folder_store_supports_streaming_paged_reads(self):
         store = (ROOT / "lib" / "personal_folder_store.dart").read_text(encoding="utf-8")
@@ -107,6 +139,17 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn("تازه‌سازی فهرست", sheet)
         self.assertIn("page.totalCount - 1", sheet)
         self.assertNotIn("List<String>.of(personalFolderCache)", sheet)
+
+    def test_personal_folder_mutations_are_memory_bounded(self):
+        store = (ROOT / "lib" / "personal_folder_store.dart").read_text(encoding="utf-8")
+        start = store.index("static Future<List<String>> _rewriteUnlocked")
+        end = store.index("static Future<List<String>> readOrMigrate", start)
+        mutation = store[start:end]
+        self.assertIn("await for (final value in _streamSnapshot(source))", mutation)
+        self.assertIn("sink.writeln(jsonEncode(value))", mutation)
+        self.assertNotIn("readAsBytes", mutation)
+        self.assertIn("static Stream<List<String>> readBatches(", store)
+        self.assertIn("static Future<void> _copyFileStreaming", store)
 
     def test_personal_folder_store_serializes_file_mutations(self):
         store = (ROOT / "lib" / "personal_folder_store.dart").read_text(encoding="utf-8")
@@ -1575,13 +1618,75 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         scan = source[start:end]
         self.assertIn('if (halted()) return false;', scan)
         self.assertIn('return true;', scan)
-        bg_start = source.index('Future<void> ipAutoBackground()')
+        bg_start = source.index('Future<void> ipAutoBackground({bool Function()? stop})')
         bg_end = source.index('/// دلیل رد شدن شروع اسکن', bg_start)
         background = source[bg_start:bg_end]
         completed = background.index('final completed = await _ipAutoRunOnce(')
-        timestamp = background.index('await p.setString(_ipAutoAtKey, now.toString());')
-        self.assertIn('if (completed && !_ipAutoHalt(modeSnapshot: runNationalMode))', background)
+        timestamp = background.index('await p.setString(atKey, now.toString());')
+        self.assertIn('final atKey = _ipAutoAtKeyForMode(runNationalMode);', background)
+        self.assertIn('if (!kNatIpScanOn) return;', background)
+        self.assertIn('shouldAbort: externallyStopped,', background)
+        self.assertIn('if (completed &&', background)
         self.assertLess(completed, timestamp)
+
+    def test_ip_auto_uses_fresh_source_templates_exact_addresses_and_transactional_cursors(self):
+        source = (ROOT / 'lib' / 'ip_auto_scan.dart').read_text(encoding='utf-8')
+        self.assertIn('await nipResolveAll(host)', source)
+        self.assertIn('return natSeedBlocks(ips.toList(growable: false));', source)
+        self.assertIn("'addressBatchSize': _ipAutoBatch", source)
+        self.assertIn('final addressBatch = await _ipAutoNextAddrs(', source)
+        self.assertIn('if (templateKeys.add(server.link.trim())) tpl.add(server);', source)
+        self.assertIn('Core-outbound candidates only; not TUN-verified', source)
+        scan_start = source.index('Future<bool> _ipAutoRunOnce(')
+        scan_end = source.index('Future<void> ipAutoSheet', scan_start)
+        scan = source[scan_start:scan_end]
+        self.assertIn('ipAutoCursors\n      ..clear()\n      ..addAll(addressBatch.nextCursors);', scan)
+        empty_start = scan.index('if (addressBatch.addresses.isEmpty)')
+        empty_end = scan.index('final addrs = addressBatch.addresses;', empty_start)
+        self.assertIn('return true;', scan[empty_start:empty_end])
+        self.assertIn('15-minute scheduler tick', scan[empty_start:empty_end])
+        self.assertLess(scan.index('if (halted()) {'), scan.index('addressBatch.nextCursors'))
+
+    def test_auto_scanner_uses_bounded_concurrency_without_inventory_truncation(self):
+        source = (ROOT / 'lib' / 'auto_scanners.dart').read_text(encoding='utf-8')
+        self.assertIn('const int _autoProbeConcurrency = 8;', source)
+        self.assertIn('Future<bool> _autoAnyAddress(', source)
+        self.assertIn('Future<List<String>> _autoCollectAddresses(', source)
+        self.assertIn('final openIps = await _autoCollectAddresses(', source)
+        self.assertNotIn('take(5000)', source)
+        self.assertNotIn('take(20000)', source)
+
+    def test_national_auto_candidates_survive_restart_and_feed_ip_scanner(self):
+        auto = (ROOT / 'lib' / 'auto_scanners.dart').read_text(encoding='utf-8')
+        nat = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
+        ip = (ROOT / 'lib' / 'ip_auto_scan.dart').read_text(encoding='utf-8')
+        self.assertIn("const String _natAutoScanCandidatesKey = 'nat_auto_scan_candidates_v1';", auto)
+        self.assertIn('await prefs.setString(_natAutoScanCandidatesKey, jsonEncode(snapshot));', auto)
+        self.assertIn('final ipInventorySaved =', auto)
+        self.assertIn('if (!ipInventorySaved)', auto)
+        self.assertIn('if (nationalMode) await natNationalIpMemLoad();', auto)
+        self.assertIn('await _natAppendInventoryRecords(_natNationalIpMemFileName, rows);', nat)
+        start = ip.index('Future<List<String>> _ipAutoBlocks(')
+        end = ip.index('Future<_IpAutoAddressBatch?>', start)
+        inventory = ip[start:end]
+        self.assertIn('natNationalIpMemHosts()', inventory)
+        self.assertIn('await natNationalIpMemLoad();', ip[ip.index('Future<bool> _ipAutoRunOnce('):])
+        self.assertIn('..addAll(natScanHits);', inventory)
+        save_start = nat.index('Future<bool> natNationalIpMemSaveMany(')
+        save_end = nat.index('Future<void> natNationalDomMemSave(', save_start)
+        save = nat[save_start:save_end]
+        self.assertLess(save.index('await _natAppendInventoryRecords('), save.index('natNationalIpMem.removeWhere'))
+
+    def test_dns_and_ip_maintenance_runs_through_one_serialized_scheduler(self):
+        scheduler = (ROOT / 'lib' / 'scan_maintenance_scheduler.dart').read_text(encoding='utf-8')
+        main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        self.assertIn('runDns: () => dnsxAutoPick(stop: _scanMaintenanceShouldStop)', main)
+        self.assertIn('runIp: () => ipAutoBackground(stop: _scanMaintenanceShouldStop)', main)
+        self.assertIn('_scanMaintenance?.dispose();', main)
+        self.assertIn('final pending = _flight;', scheduler)
+        self.assertIn('await runDns();', scheduler)
+        self.assertIn('if (!_mayContinue(generation)) return;', scheduler)
+        self.assertIn('await runIp();', scheduler)
 
     def test_test_methods_are_unique(self):
         import ast
@@ -2284,18 +2389,21 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         tls_start = source.index('final tlsHits = <String>[];')
         tls_end = source.index("await goldAddScans(", tls_start)
         tls = source[tls_start:tls_end]
-        ip_loop = tls.index('for (final ip in ips) {')
-        stop_check = tls.index('if (cancelled()) break;', ip_loop)
-        probe = tls.index('final sel = await _autoAlpnOk', ip_loop)
-        self.assertLess(ip_loop, stop_check)
-        self.assertLess(stop_check, probe)
+        self.assertIn('final success = await _autoAnyAddress(', tls)
+        self.assertIn('shouldStop: cancelled,', tls)
+        helper_start = source.index('Future<bool> _autoAnyAddress(')
+        helper_end = source.index('Future<List<String>> _autoCollectAddresses(', helper_start)
+        helper = source[helper_start:helper_end]
+        self.assertIn('while (!matched && !(shouldStop?.call() ?? false))', helper)
+        self.assertIn('cursor++', helper)
+        self.assertIn('_autoProbeConcurrency', helper)
 
     def test_ip_auto_storage_load_and_save_are_mode_isolated_across_awaits(self):
         source = (ROOT / 'lib' / 'ip_auto_scan.dart').read_text(encoding='utf-8')
         load_start = source.index('Future<void> ipAutoLoad() async {')
         save_start = source.index('Future<void> _ipAutoSave() async {', load_start)
         load = source[load_start:save_start]
-        save_end = source.index('/// خودکار فقط IPهای دقیق', save_start)
+        save_end = source.index('Future<List<String>> _ipAutoBlocks(', save_start)
         save = source[save_start:save_end]
         self.assertLess(load.index('final loadNationalMode = nationalMode;'),
                         load.index('await SharedPreferences.getInstance();'))
@@ -2308,7 +2416,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
 
     def test_ip_auto_background_acquires_shared_locks_before_async_work(self):
         source = (ROOT / 'lib' / 'ip_auto_scan.dart').read_text(encoding='utf-8')
-        start = source.index('Future<void> ipAutoBackground() async {')
+        start = source.index('Future<void> ipAutoBackground({bool Function()? stop}) async {')
         end = source.index('/// دلیل رد شدن شروع اسکن', start)
         body = source[start:end]
         lock = body.index('ipAutoBusy = true;')
@@ -2328,20 +2436,32 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertLess(prefs_guard, run)
         self.assertLess(run, save)
         self.assertLess(save, unlock)
-        self.assertIn('if (completed && !_ipAutoHalt(modeSnapshot: runNationalMode))', body)
+        self.assertIn('if (completed &&', body)
+        self.assertIn('!externallyStopped())', body)
 
     def test_ip_auto_address_generation_does_not_commit_after_stop(self):
         source = (ROOT / 'lib' / 'ip_auto_scan.dart').read_text(encoding='utf-8')
-        start = source.index('Future<List<String>> _ipAutoNextAddrs(')
+        start = source.index('Future<_IpAutoAddressBatch?> _ipAutoNextAddrs(')
         end = source.index('extension IpAutoExt', start)
         body = source[start:end]
-        compute = body.index('await compute(_genAddrsIso, args)')
-        abort = body.index('if (nationalMode != modeSnapshot || (shouldAbort?.call() ?? false))')
-        cursor_mutation = body.index('ipAutoCursors\n    ..clear()')
-        position_mutation = body.index('ipAutoPos = start + slice.length;')
-        self.assertLess(compute, abort)
-        self.assertLess(abort, cursor_mutation)
-        self.assertLess(abort, position_mutation)
+        abort_before = body.index('if (nationalMode != modeSnapshot || (shouldAbort?.call() ?? false))')
+        compute = body.index('await compute(_genAddrsIso, <String, dynamic>{')
+        abort_after = body.index(
+            'if (nationalMode != modeSnapshot || (shouldAbort?.call() ?? false))',
+            compute,
+        )
+        self.assertLess(abort_before, compute)
+        self.assertLess(compute, abort_after)
+        self.assertIn('final cursorSnapshot = Map<String, int>.of(ipAutoCursors);', body)
+        self.assertNotIn('ipAutoCursors\n      ..clear()', body)
+        self.assertIn('nextCursors', body)
+        run_start = source.index('Future<bool> _ipAutoRunOnce(')
+        run_end = source.index('Future<void> ipAutoSheet(', run_start)
+        run = source[run_start:run_end]
+        completed = run.index("if (halted()) {\n      say('متوقف شد؛ نتایج این اجرا کامل نیستند.');")
+        commit = run.index('ipAutoCursors\n      ..clear()\n      ..addAll(addressBatch.nextCursors);')
+        self.assertLess(completed, commit)
+        self.assertIn('addressBatch.modeSnapshot != runNationalMode', run)
         self.assertIn('bool Function()? shouldAbort', body)
 
     def test_ip_auto_scan_aborts_when_network_mode_changes_mid_run(self):
@@ -2351,7 +2471,8 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         end = source.index('Future<void> ipAutoSheet(', start)
         body = source[start:end]
         self.assertIn('final runNationalMode = nationalMode;', body)
-        self.assertIn('bool halted() => _ipAutoHalt(modeSnapshot: runNationalMode);', body)
+        self.assertIn('_ipAutoHalt(modeSnapshot: runNationalMode) ||', body)
+        self.assertIn('(shouldAbort?.call() ?? false);', body)
         self.assertIn('shouldAbort: halted,', body)
         self.assertIn('cancelled: halted,', body)
         self.assertIn('if (halted()) return false;', body)
@@ -2501,9 +2622,20 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn('scanBudget', body)
         self.assertNotIn('timedOut()', body)
         self.assertIn('if (scanNationalMode) ...natNationalIpMemHosts() else ..._goldIps.keys', body)
+        self.assertIn('for (final server in <Server>[...configuredServers, ...sourceTemplates])', body)
+        self.assertIn('await fetchServers(', body)
+        self.assertIn('await natHotAll(fetch: true)', body)
+        self.assertIn('offset += 16', body)
+        self.assertIn('.where(_autoValidSni)', body)
+        self.assertIn('await _natAutoScanLoad();', body)
+        self.assertIn('await _natAutoScanSave();', body)
         self.assertIn('await natRelayHostsLoad();', body)
         self.assertIn('if (scanNationalMode) ...natRelayHosts,', body)
-        self.assertIn('for (final server in configuredServers)', body)
+
+
+
+
+
         self.assertIn('...kAutoSniDomains', body)
         self.assertIn('...frontSnis', body)
         self.assertIn('for (final port in ports)', body)
@@ -2878,7 +3010,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('natNationalIpMemHosts()', source)
         self.assertIn('await natNationalIpMemLoad();', source)
         self.assertIn('await natHotAll(fetch: false);', source)
-        self.assertIn('pool = await fetchServers(stop: () => halted());', source)
+        self.assertIn('pool = await fetchServers(stop: () => halted(), dedupeByLink: true);', source)
 
     def test_matrix_order_is_not_truncated_by_the_old_5000_variant_ceiling(self):
         main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
@@ -2886,6 +3018,14 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn('natMaxVariants', main)
         self.assertNotIn('natMaxVariants', nat)
         self.assertIn('_natOrder(s, full: _resFull).where((v) => v != 0)', main)
+
+    def test_source_fetcher_can_preserve_protocol_distinct_templates(self):
+        main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        auto = (ROOT / 'lib' / 'auto_scanners.dart').read_text(encoding='utf-8')
+        self.assertIn('bool dedupeByLink = false,', main)
+        self.assertIn('final dedupeKey = dedupeByLink ? s.link.trim() : s.key;', main)
+        self.assertIn('dedupeByLink: true', auto)
+        self.assertIn('dedupeByLink: true', (ROOT / 'lib' / 'ip_auto_scan.dart').read_text(encoding='utf-8'))
 
     def test_auto_sni_scan_aborts_when_network_mode_changes_mid_run(self):
         source = (ROOT / 'lib' / 'auto_scanners.dart').read_text(encoding='utf-8')
@@ -2896,7 +3036,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         first_await = body.index('await goldLoad();')
         self.assertLess(snapshot, first_await)
         self.assertIn('bool cancelled() =>', body)
-        self.assertIn('_autoScanStop || vpnActive() || vpnWanted() || nationalMode != scanNationalMode;', body)
+        self.assertIn('bool cancelled() => _autoScanStop || vpnActive() || vpnWanted() || nationalMode != scanNationalMode;', body)
         self.assertIn('await goldAddScans(', body)
         self.assertIn('shouldAbort: () => cancelled(),', body)
         self.assertNotIn('if (_autoScanStop)', body)
@@ -2942,26 +3082,30 @@ class KingVpnSourceGuardTests(unittest.TestCase):
 
     def test_ip_auto_address_generation_does_not_apply_stale_mode_cursors(self):
         source = (ROOT / 'lib' / 'ip_auto_scan.dart').read_text(encoding='utf-8')
-        start = source.index('Future<List<String>> _ipAutoNextAddrs(')
+        start = source.index('Future<_IpAutoAddressBatch?> _ipAutoNextAddrs(')
         end = source.index('extension IpAutoExt', start)
         body = source[start:end]
         mode = body.index('final modeSnapshot = nationalMode;')
-        position = body.index('final startPosSnapshot = ipAutoPos;')
         cursors = body.index('final cursorSnapshot = Map<String, int>.of(ipAutoCursors);')
-        compute = body.index('await compute(_genAddrsIso, args)')
-        guard = body.index('if (nationalMode != modeSnapshot || (shouldAbort?.call() ?? false))')
-        mutation = body.index('ipAutoCursors\n    ..clear()')
-        generated = body.index("final generatedCursors = Map<String, int>.from(gen['cursors'] as Map);")
-        update_pos = body.index('ipAutoPos = start + slice.length;')
+        guard_before = body.index('if (nationalMode != modeSnapshot || (shouldAbort?.call() ?? false))')
+        compute = body.index('await compute(_genAddrsIso, <String, dynamic>{')
+        guard_after = body.index(
+            'if (nationalMode != modeSnapshot || (shouldAbort?.call() ?? false))',
+            compute,
+        )
         self.assertLess(mode, compute)
-        self.assertLess(position, compute)
         self.assertLess(cursors, compute)
-        self.assertLess(compute, guard)
-        self.assertLess(guard, generated)
-        self.assertLess(generated, mutation)
+        self.assertLess(guard_before, compute)
+        self.assertLess(compute, guard_after)
         self.assertIn("'nationalMode': modeSnapshot", body)
-        self.assertIn('final start = startPosSnapshot % all.length;', body)
-        self.assertLess(mutation, update_pos)
+        self.assertIn('nextCursors', body)
+        self.assertIn('final cursorSnapshot = Map<String, int>.of(ipAutoCursors);', body)
+        self.assertNotIn('ipAutoCursors\n      ..clear()', body)
+        run_start = source.index('Future<bool> _ipAutoRunOnce(')
+        run_end = source.index('Future<void> ipAutoSheet(', run_start)
+        run = source[run_start:run_end]
+        self.assertIn('addressBatch.modeSnapshot != runNationalMode', run)
+        self.assertIn('ipAutoCursors\n      ..clear()\n      ..addAll(addressBatch.nextCursors);', run)
 
 
 
@@ -3045,7 +3189,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('say(cancellationMessage());', body)
         self.assertIn("final saved = await goldAddScans(", body)
         self.assertIn("shouldAbort: () => cancelled(),", body)
-        self.assertIn("if (!saved)", body)
+        self.assertIn("if (!saved) {", body)
         self.assertNotIn("await goldAddScan('tls', tlsHits);", body)
         helper_start = extras.index('Future<bool> goldAddScans(')
         helper_end = extras.index('Future<void> goldAddScan(', helper_start)
@@ -3187,6 +3331,11 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertLess(guard, national_save)
         self.assertIn('shouldAbort: () => stopFlag || !sheetOpen || nationalMode != scanNationalMode,', sheet[global_save:])
         self.assertIn('shouldAbort: () => stopFlag || !sheetOpen || nationalMode != scanNationalMode,', sheet[national_save:])
+
+
+    def test_national_ip_auto_inventory_cascade_terminates_before_hostnames(self):
+        source = (ROOT / 'lib' / 'ip_auto_scan.dart').read_text(encoding='utf-8')
+        self.assertRegex(source, r'\.\.addAll\(natScanHits\);\s+hostnames')
 
 
 if __name__ == '__main__':

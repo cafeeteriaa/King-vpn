@@ -306,7 +306,8 @@ bool _dnsxAutoBusy = false;
 /// اسکن دستی در حال اجراست؛ تا تمام نشده، اسکن خودکار شروع نمی‌شود
 bool dnsxManualBusy = false;
 
-/// اسکن خودکار: فقط در نت ملی و وقتی VPN قطع است. هر ۲۴ ساعت (یا ۶ ساعت اگر DNS سالمی نبود)، با همه‌ی دامنه‌های پروژه.
+/// اسکن خودکار mode-aware: در حالت ملی/جهانی با inventory و timestamp مستقل؛ scheduler فقط هنگام idle بودن VPN آن را اجرا می‌کند.
+/// هر ۲۴ ساعت (یا ۶ ساعت اگر DNS سالمی نبود)، با همه‌ی دامنه‌های پروژه.
 /// اگر وسط کار اتصال برقرار شود (stop=true)، اسکن نیمه‌کاره ذخیره نمی‌شود.
 Future<void> dnsxAutoPick({bool Function()? stop}) async {
   if (_dnsxAutoBusy || dnsxManualBusy) return;

@@ -1,5 +1,26 @@
 # King VPN — continuation checkpoint
 
+## Current checkpoint — 2026-11-27 07:35 UTC
+- Repository: `cafeeteriaa/King-vpn`.
+- Development branch: `feature/personal-folder-streaming-mutations-20261127`.
+- HEAD before this checkpoint commit: `a234129e8d63a3a6bb6981f43b75920ddbaf684e`; this commit records the current state and becomes the branch HEAD after the ref update.
+- PR #68 is open Draft. PR #69 is closed without merge because the development branch already contains the semicolon fix; the regression guard is being retained directly on this branch.
+- The actual Dart syntax issue was `lib/ip_auto_scan.dart:113`: the national-mode `ips` cascade lacked a terminating semicolon before `hostnames`. It is fixed in the development branch at `ed2ac9f100aec9c5bcc81fba? no`; the exact validated commit is `ed2ac9f100aec9c5bcc81e8837407b895250e819`.
+- Exact development-code CI [45957884767](https://github.com/cafeeteriaa/King-vpn/actions/runs/45957884767), commit `ed2ac9f100aec9c5bcc81e8837407b895250e819`: SUCCESS. Source guards, Flutter tests, Dart analysis, ARM64 Release build, size report, and artifact uploads all passed.
+- Verified artifact for that exact commit: artifact ID `15180290274`; ZIP SHA-256 `e271b0cd44de9d8d00abc6899c69b256878f4ed469724655cf3a5baf1510847e`; APK SHA-256 `25a52f19692dc273079e89ed5332c4c759f886d1dc8458e12af038f656fb8705`; size 122,885,758 bytes. It contains 19 ELF64/AArch64 native libraries; all PT_LOAD segments are at least 16 KiB aligned and all native-library ZIP data offsets are 16 KiB aligned. It is signed with a generated debug key, not a production release key.
+- The isolated fix branch CI [45958072865](https://github.com/cafeeteriaa/King-vpn/actions/runs/45958072865), commit `f64a482c92f32246e5fee7856489929b67663937`, passed source guards, Flutter tests and Dart analysis but the APK build failed after three retries because Maven Central returned HTTP 429 for Kotlin Gradle Plugin 2.2.20 artifacts. No APK was produced for that commit.
+- CI [45959282092](https://github.com/cafeeteriaa/King-vpn/actions/runs/45959282092), commit `a234129e8d63a3a6bb6981f43b75920ddbaf684e`, failed only in the new Python source guard because the regex was over-escaped. This commit corrects the pattern to use a single-backslash raw regex; the Dart source remains unchanged.
+- Earlier CI [45957798844](https://github.com/cafeeteriaa/King-vpn/actions/runs/45957798844) exposed the missing semicolon and three Flutter test files failed to load. The development-code CI above proves the corrected source compiles, tests, analyzes and builds.
+- The checkpoint commit's exact-head CI is pending; do not claim its build until the run completes.
+- Main remains untouched at `9b36ae7dd9ac0379a3b3b84091752f9322bb649d`. No CI execution was cancelled by this work.
+- Open engineering risks:
+  - `_natAutoScanCandidates` still stores growing national SNI/port/TLS lists as one SharedPreferences JSON string rather than a streaming file-backed inventory.
+  - `_natReadInventory` uses `readAsLines()` and a full deduplication map; `natNationalIpMemLoad` and `natNationalIpMemHosts` also materialize the complete inventory. The current JSONL append is durable but not bounded-memory.
+  - Personal-folder startup/connection preparation still retains full in-memory caches; scheduler remains process-local Timer-based.
+  - No real-device, Iranian-operator, actual TUN traffic, DNS-leak, IPv4/IPv6 handover, or battery tests have been performed.
+- IP Clean source lists, ranges, ports, and scan capabilities were not removed or narrowed.
+- First next action: verify CI for this checkpoint commit; then migrate national IP and SNI/port/TLS candidate inventories to crash-safe streaming cursor/page storage without truncating existing data.
+
 ## Source of truth
 - Repository: cafeeteriaa/King-vpn
 - Active branch: fix/personal-folder-uncapped-20261127
