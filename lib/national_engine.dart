@@ -557,6 +557,28 @@ class PilotIpv6Probe {
   }
 }
 
+/// Corroborates Smart Pilot's TLS/IPv6 evidence with the independent
+/// DNS + multi-host diagnosis. A contradiction preserves the last route;
+/// weaker DNS/transport evidence never overrides a verified TLS quorum.
+PilotNetworkStrategy corroboratePilotStrategy(
+  PilotNetworkStrategy pilot,
+  NatNetworkClass diagnosis,
+) {
+  if (pilot == PilotNetworkStrategy.domestic &&
+      diagnosis == NatNetworkClass.globalReachable) {
+    return PilotNetworkStrategy.preserve;
+  }
+  if (pilot == PilotNetworkStrategy.global &&
+      diagnosis == NatNetworkClass.domesticOnlyLikely) {
+    return PilotNetworkStrategy.preserve;
+  }
+  if (pilot == PilotNetworkStrategy.offline &&
+      diagnosis != NatNetworkClass.unknown) {
+    return PilotNetworkStrategy.preserve;
+  }
+  return pilot;
+}
+
 String natNetworkClassLabel(NatNetworkClass value) => switch (value) {
       NatNetworkClass.globalReachable => 'دسترسی جهانی برقرار',
       NatNetworkClass.domesticOnlyLikely => 'احتمالاً فقط مسیرهای داخلی فعال‌اند',
