@@ -6805,7 +6805,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     var freshDiskRefreshDue = false;
     try {
       final diskMeta = await FreshResourceStore.metadata();
-      final diskUpdated = DateTime.tryParse(diskMeta['updatedAt']?.toString() ?? '');
+      final diskUpdated = DateTime.tryParse(
+          (diskMeta['onlineRefreshedAt'] ?? diskMeta['updatedAt'])?.toString() ?? '');
       freshDiskRefreshDue = diskUpdated == null ||
           now0.difference(diskUpdated.toLocal()) >= const Duration(hours: 48);
     } catch (e, st) {
