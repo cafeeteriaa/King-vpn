@@ -912,6 +912,7 @@ class KingNationalScannerEngine {
     var domainHits = 0, ipHits = 0, sniHits = 0, alpnHits = 0;
     var configsValidated = 0, dnsCount = 0;
     var networkEvidence = PilotNetworkProbe.current;
+    var phaseDeferred = false;
     KingScanJournal? journal;
     String resumePhase = '';
     Map<String, Object?> resumeCursor = <String, Object?>{};
@@ -1062,7 +1063,7 @@ class KingNationalScannerEngine {
       }
       if (seeds.isNotEmpty) natTemplateSeeds = List<Server>.of(seeds);
 
-      if (shouldRunPhase('dns')) {
+      if (shouldRunPhase('dns') && !stopped() && !shouldYield() && !phaseDeferred) {
         await beginPhase('dns');
         status(KingNatScanPhase.dns, 'اسکنر: بررسی DNS متناسب با شبکه...');
         if (!stopped() && !shouldYield()) {
@@ -1084,7 +1085,7 @@ class KingNationalScannerEngine {
         if (!stopped() && !shouldYield()) await completePhase('dns');
       }
 
-      if (shouldRunPhase('domain')) {
+      if (shouldRunPhase('domain') && !stopped() && !shouldYield() && !phaseDeferred) {
         await beginPhase('domain');
         status(KingNatScanPhase.domain, 'اسکنر: کشف دامنه و endpointهای کانفیگ...');
         if (!stopped() && !shouldYield() && seeds.isNotEmpty && kNatIpScanOn) {
@@ -1100,7 +1101,7 @@ class KingNationalScannerEngine {
         if (!stopped() && !shouldYield()) await completePhase('domain');
       }
 
-      if (shouldRunPhase('ip')) {
+      if (shouldRunPhase('ip') && !stopped() && !shouldYield() && !phaseDeferred) {
         await beginPhase('ip');
         status(KingNatScanPhase.ip, 'اسکنر: پیمایش پیوستهٔ تمام بازه‌ها و endpointها...');
         if (!stopped() && !shouldYield() && kNatIpScanOn &&
@@ -1147,10 +1148,11 @@ class KingNationalScannerEngine {
           if (!stopped()) await completePhase('ip');
         } else if (ipAutoBusy || _natRangeScanBusy) {
           warnings.add('ip_scan_busy_skipped');
+          phaseDeferred = true;
         }
       }
 
-      if (shouldRunPhase('sni')) {
+      if (shouldRunPhase('sni') && !stopped() && !shouldYield() && !phaseDeferred) {
         await beginPhase('sni');
         status(KingNatScanPhase.sniAlpn, 'اسکنر: بررسی سازگاری SNI و ALPN...');
       if (!stopped() && !shouldYield()) {
@@ -1230,7 +1232,7 @@ class KingNationalScannerEngine {
         if (!stopped() && !shouldYield()) await completePhase('sni');
       }
 
-      if (shouldRunPhase('config')) {
+      if (shouldRunPhase('config') && !stopped() && !shouldYield() && !phaseDeferred) {
         await beginPhase('config');
         status(KingNatScanPhase.config, 'اسکنر: اعتبارسنجی ساختار کانفیگ‌ها...');
       if (!stopped() && !shouldYield()) {
@@ -1293,7 +1295,7 @@ class KingNationalScannerEngine {
 
       final didCancel = cancelled() || nationalMode != modeSnapshot;
       final didYield = shouldYield();
-      if (!didCancel && !didYield) {
+      if (!didCancel && !didYield && !phaseDeferred) {
         await beginPhase('complete');
         await completePhase('complete');
       }
@@ -1304,7 +1306,7 @@ class KingNationalScannerEngine {
         warnings.add('ip_inventory_cursor_preserved_for_next_slice');
       }
       final report = KingNatScanReport(
-        completed: !didCancel && !didYield, timedOut: false,
+        completed: !didCancel && !didYield && !phaseDeferred, timedOut: false,
         networkClass: NatNetworkDiagnosis.current, nationalMode: modeSnapshot,
         dnsResolvers: dnsCount, domainEndpoints: domainHits, ipEndpoints: ipHits,
         sniHandshakes: sniHits, alpnNegotiations: alpnHits,
