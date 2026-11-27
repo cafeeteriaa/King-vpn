@@ -37,6 +37,7 @@ class PersonalFolderProbeCoordinator {
     required Future<List<String>> Function() fallbackLinks,
     required bool Function() isCancelled,
     int concurrency = 8,
+    int retryBatchSize = 128,
     int total = 0,
     String preferredLink = '',
     Duration retryDelay = const Duration(seconds: 2),
@@ -46,7 +47,11 @@ class PersonalFolderProbeCoordinator {
     if (concurrency <= 0) {
       throw ArgumentError.value(concurrency, 'concurrency');
     }
+    if (retryBatchSize <= 0) {
+      throw ArgumentError.value(retryBatchSize, 'retryBatchSize');
+    }
     final scores = <_PersonalFolderScore>[];
+    final failedLinks = <String>[];
     var completed = 0;
     var sequence = 0;
     var cancelled = false;
@@ -94,12 +99,23 @@ class PersonalFolderProbeCoordinator {
         cancelled = true;
         break;
       }
-      final failed = await runPass(batch, retry: false);
-      if (failed.isNotEmpty && !isCancelled()) {
-        if (retryDelay > Duration.zero) {
-          await Future<void>.delayed(retryDelay);
-        }
-        await runPass(failed, retry: true);
+      failedLinks.addAll(await runPass(batch, retry: false));
+    }
+
+    // Match the original full-inventory behavior: retry failed candidates once
+    // after the first pass is complete, with one delay for the whole archive.
+    // If every first-pass probe failed, skip ping retries and preserve the
+    // ordered real-core fallback exactly as before.
+    if (!isCancelled() && scores.isNotEmpty && failedLinks.isNotEmpty) {
+      if (retryDelay > Duration.zero) {
+        await Future<void>.delayed(retryDelay);
+      }
+      for (var start = 0; start < failedLinks.length; start += retryBatchSize) {
+        if (isCancelled()) break;
+        final end = (start + retryBatchSize < failedLinks.length)
+            ? start + retryBatchSize
+            : failedLinks.length;
+        await runPass(failedLinks.sublist(start, end), retry: true);
       }
     }
 
