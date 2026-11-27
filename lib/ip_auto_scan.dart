@@ -115,9 +115,10 @@ List<String> _ipAutoBlocks(Iterable<Server> knownServers) {
   return ips.map((ip) => '$ip/32').toList(growable: false);
 }
 
-Future<List<String>> _ipAutoNextAddrs(Iterable<Server> knownServers, {bool Function()? shouldAbort}) async {
-  // A mode switch while compute() is running must not apply stale cursors
-  // or a stale batch position to the newly selected network mode.
+Future<({List<String> addresses, Map<String, int> cursors, int nextPosition})>
+    _ipAutoNextAddrs(Iterable<Server> knownServers, {bool Function()? shouldAbort}) async {
+  // Compute a candidate batch without committing its cursor. The caller commits
+  // only after every TCP/core phase finishes; cancellation must retry this batch.
   final modeSnapshot = nationalMode;
   final startPosSnapshot = ipAutoPos;
   final cursorSnapshot = Map<String, int>.of(ipAutoCursors);
@@ -130,19 +131,17 @@ Future<List<String>> _ipAutoNextAddrs(Iterable<Server> knownServers, {bool Funct
   };
   final gen = await compute(_genAddrsIso, args);
   if (nationalMode != modeSnapshot || (shouldAbort?.call() ?? false)) {
-    return const <String>[];
+    return (addresses: const <String>[], cursors: cursorSnapshot, nextPosition: startPosSnapshot);
   }
   final all = (gen['addrs'] as List).cast<String>();
   final generatedCursors = Map<String, int>.from(gen['cursors'] as Map);
-  ipAutoCursors
-    ..clear()
-    ..addAll(generatedCursors);
-  if (all.isEmpty) return const <String>[];
-  // فقط یک تکه‌ی _ipAutoBatch تایی در هر اجرا؛ جای فعلی ذخیره می‌شود تا اجرای بعدی ادامه دهد
+  if (all.isEmpty) {
+    return (addresses: const <String>[], cursors: cursorSnapshot, nextPosition: startPosSnapshot);
+  }
+  // One resumable slice per execution; commit its cursor only after the scan succeeds.
   final start = startPosSnapshot % all.length;
   final slice = all.skip(start).take(_ipAutoBatch).toList();
-  ipAutoPos = start + slice.length;
-  return slice;
+  return (addresses: slice, cursors: generatedCursors, nextPosition: start + slice.length);
 }
 
 extension IpAutoExt on _HomePageState {
@@ -283,11 +282,12 @@ extension IpAutoExt on _HomePageState {
       if (templateKeys.add(server.key)) tpl.add(server);
     }
     say('ساخت آدرس‌ها...');
-    final addrs = await _ipAutoNextAddrs(
+    final generatedBatch = await _ipAutoNextAddrs(
       runNationalMode ? const <Server>[] : [...good, ...pending, ...fetchedAll],
       shouldAbort: halted,
     );
     if (halted()) return false;
+    final addrs = generatedBatch.addresses;
     if (addrs.isEmpty) {
       say('آدرسی برای اسکن پیدا نشد.');
       return false;
@@ -356,6 +356,11 @@ extension IpAutoExt on _HomePageState {
       say('متوقف شد؛ نتایج این اجرا کامل نیستند.');
       return false;
     }
+    // Commit range cursors and batch position only after the complete scan.
+    ipAutoCursors
+      ..clear()
+      ..addAll(generatedBatch.cursors);
+    ipAutoPos = generatedBatch.nextPosition;
     say('تمام شد: $found IP جدید در حالت ${runNationalMode ? 'نت ملی' : 'جهانی'}.');
     return true;
   }
