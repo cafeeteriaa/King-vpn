@@ -315,6 +315,12 @@ Future<void> dnsxAutoPick({bool Function()? stop}) async {
   final scanNationalMode = nationalMode;
   final sfx = scanNationalMode ? 'nat' : 'glob';
   try {
+    // The national pipeline must classify split domestic/global reachability
+    // before DNS selection. Global mode keeps its existing lightweight path.
+    if (scanNationalMode) {
+      await NatNetworkDiagnosis.refresh();
+      if (nationalMode != scanNationalMode || (stop?.call() ?? false)) return;
+    }
     final p = await SharedPreferences.getInstance();
     if (nationalMode != scanNationalMode) return;
     // DNSMODE: each network mode owns an independent cache and persistence key.
