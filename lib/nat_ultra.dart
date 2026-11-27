@@ -1779,7 +1779,12 @@ Future<void> _natDynamicSpecsLoad() async {
     if (!await file.exists()) return;
     final lines = await file.readAsLines();
     if (lines.isEmpty) return;
-    final header = jsonDecode(lines.first);
+    Object? header;
+    try {
+      header = jsonDecode(lines.first);
+    } catch (_) {
+      header = null;
+    }
     if (header is! Map ||
         header['kind'] != 'king-nat-dynamic-specs' ||
         header['version'] != 1 ||
