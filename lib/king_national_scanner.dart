@@ -87,11 +87,19 @@ class KingNatScanReport {
     required this.nationalMode, required this.dnsResolvers, required this.domainEndpoints,
     required this.ipEndpoints, required this.sniHandshakes, required this.alpnNegotiations,
     required this.configsValidated, required this.elapsedMs, this.warnings = const <String>[],
+    this.domesticTlsSuccesses = 0, this.globalTlsSuccesses = 0,
+    this.domesticLatencyMs, this.globalLatencyMs,
+    this.networkConfidence = 0, this.inventoryPassComplete = false,
+    this.sliceYielded = false,
   });
   final bool completed, timedOut, nationalMode;
   final NatNetworkClass networkClass;
   final int dnsResolvers, domainEndpoints, ipEndpoints;
   final int sniHandshakes, alpnNegotiations, configsValidated, elapsedMs;
+  final int domesticTlsSuccesses, globalTlsSuccesses;
+  final int? domesticLatencyMs, globalLatencyMs;
+  final double networkConfidence;
+  final bool inventoryPassComplete, sliceYielded;
   final List<String> warnings;
   String get summary => 'اسکنر: DNS $dnsResolvers • دامنه/IP $domainEndpoints • IP $ipEndpoints • SNI $sniHandshakes • ALPN $alpnNegotiations • کانفیگ ساختاری $configsValidated';
   Map<String, Object?> toMap() => <String, Object?>{
@@ -101,6 +109,13 @@ class KingNatScanReport {
     'sniHandshakes': sniHandshakes, 'alpnNegotiations': alpnNegotiations,
     'configsValidated': configsValidated,
     'configsStructurallyValidated': configsValidated,
+    'domesticTlsSuccesses': domesticTlsSuccesses,
+    'globalTlsSuccesses': globalTlsSuccesses,
+    'domesticLatencyMs': domesticLatencyMs,
+    'globalLatencyMs': globalLatencyMs,
+    'networkConfidence': networkConfidence,
+    'inventoryPassComplete': inventoryPassComplete,
+    'sliceYielded': sliceYielded,
     'elapsedMs': elapsedMs, 'warnings': warnings,
   };
 }
@@ -741,15 +756,15 @@ class KingNationalScannerEngine {
     required int globalTlsSuccesses,
   }) {
     if (domesticTlsSuccesses >= 2 && globalTlsSuccesses == 0) return true;
-    if (globalTlsSuccesses >= 2) return false;
+    if (globalTlsSuccesses >= 2 && domesticTlsSuccesses == 0) return false;
+    // Dual-route networks are decided by measured latency, not forced to Global.
+    if (domesticTlsSuccesses >= 2 && globalTlsSuccesses >= 2) return null;
     switch (diagnosis) {
       case NatNetworkClass.domesticOnlyLikely:
-        return domesticTlsSuccesses > 0 && globalTlsSuccesses == 0 ? true : null;
-      case NatNetworkClass.globalReachable:
-        return false;
       case NatNetworkClass.dnsDegraded:
       case NatNetworkClass.transportRestricted:
         return domesticTlsSuccesses >= 2 && globalTlsSuccesses == 0 ? true : null;
+      case NatNetworkClass.globalReachable:
       case NatNetworkClass.unknown:
         return null;
     }
@@ -757,16 +772,30 @@ class KingNationalScannerEngine {
 
   static Future<bool?> detectNationalMode() async {
     try {
-      final diagnosis = await NatNetworkDiagnosis.refresh(force: true);
-      final tls = await PilotNetworkProbe.refresh(force: true);
-      final decision = chooseNationalMode(
-        diagnosis: diagnosis,
-        domesticTlsSuccesses: tls.domesticSuccesses,
-        globalTlsSuccesses: tls.globalSuccesses,
-      );
+      final results = await Future.wait<Object>(<Future<Object>>[
+        NatNetworkDiagnosis.refresh(force: true),
+        PilotNetworkProbe.refresh(force: true),
+      ]);
+      final diagnosis = results[0] as NatNetworkClass;
+      final tls = results[1] as NetworkEvidence;
+      final strategy = choosePilotNetworkStrategy(tls);
+      final decision = switch (strategy) {
+        PilotNetworkStrategy.domestic => true,
+        PilotNetworkStrategy.global => false,
+        PilotNetworkStrategy.offline => null,
+        PilotNetworkStrategy.preserve => chooseNationalMode(
+          diagnosis: diagnosis,
+          domesticTlsSuccesses: tls.domesticSuccesses,
+          globalTlsSuccesses: tls.globalSuccesses,
+        ),
+      };
       dbg('KNS-MODE: ' + natNetworkClassLabel(diagnosis) +
           ' domesticTLS=' + tls.domesticSuccesses.toString() +
           ' globalTLS=' + tls.globalSuccesses.toString() +
+          ' domesticMs=' + (tls.domesticLatencyMs?.toString() ?? '-') +
+          ' globalMs=' + (tls.globalLatencyMs?.toString() ?? '-') +
+          ' confidence=' + tls.confidence.toStringAsFixed(2) +
+          ' strategy=' + strategy.name +
           ' decision=' + (decision == null ? 'unknown/preserve' : (decision ? 'national' : 'global')));
       return decision;
     } catch (e, st) {
@@ -842,14 +871,16 @@ class KingNationalScannerEngine {
   }) async {
     final clock = Stopwatch()..start();
     final modeSnapshot = nationalMode;
-    // No fixed wall-clock ceiling: a complete inventory may take longer than one
-    // foreground session. Cancellation and network-mode changes remain immediate.
-    bool expired() => false;
+    // Each call is a resumable slice; the total inventory has no pass ceiling.
+    const sliceBudget = Duration(seconds: 35);
+    bool expired() => clock.elapsed >= sliceBudget;
     bool stopped() => cancelled() || nationalMode != modeSnapshot;
+    bool shouldYield() => expired() && !stopped();
     final warnings = <String>[];
     var ownsScannerLease = false;
     var domainHits = 0, ipHits = 0, sniHits = 0, alpnHits = 0;
     var configsValidated = 0, dnsCount = 0;
+    var networkEvidence = PilotNetworkProbe.current;
     void status(KingNatScanPhase phase, String message) {
       _scanPhase = phase;
       if (!stopped()) onStatus(message);
@@ -858,6 +889,16 @@ class KingNationalScannerEngine {
     try {
       await load();
       await NationalNetworkIntelligence.load();
+      try {
+        final samples = await Future.wait<Object>(<Future<Object>>[
+          NatNetworkDiagnosis.refresh(force: true),
+          PilotNetworkProbe.refresh(force: true),
+        ]).timeout(const Duration(seconds: 12));
+        networkEvidence = samples[1] as NetworkEvidence;
+      } catch (e, st) {
+        logError(e, st);
+        warnings.add('network_evidence_incomplete');
+      }
       // One shared lease serializes Scanner mode with DNS, IP-auto and the
       // generic scanner. The lease is represented by dnsxManualBusy so legacy
       // scanner entry points already respect it; only this coordinator's DNS
@@ -865,7 +906,7 @@ class KingNationalScannerEngine {
       bool externalScannerBusy() =>
           dnsxManualBusy || _dnsxAutoBusy || ipAutoBusy ||
           _natRangeScanBusy || _autoScanRunning;
-      while (externalScannerBusy() && !stopped()) {
+      while (externalScannerBusy() && !stopped() && !shouldYield()) {
         await Future.delayed(const Duration(milliseconds: 200));
       }
       if (stopped()) {
@@ -924,7 +965,7 @@ class KingNationalScannerEngine {
       if (seeds.isNotEmpty) natTemplateSeeds = List<Server>.of(seeds);
 
       status(KingNatScanPhase.dns, 'اسکنر: بررسی DNS متناسب با شبکه...');
-      if (!stopped()) {
+      if (!stopped() && !shouldYield()) {
         if (_dnsxAutoBusy) {
           warnings.add('dns_scan_busy_skipped');
         } else {
@@ -940,7 +981,7 @@ class KingNationalScannerEngine {
       }
 
       status(KingNatScanPhase.domain, 'اسکنر: کشف دامنه و endpointهای کانفیگ...');
-      if (!stopped() && seeds.isNotEmpty && kNatIpScanOn) {
+      if (!stopped() && !shouldYield() && seeds.isNotEmpty && kNatIpScanOn) {
         final found = await _natDomainFirst(
           seeds, conc: max(2, natAdaptiveWorkers()).toInt(),
           stop: stopped,
@@ -952,28 +993,25 @@ class KingNationalScannerEngine {
       }
 
       status(KingNatScanPhase.ip, 'اسکنر: پیمایش پیوستهٔ تمام بازه‌ها و endpointها...');
-      if (!stopped() && kNatIpScanOn && !ipAutoBusy && !_natRangeScanBusy) {
-        // If the previous complete pass finished, begin a new pass. An
-        // interrupted pass keeps its persisted cursor and resumes in place.
+      if (!stopped() && !shouldYield() && kNatIpScanOn &&
+          !ipAutoBusy && !_natRangeScanBusy) {
+        // One bounded inventory batch per foreground slice. The underlying
+        // scanner persists CIDR and endpoint cursors for the next invocation.
         await natRangeStartNextPass();
-        var batch = 0;
-        while (!stopped() && !natRangeInventoryPassComplete) {
-          batch++;
-          final found = await natRangeScanStep(
-            known: seeds,
-            maxAddrs: max(256, natAdaptiveWorkers() * 512).toInt(),
-            conc: max(1, natAdaptiveWorkers()).toInt(),
-            stop: stopped,
-            coordinatorOwned: true,
-          );
-          if (stopped()) break;
+        final workers = max(1, natAdaptiveWorkers()).toInt();
+        final found = await natRangeScanStep(
+          known: seeds,
+          maxAddrs: max(256, workers * 512).toInt(),
+          conc: workers,
+          stop: stopped,
+          coordinatorOwned: true,
+        );
+        if (!stopped()) {
           ipHits += found.length;
           if (found.isNotEmpty) await addDiscovered(found);
-          if (batch % 16 == 0) {
-            status(KingNatScanPhase.ip,
-                'اسکنر: ادامهٔ پیمایش بازه‌ها؛ دستهٔ $batch، تعداد کشفیات $ipHits');
-            await Future<void>.delayed(Duration.zero);
-          }
+        }
+        if (!natRangeInventoryPassComplete) {
+          warnings.add('ip_inventory_cursor_preserved_for_next_slice');
         }
       } else if (!kNatIpScanOn) {
         warnings.add('ip_scan_disabled_by_policy');
@@ -982,13 +1020,13 @@ class KingNationalScannerEngine {
       }
 
       status(KingNatScanPhase.sniAlpn, 'اسکنر: بررسی سازگاری SNI و ALPN...');
-      if (!stopped()) {
+      if (!stopped() && !shouldYield()) {
         final targets = <Server>[
           ...seeds.where((s) => s.cdn && !s.reality && _natIsSecure(s)),
         ];
         final seenTargets = <String>{};
         for (final server in targets) {
-          if (stopped()) break;
+          if (stopped() || shouldYield()) break;
           if (!seenTargets.add(server.key)) continue;
           String? ip;
           if (server.isIp) {
@@ -1009,7 +1047,7 @@ class KingNationalScannerEngine {
             (entry) => InternetAddress.tryParse(entry.value) == null,
           );
           for (final candidate in candidates) {
-            if (stopped()) break;
+            if (stopped() || shouldYield()) break;
             final alpn = await _probeSniAlpn(ip, server.port, candidate.value);
             if (alpn == null) continue;
             recordSniProbe(profileKey(server), candidate.key);
@@ -1023,12 +1061,12 @@ class KingNationalScannerEngine {
       }
 
       status(KingNatScanPhase.config, 'اسکنر: اعتبارسنجی ساختار کانفیگ‌ها...');
-      if (!stopped()) {
+      if (!stopped() && !shouldYield()) {
         for (final server in seeds) {
-          if (stopped()) break;
+          if (stopped() || shouldYield()) break;
           if (coreUnsupportedReason(server.link) != null) continue;
           for (final code in planVariants(server, full: true)) {
-            if (stopped()) break;
+            if (stopped() || shouldYield()) break;
             try {
               final variant = code % _natCodeBase;
               if (server.reality && _natChangesAddr(variant)) continue;
@@ -1043,16 +1081,27 @@ class KingNationalScannerEngine {
       }
 
       final didCancel = cancelled() || nationalMode != modeSnapshot;
-      final didTimeout = expired();
+      final didYield = shouldYield();
       _scanPhase = didCancel ? KingNatScanPhase.cancelled : KingNatScanPhase.complete;
-      if (didTimeout) warnings.add('total_scan_budget_reached');
+      if (didYield) warnings.add('scan_slice_yielded_cursor_preserved');
+      if (kNatIpScanOn && !natRangeInventoryPassComplete &&
+          !warnings.contains('ip_inventory_cursor_preserved_for_next_slice')) {
+        warnings.add('ip_inventory_cursor_preserved_for_next_slice');
+      }
       final report = KingNatScanReport(
-        completed: !didCancel && !didTimeout, timedOut: didTimeout,
+        completed: !didCancel, timedOut: false,
         networkClass: NatNetworkDiagnosis.current, nationalMode: modeSnapshot,
         dnsResolvers: dnsCount, domainEndpoints: domainHits, ipEndpoints: ipHits,
         sniHandshakes: sniHits, alpnNegotiations: alpnHits,
         configsValidated: configsValidated, elapsedMs: clock.elapsedMilliseconds,
         warnings: List<String>.unmodifiable(warnings),
+        domesticTlsSuccesses: networkEvidence.domesticSuccesses,
+        globalTlsSuccesses: networkEvidence.globalSuccesses,
+        domesticLatencyMs: networkEvidence.domesticLatencyMs,
+        globalLatencyMs: networkEvidence.globalLatencyMs,
+        networkConfidence: networkEvidence.confidence,
+        inventoryPassComplete: natRangeInventoryPassComplete,
+        sliceYielded: didYield,
       );
       dbg('KNS-SCAN: ' + jsonEncode(report.toMap()));
       return report;
@@ -1067,6 +1116,13 @@ class KingNationalScannerEngine {
         sniHandshakes: sniHits, alpnNegotiations: alpnHits,
         configsValidated: configsValidated, elapsedMs: clock.elapsedMilliseconds,
         warnings: List<String>.unmodifiable(warnings),
+        domesticTlsSuccesses: networkEvidence.domesticSuccesses,
+        globalTlsSuccesses: networkEvidence.globalSuccesses,
+        domesticLatencyMs: networkEvidence.domesticLatencyMs,
+        globalLatencyMs: networkEvidence.globalLatencyMs,
+        networkConfidence: networkEvidence.confidence,
+        inventoryPassComplete: natRangeInventoryPassComplete,
+        sliceYielded: shouldYield(),
       );
     } finally {
       if (ownsScannerLease) dnsxManualBusy = false;
