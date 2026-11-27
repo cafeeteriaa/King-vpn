@@ -4259,7 +4259,7 @@ Future<int?> pingAny(
     // test all three hosts without multiplying the connection delay.
     final slots = n - index;
     final perEndpoint = Duration(
-      microseconds: max(1, remaining.inMicroseconds ~/ slots),
+      microseconds: max(1, remaining.inMicroseconds ~/ slots).toInt(),
     );
     final p = await pingProxy(
       total: perEndpoint,
