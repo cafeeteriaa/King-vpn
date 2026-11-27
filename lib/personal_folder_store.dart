@@ -212,6 +212,7 @@ class PersonalFolderStore {
             .openRead()
             .transform(utf8.decoder)
             .transform(const LineSplitter())) {
+          if (shouldAbort?.call() ?? false) return false;
           if (line.isEmpty) continue;
           if (jsonDecode(line) is! String) return false;
         }
@@ -222,9 +223,11 @@ class PersonalFolderStore {
     }
     // Validate without materializing the archive, then stream the chosen
     // snapshot in a second bounded pass. Corrupt primary falls back to backup.
-    final source = await validStreaming(primary)
-        ? primary
-        : (await validStreaming(backup) ? backup : null);
+    final primaryValid = await validStreaming(primary);
+    if (shouldAbort?.call() ?? false) return;
+    final backupValid = primaryValid ? false : await validStreaming(backup);
+    if (shouldAbort?.call() ?? false) return;
+    final source = primaryValid ? primary : (backupValid ? backup : null);
     if (source == null) return;
     var batch = <String>[];
     try {
