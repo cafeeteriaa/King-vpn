@@ -2322,85 +2322,89 @@ Future<List<String>> _natRangeScanStepBody({
     for (final server in seeds) if (server.isIp) server.host,
   }.toList(growable: false);
   final blocks = natSeedBlocks(hosts);
-  // Stage the configured-range cursor; do not persist it until scan success.
+  // Every call is one bounded memory batch. The coordinator repeats batches
+  // until both configured ranges and exact known endpoints complete a full pass.
   final configuredBatch = modeSnapshot
       ? _natConfiguredRangeBatch(maxAddrs)
-      : (addresses: const <String>[], nextCursor: _natConfiguredRangeCursor);
+      : (
+          addresses: const <String>[],
+          nextCursor: _natConfiguredRangeCursor,
+          nextRangeCursors: Map<String, int>.of(_natConfiguredRangeCursors),
+          passCompleted: true,
+        );
   final configuredNatRanges = configuredBatch.addresses;
-
-  // CDN refresh is unrelated to the National Net range inventory.
-  unawaited(refreshCdnRanges());
+  final blockStart = (_cfRangeCursors['__block_cursor'] ?? 0);
+  final blockPassStart = (_cfRangeCursors['__block_pass_start'] ?? blockStart);
+  final outputLimit = max(0, maxAddrs - configuredNatRanges.length).toInt();
   final args = <String, dynamic>{
-    'cfIpsBatch': 0, // no broad CDN/third-party range sweep in automatic mode
+    'cfIpsBatch': 0,
     'blocks': blocks,
     'nationalMode': modeSnapshot,
     'liveRanges': <String>[],
+    'outputLimit': outputLimit,
     'cursors': Map<String, int>.of(_cfRangeCursors),
   };
   final gen = await compute(_genAddrsIso, args);
   if (shouldAbort()) return const <String>[];
 
   final generatedCursors = Map<String, int>.from(gen['cursors'] as Map);
+  final nextBlockCursor = (generatedCursors['__block_cursor'] ?? blockStart);
+  final endpointPassComplete = blocks.isEmpty ||
+      (outputLimit > 0 && nextBlockCursor == blockPassStart);
+  generatedCursors['__block_pass_start'] =
+      endpointPassComplete ? nextBlockCursor : blockPassStart;
   final addrs = <String>{
     ...configuredNatRanges,
     ...(gen['addrs'] as List).cast<String>(),
   }.toList(growable: false);
-  if (addrs.isEmpty) return const <String>[];
-
-  final from = modeSnapshot ? 0 : (natRangeCursor % addrs.length);
-  final slice = addrs.skip(from).take(maxAddrs).toList();
-  final nextNatRangeCursor = from + slice.length;
+  final slice = addrs;
   final out = <String>[];
   final portList = natAutoPorts(seeds);
-  final perPortCap = Duration(
-      milliseconds: max(20000, budget.inMilliseconds ~/ max(1, portList.length)).toInt());
-  // A monotonic shared deadline prevents each port from consuming a fresh
-  // minimum budget and accidentally multiplying the requested scan duration.
-  final scanClock = Stopwatch()..start();
-  bool scanExpired() => scanClock.elapsed >= budget;
+
+  // The batch is bounded in address count and worker concurrency, not by a
+  // wall-clock deadline. Each socket probe has its own timeout; cancellation
+  // and network-mode changes still abort immediately.
   for (final port in portList) {
     if (shouldAbort()) return const <String>[];
-    final remainingBudget = budget - scanClock.elapsed;
-    if (remainingBudget <= Duration.zero) return const <String>[];
-    final portBudget = perPortCap < remainingBudget
-        ? perPortCap
-        : remainingBudget;
     final hits = await natScanIps(
       slice,
       port: port,
       concurrency: conc,
       want: slice.length,
-      budget: portBudget,
+      budget: null,
       timeout: const Duration(milliseconds: 1500),
       cancelled: shouldAbort,
     );
-    if (shouldAbort() || scanExpired()) return const <String>[];
+    if (shouldAbort()) return const <String>[];
     for (final hit in hits) {
       out.add('${hit.ip}|$port');
     }
   }
-  if (shouldAbort() || scanExpired()) return const <String>[];
+  if (shouldAbort()) return const <String>[];
 
-  // Commit the address and configured-range cursors only after a non-cancelled run.
   _cfRangeCursors
     ..clear()
     ..addAll(generatedCursors);
-  if (!modeSnapshot) natRangeCursor = nextNatRangeCursor;
-  if (modeSnapshot && configuredBatch.nextCursor != _natConfiguredRangeCursor) {
+  if (modeSnapshot) {
     _natConfiguredRangeCursor = configuredBatch.nextCursor;
-    final persistedCursor = _natConfiguredRangeCursor;
-    unawaited(() async {
-      try {
-        final p = await SharedPreferences.getInstance();
-        await p.setInt('natConfiguredRangeCursor', persistedCursor);
-      } catch (e, st) {
-        logError(e, st);
-      }
-    }());
+    _natConfiguredRangeCursors
+      ..clear()
+      ..addAll(configuredBatch.nextRangeCursors);
+  }
+  natRangeInventoryPassComplete =
+      configuredBatch.passCompleted && endpointPassComplete;
+  final prefs = await SharedPreferences.getInstance();
+  if (shouldAbort()) return const <String>[];
+  await prefs.setString('natCfRangeCursorsV1', jsonEncode(_cfRangeCursors));
+  if (modeSnapshot) {
+    await prefs.setInt('natConfiguredRangeCursor', _natConfiguredRangeCursor);
+    await prefs.setString(
+        'natConfiguredRangeCursorsV1', jsonEncode(_natConfiguredRangeCursors));
   }
   natTemplateSeeds = List<Server>.of(seeds);
   natRandomLast = 0;
   natIpScanned += slice.length;
+  natRangeScanBatchSequence++;
   return out;
 }
 
