@@ -26,6 +26,7 @@ class FreshResourceStore {
   static final Map<String, Future<void>> _mergeQueues = <String, Future<void>>{};
   static final Map<String, Future<void>> _readQueues = <String, Future<void>>{};
   static final Map<String, Uint8List> _shardBlooms = <String, Uint8List>{};
+  static final Set<String> _shardTailChecked = <String>{};
   static final Map<String, Future<void>> _migrationFutures = <String, Future<void>>{};
 
   static Future<Directory> directory({Directory? root}) async {
@@ -345,7 +346,7 @@ class FreshResourceStore {
           if (_bloomMayContain(bloom, id)) id,
       };
       final existing = <String>{};
-      if (wanted.isNotEmpty && await file.exists()) {
+      if (wanted.isNotEmpty) {
         await for (final line in file.openRead()
             .transform(utf8.decoder)
             .transform(const LineSplitter())) {
@@ -359,7 +360,8 @@ class FreshResourceStore {
         }
       }
       var needsSeparator = false;
-      if (await file.exists()) {
+      final tailKey = '${dir.path}/${group.key}';
+      if (!_shardTailChecked.contains(tailKey) && await file.exists()) {
         final length = await file.length();
         if (length > 0) {
           final tail = await file.openRead(length - 1, length).fold<List<int>>(
@@ -383,6 +385,7 @@ class FreshResourceStore {
       } finally {
         await sink.close();
       }
+      _shardTailChecked.add(tailKey);
     }
     return added;
   }
@@ -541,6 +544,7 @@ class FreshResourceStore {
         }
       }
       _shardBlooms.removeWhere((key, _) => key.startsWith('${dir.path}/'));
+      _shardTailChecked.removeWhere((key) => key.startsWith('${dir.path}/'));
       await _writeMetadata(dir, 0, source: 'cleared');
       final dirty = File('${dir.path}/$_dirtyFileName');
       if (await dirty.exists()) await dirty.delete();
