@@ -26,7 +26,10 @@ void main() {
       await first.commit(
         phase: 'ip',
         phaseCompleted: true,
-        cursor: <String, Object?>{'rangeIndex': 8},
+        cursor: <String, Object?>{
+          'rangeIndex': 8,
+          'rangeOffsets': <String, int>{'10.0.0.0/24': 128},
+        },
         counters: <String, int>{'batches': 5, 'discovered': 14},
       );
 
