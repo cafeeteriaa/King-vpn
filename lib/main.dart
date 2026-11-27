@@ -5121,6 +5121,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   // already up (app was closed, VPN kept running) is picked up again
   bool startAdopt = true;
   List<Server> fetchedAll = []; // full downloaded list (kept in memory + disk)
+  FreshResourceCursor? _offlineFreshCursor; // paged cursor for the 4M offline cache
   DateTime? listTime;
   final Map<String, String> favs = {}; // pinned servers: key -> link
   final Map<String, Server> favObj = {}; // parsed objects of the pinned ones
@@ -6793,19 +6794,12 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   // (new servers appear in the hot lists all the time) and the cycle goes on.
   Future<void> _loadPending({bool bg = false, bool exhausted = false}) async {
     _purgePersonalLeaks(); // ONLYFOLDER
-    // FRESH-DISK: load the phone's reusable fresh-resource folder before choosing a mode.
-    // Never mix its entries into the personal-server folder.
-    try {
-      final diskLinks = await FreshResourceStore.readLinks();
-      final known = <String>{for (final item in fetchedAll) item.key};
-      for (final link in diskLinks) {
-        final parsed = Server.parse(link);
-        if (parsed != null && !_inPF(parsed) && known.add(parsed.key)) {
-          parsed.src = 'fresh-device-folder';
-          fetchedAll.add(parsed);
-        }
-      }
-    } catch (e, st) { logError(e, st); }
+    // The offline cache is paged only in offline mode; never inflate fetchedAll
+    // with millions of disk entries during ordinary online/national discovery.
+    if (!offlineOnly && _offlineFreshCursor != null) {
+      await _offlineFreshCursor!.close();
+      _offlineFreshCursor = null;
+    }
     // ULTIMATE: offline-only never downloads new lists
     if (offlineOnly) {
       if (!bg) _set('حالت آفلاین: پوشه‌ی منابع تازه و سرورهای ذخیره‌شده');
@@ -6814,12 +6808,22 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         _set('پوشه‌ی منابع تازه هنوز ساخته نشده: روی «پوشه منابع تازه» بزن و حدود ۱۰ دقیقه صبر کن');
       }
       final hotOff = await natHotNext(300, fetch: false); // هر دور ۳۰۰ تا؛ اگر پیدا نشد دور بعد ادامه می‌دهد
-      // FRESH-DISK: منابع تازه‌ی ذخیره‌شده روی گوشی در اتصال آفلاین هم قابل استفاده‌اند.
-      final diskLinks = await FreshResourceStore.readLinks();
+      // FRESH-DISK: read one bounded page; never load the multi-million-entry
+      // offline folder into RAM. The cursor survives queue refills in this session.
+      _offlineFreshCursor ??= await FreshResourceStore.openCursor();
+      final diskLinks = await (_offlineFreshCursor?.nextPage(limit: 300) ??
+          Future<List<String>>.value(<String>[]));
       final diskOff = <Server>[];
       for (final link in diskLinks) {
         final parsed = Server.parse(link);
-        if (parsed != null) diskOff.add(parsed);
+        if (parsed != null) {
+          parsed.src = 'fresh-device-folder';
+          diskOff.add(parsed);
+        }
+      }
+      if (_offlineFreshCursor?.isDone == true) {
+        await _offlineFreshCursor!.close();
+        _offlineFreshCursor = null;
       }
       // OFFLINE-SRC: صف قبلی (آنلاین) کنار گذاشته می‌شود؛ فقط منابع تازه‌ی محلی تست می‌شوند.
       // پوشه‌ی سرورهای شخصی و بانک IP نت ملی عمداً جدا می‌مانند.

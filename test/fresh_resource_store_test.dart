@@ -3,6 +3,11 @@ import '../lib/fresh_resource_store.dart';
 
 void main() {
   group('FreshResourceStore normalization', () {
+    test('offline cache capacity is four million with a separate 500 MiB disk budget', () {
+      expect(FreshResourceStore.maxEntries, 4000000);
+      expect(FreshResourceStore.maxStorageBytes, 500 * 1024 * 1024);
+    });
+
     test('accepts supported V2Ray URI schemes', () {
       expect(
         FreshResourceStore.normalizeLinks([
