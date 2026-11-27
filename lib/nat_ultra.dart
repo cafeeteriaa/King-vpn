@@ -2405,6 +2405,13 @@ String _natBigIntToIPv6(BigInt value) {
 /// Calibrate Rust once in the long-lived UI isolate before spawning a worker.
 /// The worker isolate re-opens the library and verifies parity once per batch,
 /// then reuses the validated native path for the remaining ranges in that batch.
+String _natRangeKindForNativeParity(String range) {
+  final isIpv6 = range.contains(':');
+  if (range.contains('/')) return isIpv6 ? 'ipv6-cidr' : 'ipv4-cidr';
+  if (range.contains('-')) return isIpv6 ? 'ipv6-range' : 'ipv4-range';
+  return isIpv6 ? 'ipv6-single' : 'ipv4-single';
+}
+
 void natPrepareNativeAcceleration() {
   if (!KingNativeAccel.shouldBenchmark) return;
   natExpandAddressRangeBatch(
@@ -2566,8 +2573,7 @@ Map<String, dynamic> _genAddrsIso(Map<String, dynamic> args) {
       ? max(cfIpsBatch * 4, 20000)
       : max(0, requestedBatch);
   final nativeAcceleration = args['nativeAcceleration'] == true;
-  var nativeWorkerChecked = false;
-  var nativeWorkerReady = false;
+  final nativeWorkerVerifiedKinds = <String>{};
   var nativeRejected = false;
   void addBlocks() {
     if (blocks.isEmpty) return;
@@ -2583,19 +2589,16 @@ Map<String, dynamic> _genAddrsIso(Map<String, dynamic> args) {
       final cursor = cursors[key] ?? '0';
       final remaining = cap - addrs.length;
       if (remaining <= 0) break;
+      final nativeKind = _natRangeKindForNativeParity(range);
       final generated = natExpandAddressRangeBatchForWorker(
         range,
         cursor: cursor,
         limit: min(256, remaining),
-        nativeEnabled: nativeAcceleration && (!nativeWorkerChecked || nativeWorkerReady),
-        verifyNative: !nativeWorkerChecked,
+        nativeEnabled: nativeAcceleration && !nativeRejected,
+        verifyNative: !nativeWorkerVerifiedKinds.contains(nativeKind),
       );
-      nativeWorkerChecked = true;
-      if (generated.nativeReady) nativeWorkerReady = true;
-      if (generated.nativeRejected) {
-        nativeRejected = true;
-        nativeWorkerReady = false;
-      }
+      if (generated.nativeReady) nativeWorkerVerifiedKinds.add(nativeKind);
+      if (generated.nativeRejected) nativeRejected = true;
       if (generated.addresses.isNotEmpty) {
         addrs.addAll(generated.addresses);
         cursors[key] = generated.nextCursor;
