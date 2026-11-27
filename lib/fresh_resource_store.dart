@@ -419,9 +419,17 @@ class FreshResourceStore {
   }
 
   static Future<void> _migrateLegacy(Directory dir) {
+    final marker = File('${dir.path}/.migration_v2_done');
+    if (marker.existsSync()) return Future<void>.value();
     final existing = _migrationFutures[dir.path];
     if (existing != null) return existing;
-    final task = _migrateLegacyImpl(dir);
+    final previous = _mergeQueues[dir.path] ?? Future<void>.value();
+    final task = previous.then((_) async {
+      if (await marker.exists()) return;
+      await _migrateLegacyImpl(dir);
+    });
+    final queued = task.then<void>((_) {}, onError: (Object _) {});
+    _mergeQueues[dir.path] = queued;
     _migrationFutures[dir.path] = task;
     return task.whenComplete(() {
       if (identical(_migrationFutures[dir.path], task)) {
@@ -501,13 +509,13 @@ class FreshResourceStore {
       pendingWrite,
       pendingRead,
     ]).then((_) async {
+      await File('${dir.path}/.migration_v2_done').writeAsString('v2', flush: true);
       await for (final entity in dir.list(followLinks: false)) {
         if (entity is File &&
             (RegExp(r'^[0-9a-f]{2}\.jsonl.hasMatch(entity.uri.pathSegments.last) ||
              entity.uri.pathSegments.last == _metadataFileName ||
              entity.uri.pathSegments.last == _dirtyFileName ||
              entity.uri.pathSegments.last == _cursorFileName ||
-             entity.uri.pathSegments.last == '.migration_v2_done' ||
              entity.uri.pathSegments.last == _legacyFileName ||
              entity.uri.pathSegments.last == '$_legacyFileName.migrated')) {
           await entity.delete();
