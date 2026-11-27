@@ -16,6 +16,7 @@ class KingDynamicSourceDiscovery {
   KingDynamicSourceDiscovery._();
 
   static const _ttl = Duration(hours: 12);
+  static const _retryDelay = Duration(minutes: 15);
   static const _pageSize = 100;
   static const _maxTreeResponseChars = 8 * 1024 * 1024;
   static const _maxFileBytes = 1500000;
@@ -33,7 +34,7 @@ class KingDynamicSourceDiscovery {
   static bool isCandidatePath(String path, {int? size}) {
     final p = path.toLowerCase();
     if (size != null && (size <= 0 || size > _maxFileBytes)) return false;
-    if (p.startsWith('.') || RegExp(r'(^|/)(\.github|docs)(/|$)').hasMatch(p)) {
+    if (RegExp(r'(^|/)\.').hasMatch(p) || RegExp(r'(^|/)docs(/|$)').hasMatch(p)) {
       return false;
     }
     if (RegExp(r'(^|/)(readme|license|changelog|contributing)(\.|$)').hasMatch(p)) {
@@ -104,7 +105,11 @@ class KingDynamicSourceDiscovery {
       final oldCache = await _readCache();
       final last = oldCache['updatedAt'] is num ? (oldCache['updatedAt'] as num).toInt() : 0;
       final now = DateTime.now().millisecondsSinceEpoch;
-      if (now - last < _ttl.inMilliseconds) return;
+      final lastAttempt = oldCache['lastAttemptAt'] is num
+          ? (oldCache['lastAttemptAt'] as num).toInt()
+          : 0;
+      if (now - last < _ttl.inMilliseconds ||
+          now - lastAttempt < _retryDelay.inMilliseconds) return;
 
       final stopwatch = Stopwatch()..start();
       var page = oldCache['nextPage'] is num
@@ -233,6 +238,7 @@ class KingDynamicSourceDiscovery {
       await temp.writeAsString(
         jsonEncode(<String, dynamic>{
           'updatedAt': cycleCompleted ? now : last,
+          'lastAttemptAt': now,
           'nextPage': page,
           'nextQuery': queryIndex,
           'feeds': merged,
