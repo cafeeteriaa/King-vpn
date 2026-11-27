@@ -148,6 +148,32 @@ void main() {
       expect(choosePilotNetworkStrategy(evidence), PilotNetworkStrategy.preserve);
     });
 
+    test('does not classify domestic-only when global IPv6 path is independently reachable', () {
+      const evidence = NetworkEvidence(
+        domestic: LinkHealth.healthy,
+        global: LinkHealth.unreachable,
+        domesticSamples: 3,
+        globalSamples: 3,
+        domesticSuccesses: 3,
+        domesticTlsReachabilityVerified: true,
+        globalIpv6Successes: 2,
+      );
+      expect(evidence.mode, DetectedNetworkMode.unknown);
+      expect(choosePilotNetworkStrategy(evidence), PilotNetworkStrategy.preserve);
+    });
+
+    test('does not classify offline when either IPv6 path has independent reachability', () {
+      const evidence = NetworkEvidence(
+        domestic: LinkHealth.unreachable,
+        global: LinkHealth.unreachable,
+        domesticSamples: 3,
+        globalSamples: 3,
+        globalIpv6Successes: 2,
+      );
+      expect(evidence.mode, DetectedNetworkMode.unknown);
+      expect(choosePilotNetworkStrategy(evidence), PilotNetworkStrategy.preserve);
+    });
+
     test('does not infer offline from missing evidence', () {
       const evidence = NetworkEvidence(
         domestic: LinkHealth.unknown,
