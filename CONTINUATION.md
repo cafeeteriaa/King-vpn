@@ -2,10 +2,10 @@
 
 ## Source of truth
 - Repository: cafeeteriaa/King-vpn
-- Active branch: fix/personal-folder-uncapped-20261127
-- Parent branch: fix/healthy-folder-unbounded-retention-20261127
-- Revision: 67
-- Pull request: PR #65; consolidated integration PR #66; parent Revision 60 is PR #64.
+- Active branch: feat/king-ai-multistage-engineering-20261127
+- Parent branch: fix/personal-prep-cancellation-20261127
+- Revision: 68
+- Pull request: PR #72; parent PR #71; consolidated integration PR #66.
 - Default branch is untouched.
 
 ## Revision 61 changes
@@ -114,3 +114,14 @@
 1. Verify the exact-head child PR workflow and inspect all Python guards, Flutter tests, Dart analysis and ARM64 build steps.
 2. Fix any genuine failure without weakening guards or reducing the inventory.
 3. On success, inspect the exact-run APK artifact and hashes, then continue Android DNS/routing and failover device tests.
+
+
+## Revision 68 — Multi-stage KING AI engineering pipeline
+- Owner feature requests are planned as 1–6 dependency-ordered stages.
+- Each inference stage reads up to 6 existing files / 7,500 characters and can update up to 3 files. Prior-stage file outputs are reused as the next-stage input when relevant.
+- Stage outputs are collected in KingAiPatchBundle with path validation, sequential-stage enforcement, stale-input conflict detection, an 18-file aggregate limit and a 180,000-character content budget.
+- Only after every stage finishes is one atomic Git tree/commit and one Draft PR created. A missing context or invalid stage stops the run before PR creation; no partial PR is created.
+- The autonomous background audit remains limited to at most two changed files and still cannot merge or release.
+- Added test/king_ai_change_pipeline_test.dart and source guards for aggregation, conflict detection, limits and the autonomous safety boundary.
+- Three source review passes are recorded in KING_REVISION.md. Exact-head CI, Flutter tests, Dart analysis, Android build and device validation are still pending until the PR workflow completes.
+- Limitation: the local model still reads only existing files in lib/, test/ and tools/. It cannot create new files or change Android Native, Gradle, dependencies, CI, signing or security policy through this automated owner path.
