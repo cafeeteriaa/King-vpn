@@ -1135,6 +1135,10 @@ class KingNationalScannerEngine {
         domesticLatencyMs: networkEvidence.domesticLatencyMs,
         globalLatencyMs: networkEvidence.globalLatencyMs,
         networkConfidence: networkEvidence.confidence,
+        domesticIpv6Successes: networkEvidence.domesticIpv6Successes,
+        globalIpv6Successes: networkEvidence.globalIpv6Successes,
+        domesticIpv6LatencyMs: networkEvidence.domesticIpv6LatencyMs,
+        globalIpv6LatencyMs: networkEvidence.globalIpv6LatencyMs,
         inventoryPassComplete: natRangeInventoryPassComplete,
         sliceYielded: shouldYield(),
       );
