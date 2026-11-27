@@ -262,6 +262,12 @@ class PersonalFolderStore {
     }
   }
 
+  /// Whether either committed snapshot is structurally valid, without loading it.
+  static Future<bool> hasValidSnapshot() async {
+    if (await _validFileStreaming(await _file(fileName))) return true;
+    return _validFileStreaming(await _file(backupName));
+  }
+
   /// Exact membership check without loading the archive into memory.
   static Future<bool> contains(String link) async {
     final target = link.trim().toLowerCase();
@@ -309,7 +315,7 @@ class PersonalFolderStore {
     final backup = await _file(backupName);
     final backupTemp = await _file(backupTempName);
     if (await _validFileStreaming(primary)) {
-      await backupTemp.writeAsBytes(await primary.readAsBytes(), flush: true);
+      await primary.openRead().pipe(backupTemp.openWrite());
       await _replaceByRename(backupTemp, backup);
     }
     await _replaceByRename(temp, primary);
