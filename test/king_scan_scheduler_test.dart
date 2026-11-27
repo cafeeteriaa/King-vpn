@@ -50,7 +50,7 @@ void main() {
       await scheduler.requestCycle(
         canRun: () => true,
         runDns: () async { dnsRuns++; },
-        runIp: () async => ipRuns++,
+        runIp: () async { ipRuns++; },
       );
       release.complete();
       await first;
