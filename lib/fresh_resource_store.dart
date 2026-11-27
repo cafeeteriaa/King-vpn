@@ -23,6 +23,12 @@ class FreshResourceStore {
   /// Rejects suspiciously incomplete refreshes before they can replace a
   /// previously useful offline inventory. This is a quality gate, not a
   /// capacity limit: small stores can still refresh completely.
+  static int minimumSnapshotReplacementCount(int previousCount) {
+    if (previousCount <= 0) return 1;
+    final quarter = (previousCount + 3) ~/ 4;
+    return previousCount < 100 ? previousCount : (quarter < 100 ? 100 : quarter);
+  }
+
   static bool isSufficientSnapshotReplacement({
     required int previousCount,
     required int incomingCount,
@@ -32,10 +38,7 @@ class FreshResourceStore {
     if (incomingCount <= 0 || successfulSources <= 0) return false;
     final requiredSources = configuredSources > 1 ? 2 : 1;
     if (successfulSources < requiredSources) return false;
-    if (previousCount <= 0) return true;
-    final quarter = (previousCount + 3) ~/ 4;
-    final minimum = previousCount < 100 ? previousCount : (quarter < 100 ? 100 : quarter);
-    return incomingCount >= minimum;
+    return incomingCount >= minimumSnapshotReplacementCount(previousCount);
   }
   static const String _legacyFileName = 'configs.txt';
   static const String _metadataFileName = 'metadata.json';
@@ -509,7 +512,7 @@ class FreshResourceStore {
   /// fully written and counted. The current inventory remains intact on any
   /// download, validation, write, or process failure before the directory swap.
   static Future<int> replaceSnapshot(Iterable<String> links,
-      {String source = 'online-refresh', Directory? root}) async {
+      {String source = 'online-refresh', Directory? root, int minimumEntries = 1}) async {
     final base = root ?? await getApplicationSupportDirectory();
     final target = Directory('${base.path}/$directoryName');
     final stageRoot = Directory('${base.path}/.kingvpn-resource-stage');
@@ -537,6 +540,11 @@ class FreshResourceStore {
       final verified = await count(root: stageRoot);
       if (verified != total) {
         throw StateError('Staged resource count mismatch ($verified != $total); previous inventory preserved.');
+      }
+      if (total < minimumEntries) {
+        throw StateError(
+          'Staged snapshot is incomplete ($total < $minimumEntries); previous inventory preserved.',
+        );
       }
       await target.parent.create(recursive: true);
       if (await target.exists()) await target.rename(backup.path);
