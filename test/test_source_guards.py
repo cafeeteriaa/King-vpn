@@ -2966,7 +2966,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('natNationalIpMemHosts()', source)
         self.assertIn('await natNationalIpMemLoad();', source)
         self.assertIn('await natHotAll(fetch: false);', source)
-        self.assertIn('pool = await fetchServers(stop: () => halted());', source)
+        self.assertIn('pool = await fetchServers(stop: () => halted(), dedupeByLink: true);', source)
 
     def test_matrix_order_is_not_truncated_by_the_old_5000_variant_ceiling(self):
         main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
@@ -2974,6 +2974,14 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn('natMaxVariants', main)
         self.assertNotIn('natMaxVariants', nat)
         self.assertIn('_natOrder(s, full: _resFull).where((v) => v != 0)', main)
+
+    def test_source_fetcher_can_preserve_protocol_distinct_templates(self):
+        main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        auto = (ROOT / 'lib' / 'auto_scanners.dart').read_text(encoding='utf-8')
+        self.assertIn('bool dedupeByLink = false,', main)
+        self.assertIn('final dedupeKey = dedupeByLink ? s.link.trim() : s.key;', main)
+        self.assertIn('dedupeByLink: true', auto)
+        self.assertIn('dedupeByLink: true', (ROOT / 'lib' / 'ip_auto_scan.dart').read_text(encoding='utf-8'))
 
     def test_auto_sni_scan_aborts_when_network_mode_changes_mid_run(self):
         source = (ROOT / 'lib' / 'auto_scanners.dart').read_text(encoding='utf-8')
