@@ -219,6 +219,7 @@ mp = os.path.join(APP, 'android/app/src/main/AndroidManifest.xml')
 m = open(mp, encoding='utf-8').read()
 required_permissions = (
     'android.permission.INTERNET',
+    'android.permission.ACCESS_NETWORK_STATE',
     'android.permission.RECORD_AUDIO',
     'android.permission.QUERY_ALL_PACKAGES',
     'android.permission.FOREGROUND_SERVICE',
