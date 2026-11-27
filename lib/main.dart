@@ -5742,6 +5742,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     _natHotInitialTimer?.cancel();
     _natHotRefreshTimer?.cancel();
     _personalPingT?.cancel();
+    final personalFallback = _personalFallbackIterator;
+    _personalFallbackIterator = null;
+    if (personalFallback != null) {
+      unawaited(personalFallback.cancel().then<void>((_) {}));
+    }
     _dbgSaveT?.cancel();
     _dbgProbT?.cancel();
     unawaited(_smartSpeech.cancel());
