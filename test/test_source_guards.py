@@ -1647,6 +1647,15 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('15-minute scheduler tick', scan[empty_start:empty_end])
         self.assertLess(scan.index('if (halted()) {'), scan.index('addressBatch.nextCursors'))
 
+    def test_auto_scanner_uses_bounded_concurrency_without_inventory_truncation(self):
+        source = (ROOT / 'lib' / 'auto_scanners.dart').read_text(encoding='utf-8')
+        self.assertIn('const int _autoProbeConcurrency = 8;', source)
+        self.assertIn('Future<bool> _autoAnyAddress(', source)
+        self.assertIn('Future<List<String>> _autoCollectAddresses(', source)
+        self.assertIn('final openIps = await _autoCollectAddresses(', source)
+        self.assertNotIn('take(5000)', source)
+        self.assertNotIn('take(20000)', source)
+
     def test_national_auto_candidates_survive_restart_and_feed_ip_scanner(self):
         auto = (ROOT / 'lib' / 'auto_scanners.dart').read_text(encoding='utf-8')
         nat = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
@@ -2374,11 +2383,14 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         tls_start = source.index('final tlsHits = <String>[];')
         tls_end = source.index("await goldAddScans(", tls_start)
         tls = source[tls_start:tls_end]
-        ip_loop = tls.index('for (final ip in ips) {')
-        stop_check = tls.index('if (cancelled()) break;', ip_loop)
-        probe = tls.index('final selected = await _autoAlpnOk', ip_loop)
-        self.assertLess(ip_loop, stop_check)
-        self.assertLess(stop_check, probe)
+        self.assertIn('final success = await _autoAnyAddress(', tls)
+        self.assertIn('shouldStop: cancelled,', tls)
+        helper_start = source.index('Future<bool> _autoAnyAddress(')
+        helper_end = source.index('Future<List<String>> _autoCollectAddresses(', helper_start)
+        helper = source[helper_start:helper_end]
+        self.assertIn('while (!matched && !(shouldStop?.call() ?? false))', helper)
+        self.assertIn('cursor++', helper)
+        self.assertIn('_autoProbeConcurrency', helper)
 
     def test_ip_auto_storage_load_and_save_are_mode_isolated_across_awaits(self):
         source = (ROOT / 'lib' / 'ip_auto_scan.dart').read_text(encoding='utf-8')
