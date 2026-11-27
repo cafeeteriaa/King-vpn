@@ -30,6 +30,16 @@ void main() {
       );
     });
 
+
+    test('preserves case-sensitive credentials while normalizing scheme case', () {
+      final values = FreshResourceStore.normalizeLinks([
+        'trojan://Secret@node.example:443',
+        'trojan://secret@node.example:443',
+        'TROJAN://Secret@node.example:443',
+      ]);
+      expect(values, hasLength(2));
+    });
+
     test('rejects arbitrary text and unsafe schemes', () {
       expect(
         FreshResourceStore.normalizeLinks([
