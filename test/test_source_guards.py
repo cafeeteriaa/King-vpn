@@ -2867,6 +2867,9 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('static Future<List<String>> readPreview({int limit = 100, Directory? root})', store)
         self.assertIn('FreshResourceStore.readPreview(limit: 100)', page)
         self.assertNotIn('FreshResourceStore.readLinks()', page)
+        main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        self.assertIn('FreshResourceStore.readBatch(limit: 300)', main)
+        self.assertNotIn('FreshResourceStore.readLinks()', main)
         self.assertIn('کل مجموعه در RAM بارگذاری نمی‌شود', page)
 
 if __name__ == '__main__':
