@@ -56,6 +56,28 @@ class NetworkEvidence {
     'mode': mode.name,
   };
 
+  NetworkEvidence withIpv6Evidence({
+    required int domesticSuccesses,
+    required int globalSuccesses,
+    int? domesticLatencyMs,
+    int? globalLatencyMs,
+  }) => NetworkEvidence(
+    domestic: domestic,
+    global: global,
+    domesticSamples: domesticSamples,
+    globalSamples: globalSamples,
+    domesticSuccesses: this.domesticSuccesses,
+    globalSuccesses: this.globalSuccesses,
+    domesticLatencyMs: this.domesticLatencyMs,
+    globalLatencyMs: this.globalLatencyMs,
+    domesticTlsReachabilityVerified: domesticTlsReachabilityVerified,
+    globalTlsReachabilityVerified: globalTlsReachabilityVerified,
+    domesticIpv6Successes: domesticSuccesses,
+    globalIpv6Successes: globalSuccesses,
+    domesticIpv6LatencyMs: domesticLatencyMs,
+    globalIpv6LatencyMs: globalLatencyMs,
+  );
+
   DetectedNetworkMode get mode {
     if (domestic == LinkHealth.unknown && global == LinkHealth.unknown) {
       return DetectedNetworkMode.unknown;
