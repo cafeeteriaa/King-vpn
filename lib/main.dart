@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'king_dynamic_source_discovery.dart';
 import 'network_health.dart';
 import 'king_local_ai.dart';
 import 'king_ai_console.dart';
@@ -4717,8 +4718,25 @@ Future<List<Server>> fetchServers({bool Function()? stop, int? quickCap}) async 
   final all = <String, Server>{};
   final sw = Stopwatch()..start();
   final dl = quickCap != null ? const Duration(seconds: 12) : fetchDeadline;
-  // لینک‌های اضافه‌ی کاربر اول دریافت می‌شوند
-  await pool<String>([...userListUrls, ...listUrls], fetchWorkers, (u) async {
+  // Dynamic GitHub feeds extend the curated inventory without blocking the first
+  // discovery cycle: consume the last validated cache, then refresh asynchronously.
+  // National-network mode remains isolated from global public-source discovery.
+  var discoveredUrls = <String>[];
+  if (!nationalMode && !(stop?.call() ?? false)) {
+    try {
+      discoveredUrls = await KingDynamicSourceDiscovery.cachedFeeds();
+      unawaited(KingDynamicSourceDiscovery.refresh(shouldStop: stop));
+    } catch (e, stk) {
+      logError(e, stk);
+    }
+  }
+  final sourceUrls = <String>{
+    ...userListUrls,
+    ...listUrls,
+    ...discoveredUrls,
+  }.toList(growable: false);
+  // لینک‌های اضافه‌ی کاربر و منابع تأییدشده/پویا در یک صف deduplicated دریافت می‌شوند.
+  await pool<String>(sourceUrls, fetchWorkers, (u) async {
     if ((stop?.call() ?? false) || sw.elapsed > dl || (quickCap != null && all.length >= quickCap)) {
       srcFetchState[u] = 'skip';
       return;
