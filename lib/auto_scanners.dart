@@ -150,7 +150,7 @@ Future<void> autoScanRun(
 
     final templates = <Server>[];
     final templateKeys = <String>{};
-    for (final server in <Server>[...configuredServers, ...sourceTemplates]) {
+    for (final server in [...configuredServers, ...sourceTemplates]) {
       if (templateKeys.add(server.link.trim())) templates.add(server);
     }
 
@@ -312,9 +312,9 @@ Future<void> autoScanRun(
       var success = false;
       for (final ip in ips) {
         if (cancelled()) break;
-        final selected = await _autoAlpnOk(ip, 443, tlsSni, alpn);
-        if (selected != null && selected.isNotEmpty) {
-          if (!tlsHits.contains(selected)) tlsHits.add(selected);
+        final sel = await _autoAlpnOk(ip, 443, tlsSni, alpn);
+        if (sel != null && sel.isNotEmpty) {
+          if (!tlsHits.contains(sel)) tlsHits.add(sel);
           success = true;
           break;
         }
