@@ -21,6 +21,13 @@ class SharedPreferences {
   // SECURITY: single-byte XOR mask to prevent casual reading of plain UUIDs/Keys
   static const int _xorKey = 0x5A;
 
+  /// Test-only in-memory seed; production continues using the file-backed store.
+  static void setMockInitialValues(Map<String, dynamic> values) {
+    final path = '${Directory.systemTemp.path}/kingvpn-prefs-test-${DateTime.now().microsecondsSinceEpoch}.json';
+    _inst = SharedPreferences._(File(path), Map<String, dynamic>.from(values));
+  }
+
+
   final File _file;
   final Map<String, dynamic> _data;
 
