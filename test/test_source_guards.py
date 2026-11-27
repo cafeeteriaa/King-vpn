@@ -86,6 +86,26 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn("return null;", store)
         self.assertIn("PersonalFolderStore.decodeSnapshot", store)
 
+    def test_personal_folder_store_supports_streaming_paged_reads(self):
+        store = (ROOT / "lib" / "personal_folder_store.dart").read_text(encoding="utf-8")
+        self.assertIn("class PersonalFolderPage", store)
+        self.assertIn("static Future<PersonalFolderPage> readPage(", store)
+        self.assertIn(".openRead()", store)
+        self.assertIn("totalCount: matches", store)
+        self.assertIn("limit: limit", store)
+
+    def test_personal_folder_screen_uses_paged_store_not_full_cache_copy(self):
+        main = (ROOT / "lib" / "main.dart").read_text(encoding="utf-8")
+        start = main.index("Future<void> personalFolderSheet() async")
+        end = main.index("// TAPRESET:", start)
+        sheet = main[start:end]
+        self.assertIn("PersonalFolderStore.readPage(", sheet)
+        self.assertIn("pageIndex * pageSize", sheet)
+        self.assertIn("page.hasNext", sheet)
+        self.assertIn("page.hasPrevious", sheet)
+        self.assertIn("onSubmitted:", sheet)
+        self.assertNotIn("List<String>.of(personalFolderCache)", sheet)
+
     def test_personal_folder_store_serializes_file_mutations(self):
         store = (ROOT / "lib" / "personal_folder_store.dart").read_text(encoding="utf-8")
         self.assertIn("static Future<void> _mutationQueue", store)
