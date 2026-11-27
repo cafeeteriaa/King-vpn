@@ -123,9 +123,10 @@ void main() {
         // ignore: avoid_print
         print('KING_4M_SOAK entries=$total bytes=$bytes elapsedMs=${watch.elapsedMilliseconds}');
       } finally {
+        watch.stop();
         await root.delete(recursive: true);
       }
-    });
+    }, timeout: const Timeout(Duration(minutes: 60)));
 
     test('merges disk batches, deduplicates and advances persistent cursors', () async {
       final root = await Directory.systemTemp.createTemp('king-offline-store-');
