@@ -8582,7 +8582,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       // تست ترافیک سریع ۵ ثانیه‌ای؛ اگر ترافیک نبود، فوراً سرور بعدی
       if (ready && t == true && (_personalFast || (!nationalMode && !indestructibleMode))) {
         // سرور شخصی: یک تست ۳ ثانیه‌ای کافی است؛ بدون زنجیره‌ی تأخیر و بدون کانفیگ جایگزین
-        final pp = await pingAny(total: const Duration(seconds: 5), direct: true, tries: 2, networkAware: true); // PERSMUX: ۶ ثانیه برای شروع کند
+        final pp = await pingAny(total: const Duration(seconds: 5), direct: true, tries: 3, networkAware: true); // PERSMUX: ۶ ثانیه برای شروع کند
         if (!wantVpn || abort) {
           lastFail = 'لغو توسط کاربر';
           await _stopCore();
@@ -8603,16 +8603,16 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       if (ready && t == true) {
         await Future.delayed(const Duration(milliseconds: 600));
         var earlyPing = await pingAny(
-            total: const Duration(seconds: 5), direct: true, tries: 2, networkAware: true);
+            total: const Duration(seconds: 5), direct: true, tries: 3, networkAware: true);
         if (earlyPing == null && !abort && wantVpn) {
           await Future.delayed(const Duration(milliseconds: 900));
           earlyPing = await pingAny(
-              total: const Duration(seconds: 5), direct: true, tries: 2, networkAware: true);
+              total: const Duration(seconds: 5), direct: true, tries: 3, networkAware: true);
         }
         if (earlyPing == null && !abort && wantVpn) {
           await Future.delayed(const Duration(milliseconds: 2500));
           earlyPing = await pingAny(
-              total: const Duration(seconds: 6), direct: true, tries: 1, networkAware: true);
+              total: const Duration(seconds: 6), direct: true, tries: 3, networkAware: true);
         }
         if (!wantVpn || abort) {
           lastFail = 'لغو توسط کاربر';
@@ -9188,8 +9188,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           p = await pingAny(
             total: perEndpointBudget,
             direct: true,
-            tries: 2,
-            networkAware: true,
+            tries: 3, networkAware: true,
             cancelled: () => abort || !wantVpn,
           );
           if (p == null && !abort && wantVpn) {
@@ -9287,8 +9286,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             final p2 = await pingAny(
               total: perEndpointBudget,
               direct: true,
-              tries: 2,
-              networkAware: true,
+              tries: 3, networkAware: true,
               cancelled: () => abort || !wantVpn,
             );
             if (p2 != null && p2 < p) p = p2;
@@ -12430,7 +12428,7 @@ ListTile( // KINGEXTRAS row
         return;
       }
       if (busy || switching) return;
-      final p = await pingAny(total: const Duration(seconds: 5), direct: true, tries: 1, networkAware: true);
+      final p = await pingAny(total: const Duration(seconds: 5), direct: true, tries: 3, networkAware: true);
       if (!mounted || !connected || connRow != 'p:personal') {
         t.cancel();
         return;
