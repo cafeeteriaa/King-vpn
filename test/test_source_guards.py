@@ -3337,6 +3337,30 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn("completeBenchmark(", bridge)
         self.assertIn("disableNative()", bridge)
 
+    def test_nat_range_generation_uses_the_shared_optional_rust_batch_api_in_production(self):
+        source = (ROOT / "lib" / "nat_ultra.dart").read_text(encoding="utf-8")
+        start = source.index("void addBlocks() {")
+        end = source.index("\n  if (nationalMode)", start)
+        block = source[start:end]
+        self.assertIn("natExpandAddressRangeBatch(", block)
+        self.assertIn("generated.addresses", block)
+        self.assertIn("generated.nextCursor", block)
+        self.assertNotIn("_natExpandAnyCursor(", block)
+
+    def test_idle_scan_scheduler_is_wired_and_scans_are_serialized(self):
+        main = (ROOT / "lib" / "main.dart").read_text(encoding="utf-8")
+        scheduler = (ROOT / "lib" / "king_scan_scheduler.dart").read_text(encoding="utf-8")
+        dns = (ROOT / "lib" / "dns_scanner.dart").read_text(encoding="utf-8")
+        ip = (ROOT / "lib" / "ip_auto_scan.dart").read_text(encoding="utf-8")
+        self.assertIn("KingScanScheduler", main)
+        self.assertIn("_requestIdleScanCycle()", main)
+        self.assertIn("Timer.periodic(const Duration(minutes: 30)", main)
+        self.assertLess(main.index("runDns: () => dnsxAutoPick"), main.index("runIp: () => ipAutoBackground"))
+        self.assertIn("await runDns();", scheduler)
+        self.assertIn("await runIp();", scheduler)
+        self.assertIn("bool Function()? stop", ip)
+        self.assertIn("_natRangeScanBusy || _autoScanRunning", dns)
+
     def test_dynamic_source_discovery_has_one_complete_incremental_engine(self):
         source = (ROOT / "lib" / "king_dynamic_source_discovery.dart").read_text(encoding="utf-8")
         self.assertEqual(source.count("class KingDynamicSourceDiscovery"), 1)
