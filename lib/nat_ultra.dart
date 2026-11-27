@@ -1938,7 +1938,7 @@ Future<void> natIpMemLoad() async {
             if (InternetAddress.tryParse(ip) == null || port is! num ||
                 port.toInt() < 1 || port.toInt() > 65535) continue;
             migrated.add(<String, Object?>{
-              'key': '$ip|\${port.toInt()}',
+              'key': '$ip|${port.toInt()}',
               'ip': ip,
               'port': port.toInt(),
               't': raw['t'] is num ? (raw['t'] as num).toInt() : 0,
@@ -1988,7 +1988,7 @@ Future<KingDiskInventory>? _natDomainInventoryFuture;
 Future<KingDiskInventory> _natDomainInventory() =>
     _natDomainInventoryFuture ??= KingDiskInventory.open(name: 'nat-domain-endpoints');
 
-Set<String> natDomMemHosts() => {for (final e in natDomMem) '\${e['h']}:\${e['port']}'};
+Set<String> natDomMemHosts() => {for (final e in natDomMem) '${e['h']}:${e['port']}'};
 
 Future<void> natDomMemLoad() async {
   try {
@@ -2010,7 +2010,7 @@ Future<void> natDomMemLoad() async {
             if (host.isEmpty || port is! num ||
                 port.toInt() < 1 || port.toInt() > 65535) continue;
             migrated.add(<String, Object?>{
-              'key': '$host|\${port.toInt()}',
+              'key': '$host|${port.toInt()}',
               'h': host,
               'port': port.toInt(),
               't': raw['t'] is num ? (raw['t'] as num).toInt() : 0,
