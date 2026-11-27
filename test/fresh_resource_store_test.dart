@@ -86,6 +86,46 @@ void main() {
       );
     });
 
+
+    test('optional four-million profile disk soak', () async {
+      if (Platform.environment['KING_RUN_4M_SOAK'] != '1') return;
+      final root = await Directory.systemTemp.createTemp('king-offline-4m-soak-');
+      final watch = Stopwatch()..start();
+      try {
+        Iterable<String> profiles() sync* {
+          for (var i = 0; i < FreshResourceStore.maxEntries; i++) {
+            final suffix = i.toRadixString(16).padLeft(12, '0');
+            yield 'vless://00000000-0000-4000-8000-$suffix@n$i.example:443?encryption=none&security=tls&type=tcp';
+          }
+        }
+
+        final total = await FreshResourceStore.merge(
+          profiles(),
+          source: 'four-million-soak',
+          root: root,
+        );
+        expect(total, FreshResourceStore.maxEntries);
+        expect(await FreshResourceStore.count(root: root), FreshResourceStore.maxEntries);
+        final first = await FreshResourceStore.readBatch(limit: 300, root: root);
+        final second = await FreshResourceStore.readBatch(limit: 300, root: root);
+        expect(first, hasLength(300));
+        expect(second, hasLength(300));
+        expect(first.toSet().intersection(second.toSet()), isEmpty);
+
+        var bytes = 0;
+        await for (final entity in (await FreshResourceStore.directory(root: root)).list()) {
+          if (entity is File && entity.path.endsWith('.jsonl')) {
+            bytes += await entity.length();
+          }
+        }
+        watch.stop();
+        // ignore: avoid_print
+        print('KING_4M_SOAK entries=$total bytes=$bytes elapsedMs=${watch.elapsedMilliseconds}');
+      } finally {
+        await root.delete(recursive: true);
+      }
+    });
+
     test('merges disk batches, deduplicates and advances persistent cursors', () async {
       final root = await Directory.systemTemp.createTemp('king-offline-store-');
       try {
