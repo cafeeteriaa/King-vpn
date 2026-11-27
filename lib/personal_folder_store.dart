@@ -3,6 +3,17 @@ import 'dart:io';
 
 import 'package:path_provider/path_provider.dart';
 
+/// Monotonic generation for cancellable personal-folder preparation.
+/// A stale async pass must not publish ping results or start a connection.
+class PersonalFolderScanEpoch {
+  int _generation = 0;
+
+  int get current => _generation;
+  int begin() => ++_generation;
+  void cancel() => _generation++;
+  bool isCurrent(int generation) => generation == _generation;
+}
+
 /// A bounded view over the complete on-disk inventory.
 /// totalCount is the number of matches, not a maximum inventory size.
 class PersonalFolderPage {
@@ -268,10 +279,18 @@ class PersonalFolderStore {
   }
 
   /// Exact membership check without loading the archive into memory.
-  static Future<bool> contains(String link) async {
+  static Future<bool> contains(
+    String link, {
+    bool Function()? shouldAbort,
+  }) async {
     final target = link.trim().toLowerCase();
     if (target.isEmpty) return false;
-    await for (final batch in streamBatches(query: target, batchSize: 64)) {
+    await for (final batch in streamBatches(
+      query: target,
+      batchSize: 64,
+      shouldAbort: shouldAbort,
+    )) {
+      if (shouldAbort?.call() ?? false) return false;
       if (batch.any((value) => value.toLowerCase() == target)) return true;
     }
     return false;
