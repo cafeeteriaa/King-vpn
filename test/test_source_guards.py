@@ -2366,7 +2366,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         load_start = source.index('Future<void> ipAutoLoad() async {')
         save_start = source.index('Future<void> _ipAutoSave() async {', load_start)
         load = source[load_start:save_start]
-        save_end = source.index('/// Build an exact endpoint inventory', save_start)
+        save_end = source.index('Future<List<String>> _ipAutoBlocks(', save_start)
         save = source[save_start:save_end]
         self.assertLess(load.index('final loadNationalMode = nationalMode;'),
                         load.index('await SharedPreferences.getInstance();'))
