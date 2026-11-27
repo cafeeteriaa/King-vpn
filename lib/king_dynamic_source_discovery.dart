@@ -44,7 +44,7 @@ class KingDynamicSourceDiscovery {
     try {
       final segments = rawPath.split('/').map(Uri.decodeComponent).toList();
       if (segments.length < 4 || segments.any((s) =>
-          s.isEmpty || s == '.' || s == '..' || s.contains(String.fromCharCode(92)))) {
+          s.isEmpty || s == '.' || s == '..' || s.contains('/') || s.contains(String.fromCharCode(92)))) {
         return null;
       }
     } catch (_) {
