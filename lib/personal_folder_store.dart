@@ -3,6 +3,25 @@ import 'dart:io';
 
 import 'package:path_provider/path_provider.dart';
 
+/// A bounded view over the complete on-disk inventory.
+/// totalCount is the number of matches, not a maximum inventory size.
+class PersonalFolderPage {
+  const PersonalFolderPage({
+    required this.items,
+    required this.offset,
+    required this.totalCount,
+    required this.query,
+  });
+
+  final List<String> items;
+  final int offset;
+  final int totalCount;
+  final String query;
+
+  bool get hasPrevious => offset > 0;
+  bool get hasNext => offset + items.length < totalCount;
+}
+
 /// Durable app-private storage for personal VPN profiles.
 /// Consumers still materialize the current folder in memory; this class does
 /// not claim to implement paging.
@@ -100,6 +119,78 @@ class PersonalFolderStore {
   /// rename window is introduced.
   static Future<void> _replaceByRename(File source, File destination) async {
     await source.rename(destination.path);
+  }
+
+
+  static Future<PersonalFolderPage?> _scanPage(
+    File file, {
+    required int offset,
+    required int limit,
+    required String query,
+  }) async {
+    if (!await file.exists()) return null;
+    final needle = query.trim().toLowerCase();
+    final selected = <String>[];
+    var matches = 0;
+    try {
+      await for (final line in file
+          .openRead()
+          .transform(utf8.decoder)
+          .transform(const LineSplitter())) {
+        if (line.isEmpty) continue;
+        final decoded = jsonDecode(line);
+        if (decoded is! String) return null;
+        final value = decoded.trim();
+        if (value.isEmpty) continue;
+        if (needle.isNotEmpty && !value.toLowerCase().contains(needle)) {
+          continue;
+        }
+        if (matches >= offset && selected.length < limit) {
+          selected.add(value);
+        }
+        matches++;
+      }
+      return PersonalFolderPage(
+        items: selected,
+        offset: offset,
+        totalCount: matches,
+        query: needle,
+      );
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Reads only the requested page into memory while streaming the full file
+  /// to calculate the exact filtered count. If the primary is corrupt, retries
+  /// the backup. The page size is a presentation batch, never an inventory cap.
+  static Future<PersonalFolderPage> readPage({
+    int offset = 0,
+    int limit = 50,
+    String query = '',
+  }) async {
+    if (offset < 0) throw ArgumentError.value(offset, 'offset');
+    if (limit <= 0) throw ArgumentError.value(limit, 'limit');
+    final primary = await _scanPage(
+      await _file(fileName),
+      offset: offset,
+      limit: limit,
+      query: query,
+    );
+    if (primary != null) return primary;
+    final backup = await _scanPage(
+      await _file(backupName),
+      offset: offset,
+      limit: limit,
+      query: query,
+    );
+    return backup ??
+        PersonalFolderPage(
+          items: const <String>[],
+          offset: offset,
+          totalCount: 0,
+          query: query.trim().toLowerCase(),
+        );
   }
 
   static Future<void> _writeSnapshotUnlocked(Iterable<String> links) async {
