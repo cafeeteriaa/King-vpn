@@ -160,41 +160,79 @@ extension IpAutoExt on _HomePageState {
   Future<void> ipAutoBackground({bool Function()? stop}) async {
     final runNationalMode = nationalMode;
     if (!kNatIpScanOn || !runNationalMode) return;
-    if (ipAutoBusy || dnsxManualBusy || _natRangeScanBusy || _dnsxAutoBusy || _autoScanRunning) return;
-    if (connected || busy || (stop?.call() ?? false)) return;
 
-    // Acquire both shared scan locks before the first await. Otherwise a manual
-    // DNS/IP scan can start while preferences are loading and overlap this run.
-    ipAutoBusy = true;
-    dnsxManualBusy = true;
-    ipAutoStopFlag = false;
-    try {
-      await ipAutoLoad();
-      if (_ipAutoHalt(modeSnapshot: runNationalMode, stop: stop)) return;
+    bool externallyStopped() =>
+        (stop?.call() ?? false) ||
+        !nationalMode ||
+        connected ||
+        busy ||
+        wantVpn;
 
-      final p = await SharedPreferences.getInstance();
-      if (_ipAutoHalt(modeSnapshot: runNationalMode, stop: stop)) return;
+    bool canRun() =>
+        runNationalMode &&
+        !externallyStopped() &&
+        !dnsxManualBusy &&
+        !ipAutoBusy &&
+        !_dnsxAutoBusy &&
+        !_natRangeScanBusy &&
+        !_autoScanRunning;
 
-      final last = int.tryParse(p.getString(_ipAutoAtKey) ?? '') ?? 0;
-      final now = DateTime.now().millisecondsSinceEpoch;
-      // اگر هنوز IP سالمی پیدا نشده، زودتر دوباره امتحان می‌شود (۶ ساعت)؛ وگرنه هر ۲۴ ساعت
-      final gapMs = ipAutoHits.isEmpty ? 6 * 3600 * 1000 : 24 * 3600 * 1000;
-      if (now - last < gapMs) return;
+    bool stopEndpointScan() =>
+        externallyStopped() ||
+        dnsxManualBusy ||
+        ipAutoBusy ||
+        _dnsxAutoBusy ||
+        _natRangeScanBusy ||
+        _autoScanRunning;
 
-      final completed = await _ipAutoRunOnce((s) => ipAutoStatus = s, externalStop: stop);
-      // Failed, cancelled, or mode-switched scans must not consume the retry interval.
-      if (completed && !_ipAutoHalt(modeSnapshot: runNationalMode, stop: stop)) {
-        await p.setString(_ipAutoAtKey, now.toString());
-      }
-    } catch (e, stk) {
-      logError(e, stk);
-    } finally {
-      // Persist while the locks are still held so another scan cannot mutate
-      // the shared result lists before their snapshot is taken.
-      await _ipAutoSave();
-      ipAutoBusy = false;
-      dnsxManualBusy = false;
-    }
+    bool stopRangeScan() =>
+        externallyStopped() ||
+        dnsxManualBusy ||
+        ipAutoBusy ||
+        _dnsxAutoBusy ||
+        _autoScanRunning;
+
+    // National idle discovery is a single ordered pipeline. It deliberately
+    // does not enter the global IP-auto inventory or its cursor namespace.
+    await kingNationalScanner.runDiscoveryCycle(
+      isNationalMode: () => nationalMode,
+      canRun: canRun,
+      shouldStop: externallyStopped,
+      diagnoseNetwork: () async {
+        await NatNetworkDiagnosis.refresh();
+      },
+      scanDns: () => dnsxAutoPick(stop: externallyStopped),
+      scanConfiguredEndpoints: () async {
+        final known = <Server>[
+          ...pending,
+          ...natRestPending,
+          ...natNationalTemplateSeeds,
+        ];
+        final hits = await _natDomainFirst(
+          known,
+          conc: min(8, natAdaptiveWorkers()),
+          stop: stopEndpointScan,
+        );
+        if (!externallyStopped() && nationalMode == runNationalMode) {
+          await _natRangeAdd(hits);
+        }
+      },
+      scanConfiguredRanges: () async {
+        final hits = await natRangeScanStep(
+          known: <Server>[
+            ...pending,
+            ...natRestPending,
+            ...natNationalTemplateSeeds,
+          ],
+          maxAddrs: 256,
+          conc: min(8, natAdaptiveWorkers()),
+          stop: stopRangeScan,
+        );
+        if (!externallyStopped() && nationalMode == runNationalMode) {
+          await _natRangeAdd(hits);
+        }
+      },
+    );
   }
 
   /// دلیل رد شدن شروع اسکن؛ null یعنی می‌شود شروع کرد
