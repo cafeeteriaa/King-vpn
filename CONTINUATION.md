@@ -4,7 +4,7 @@
 - Repository: cafeeteriaa/King-vpn
 - Active branch: fix/personal-folder-uncapped-20261127
 - Parent branch: fix/healthy-folder-unbounded-retention-20261127
-- Revision: 64
+- Revision: 65
 - Pull request: PR #65; consolidated integration PR #66; parent Revision 60 is PR #64.
 - Default branch is untouched.
 
@@ -27,6 +27,12 @@
 - Removed the 50,000-entry cap on learned national winners.
 - Removed the 3,000-entry cap on the persisted normal-network variant map.
 - Added source guards for both learning-retention paths.
+
+## Revision 65 changes
+- Added a dedicated app-private JSONL personal-folder store with atomic temp-file replacement and a backup snapshot.
+- Migrates existing personal-folder preferences only when no valid new snapshot exists; removes the legacy key only after successful persistence.
+- Add/remove now persist through the dedicated file store; last-good marker remains in preferences.
+- The current UI still materializes the complete folder in memory; true paged consumers remain follow-up work.
 
 ## Remaining work and validation
 - SharedPreferences string-list storage and the in-memory personalFolderCache remain. This is not yet a file-backed, memory-bounded inventory; design and migrate transactionally before claiming very-large-folder readiness.
