@@ -4712,7 +4712,11 @@ bool _looksBase64(String body) {
   return lines.every((l) => re.hasMatch(l)) && lines.join().length >= 16;
 }
 
-Future<List<Server>> fetchServers({bool Function()? stop, int? quickCap}) async {
+Future<List<Server>> fetchServers({
+  bool Function()? stop,
+  int? quickCap,
+  bool dedupeByLink = false,
+}) async {
   // QUICKLIST: quickCap = دریافت سریع؛ به ~۲۰۰ سرور که رسید بقیه‌ی منابع رها می‌شوند
   // و بعد از اتصال، لیست کامل در پس‌زمینه دریافت می‌شود
   srcFetchState.clear();
@@ -4773,7 +4777,8 @@ Future<List<Server>> fetchServers({bool Function()? stop, int? quickCap}) async 
         if (s != null) {
           s.src = u;
           okN++;
-          all.putIfAbsent(s.key, () => s);
+          final dedupeKey = dedupeByLink ? s.link.trim() : s.key;
+          all.putIfAbsent(dedupeKey, () => s);
         }
         // FREEZEFIX: give the UI thread a frame every few parses
         if (++pn % 25 == 0) {
