@@ -591,10 +591,11 @@ const Duration _varcbCooldown = Duration(hours: 1);
 final Map<int, int> _variantFailStreak = {};
 final Map<int, DateTime> _variantCooldown = {};
 
-void natVariantResult(int v, bool ok, {String? profile}) {
-  if (v <= 0) return;
+void natVariantResult(int v, bool ok, {String? profile, int? latencyMs}) {
+  if (v < 0) return;
   // KNS: this hook is called only after the real tunnel data-plane probe.
-  KingNationalScannerEngine.recordVariantOutcome(v, ok, profile: profile);
+  KingNationalScannerEngine.recordVariantOutcome(v, ok, profile: profile, latencyMs: latencyMs);
+  if (v == 0) return;
   final cd = _variantCooldown[v];
   if (cd != null && DateTime.now().isBefore(cd)) return;
   if (ok) {
@@ -624,12 +625,17 @@ bool _natAppliesF(_NatFacts f, int v) {
   if (natVariantCooling(v)) return false; // VARCB
   if (natRetired(v)) return false;
   final x = _natSpecs[v];
+  if (x.sniSwap != null) {
+    final index = x.sniSwap!;
+    if (index < 0 || index >= natFrontSnis.length ||
+        InternetAddress.tryParse(natFrontSnis[index]) != null) return false;
+  }
   if (x.other && !f.hasOther) return false;
   if ((x.fp != null || x.alpn != null || x.frag != null || x.noise) &&
       !f.sec) {
     return false;
   }
-  if (x.sniHost && !(f.sec && !f.reality)) return false;
+  if (x.sniHost && !(f.sec && !f.reality && !f.isIp)) return false;
   if (x.ed && !(f.sec && !f.reality && f.ws)) return false;
   if (x.port && !(f.sec && !f.reality && f.cdnNet && f.cfPort)) return false;
   final pi = x.portIdx;
@@ -802,8 +808,8 @@ List<int> _natOrder(Server s, {bool full = false}) {
     if (used.add(c)) out.add(c);
   }
 
-  final preferLight = !nationalMode;
-  final skipHeavy = !nationalMode;
+  final preferLight = !nationalMode && !scannerMode;
+  final skipHeavy = !nationalMode && !scannerMode;
 
   final knownOk = known != null && _natAppliesF(f, known);
   if (knownOk && (!skipHeavy || !_natIsSlowHeavy(known!))) put(known!);

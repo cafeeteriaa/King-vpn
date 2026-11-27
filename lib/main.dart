@@ -7814,15 +7814,16 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     final tt = t ?? delayTimeout;
     // NORMAL: only plain config (variant 0). Matrix only if nationalMode.
     // ultraMode alone no longer enables matrix during ordinary connect tests.
-    final useMatrix = nationalMode;
+    final useMatrix = nationalMode || scannerMode;
+    final fullMatrix = _resFull || scannerMode;
     final multi = useMatrix;
     if (useMatrix) await KingNationalScannerEngine.load();
     final order = useMatrix
-        ? <int>[0, ...KingNationalScannerEngine.planVariants(s, full: _resFull).where((v) => v != 0).take(max(0, natMaxVariants - 1))]
+        ? <int>[0, ...KingNationalScannerEngine.planVariants(s, full: fullMatrix).where((v) => v != 0).take(max(0, natMaxVariants - 1))]
         : const [0]; // KNS: shared registry + learned compatibility; original config first
     // NATBUDGET: one server may only use a limited time per pass; the rest of
     // its variants continue in the next pass (natCursorAdvance)
-    final budget = multi ? natBudget(full: _resFull) : null;
+    final budget = multi ? natBudget(full: fullMatrix) : null;
     final bsw = Stopwatch()..start();
     var genTried = 0;
     var attempted = 0; // FIXFIRSTTO: اولین حالت واقعاً تست‌شده timeout کامل بگیرد
@@ -7852,7 +7853,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             'حالت: $vn${dims.isEmpty ? '' : '\n$dims'}');
       }
       // NATMAX: در نت ملی TCP از گوشی معیار نیست؛ همه‌ی حالت‌ها در بودجه تست می‌شوند
-      if (!nationalMode && i >= 3 && s.ipLink == null && !_natChangesAddr(v)) {
+      if (!nationalMode && !scannerMode && i >= 3 && s.ipLink == null && !_natChangesAddr(v)) {
         tcpOk ??= s.isIp || (await probe(s)) != null;
         if (!tcpOk) continue;
       }
@@ -8556,7 +8557,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           await _stopCore();
           return false;
         }
-        if (nationalMode && nv > 0) natVariantResult(nv, pp != null, profile: KingNationalScannerEngine.profileKey(s));
+        if ((nationalMode || scannerMode) && nv >= 0) natVariantResult(nv, pp != null, profile: KingNationalScannerEngine.profileKey(s), latencyMs: pp);
         if (pp != null) {
           trafficFailure = false;
           break;
@@ -8587,7 +8588,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           await _stopCore();
           return false;
         }
-        if (nationalMode && nv > 0) natVariantResult(nv, earlyPing != null, profile: KingNationalScannerEngine.profileKey(s));
+        if ((nationalMode || scannerMode) && nv >= 0) natVariantResult(nv, earlyPing != null, profile: KingNationalScannerEngine.profileKey(s), latencyMs: earlyPing);
         if (earlyPing != null) {
           trafficFailure = false;
           break; // this config variant has real outbound traffic
@@ -9005,7 +9006,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   // they are connected as they are, and the watchdog replaces them only if
   // they really stay dead. The real reason of a failure is shown at the bottom.
   Future<bool> _connectLoop(List<Server> list, {bool trust = false}) async {
-    if (nationalMode) await KingNationalScannerEngine.load(); // KNS: load bounded per-destination strategy memory once
+    if (nationalMode || scannerMode) await KingNationalScannerEngine.load(); // KNS: load bounded per-destination strategy memory once
     var siteSkips = 0; // SITEPRECHECK: servers skipped because no site opened
     var coreDownCount = 0, coreUpCount = 0; // CORE-SYSTEMIC: core up/down per run
     for (final s in list) {
@@ -12680,6 +12681,8 @@ ListTile( // KINGEXTRAS row
   // PILOTKEEP: خلبان فقط با دکمه‌ی قطع/خلبان خودش خاموش می‌شود.
   // قطع خودکار (مثل پایان ۴ ساعت) نباید خلبان را خاموش کند.
   Future<void> disconnect({bool keepPilot = false}) async {
+    scannerMode = false;
+    _scannerTargetNationalMode = null;
     aiSession = false;
     aiLoop?.cancel();
     stopNetWatch();

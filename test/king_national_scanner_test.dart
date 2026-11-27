@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:king_vpn/main.dart';
+import 'package:king_vpn/nnie_core.dart';
 
 void main() {
   group('KING National Scanner Engine capability registry', () {
@@ -34,12 +35,40 @@ void main() {
           KingNatCapabilityStatus.requiresServerInfrastructure);
     });
 
+    test('scanner mode uses independent network evidence and preserves unknown state', () {
+      expect(KingNationalScannerEngine.chooseNationalMode(
+        diagnosis: NatNetworkClass.domesticOnlyLikely,
+        domesticTlsSuccesses: 2,
+        globalTlsSuccesses: 0,
+      ), isTrue);
+      expect(KingNationalScannerEngine.chooseNationalMode(
+        diagnosis: NatNetworkClass.globalReachable,
+        domesticTlsSuccesses: 0,
+        globalTlsSuccesses: 2,
+      ), isFalse);
+      expect(KingNationalScannerEngine.chooseNationalMode(
+        diagnosis: NatNetworkClass.unknown,
+        domesticTlsSuccesses: 0,
+        globalTlsSuccesses: 0,
+      ), isNull);
+    });
+
+    test('disabled padding noise and unsupported fake packets are not claimed as ready', () {
+      final rows = {
+        for (final row in KingNationalScannerEngine.registry) row.id: row,
+      };
+      expect(rows['padding_noise']!.status, KingNatCapabilityStatus.incompatible);
+      expect(rows['fake_tcp_packet']!.status, KingNatCapabilityStatus.researchOnly);
+      expect(rows['udp_packet_forgery']!.status, KingNatCapabilityStatus.researchOnly);
+    });
+
     test('diagnostics never expose raw endpoints or credentials', () {
       final report = KingNationalScannerEngine.diagnostics();
       expect(report, contains('variantCatalogSize'));
       expect(report, contains('realTrafficSuccesses'));
       expect(report, isNot(contains('uuid')));
-      expect(report, isNot(contains('host')));
+      expect(report, isNot(contains('vless://')));
+      expect(report, isNot(contains('password')));
     });
   });
 }
