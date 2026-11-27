@@ -1607,15 +1607,13 @@ void natSaveSoon() {
 
 Future<void> natSavePersisted() async {
   try {
-    final p = await SharedPreferences.getInstance();
-    await p.setString('natvar2',
-        jsonEncode({
-          'v': natVar,
-          'w': natWins,
-          'd': natDimWins,
-          'g': _natGenVer,
-          'n': natVarNormal, // NORMALCACHE: پایدار بین session‌ها
-        }));
+    await _natWriteJsonSnapshot('king_nat_learning_state.json', <String, Object?>{
+      'v': natVar,
+      'w': natWins,
+      'd': natDimWins,
+      'g': _natGenVer,
+      'n': natVarNormal,
+    });
   } catch (e, stk) {
     logError(e, stk);
   }
@@ -1634,7 +1632,9 @@ Future<void> natLoadPersisted() async {
   await userListsLoad();
   try {
     final p = await SharedPreferences.getInstance();
-    final s = p.getString('natvar2');
+    final file = await _natMemoryFile('king_nat_learning_state.json');
+    final hasDiskStore = await file.exists();
+    final s = hasDiskStore ? await file.readAsString() : p.getString('natvar2');
     if (s == null) return;
     final j = jsonDecode(s);
     (j['v'] as Map).forEach((k, v) => natVar['$k'] = (v as num).toInt());
@@ -1660,9 +1660,6 @@ Future<void> natLoadPersisted() async {
           }
         }
       });
-      while (natVarNormal.length > 3000) {
-        natVarNormal.remove(natVarNormal.keys.first);
-      }
     }
     if (((j['g'] ?? 0) as num).toInt() != _natGenVer) {
       natVar.removeWhere((k, v) => v >= _natBaseCount);
@@ -1671,6 +1668,9 @@ Future<void> natLoadPersisted() async {
         final n = int.tryParse(k.substring(k.lastIndexOf('#') + 1));
         return n != null && n >= _natBaseCount;
       });
+    }
+    if (!hasDiskStore) {
+      await _natWriteJsonSnapshot('king_nat_learning_state.json', j);
     }
     _natLearnVer++;
   } catch (e, stk) {
