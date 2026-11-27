@@ -212,6 +212,8 @@ Future<bool> _runKingNationalScannerBackgroundTask() async {
       sliceBudget: const Duration(minutes: 8),
       cancelled: () => guard.shouldCancel,
       addDiscovered: natIpMemMergeHits,
+      // The WorkManager wrapper owns its single continuation decision below.
+      scheduleContinuation: false,
     );
     if (guard.shouldCancel) return false;
     final needsContinuation = report.sliceYielded ||
