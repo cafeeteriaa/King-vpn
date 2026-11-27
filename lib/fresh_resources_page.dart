@@ -59,10 +59,18 @@ class _FreshResourcesPageState extends State<FreshResourcesPage> {
     }
   }
 
+  Iterable<String> _splitImportLines(String text) sync* {
+    var start = 0;
+    for (final match in RegExp(r'[\r\n\s]+').allMatches(text)) {
+      if (match.start > start) yield text.substring(start, match.start);
+      start = match.end;
+    }
+    if (start < text.length) yield text.substring(start);
+  }
+
   Future<void> _importText() async {
     final before = _totalCount;
-    final incoming = _importController.text
-        .split(RegExp(r'[\r\n\s]+'))
+    final incoming = _splitImportLines(_importController.text)
         .where((value) => value.trim().isNotEmpty);
     try {
       final total = await FreshResourceStore.merge(incoming, source: 'manual-import');
