@@ -17,6 +17,7 @@ const String _ipAutoAtKey = 'ipauto_at_v1'; // زمان آخرین اسکن خو
 const int _ipAutoConc = 48; // اتصال TCP همزمان
 
 bool ipAutoBusy = false;
+bool _natNationalBackgroundBusy = false; // serializes the full national idle cycle
 bool ipAutoStopFlag = false;
 String ipAutoStatus = '';
 final List<String> ipAutoHits = []; // به شکل «ip|port»
@@ -160,9 +161,20 @@ extension IpAutoExt on _HomePageState {
   Future<void> ipAutoBackground({bool Function()? stop}) async {
     final runNationalMode = nationalMode;
     if (!kNatIpScanOn || !runNationalMode) return;
-    if (ipAutoBusy || dnsxManualBusy || _natRangeScanBusy || _dnsxAutoBusy || _autoScanRunning) return;
+    if (_natNationalBackgroundBusy ||
+        ipAutoBusy ||
+        dnsxManualBusy ||
+        _natRangeScanBusy ||
+        _dnsxAutoBusy ||
+        _autoScanRunning) {
+      return;
+    }
     if (connected || busy || (stop?.call() ?? false)) return;
 
+    // Hold one lock across discovery AND the legacy exact-IP verifier. Without
+    // this outer lock, two coalesced callers could both continue after the same
+    // shared engine Future and start duplicate core verification batches.
+    _natNationalBackgroundBusy = true;
     bool externallyStopped() =>
         (stop?.call() ?? false) ||
         !nationalMode ||
@@ -194,79 +206,82 @@ extension IpAutoExt on _HomePageState {
         _dnsxAutoBusy ||
         _autoScanRunning;
 
-    // Run the National Net discovery pipeline before the legacy exact-IP
-    // verifier. Its DNS/endpoint/range phases reuse the existing scanners and
-    // national-only stores; it never touches global cursors or inventories.
-    await kingNationalScanner.runDiscoveryCycle(
-      isNationalMode: () => nationalMode,
-      canRun: canRun,
-      shouldStop: externallyStopped,
-      diagnoseNetwork: () async {
-        await NatNetworkDiagnosis.refresh();
-      },
-      scanDns: () => dnsxAutoPick(stop: externallyStopped),
-      scanConfiguredEndpoints: () async {
-        final known = <Server>[
-          ...pending,
-          ...natRestPending,
-          ...natNationalTemplateSeeds,
-        ];
-        final hits = await _natDomainFirst(
-          known,
-          conc: min(8, natAdaptiveWorkers()),
-          stop: stopEndpointScan,
-        );
-        if (!externallyStopped() && nationalMode == runNationalMode) {
-          await _natRangeAdd(hits);
-        }
-      },
-      scanConfiguredRanges: () async {
-        final hits = await natRangeScanStep(
-          known: <Server>[
+    try {
+      // Run the National Net discovery pipeline before the legacy exact-IP
+      // verifier. Its DNS/endpoint/range phases reuse the existing scanners and
+      // national-only stores; it never touches global cursors or inventories.
+      await kingNationalScanner.runDiscoveryCycle(
+        isNationalMode: () => nationalMode,
+        canRun: canRun,
+        shouldStop: externallyStopped,
+        diagnoseNetwork: () async {
+          await NatNetworkDiagnosis.refresh();
+        },
+        scanDns: () => dnsxAutoPick(stop: externallyStopped),
+        scanConfiguredEndpoints: () async {
+          final known = <Server>[
             ...pending,
             ...natRestPending,
             ...natNationalTemplateSeeds,
-          ],
-          maxAddrs: 256,
-          conc: min(8, natAdaptiveWorkers()),
-          stop: stopRangeScan,
-        );
-        if (!externallyStopped() && nationalMode == runNationalMode) {
-          await _natRangeAdd(hits);
+          ];
+          final hits = await _natDomainFirst(
+            known,
+            conc: min(8, natAdaptiveWorkers()),
+            stop: stopEndpointScan,
+          );
+          if (!externallyStopped() && nationalMode == runNationalMode) {
+            await _natRangeAdd(hits);
+          }
+        },
+        scanConfiguredRanges: () async {
+          final hits = await natRangeScanStep(
+            known: <Server>[
+              ...pending,
+              ...natRestPending,
+              ...natNationalTemplateSeeds,
+            ],
+            maxAddrs: 256,
+            conc: min(8, natAdaptiveWorkers()),
+            stop: stopRangeScan,
+          );
+          if (!externallyStopped() && nationalMode == runNationalMode) {
+            await _natRangeAdd(hits);
+          }
+        },
+      );
+      if (externallyStopped() || !canRun()) return;
+
+      // Preserve the established exact-known-IP/core verifier and its durable
+      // cursor, retry interval and result inventory after the new discovery pass.
+      ipAutoBusy = true;
+      dnsxManualBusy = true;
+      ipAutoStopFlag = false;
+      try {
+        await ipAutoLoad();
+        if (_ipAutoHalt(modeSnapshot: runNationalMode, stop: stop)) return;
+
+        final p = await SharedPreferences.getInstance();
+        if (_ipAutoHalt(modeSnapshot: runNationalMode, stop: stop)) return;
+
+        final last = int.tryParse(p.getString(_ipAutoAtKey) ?? '') ?? 0;
+        final now = DateTime.now().millisecondsSinceEpoch;
+        final gapMs = ipAutoHits.isEmpty ? 6 * 3600 * 1000 : 24 * 3600 * 1000;
+        if (now - last < gapMs) return;
+
+        final completed =
+            await _ipAutoRunOnce((s) => ipAutoStatus = s, externalStop: stop);
+        if (completed && !_ipAutoHalt(modeSnapshot: runNationalMode, stop: stop)) {
+          await p.setString(_ipAutoAtKey, now.toString());
         }
-      },
-    );
-    if (externallyStopped()) return;
-
-    // Preserve the established exact-known-IP/core verifier and its durable
-    // cursor, retry interval and result inventory after the new discovery pass.
-    // Acquire both shared scan locks before the first await so manual scans
-    // cannot overlap preference I/O or the core verification stage.
-    ipAutoBusy = true;
-    dnsxManualBusy = true;
-    ipAutoStopFlag = false;
-    try {
-      await ipAutoLoad();
-      if (_ipAutoHalt(modeSnapshot: runNationalMode, stop: stop)) return;
-
-      final p = await SharedPreferences.getInstance();
-      if (_ipAutoHalt(modeSnapshot: runNationalMode, stop: stop)) return;
-
-      final last = int.tryParse(p.getString(_ipAutoAtKey) ?? '') ?? 0;
-      final now = DateTime.now().millisecondsSinceEpoch;
-      final gapMs = ipAutoHits.isEmpty ? 6 * 3600 * 1000 : 24 * 3600 * 1000;
-      if (now - last < gapMs) return;
-
-      final completed = await _ipAutoRunOnce((s) => ipAutoStatus = s, externalStop: stop);
-      if (completed && !_ipAutoHalt(modeSnapshot: runNationalMode, stop: stop)) {
-        await p.setString(_ipAutoAtKey, now.toString());
+      } catch (e, stk) {
+        logError(e, stk);
+      } finally {
+        await _ipAutoSave();
+        ipAutoBusy = false;
+        dnsxManualBusy = false;
       }
-    } catch (e, stk) {
-      logError(e, stk);
     } finally {
-      await _ipAutoSave();
-      ipAutoBusy = false;
-      dnsxManualBusy = false;
+      _natNationalBackgroundBusy = false;
     }
   }
 
