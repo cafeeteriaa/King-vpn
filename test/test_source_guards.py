@@ -2830,9 +2830,15 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('registerOneOffTask(', worker)
         self.assertIn('_runKingNationalScannerBackgroundTask()', worker)
         self.assertIn('addDiscovered: natIpMemMergeHits', worker)
-        self.assertIn('final vpnInterfaceActive = await _kingHasVpnInterface();', worker)
-        self.assertIn('if (vpnInterfaceActive) return false;', worker)
+        self.assertIn('final initialFingerprint = await KingNetworkFingerprint.capture();', worker)
+        self.assertIn('final guard = KingNetworkScanGuard(', worker)
+        self.assertIn('Timer.periodic(const Duration(seconds: 2)', worker)
+        self.assertIn('cancelled: () => guard.shouldCancel', worker)
+        self.assertIn('if (detectedMode == null) return false;', worker)
+        self.assertIn('return true;', worker[worker.index('Future<bool> _kingHasVpnInterface'):worker.index('Future<bool> _runKingNationalScannerBackgroundTask')])
+        self.assertNotIn('final vpnInterfaceActive = await _kingHasVpnInterface();', worker)
         self.assertIn('requiresBatteryNotLow: true', worker)
+        self.assertIn('cancellationRequested = cancelled();', scanner)
 
     def test_foreground_scanner_slice_schedules_resume_without_blocking_vpn_start(self):
         scanner = (ROOT / 'lib' / 'king_national_scanner.dart').read_text(encoding='utf-8')
