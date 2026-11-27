@@ -2515,7 +2515,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('await addDiscovered(found);', body)
         self.assertIn('ip_inventory_cursor_preserved_for_next_slice', body)
         self.assertIn('while (!stopped() && !shouldYield() && !natRangeInventoryPassComplete)', body)
-        self.assertIn('Duration sliceBudget = const Duration(seconds: 45)', source)
+        self.assertIn('Duration sliceBudget = const Duration(seconds: 60)', source)
         self.assertIn('final portCount = max(1, natAutoPorts(seeds).length).toInt();', source)
         self.assertIn('final batchAddressBudget = (workers * batchWaves).clamp(1, 768).toInt();', source)
         self.assertIn('sliceYielded: didYield', source)
@@ -2815,7 +2815,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('await flushLearning();', source)
         self.assertIn("await persistPhase(\n              'ip',", source)
         self.assertIn('king_national_scanner.lock', source)
-        self.assertIn('Duration sliceBudget = const Duration(seconds: 45)', source)
+        self.assertIn('Duration sliceBudget = const Duration(seconds: 60)', source)
         self.assertIn('if (!didCancel && !didYield && !phaseDeferred)', source)
 
     def test_national_scanner_background_schedule_reuses_the_single_workmanager_dispatcher(self):
