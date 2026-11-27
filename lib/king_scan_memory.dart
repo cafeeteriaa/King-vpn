@@ -160,9 +160,7 @@ class KingScanJournal {
     }
     final safeCursor = _sanitizeCursor(cursor);
     final safeCounters = _sanitizeCounters(counters);
-    final path = _directory.path;
-    final previous = _writeQueues[path] ?? Future<void>.value();
-    final task = previous.then((_) async {
+    final task = _writeTail.then((_) async {
       final nextSequence = _sequence + 1;
       final record = <String, Object?>{
         'version': 1,
@@ -278,7 +276,9 @@ class KingDiskInventory {
   /// Adds only previously unseen identities. The existing shard is streamed
   /// and only incoming identities are retained in memory for deduplication.
   Future<int> appendBatch(Iterable<Map<String, Object?>> records) {
-    final task = _writeTail.then((_) async {
+    final path = _directory.path;
+    final previous = _writeQueues[path] ?? Future<void>.value();
+    final task = previous.then((_) async {
       final grouped = <String, List<MapEntry<String, Map<String, Object?>>>>{};
       for (final record in records) {
         final key = record['key'];
