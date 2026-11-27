@@ -1973,7 +1973,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
     def test_fresh_resources_import_stops_after_disposal(self):
         source = (ROOT / 'lib' / 'fresh_resources_page.dart').read_text(encoding='utf-8')
         start = source.index('Future<void> _importText() async {')
-        end = source.index('Future<void> _copyAll()', start)
+        end = source.index('Future<void> _copyPage()', start)
         method = source[start:end]
         merge = method.index('final total = await FreshResourceStore.merge')
         guard = method.index('if (!mounted) return;', merge)
