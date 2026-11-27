@@ -14,7 +14,16 @@ class PersonalFolderStore {
   static const String backupName = 'servers.jsonl.bak';
   static const String tempName = 'servers.jsonl.tmp';
 
+  /// Injectable only for filesystem tests; production leaves this unset.
+  static Future<Directory> Function()? directoryProviderForTesting;
+
   static Future<Directory> directory() async {
+    final override = directoryProviderForTesting;
+    if (override != null) {
+      final dir = await override();
+      if (!await dir.exists()) await dir.create(recursive: true);
+      return dir;
+    }
     final root = await getApplicationSupportDirectory();
     final dir = Directory('${root.path}/$directoryName');
     if (!await dir.exists()) await dir.create(recursive: true);
