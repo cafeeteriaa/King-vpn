@@ -160,7 +160,7 @@ Future<bool> _kingHasVpnInterface() async {
     final interfaces = await NetworkInterface.list(includeLoopback: false);
     return interfaces.any((interface) {
       final name = interface.name.toLowerCase();
-      return RegExp(r'^(tun|tap|ppp|wg|utun|vpn)\\d*').hasMatch(name);
+      return RegExp(r'^(tun|tap|ppp|wg|utun|vpn)\d*').hasMatch(name);
     });
   } catch (e, st) {
     logError(e, st);
