@@ -88,7 +88,7 @@ void main() {
         final folder = Directory('${root.path}/${FreshResourceStore.directoryName}');
         await folder.create(recursive: true);
         await File('${folder.path}/configs.txt').writeAsString(
-          'vless://one@example.test:443\\nvmess://two@example.test:443\\n',
+          'vless://one@example.test:443\nvmess://two@example.test:443\n',
           flush: true,
         );
 
