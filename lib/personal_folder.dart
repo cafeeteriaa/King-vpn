@@ -24,6 +24,7 @@ Future<T> _serializePersonalMutation<T>(Future<T> Function() action) {
 List<String> personalFolderCache = <String>[];
 int personalFolderCount = 0;
 int personalFolderRevision = 0;
+Future<void> Function()? personalFolderIndexRefresh;
 
 /// آخرین سروری که با موفقیت وصل شد.
 String personalLastGood = '';
@@ -34,6 +35,7 @@ Future<void> _refreshPersonalFolderView() async {
   personalFolderCount = page.totalCount;
   personalFolderCache = List<String>.of(page.items);
   personalFolderRevision++;
+  await personalFolderIndexRefresh?.call();
 }
 
 /// مهاجرت legacy فقط یک بار انجام می‌شود؛ پس از آن بارگذاری فقط count و یک صفحه است.
