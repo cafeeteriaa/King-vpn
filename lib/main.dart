@@ -10293,8 +10293,9 @@ ListTile( // KINGEXTRAS row
       }
       final was = nationalMode;
       if (localPilotOn) {
-        // Pilot and national mode share their own bounded probe; the general
-        // DNS/IP/SNI scanners are never started by this detection path.
+        // Smart Pilot combines dedicated TLS/IPv6 path evidence with an
+        // independent DNS + multi-host diagnosis. General discovery scanners
+        // (DNS/IP/SNI inventory sweeps) are never started by this path.
         final samples = await Future.wait<Object>(<Future<Object>>[
           PilotNetworkProbe.refresh(),
           NatNetworkDiagnosis.refresh(),
