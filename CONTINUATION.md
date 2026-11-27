@@ -56,3 +56,13 @@
 1. Architecture/behavior: pending.
 2. Persistence/concurrency/migration: pending.
 3. Compatibility/tests/build/final diff: pending.
+
+
+## Revision 66 — transactional personal-folder updates and crash-safe rotation
+- Personal-folder add/remove now build a proposed snapshot, persist it first, and update the in-memory cache only after the durable store operation succeeds.
+- Failed writes leave the current in-memory folder unchanged; add reports zero newly committed entries.
+- Duplicate detection is case-insensitive across both existing and newly added links.
+- Backup rotation stages and flushes a separate backup temporary file before renaming it over the prior backup.
+- The primary snapshot is replaced by same-directory rename without deleting the committed primary first; Android/Linux use filesystem rename replacement semantics.
+- Added regression tests for injected write failure and overlapping writes, plus source guards for cache commit ordering and non-destructive backup rotation.
+- Exact-head CI, Flutter tests, Dart analysis, Android build and device-level fault injection remain pending.
