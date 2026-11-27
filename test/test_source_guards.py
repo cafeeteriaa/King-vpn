@@ -2779,6 +2779,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         save_end = source.index('// NATLOADED-ONCE:', save_start)
         save = source[save_start:save_end]
         self.assertIn('await _natAppendDynamicSpecs();', save)
+        self.assertIn('await file.length() == 0', source)
         load_start = source.index('Future<void> natLoadPersisted()')
         load_end = source.index('const String _ipMemKey', load_start)
         load = source[load_start:load_end]

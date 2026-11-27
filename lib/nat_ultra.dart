@@ -1817,7 +1817,7 @@ Future<void> _natAppendDynamicSpecs() {
     final targetLength = _natSpecs.length;
     if (targetLength <= pendingStart) return;
     final file = await _natMemoryFile(_natDynamicSpecsFileName);
-    if (!await file.exists()) {
+    if (!await file.exists() || await file.length() == 0) {
       final header = <String, Object?>{
         'kind': 'king-nat-dynamic-specs',
         'version': 1,
