@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import '../lib/network_health.dart';
+import 'package:king_vpn/main.dart';
 
 void main() {
   group('Smart Pilot route policy', () {
@@ -172,6 +172,36 @@ void main() {
       );
       expect(evidence.mode, DetectedNetworkMode.unknown);
       expect(choosePilotNetworkStrategy(evidence), PilotNetworkStrategy.preserve);
+    });
+
+    test('independent DNS diagnosis vetoes contradictory domestic-only selection', () {
+      expect(
+        corroboratePilotStrategy(
+          PilotNetworkStrategy.domestic,
+          NatNetworkClass.globalReachable,
+        ),
+        PilotNetworkStrategy.preserve,
+      );
+    });
+
+    test('independent DNS diagnosis vetoes contradictory global-only selection', () {
+      expect(
+        corroboratePilotStrategy(
+          PilotNetworkStrategy.global,
+          NatNetworkClass.domesticOnlyLikely,
+        ),
+        PilotNetworkStrategy.preserve,
+      );
+    });
+
+    test('independent DNS evidence prevents a false offline switch', () {
+      expect(
+        corroboratePilotStrategy(
+          PilotNetworkStrategy.offline,
+          NatNetworkClass.transportRestricted,
+        ),
+        PilotNetworkStrategy.preserve,
+      );
     });
 
     test('does not infer offline from missing evidence', () {
