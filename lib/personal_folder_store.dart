@@ -194,7 +194,7 @@ class PersonalFolderStore {
   }
 
   /// Streams the complete archive in bounded batches without materializing it.
-  /// The primary/backup integrity pass is followed by a bounded streaming pass.
+  /// Integrity is checked without materialization before the bounded data pass.
   /// No archive-wide deduplication set is retained; committed snapshots are normalized.
   static Stream<List<String>> streamBatches({
     int batchSize = 128,
