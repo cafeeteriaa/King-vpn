@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter_test/flutter_test.dart';
 import '../lib/fresh_resource_store.dart';
 
@@ -6,6 +7,27 @@ void main() {
     test('offline cache capacity is four million with a separate 500 MiB disk budget', () {
       expect(FreshResourceStore.maxEntries, 4000000);
       expect(FreshResourceStore.maxStorageBytes, 500 * 1024 * 1024);
+    });
+
+    test('cursor returns bounded pages and tracks completion', () async {
+      final cursor = FreshResourceCursor(StreamIterator<String>(
+        Stream<String>.fromIterable([
+          'vless://one@example.org:443',
+          'invalid',
+          'vmess://two',
+          'trojan://three@example.org:443',
+        ]),
+      ));
+      expect(await cursor.nextPage(limit: 2), [
+        'vless://one@example.org:443',
+        'vmess://two',
+      ]);
+      expect(cursor.isDone, isFalse);
+      expect(await cursor.nextPage(limit: 2), [
+        'trojan://three@example.org:443',
+      ]);
+      expect(cursor.isDone, isTrue);
+      await cursor.close();
     });
 
     test('accepts supported V2Ray URI schemes', () {

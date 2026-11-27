@@ -6813,6 +6813,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       _offlineFreshCursor ??= await FreshResourceStore.openCursor();
       final diskLinks = await (_offlineFreshCursor?.nextPage(limit: 300) ??
           Future<List<String>>.value(<String>[]));
+      if (_offlineFreshCursor != null) {
+        await FreshResourceStore.saveCursor(_offlineFreshCursor!.byteOffset);
+      }
       final diskOff = <Server>[];
       for (final link in diskLinks) {
         final parsed = Server.parse(link);
@@ -6824,6 +6827,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       if (_offlineFreshCursor?.isDone == true) {
         await _offlineFreshCursor!.close();
         _offlineFreshCursor = null;
+        await FreshResourceStore.saveCursor(0);
       }
       // OFFLINE-SRC: صف قبلی (آنلاین) کنار گذاشته می‌شود؛ فقط منابع تازه‌ی محلی تست می‌شوند.
       // پوشه‌ی سرورهای شخصی و بانک IP نت ملی عمداً جدا می‌مانند.

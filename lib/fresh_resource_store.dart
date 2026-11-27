@@ -62,11 +62,32 @@ class FreshResourceStore {
 
   /// Opens a sequential cursor. Keep it between page reads to avoid rescanning
   /// the start of the file for each batch.
-  static Future<FreshResourceCursor?> openCursor() async {
+  static Future<int> get storageBytes async {
+    final file = await _configFile();
+    return await file.exists() ? file.length() : 0;
+  }
+
+  static Future<FreshResourceCursor?> openCursor({int? startAtByte}) async {
     final file = await _configFile();
     if (!await file.exists()) return null;
-    final stream = file.openRead().transform(utf8.decoder).transform(const LineSplitter());
-    return FreshResourceCursor(StreamIterator<String>(stream));
+    final length = await file.length();
+    var offset = startAtByte;
+    if (offset == null) {
+      final saved = (await metadata())['cursorBytes'];
+      offset = saved is num ? saved.toInt() : 0;
+    }
+    if (offset < 0 || offset >= length) offset = 0;
+    final stream = file.openRead(offset).transform(utf8.decoder).transform(const LineSplitter());
+    return FreshResourceCursor(StreamIterator<String>(stream), byteOffset: offset);
+  }
+
+  static Future<void> saveCursor(int byteOffset) async {
+    final data = await metadata();
+    data['cursorBytes'] = byteOffset < 0 ? 0 : byteOffset;
+    final file = File('${(await directory()).path}/$_metadataFileName');
+    final temp = File('${file.path}.tmp');
+    await temp.writeAsString(jsonEncode(data), flush: true);
+    await temp.rename(file.path);
   }
 
   /// Compatibility API for small consumers. Production offline scanning uses
@@ -106,7 +127,7 @@ class FreshResourceStore {
       await sink.close();
     }
     await temp.rename(file.path);
-    await _writeMetadata(source: source, count: count, bytes: bytes);
+    await _writeMetadata(source: source, count: count, bytes: bytes, cursorBytes: 0);
     return count;
   }
 
@@ -158,7 +179,13 @@ class FreshResourceStore {
     // Android/Linux rename replaces the destination atomically; on failure the
     // previous cache remains untouched.
     await temp.rename(file.path);
-    await _writeMetadata(source: source, count: count, bytes: bytes);
+    final savedCursor = (await metadata())['cursorBytes'];
+    await _writeMetadata(
+      source: source,
+      count: count,
+      bytes: bytes,
+      cursorBytes: savedCursor is num ? savedCursor.toInt() : 0,
+    );
     return count;
   }
 
@@ -166,6 +193,7 @@ class FreshResourceStore {
     required String source,
     required int count,
     required int bytes,
+    int cursorBytes = 0,
   }) async {
     final metadata = File('${(await directory()).path}/$_metadataFileName');
     await metadata.writeAsString(jsonEncode(<String, Object>{
@@ -175,6 +203,7 @@ class FreshResourceStore {
       'bytes': bytes,
       'maxEntries': maxEntries,
       'maxStorageBytes': maxStorageBytes,
+      'cursorBytes': cursorBytes,
       'updatedAt': DateTime.now().toUtc().toIso8601String(),
     }), flush: true);
   }
@@ -200,12 +229,13 @@ class FreshResourceStore {
 }
 
 class FreshResourceCursor {
-  FreshResourceCursor(this._lines);
+  FreshResourceCursor(this._lines, {this.byteOffset = 0});
 
   final StreamIterator<String> _lines;
   bool isDone = false;
   bool _closed = false;
   int position = 0;
+  int byteOffset;
 
   Future<List<String>> nextPage({
     int limit = FreshResourceStore.defaultPageSize,
@@ -214,6 +244,7 @@ class FreshResourceCursor {
     final page = <String>[];
     while (page.length < limit && await _lines.moveNext()) {
       position++;
+      byteOffset += utf8.encode(_lines.current).length + 1;
       final link = FreshResourceStore.normalizeLink(_lines.current);
       if (link != null) page.add(link);
     }
