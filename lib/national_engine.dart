@@ -573,7 +573,12 @@ PilotNetworkStrategy corroboratePilotStrategy(
     return PilotNetworkStrategy.preserve;
   }
   if (pilot == PilotNetworkStrategy.offline &&
-      diagnosis != NatNetworkClass.unknown) {
+      (diagnosis == NatNetworkClass.globalReachable ||
+       diagnosis == NatNetworkClass.domesticOnlyLikely)) {
+    // A positive multi-host TLS diagnosis contradicts the dedicated probe's
+    // all-failed quorum. DNS degradation or transport restriction alone is
+    // weaker evidence: it must not suppress local-source fallback when every
+    // domestic/global TLS target and both IPv6 path groups failed.
     return PilotNetworkStrategy.preserve;
   }
   return pilot;
