@@ -483,6 +483,7 @@ class FreshResourceStore {
       if (verified != total) {
         throw StateError('Staged resource count mismatch ($verified != $total); previous inventory preserved.');
       }
+      await target.parent.create(recursive: true);
       if (await target.exists()) await target.rename(backup.path);
       try {
         await staged.rename(target.path);
