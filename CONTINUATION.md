@@ -97,3 +97,11 @@
 - Important remaining boundary: application startup and personal-folder connection preparation still populate/use the complete personalFolderCache and _personalPingAll list. The UI now pages its disk reads, but the whole application is not yet memory-bounded. Next step is migrating connection preparation and other cache consumers to a disk-backed iterator/cursor without breaking personal-only routing or failover.
 - Three review passes for this revision: (1) API/UI architecture and personal-only behavior, (2) streaming/backup/error paths and page navigation, (3) source/test compatibility and diff review. These are source-level reviews only.
 - Exact-head CI, Dart analysis, Flutter tests, Android build and device verification remain pending.
+
+## Repair CI follow-up — 2026-11-27
+- PR: [#69](https://github.com/cafeeteriaa/King-vpn/pull/69), Draft, stacked onto the development branch (not main).
+- Previous repair commit: `fe417f81af2ad36a353825be992e96661fdfface`.
+- Exact CI [45957863923](https://github.com/cafeeteriaa/King-vpn/actions/runs/45957863923): FAILED only at the new Python source-guard step. Root cause was the test expecting a literal escaped backslash-n instead of whitespace/newline; Flutter tests, Dart analysis and APK build were skipped.
+- Corrective test change: use a whitespace regex to assert the national IP cascade terminates before the `hostnames` cascade. The Dart semicolon fix remains in place.
+- No local tests were run. The corrected source guard and exact-head CI are pending; no APK is validated.
+- First next action: inspect the next CI run for this fix branch, then complete three independent reviews and verify the exact-head ARM64 artifact only if the full workflow succeeds.

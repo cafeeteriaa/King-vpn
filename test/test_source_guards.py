@@ -3331,7 +3331,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
 
     def test_national_ip_auto_inventory_cascade_terminates_before_hostnames(self):
         source = (ROOT / 'lib' / 'ip_auto_scan.dart').read_text(encoding='utf-8')
-        self.assertIn('..addAll(natScanHits);\\n    hostnames', source)
+        self.assertRegex(source, r'\.\.addAll\(natScanHits\);\s+hostnames')
 
 
 if __name__ == '__main__':
