@@ -66,6 +66,7 @@ void main() {
     });
 
     test('restores baseline variant zero and bounds corrupted evidence', () async {
+      await KingNationalScannerEngine.resetForTesting();
       SharedPreferences.setMockInitialValues(<String, Object>{
         'king_nat_strategy_memory_v1': jsonEncode(<String, Object?>{
           'version': 3,

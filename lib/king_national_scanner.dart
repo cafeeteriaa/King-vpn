@@ -155,6 +155,30 @@ class KingNationalScannerEngine {
     }
   }
 
+  /// Isolates preference-backed learning tests from previous process runs.
+  static Future<void> resetForTesting() async {
+    final pending = _persistFlight;
+    if (pending != null) {
+      try { await pending; } catch (_) {}
+    }
+    _history.clear();
+    _featureEvidence.clear();
+    _sniPreferences.clear();
+    _alpnPreferences.clear();
+    _sniProbeEvidence = 0;
+    _alpnProbeEvidence = 0;
+    _recordCount = 0;
+    _scanPhase = KingNatScanPhase.idle;
+    _lastScanReport = null;
+    _lastPlanKey = '';
+    _loaded = false;
+    _persistDirty = false;
+    _loadFlight = null;
+    _persistFlight = null;
+    final file = await _strategyStoreFile();
+    if (await file.exists()) await file.delete();
+  }
+
   static Future<void> _loadFromPreferences() async {
     try {
       final prefs = await SharedPreferences.getInstance();

@@ -179,7 +179,9 @@ class KingEngineServerSourceCatalog {
 
   static List<KingEngineServerSource> get all => List.unmodifiable([...xrayFeeds(), ..._sources]);
   static List<KingEngineServerSource> forEngine(String engineId) =>
-      List.unmodifiable(_sources.where((source) => source.engineIds.contains(engineId)));
+      List.unmodifiable(engineId == KingEngineId.xray
+          ? xrayFeeds()
+          : _sources.where((source) => source.engineIds.contains(engineId)));
 
   static List<KingOfflineImportKind> get offline => const [
     KingOfflineImportKind.androidDocumentPicker,
