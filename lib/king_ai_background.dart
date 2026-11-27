@@ -158,10 +158,8 @@ void kingAiBackgroundDispatcher() {
 Future<bool> _kingHasVpnInterface() async {
   try {
     final interfaces = await NetworkInterface.list(includeLoopback: false);
-    return interfaces.any((interface) {
-      final name = interface.name.toLowerCase();
-      return RegExp(r'^(tun|tap|ppp|wg|utun|vpn)[0-9]*').hasMatch(name);
-    });
+    return interfaces.any((interface) =>
+        KingNetworkFingerprint.isVpnInterfaceName(interface.name));
   } catch (e, st) {
     logError(e, st);
     // Fail closed if the interface state cannot be inspected.
