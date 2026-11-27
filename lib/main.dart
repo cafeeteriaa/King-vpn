@@ -9792,9 +9792,18 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       }
       final configuredSources = userListUrls.length + listUrls.length;
       final successfulSources = srcFetchState.values.where((state) => state == 'ok').length;
-      final requiredSources = configuredSources > 1 ? 2 : 1;
-      if (successfulSources < requiredSources) {
-        throw StateError('Source refresh coverage was insufficient ($successfulSources/$configuredSources); old inventory retained.');
+      final previousCount = (metadata['count'] as num?)?.toInt() ?? 0;
+      if (!FreshResourceStore.isSufficientSnapshotReplacement(
+        previousCount: previousCount,
+        incomingCount: downloaded.length,
+        successfulSources: successfulSources,
+        configuredSources: configuredSources,
+      )) {
+        throw StateError(
+          'Source refresh was empty, incomplete, or below the safe replacement threshold '
+          '($successfulSources/$configuredSources sources, '
+          '${downloaded.length}/$previousCount profiles); old inventory retained.',
+        );
       }
       await FreshResourceStore.replaceSnapshot(
         downloaded.map((server) => server.link),
