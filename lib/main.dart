@@ -6756,17 +6756,21 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     _purgePersonalLeaks(); // ONLYFOLDER
     // FRESH-DISK: load the phone's reusable fresh-resource folder before choosing a mode.
     // Never mix its entries into the personal-server folder.
-    try {
-      final diskLinks = await FreshResourceStore.readLinks();
-      final known = <String>{for (final item in fetchedAll) item.key};
-      for (final link in diskLinks) {
-        final parsed = Server.parse(link);
-        if (parsed != null && !_inPF(parsed) && known.add(parsed.key)) {
-          parsed.src = 'fresh-device-folder';
-          fetchedAll.add(parsed);
+    if (!offlineOnly) {
+      try {
+        // Online discovery uses only a small local preview; the full offline
+        // inventory is consumed through resumable batches below.
+        final diskLinks = await FreshResourceStore.readPreview(limit: 100);
+        final known = <String>{for (final item in fetchedAll) item.key};
+        for (final link in diskLinks) {
+          final parsed = Server.parse(link);
+          if (parsed != null && !_inPF(parsed) && known.add(parsed.key)) {
+            parsed.src = 'fresh-device-folder';
+            fetchedAll.add(parsed);
+          }
         }
-      }
-    } catch (e, st) { logError(e, st); }
+      } catch (e, st) { logError(e, st); }
+    }
     // ULTIMATE: offline-only never downloads new lists
     if (offlineOnly) {
       if (!bg) _set('حالت آفلاین: پوشه‌ی منابع تازه و سرورهای ذخیره‌شده');
@@ -6776,7 +6780,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       }
       final hotOff = await natHotNext(300, fetch: false); // هر دور ۳۰۰ تا؛ اگر پیدا نشد دور بعد ادامه می‌دهد
       // FRESH-DISK: منابع تازه‌ی ذخیره‌شده روی گوشی در اتصال آفلاین هم قابل استفاده‌اند.
-      final diskLinks = await FreshResourceStore.readLinks();
+      final diskLinks = await FreshResourceStore.readBatch(limit: 300);
       final diskOff = <Server>[];
       for (final link in diskLinks) {
         final parsed = Server.parse(link);
