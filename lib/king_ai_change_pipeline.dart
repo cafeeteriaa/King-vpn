@@ -108,11 +108,12 @@ class KingAiPatchBundle {
         throw FormatException('Stage changed a file outside its supplied context: ${entry.key}');
       }
       final suppliedSource = sourceFiles[entry.key]!;
+      final hasPreviousStageOutput = next.containsKey(entry.key);
       final previousStageOutput = next[entry.key];
-      if (previousStageOutput != null && suppliedSource != previousStageOutput) {
+      if (hasPreviousStageOutput && suppliedSource != previousStageOutput) {
         throw StateError('Conflicting stage input for ${entry.key}; later stage did not use the prior output');
       }
-      if (previousStageOutput == null && suppliedSource == entry.value) {
+      if (!hasPreviousStageOutput && suppliedSource == entry.value) {
         continue;
       }
       next[entry.key] = entry.value;
