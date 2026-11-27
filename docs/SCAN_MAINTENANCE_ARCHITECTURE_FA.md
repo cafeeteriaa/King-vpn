@@ -56,3 +56,5 @@
 نتایج candidate اسکن SNI/Port/TLS در حالت ملی اکنون به‌صورت یک snapshot JSON در SharedPreferences ذخیره و هنگام بازشدن اسکنر بازیابی می‌شوند. IPهای TCP-open به‌طور جداگانه از مسیر append-only فایل‌محور `natNationalIpMemSave` ذخیره می‌شوند و هنگام بارگذاری inventory به `natScanHits` بازمی‌گردند. این داده‌ها همچنان candidate هستند و به‌عنوان سرور سالم یا مقدار تأییدشدهٔ کانفیگ استفاده نمی‌شوند.
 
 IPهای TCP-open در حالت ملی به‌جای کپی‌کردن در یک blob بزرگ SharedPreferences، از مسیر append-only موجود `natNationalIpMemSave` در inventory فایل‌محور ذخیره می‌شوند. مسیر IP-auto همان inventory را پیش از ساخت endpointها بارگذاری می‌کند؛ بنابراین سقف cache موقت `natScanHits` باعث حذف دادهٔ پایدار نمی‌شود.
+
+برای کاهش زمان انتظار بدون بریدن inventory، بررسی TCP/TLS/ALPN با workerهای محدود و قابل‌لغو انجام می‌شود. عدد ۸ فقط سقف اتصال‌های هم‌زمان است؛ همهٔ IPها و پورت‌های کشف‌شده در صف بررسی باقی می‌مانند و هیچ سقف تعداد برای کل منابع اعمال نمی‌شود. در حالت ملی، نتیجهٔ TCP-open برای همهٔ IPهای موفق همان پورت جمع‌آوری و در inventory append-only ثبت می‌شود.
