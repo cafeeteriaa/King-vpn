@@ -103,8 +103,46 @@ const ownPkg = 'com.kingvpn.king_vpn';
 // (so the standby search keeps running). Needs the MainActivity patch from
 // the workflow file.
 const bgChannel = MethodChannel('vpn/bg');
-bool _bgAliveUnsupported = false;
-bool poolStop = false; // ABORTPOOL: stop taking new items in parallel tests // ALIVEONCE: native side has no 'alive' handler
+const int _bgBridgeProtocolVersion = 1;
+bool _bgBridgeVerified = false;
+int _bgBridgeFailures = 0;
+DateTime? _bgBridgeRetryAfter;
+bool poolStop = false; // ABORTPOOL: stop taking new items in parallel tests
+
+void _scheduleBgBridgeRetry(Object error) {
+  _bgBridgeVerified = false;
+  _bgBridgeFailures = (_bgBridgeFailures + 1).clamp(1, 16);
+  final seconds = (5 * (1 << (_bgBridgeFailures - 1))).clamp(5, 300);
+  _bgBridgeRetryAfter = DateTime.now().add(Duration(seconds: seconds));
+  dbg('NATIVE-BRIDGE: vpn/bg unavailable; retry in ${seconds}s; '
+      '${error.runtimeType}: $error');
+}
+
+/// Verifies that the APK actually contains the expected native channel handler.
+/// A transient channel error must never permanently disable future health checks.
+Future<void> _probeBgBridge({bool force = false}) async {
+  if (!Platform.isAndroid || _bgBridgeVerified) return;
+  final retryAt = _bgBridgeRetryAfter;
+  if (!force && retryAt != null && DateTime.now().isBefore(retryAt)) return;
+  try {
+    final info = await bgChannel
+        .invokeMapMethod<String, dynamic>('bridgeInfo')
+        .timeout(const Duration(seconds: 5));
+    if (info == null ||
+        info['protocolVersion'] != _bgBridgeProtocolVersion ||
+        info['channel'] != 'vpn/bg' ||
+        info['vpnSettings'] != true) {
+      throw StateError('Native bridge protocol/capability mismatch: $info');
+    }
+    _bgBridgeVerified = true;
+    _bgBridgeFailures = 0;
+    _bgBridgeRetryAfter = null;
+    dbg('NATIVE-BRIDGE: verified protocol=${info['protocolVersion']} '
+        'activity=${info['activity']} package=${info['packageName']}');
+  } catch (error) {
+    _scheduleBgBridgeRetry(error);
+  }
+}
 // parallel ping tests while connected (settings 1..6).
 int bgWorkers = 3; // تست همزمان (وقتی وصل است) — پیش‌فرض ۳
 // BGPAR: تعداد تست همزمان وقتی وصلیم = تنظیم «تست همزمان (وقتی وصل است)» (۱ تا ۳)
@@ -5391,6 +5429,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     OnlineCounter.start(); // ONLINECOUNT
     _crashGuardInit(); // CRASHGUARD: آیا اجرای قبلی وسط شروع یک سرور مرده است؟
     unawaited(_loadVpnPerm()); // FIX-PERSIST
+    unawaited(_probeBgBridge(force: true)); // verify packaged Android channel early
     Future.delayed(const Duration(seconds: 4), () => unawaited(_logLastExit())); // KINGDIAG
     _favsRef = favs;
     natSrcRates = srcRate; // نرخ منابع برای مرتب‌سازی پوشه‌ی منابع تازه
@@ -14058,17 +14097,20 @@ ListTile( // KINGEXTRAS row
       // strong check: ask the native activity if it still exists. If it is
       // gone (swiped from recents) every background test is stopped.
       try {
-        final alive = _bgAliveUnsupported
-            ? null
-            : await bgChannel.invokeMethod<bool>('alive').catchError((e) {
-                _bgAliveUnsupported = true; // ALIVEONCE
-                return null;
-              });
-        if (alive == false && !appGone && !(wantVpn || connected)) {
-          appGone = true;
-          abort = true;
+        await _probeBgBridge();
+        if (_bgBridgeVerified) {
+          final alive = await bgChannel
+              .invokeMethod<bool>('alive')
+              .timeout(const Duration(seconds: 4));
+          if (alive == false && !appGone && !(wantVpn || connected)) {
+            appGone = true;
+            abort = true;
+          }
         }
-      } catch (_swE) { _swl('_startWatch#1', _swE);}
+      } catch (_swE) {
+        _scheduleBgBridgeRetry(_swE);
+        _swl('_startWatch#1', _swE);
+      }
       if (watchBusy &&
           !busy &&
           !switching &&
