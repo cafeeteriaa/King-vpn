@@ -376,6 +376,45 @@ void main() {
       expect(result.failures, hasLength(1));
     });
 
+    test('runs the complete engine source catalog with bounded concurrency', () async {
+      var active = 0;
+      var peak = 0;
+      var calls = 0;
+      final sync = KingServerSourceSync(
+        maxConcurrentSources: 2,
+        fetchText: (url) async {
+          active++;
+          calls++;
+          if (active > peak) peak = active;
+          await Future<void>.delayed(const Duration(milliseconds: 5));
+          active--;
+          return 'hy2://token@example.org:443';
+        },
+      );
+      final expected = KingEngineServerSourceCatalog.forEngine(
+        KingEngineId.hysteria2,
+      ).length;
+      final result = await sync.refresh(KingEngineId.hysteria2);
+      expect(calls, expected);
+      expect(peak, lessThanOrEqualTo(2));
+      expect(result.profiles, isNotEmpty);
+      expect(result.failures, isEmpty);
+    });
+
+    test('cancellation stops scheduling new engine sources', () async {
+      var calls = 0;
+      final sync = KingServerSourceSync(
+        shouldStop: () => true,
+        fetchText: (url) async {
+          calls++;
+          return 'hy2://token@example.org:443';
+        },
+      );
+      final result = await sync.refresh(KingEngineId.hysteria2);
+      expect(calls, 0);
+      expect(result.profiles, isEmpty);
+    });
+
     test('honors sub-hour publisher cadence without inventing unknown schedules', () {
       const fast = KingEngineServerSource(
         id: 'fast', name: 'Fast feed', url: 'https://example.org/feed',
