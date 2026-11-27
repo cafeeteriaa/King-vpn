@@ -1952,6 +1952,17 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('minimumEntries: minimumEntries', method)
         self.assertIn('FreshResourceStore.replaceSnapshot(', method)
 
+    def test_staged_offline_snapshot_is_stream_verified_before_swap(self):
+        source = (ROOT / 'lib' / 'fresh_resource_store.dart').read_text(encoding='utf-8')
+        start = source.index('static Future<int> replaceSnapshot(')
+        end = source.index('static Future<Map<String, Object?>> metadata(', start)
+        method = source[start:end]
+        verify = method.index('verifyCount(root: stageRoot)')
+        threshold = method.index('if (total < minimumEntries)', verify)
+        swap = method.index('await target.rename(backup.path)', threshold)
+        self.assertLess(verify, threshold)
+        self.assertLess(threshold, swap)
+
     def test_net_melli_uses_bounded_on_device_archive_when_domestic_only(self):
         source = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
         start = source.index('Future<void> _loadPending({')
