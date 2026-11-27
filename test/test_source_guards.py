@@ -2366,12 +2366,23 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         body = source[start:end]
         compute = body.index('await compute(_genAddrsIso, args)')
         abort = body.index('if (nationalMode != modeSnapshot || (shouldAbort?.call() ?? false))')
-        cursor_mutation = body.index('ipAutoCursors\n    ..clear()')
-        position_mutation = body.index('ipAutoPos = start + slice.length;')
         self.assertLess(compute, abort)
-        self.assertLess(abort, cursor_mutation)
-        self.assertLess(abort, position_mutation)
+        self.assertNotIn('ipAutoCursors\\n    ..clear()', body)
+        self.assertNotIn('ipAutoPos = start + slice.length;', body)
+        self.assertIn('return (addresses: slice, cursors: generatedCursors', body)
         self.assertIn('bool Function()? shouldAbort', body)
+
+    def test_ip_auto_range_cursor_commits_only_after_complete_probe_and_core_verification(self):
+        source = (ROOT / 'lib' / 'ip_auto_scan.dart').read_text(encoding='utf-8')
+        start = source.index('Future<bool> _ipAutoRunOnce(')
+        end = source.index('Future<void> ipAutoSheet(', start)
+        body = source[start:end]
+        commit = body.index('ipAutoCursors')
+        success = body.index("say('تمام شد:")
+        last_halt = body.rindex('if (halted())')
+        self.assertLess(last_halt, commit)
+        self.assertLess(commit, success)
+        self.assertIn('ipAutoPos = generatedBatch.nextPosition;', body)
 
     def test_ip_auto_scan_aborts_when_network_mode_changes_mid_run(self):
         source = (ROOT / 'lib' / 'ip_auto_scan.dart').read_text(encoding='utf-8')
