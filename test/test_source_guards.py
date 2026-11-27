@@ -3020,26 +3020,24 @@ class KingVpnSourceGuardTests(unittest.TestCase):
 
     def test_ip_auto_address_generation_does_not_apply_stale_mode_cursors(self):
         source = (ROOT / 'lib' / 'ip_auto_scan.dart').read_text(encoding='utf-8')
-        start = source.index('Future<List<String>> _ipAutoNextAddrs(')
+        start = source.index('Future<_IpAutoAddressBatch?> _ipAutoNextAddrs(')
         end = source.index('extension IpAutoExt', start)
         body = source[start:end]
         mode = body.index('final modeSnapshot = nationalMode;')
-        position = body.index('final startPosSnapshot = ipAutoPos;')
         cursors = body.index('final cursorSnapshot = Map<String, int>.of(ipAutoCursors);')
-        compute = body.index('await compute(_genAddrsIso, args)')
+        compute = body.index('await compute(_genAddrsIso, <String, dynamic>{')
         guard = body.index('if (nationalMode != modeSnapshot || (shouldAbort?.call() ?? false))')
-        mutation = body.index('ipAutoCursors\n    ..clear()')
-        generated = body.index("final generatedCursors = Map<String, int>.from(gen['cursors'] as Map);")
-        update_pos = body.index('ipAutoPos = start + slice.length;')
         self.assertLess(mode, compute)
-        self.assertLess(position, compute)
         self.assertLess(cursors, compute)
         self.assertLess(compute, guard)
-        self.assertLess(guard, generated)
-        self.assertLess(generated, mutation)
         self.assertIn("'nationalMode': modeSnapshot", body)
-        self.assertIn('final start = startPosSnapshot % all.length;', body)
-        self.assertLess(mutation, update_pos)
+        self.assertIn('nextCursors', body)
+        self.assertNotIn('ipAutoCursors', body)
+        run_start = source.index('Future<bool> _ipAutoRunOnce(')
+        run_end = source.index('Future<void> ipAutoSheet(', run_start)
+        run = source[run_start:run_end]
+        self.assertIn('addressBatch.modeSnapshot != runNationalMode', run)
+        self.assertIn('ipAutoCursors\n      ..clear()\n      ..addAll(addressBatch.nextCursors);', run)
 
 
 
