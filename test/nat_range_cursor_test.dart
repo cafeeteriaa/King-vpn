@@ -38,6 +38,28 @@ void main() {
     expect(large.nextCursor, '3');
   });
 
+  test('production-sized IPv4 batches remain exact across the Rust/Dart path', () {
+    final first = app.natExpandAddressRangeBatch(
+      '192.0.2.0/24',
+      cursor: '0',
+      limit: 128,
+    );
+    expect(first.addresses, hasLength(128));
+    expect(first.addresses.first, '192.0.2.0');
+    expect(first.addresses.last, '192.0.2.127');
+    expect(first.nextCursor, '128');
+
+    final second = app.natExpandAddressRangeBatch(
+      '192.0.2.0/24',
+      cursor: first.nextCursor,
+      limit: 128,
+    );
+    expect(second.addresses, hasLength(128));
+    expect(second.addresses.first, '192.0.2.128');
+    expect(second.addresses.last, '192.0.2.255');
+    expect(second.nextCursor, '0');
+  });
+
   test('IPv4 CIDR cursors remain compatible', () {
     final first = app.natExpandAddressRangeBatch(
       '192.0.2.0/30',

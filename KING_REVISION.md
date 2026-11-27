@@ -1,12 +1,12 @@
 # KING VPN Revision Ledger
 
-Current revision: 69
-Next revision: 70
+Current revision: 74
+Next revision: 75
 Repository: cafeeteriaa/King-vpn
-Revision branch: feature/rust-ip-range-accelerator-20261127
-Parent revision branch: feat/king-ai-multistage-engineering-20261127
-Parent PR: https://github.com/cafeeteriaa/King-vpn/pull/72
-Revision PR: https://github.com/cafeeteriaa/King-vpn/pull/73
+Revision branch: feature/unified-scanner-scheduler-rust-production-v4-20261127
+Parent revision branch: feature/adsl-irancell-network-handover-v3-20261127
+Parent PR: https://github.com/cafeeteriaa/King-vpn/pull/78
+Revision PR: https://github.com/cafeeteriaa/King-vpn/pull/79
 Consolidated integration PR: https://github.com/cafeeteriaa/King-vpn/pull/66
 
 ## Revision history
@@ -230,3 +230,27 @@ Increment the revision number by exactly one for each substantial edit set. Reco
 - After repairing the dynamic-source parser blocker, the next compiler pass exposed a second pre-existing structural corruption in `king_local_ai.dart`: the complete `KingLocalAi` class closed at line 2014, followed by repeated out-of-class copies of `createRepairPullRequest`, `_createRepairPullRequest`, `_planOwnerFeature`, `createOwnerFeatureProposal` and `dispose`.
 - Kept the complete original class implementation, including GitHub/CI repair, owner planning, proposal generation and disposal; removed only the duplicate invalid tails after the class boundary.
 - Added source guards asserting one class and one copy of each critical method so this duplication cannot silently return.
+
+
+### Revision 70 — versioned Rust/Dart native bridge contract
+- Pull request: https://github.com/cafeeteriaa/King-vpn/pull/75
+- Added a versioned native ABI contract and Dart-side compatibility checks while preserving the optional Rust fallback model.
+
+### Revision 71 — cross-language VPN service diagnostics
+- Pull request: https://github.com/cafeeteriaa/King-vpn/pull/76
+- Added a versioned diagnostics contract across Android, Kotlin and Dart with explicit absent/error fallback values.
+
+### Revision 72 — watchdog health telemetry
+- Pull request: https://github.com/cafeeteriaa/King-vpn/pull/77
+- Added monotonic watchdog and health-probe telemetry without treating core CONNECTED as proof of working data-plane.
+
+### Revision 73 — validated physical network underlay handover
+- Pull request: https://github.com/cafeeteriaa/King-vpn/pull/78
+- Added Android monitoring of validated physical Wi-Fi/cellular underlays and protocol-v3 diagnostics; exact-head CI run 46005789109 passed ARM64 APK packaging and upload.
+
+### Revision 74 — production Rust range batches and serialized scanner orchestration
+- Pull request: https://github.com/cafeeteriaa/King-vpn/pull/79
+- Routed the production NAT range generator through the shared optional Rust/Dart batch API.
+- Added a lifecycle-aware idle scheduler that runs DNS then IP, coalesces repeated requests, and cancels safely on connection, mode, lifecycle or competing-scan changes.
+- Added cross-scanner exclusion guards, cancellation propagation, scheduler tests, production-sized cursor tests and Persian architecture documentation.
+- Exact-head CI is pending; no merge or release is authorized until all checks pass and Samsung device validation is completed.

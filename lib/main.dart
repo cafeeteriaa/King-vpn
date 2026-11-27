@@ -1,5 +1,7 @@
 import 'dart:async';
 import 'king_native_accel.dart'; // Optional Rust CIDR/range accelerator with Dart fallback
+import 'native_bridge_contract.dart'; // Validate the complete Android vpn/bg handshake
+import 'king_scan_scheduler.dart'; // Serialized, idle-only scanner orchestration
 import 'king_dynamic_source_discovery.dart';
 import 'network_health.dart';
 import 'king_local_ai.dart';
@@ -130,9 +132,11 @@ Future<void> _probeBgBridge({bool force = false}) async {
         .invokeMapMethod<String, dynamic>('bridgeInfo')
         .timeout(const Duration(seconds: 5));
     if (info == null ||
-        info['protocolVersion'] != _bgBridgeProtocolVersion ||
-        info['channel'] != 'vpn/bg' ||
-        info['vpnSettings'] != true) {
+        !bgBridgeInfoMatches(
+          info,
+          expectedProtocolVersion: _bgBridgeProtocolVersion,
+          expectedPackageName: ownPkg,
+        )) {
       throw StateError('Native bridge protocol/capability mismatch: $info');
     }
     _bgBridgeVerified = true;
@@ -5119,6 +5123,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   DateTime lastFetchTry = DateTime.fromMillisecondsSinceEpoch(0);
   Timer? watch, tick, dropTimer, saveT;
   Timer? _natHotInitialTimer, _natHotRefreshTimer;
+  Timer? _idleScanInitialTimer, _idleScanPeriodicTimer, _idleScanResumeTimer;
+  final KingScanScheduler _idleScanScheduler = KingScanScheduler();
   // DROPDEFER: قطع هسته وسط تعویض را گم نمی‌کنیم؛ بعد از آزاد شدن busy/switching بررسی می‌شود
   bool _dropDeferred = false;
   // DROPFIX: هنگام توقف خودِ اپ (تست سرور، جستجو) رویداد DISCONNECTED طبیعی است
@@ -5532,6 +5538,13 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     _natHotRefreshTimer = Timer.periodic(const Duration(hours: 1), (_) {
       if (mounted) unawaited(natHotEnsure());
     });
+    // Background DNS/IP maintenance is scheduled only while foreground, disconnected and idle.
+    _idleScanInitialTimer = Timer(const Duration(seconds: 45), () {
+      if (mounted) unawaited(_requestIdleScanCycle());
+    });
+    _idleScanPeriodicTimer = Timer.periodic(const Duration(minutes: 30), (_) {
+      if (mounted) unawaited(_requestIdleScanCycle());
+    });
     // native side (MainActivity patch in the workflow) tells us the screen /
     // activity was destroyed (app swiped away from the recent apps)
     bgChannel.setMethodCallHandler((call) async {
@@ -5667,6 +5680,14 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     }
     inForeground = s == AppLifecycleState.resumed;
     _appFg = inForeground;
+    if (s == AppLifecycleState.resumed) {
+      _idleScanResumeTimer?.cancel();
+      _idleScanResumeTimer = Timer(const Duration(seconds: 10), () {
+        if (mounted) unawaited(_requestIdleScanCycle());
+      });
+    } else {
+      _idleScanResumeTimer?.cancel();
+    }
     if (s == AppLifecycleState.resumed && _pendingUpdateApkPath != null) {
       _updateChecked = false;
       unawaited(checkForUpdate());
@@ -5784,6 +5805,50 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     }
   }
 
+  Future<void> _requestIdleScanCycle() async {
+    final modeSnapshot = nationalMode;
+    bool environmentStable() =>
+        mounted &&
+        inForeground &&
+        !appGone &&
+        !abort &&
+        !connected &&
+        !wantVpn &&
+        !busy &&
+        !searching &&
+        !switching &&
+        !netDown &&
+        nationalMode == modeSnapshot;
+
+    bool canStartCycle() =>
+        environmentStable() &&
+        !dnsxManualBusy &&
+        !_dnsxAutoBusy &&
+        !ipAutoBusy &&
+        !_natRangeScanBusy &&
+        !_autoScanRunning;
+
+    bool stopDns() =>
+        !environmentStable() ||
+        dnsxManualBusy ||
+        ipAutoBusy ||
+        _natRangeScanBusy ||
+        _autoScanRunning;
+
+    bool stopIp() =>
+        !environmentStable() ||
+        _dnsxAutoBusy ||
+        (dnsxManualBusy && !ipAutoBusy) ||
+        _natRangeScanBusy ||
+        _autoScanRunning;
+
+    await _idleScanScheduler.requestCycle(
+      canRun: canStartCycle,
+      runDns: () => dnsxAutoPick(stop: stopDns),
+      runIp: () => ipAutoBackground(stop: stopIp),
+    );
+  }
+
   Future<void> _init() async {
     await adFreeLoad();
     unawaited(adsRemoteLoad());
@@ -5830,6 +5895,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     _netWatchTimer?.cancel();
     _natHotInitialTimer?.cancel();
     _natHotRefreshTimer?.cancel();
+    _idleScanInitialTimer?.cancel();
+    _idleScanPeriodicTimer?.cancel();
+    _idleScanResumeTimer?.cancel();
     personalFolderIndexRefresh = null;
     _personalPingT?.cancel();
     _cancelPersonalPrepWork();
