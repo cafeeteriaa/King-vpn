@@ -2225,11 +2225,10 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         body = source[start:end]
         compute = body.index('await compute(_genAddrsIso, args)')
         abort = body.index('if (nationalMode != modeSnapshot || (shouldAbort?.call() ?? false))')
-        cursor_mutation = body.index('ipAutoCursors\n    ..clear()')
-        position_mutation = body.index('ipAutoPos = 0;')
+        staged_cursor = body.index('_ipAutoPendingCursors = generatedCursors;')
         self.assertLess(compute, abort)
-        self.assertLess(abort, cursor_mutation)
-        self.assertLess(abort, position_mutation)
+        self.assertLess(abort, staged_cursor)
+        self.assertNotIn('ipAutoCursors\n    ..clear()', body)
         self.assertIn('bool Function()? shouldAbort', body)
 
     def test_ip_auto_scan_aborts_when_network_mode_changes_mid_run(self):
@@ -2455,20 +2454,29 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         cursors = body.index('final cursorSnapshot = Map<String, int>.of(ipAutoCursors);')
         compute = body.index('await compute(_genAddrsIso, args)')
         guard = body.index('if (nationalMode != modeSnapshot || (shouldAbort?.call() ?? false))')
-        mutation = body.index('ipAutoCursors\n    ..clear()')
         generated = body.index("final generatedCursors = Map<String, int>.from(gen['cursors'] as Map);")
+        stage = body.index('_ipAutoPendingCursors = generatedCursors;')
         update_pos = body.index('ipAutoPos = 0;')
         self.assertLess(mode, compute)
         self.assertLess(cursors, compute)
         self.assertLess(compute, guard)
         self.assertLess(guard, generated)
-        self.assertLess(generated, mutation)
+        self.assertLess(generated, stage)
         self.assertIn("'nationalMode': modeSnapshot", body)
         self.assertIn("'outputLimit': _ipAutoBatch", body)
         self.assertIn('return all;', body)
-        self.assertLess(mutation, update_pos)
+        self.assertLess(stage, update_pos)
 
 
+
+    def test_strategy_history_has_unbounded_disk_backed_persistence(self):
+        source = (ROOT / 'lib' / 'king_national_scanner.dart').read_text(encoding='utf-8')
+        self.assertIn('getApplicationSupportDirectory()', source)
+        self.assertIn('king_nat_strategy_memory_v1.json', source)
+        self.assertIn('temporary.rename(file.path)', source)
+        self.assertNotIn('_maxProfiles', source)
+        self.assertNotIn('_maxVariantsPerProfile', source)
+        self.assertNotIn('_trimHistory', source)
 
     def test_auto_scan_dialog_close_requests_cancellation(self):
         auto = (ROOT / 'lib' / 'auto_scanners.dart').read_text(encoding='utf-8')
