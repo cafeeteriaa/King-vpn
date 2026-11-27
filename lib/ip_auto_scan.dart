@@ -21,6 +21,18 @@ String ipAutoStatus = '';
 final List<String> ipAutoHits = []; // Core-outbound candidates only; not TUN-verified
 final Map<String, int> ipAutoCursors = {};
 
+class _IpAutoAddressBatch {
+  const _IpAutoAddressBatch({
+    required this.modeSnapshot,
+    required this.addresses,
+    required this.nextCursors,
+  });
+
+  final bool modeSnapshot;
+  final List<String> addresses;
+  final Map<String, int> nextCursors;
+}
+
 String _ipAutoKeyNow() => nationalMode ? _ipAutoKeyNat : _ipAutoKeyGlob;
 String _ipAutoCursorKeyNow() => '${_ipAutoCursorKey}_${nationalMode ? 'nat' : 'glob'}';
 String _ipAutoAtKeyForMode(bool national) =>
@@ -125,7 +137,7 @@ Future<List<String>> _ipAutoBlocks(
   return natSeedBlocks(ips.toList(growable: false));
 }
 
-Future<List<String>> _ipAutoNextAddrs(
+Future<_IpAutoAddressBatch?> _ipAutoNextAddrs(
   Iterable<Server> sourceServers, {
   bool Function()? shouldAbort,
 }) async {
@@ -139,7 +151,7 @@ Future<List<String>> _ipAutoNextAddrs(
     shouldAbort: shouldAbort,
   );
   if (nationalMode != modeSnapshot || (shouldAbort?.call() ?? false)) {
-    return const <String>[];
+    return null;
   }
   final generated = await compute(_genAddrsIso, <String, dynamic>{
     'cfIpsBatch': 0,
@@ -150,19 +162,21 @@ Future<List<String>> _ipAutoNextAddrs(
     'cursors': cursorSnapshot,
   });
   if (nationalMode != modeSnapshot || (shouldAbort?.call() ?? false)) {
-    return const <String>[];
+    return null;
   }
   final addresses = (generated['addrs'] as List).cast<String>();
   final nextCursors = <String, int>{
     for (final entry in (generated['cursors'] as Map).entries)
       entry.key.toString(): int.tryParse(entry.value.toString()) ?? 0,
   };
-  if (addresses.isNotEmpty) {
-    ipAutoCursors
-      ..clear()
-      ..addAll(nextCursors);
-  }
-  return List<String>.unmodifiable(addresses);
+  if (addresses.isEmpty) return null;
+  // Do not mutate persistent cursors here. The caller commits this exact
+  // cursor snapshot only after every address in the batch has been processed.
+  return _IpAutoAddressBatch(
+    modeSnapshot: modeSnapshot,
+    addresses: List<String>.unmodifiable(addresses),
+    nextCursors: Map<String, int>.unmodifiable(nextCursors),
+  );
 }
 
 extension IpAutoExt on _HomePageState {
@@ -324,15 +338,16 @@ extension IpAutoExt on _HomePageState {
       if (templateKeys.add(server.link.trim())) tpl.add(server);
     }
     say('ساخت آدرس‌ها...');
-    final addrs = await _ipAutoNextAddrs(
+    final addressBatch = await _ipAutoNextAddrs(
       tpl,
       shouldAbort: halted,
     );
     if (halted()) return false;
-    if (addrs.isEmpty) {
+    if (addressBatch == null || addressBatch.addresses.isEmpty) {
       say('آدرسی برای اسکن پیدا نشد.');
       return false;
     }
+    final addrs = addressBatch.addresses;
     final ports = natAutoPorts(pool).toSet().toList()..sort();
     if (ports.isEmpty) ports.add(443);
 
@@ -397,7 +412,15 @@ extension IpAutoExt on _HomePageState {
       say('متوقف شد؛ نتایج این اجرا کامل نیستند.');
       return false;
     }
-    say('تمام شد: $found IP جدید در حالت ${runNationalMode ? 'نت ملی' : 'جهانی'}.');
+    if (addressBatch.modeSnapshot != runNationalMode || halted()) {
+      say('حالت شبکه تغییر کرد یا اسکن متوقف شد؛ cursor این batch ثبت نشد.');
+      return false;
+    }
+    // Transaction boundary: only now has every generated address been visited.
+    ipAutoCursors
+      ..clear()
+      ..addAll(addressBatch.nextCursors);
+    say('تمام شد: $found candidate جدید با پاسخ Core outbound در حالت ${runNationalMode ? 'نت ملی' : 'جهانی'}؛ سلامت TUN هنوز جداگانه باید تأیید شود.');
     return true;
   }
 
