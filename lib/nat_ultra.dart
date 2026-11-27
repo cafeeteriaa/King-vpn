@@ -2209,16 +2209,16 @@ List<String> _getCfIps({
     startIp = ip.address;
     span = 1;
   }
-  if (span <= 0) return (<String>[], 0);
+  if (span <= 0 || cursor < 0) return (<String>[], -1);
   final base = _ipToInt(startIp);
   final offset = cursor.clamp(0, span).toInt();
-  if (offset >= span) return (<String>[], 0);
+  if (offset >= span) return (<String>[], -1);
   final count = min(maxPerBlock, span - offset).toInt();
   final out = <String>[];
   for (var i = 0; i < count; i++) {
     out.add(_intToIp(base + offset + i));
   }
-  return (out, offset + count >= span ? 0 : offset + count);
+  return (out, offset + count >= span ? -1 : offset + count);
 }
 
 // فیکس ۳: ساخت رشته‌های IP (صدها هزار تا چند میلیون) از ترد UI به isolate منتقل شد.
@@ -2250,6 +2250,10 @@ Map<String, dynamic> _genAddrsIso(Map<String, dynamic> args) {
       if (generated.$1.isNotEmpty) {
         addrs.addAll(generated.$1);
         cursors[key] = generated.$2;
+      } else {
+        // Persist exhaustion for this endpoint block; zero would restart it
+        // from the beginning and prevent a complete inventory pass.
+        cursors[key] = -1;
       }
       processed++;
     }
