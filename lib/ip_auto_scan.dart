@@ -120,10 +120,10 @@ Future<({List<String> addresses, Map<String, int> cursors, int nextPosition})>
   // Compute a candidate batch without committing its cursor. The caller commits
   // only after every TCP/core phase finishes; cancellation must retry this batch.
   final modeSnapshot = nationalMode;
-  final startPosSnapshot = ipAutoPos;
   final cursorSnapshot = Map<String, int>.of(ipAutoCursors);
   final args = <String, dynamic>{
     'cfIpsBatch': 0, // exact known endpoints only; no broad public CIDR scan
+    'addressBatchSize': _ipAutoBatch, // cursor advances only for the addresses this run will probe
     'blocks': _ipAutoBlocks(knownServers),
     'nationalMode': modeSnapshot,
     'liveRanges': <String>[],
@@ -138,10 +138,9 @@ Future<({List<String> addresses, Map<String, int> cursors, int nextPosition})>
   if (all.isEmpty) {
     return (addresses: const <String>[], cursors: cursorSnapshot, nextPosition: startPosSnapshot);
   }
-  // One resumable slice per execution; commit its cursor only after the scan succeeds.
-  final start = startPosSnapshot % all.length;
-  final slice = all.skip(start).take(_ipAutoBatch).toList();
-  return (addresses: slice, cursors: generatedCursors, nextPosition: start + slice.length);
+  // The isolate generated exactly one probe batch, so its cursor matches the
+  // addresses returned here. The caller commits both only after full verification.
+  return (addresses: all, cursors: generatedCursors, nextPosition: 0);
 }
 
 extension IpAutoExt on _HomePageState {
