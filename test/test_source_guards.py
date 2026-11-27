@@ -2489,16 +2489,19 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertLess(state, publish)
         self.assertIn('if (shouldAbort()) return const <String>[];', body[hits:state])
 
-    def test_smart_scanner_exhausts_all_durable_range_batches(self):
+    def test_smart_scanner_uses_resumable_bounded_range_batches(self):
         source = (ROOT / 'lib' / 'king_national_scanner.dart').read_text(encoding='utf-8')
         start = source.index("status(KingNatScanPhase.ip, 'اسکنر: پیمایش پیوسته")
         end = source.index("} else if (!kNatIpScanOn)", start)
         body = source[start:end]
         self.assertIn('await natRangeStartNextPass();', body)
-        self.assertIn('while (!stopped() && !natRangeInventoryPassComplete)', body)
         self.assertIn('await natRangeScanStep(', body)
         self.assertIn('ipHits += found.length;', body)
         self.assertIn('await addDiscovered(found);', body)
+        self.assertIn('ip_inventory_cursor_preserved_for_next_slice', body)
+        self.assertNotIn('while (!stopped() && !natRangeInventoryPassComplete)', body)
+        self.assertIn('const sliceBudget = Duration(seconds: 35);', source)
+        self.assertIn('sliceYielded: didYield', source)
 
     def test_nat_inventory_and_range_cursors_are_disk_backed_without_retention_caps(self):
         source = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
