@@ -1,7 +1,7 @@
 # KING VPN Revision Ledger
 
-Current revision: 66
-Next revision: 67
+Current revision: 67
+Next revision: 68
 Repository: cafeeteriaa/King-vpn
 Revision branch: fix/personal-folder-uncapped-20261127
 Parent revision branch: fix/healthy-folder-unbounded-retention-20261127
