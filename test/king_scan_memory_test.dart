@@ -83,31 +83,31 @@ void main() {
         throwsArgumentError,
       );
       final journal = await KingScanJournal.open(jobId: 'safe-job', root: root);
-      expect(
-        () => journal.commit(phase: 'https://example.com', phaseCompleted: false),
-        throwsArgumentError,
+      await expectLater(
+        Future<void>.sync(() => journal.commit(phase: 'https://example.com', phaseCompleted: false)),
+        throwsA(isA<ArgumentError>()),
       );
     });
 
     test('rejects unrecognized cursor fields and negative offsets', () async {
       final journal = await KingScanJournal.open(jobId: 'cursor-validation', root: root);
-      expect(
-        () => journal.commit(
+      await expectLater(
+        Future<void>.sync(() => journal.commit(
           phase: 'ip',
           phaseCompleted: false,
           cursor: <String, Object?>{'rawEndpoint': '192.0.2.1'},
-        ),
-        throwsArgumentError,
+        )),
+        throwsA(isA<ArgumentError>()),
       );
-      expect(
-        () => journal.commit(
+      await expectLater(
+        Future<void>.sync(() => journal.commit(
           phase: 'ip',
           phaseCompleted: false,
           cursor: <String, Object?>{
             'rangeOffsets': <String, int>{'10.0.0.0/24': -1},
           },
-        ),
-        throwsArgumentError,
+        )),
+        throwsA(isA<ArgumentError>()),
       );
       expect(journal.sequence, 0);
     });
@@ -137,13 +137,13 @@ void main() {
       expect(journal.latestCheckpoint?['cursor'], containsPair(
         'serverKeyHash', List<String>.filled(64, 'a').join(),
       ));
-      expect(
-        () => journal.commit(
+      await expectLater(
+        Future<void>.sync(() => journal.commit(
           phase: 'config',
           phaseCompleted: false,
           cursor: <String, Object?>{'serverKeyHash': 'example.com'},
-        ),
-        throwsArgumentError,
+        )),
+        throwsA(isA<ArgumentError>()),
       );
     });
 
