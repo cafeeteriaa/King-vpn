@@ -258,7 +258,7 @@ class MainActivity : FlutterActivity() {
                                 val snapshot: Map<String, Any> = try {
                                     val service = KingVpnService.instance
                                     service?.diagnosticSnapshot() ?: mapOf(
-                                        "protocolVersion" to 2,
+                                        "protocolVersion" to 3,
                                         "serviceRunning" to false,
                                         "active" to false,
                                         "stopping" to false,
@@ -290,7 +290,7 @@ class MainActivity : FlutterActivity() {
                                         "lastPhysicalNetworkChangeAgeMs" to -1L,
                                         "validatedWifiNetworkCount" to 0,
                                         "validatedCellularNetworkCount" to 0,
-                                        "physicalNetworkTransportSummary" to "unavailable"
+                                        "physicalNetworkTransportSummary" to "unknown"
                                     )
                                 } catch (_: Throwable) {
                                     mapOf(
@@ -311,7 +311,13 @@ class MainActivity : FlutterActivity() {
                                         "lastProbeResult" to "unavailable",
                                         "lastProbeMode" to "unknown",
                                         "lastProbeDurationMs" to 0L,
-                                        "lastProbeAgeMs" to -1L
+                                        "lastProbeAgeMs" to -1L,
+                                        "physicalNetworkProtocolVersion" to 1,
+                                        "physicalNetworkChangeCount" to 0L,
+                                        "lastPhysicalNetworkChangeAgeMs" to -1L,
+                                        "validatedWifiNetworkCount" to 0,
+                                        "validatedCellularNetworkCount" to 0,
+                                        "physicalNetworkTransportSummary" to "unavailable"
                                     )
                                 }
                                 try {
