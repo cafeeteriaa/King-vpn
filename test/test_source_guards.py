@@ -2866,7 +2866,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('static Future<List<String>> readPreview({int limit = 100})', store)
         self.assertIn('FreshResourceStore.readPreview(limit: 100)', page)
         self.assertNotIn('FreshResourceStore.readLinks()', page)
-        self.assertIn('بدون بارگذاری کل مجموعه در RAM', page)
+        self.assertIn('کل مجموعه در RAM بارگذاری نمی‌شود', page)
 
 if __name__ == '__main__':
     unittest.main()
