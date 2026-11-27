@@ -160,27 +160,61 @@ class KingNationalScannerEngine {
       final raw = prefs.getString(_prefsKey);
       if (raw == null || raw.isEmpty) return;
       final decoded = jsonDecode(raw);
-      if (decoded is! Map || (decoded['version'] != 1 && decoded['version'] != 2)) return;
+      if (decoded is! Map || (decoded['version'] != 1 && decoded['version'] != 2 && decoded['version'] != 3)) return;
       final profiles = decoded['profiles'];
       if (profiles is! Map) return;
       final rawSni = decoded['sni'];
       if (rawSni is Map) {
-        for (final entry in rawSni.entries) {
+        for (final entry in rawSni.entries.take(_maxProfiles)) {
+          final key = entry.key.toString();
           final index = entry.value;
-          if (index is num && index.toInt() >= 0 && index.toInt() < natFrontSnis.length &&
+          if (key.isNotEmpty && key.length <= 256 && index is num &&
+              index.toInt() >= 0 && index.toInt() < natFrontSnis.length &&
               InternetAddress.tryParse(natFrontSnis[index.toInt()]) == null) {
-            _sniPreferences[entry.key.toString()] = index.toInt();
+            _sniPreferences[key] = index.toInt();
           }
         }
       }
+      final rawSniEvidence = decoded['sniEvidence'];
+      if (rawSniEvidence is num && rawSniEvidence >= 0) {
+        _sniProbeEvidence = rawSniEvidence.toInt().clamp(0, 1000000000).toInt();
+      }
       final rawAlpn = decoded['alpn'];
       if (rawAlpn is Map) {
-        for (final entry in rawAlpn.entries) {
+        for (final entry in rawAlpn.entries.take(_maxProfiles)) {
+          final key = entry.key.toString();
           final value = entry.value?.toString() ?? '';
-          if (value == 'h2' || value == 'http/1.1') _alpnPreferences[entry.key.toString()] = value;
+          if (key.isNotEmpty && key.length <= 256 &&
+              (value == 'h2' || value == 'http/1.1')) {
+            _alpnPreferences[key] = value;
+          }
         }
       }
-      for (final profileEntry in profiles.entries.take(_maxProfiles)) {
+      final rawAlpnEvidence = decoded['alpnEvidence'];
+      if (rawAlpnEvidence is num && rawAlpnEvidence >= 0) {
+        _alpnProbeEvidence = rawAlpnEvidence.toInt().clamp(0, 1000000000).toInt();
+      }
+      final orderedProfiles = profiles.entries.where((entry) =>
+          entry.key.toString().isNotEmpty && entry.key.toString().length <= 256 &&
+          entry.value is Map).toList()
+        ..sort((a, b) {
+          DateTime newest(Object? raw) {
+            var result = DateTime.fromMillisecondsSinceEpoch(0);
+            if (raw is Map) {
+              for (final value in raw.values) {
+                if (value is Map && value['t'] is num) {
+                  final stamp = (value['t'] as num).toInt();
+                  if (stamp > result.millisecondsSinceEpoch) {
+                    result = DateTime.fromMillisecondsSinceEpoch(stamp);
+                  }
+                }
+              }
+            }
+            return result;
+          }
+          return newest(b.value).compareTo(newest(a.value));
+        });
+      for (final profileEntry in orderedProfiles.take(_maxProfiles)) {
         final rawVariants = profileEntry.value;
         if (rawVariants is! Map) continue;
         final variants = <int, _KingNatVariantStats>{};
@@ -189,17 +223,21 @@ class KingNationalScannerEngine {
           final variant = int.tryParse(variantEntry.key.toString());
           final values = variantEntry.value;
           if (variant == null ||
-              variant <= 0 ||
+              variant < 0 ||
               variant >= _natSpecs.length ||
               values is! Map) continue;
           final attempts = values['a'];
           final successes = values['s'];
           final failures = values['f'];
           if (attempts is! num || successes is! num || failures is! num) continue;
+          final safeAttempts = attempts.toInt().clamp(0, 1000000).toInt();
+          final safeSuccesses = successes.toInt().clamp(0, safeAttempts).toInt();
+          final safeFailures = failures.toInt()
+              .clamp(0, safeAttempts - safeSuccesses).toInt();
           final stat = _KingNatVariantStats()
-            ..attempts = attempts.toInt().clamp(0, 1000000).toInt()
-            ..successes = successes.toInt().clamp(0, 1000000).toInt()
-            ..failures = failures.toInt().clamp(0, 1000000).toInt();
+            ..attempts = safeAttempts
+            ..successes = safeSuccesses
+            ..failures = safeFailures;
           final latency = values['l'];
           if (latency is num && latency > 0) stat.latencyEwmaMs = latency.toDouble();
           final stamp = values['t'];
@@ -217,6 +255,7 @@ class KingNationalScannerEngine {
           _history[profileEntry.key.toString()] = variants;
         }
       }
+      _trimHistory();
       _recordCount = _history.values.fold<int>(
         0,
         (sum, variants) =>
@@ -262,7 +301,14 @@ class KingNationalScannerEngine {
         }
         await prefs.setString(
           _prefsKey,
-          jsonEncode(<String, Object?>{'version': 2, 'profiles': profiles, 'sni': _sniPreferences, 'alpn': _alpnPreferences}),
+          jsonEncode(<String, Object?>{
+            'version': 3,
+            'profiles': profiles,
+            'sni': _sniPreferences,
+            'alpn': _alpnPreferences,
+            'sniEvidence': _sniProbeEvidence,
+            'alpnEvidence': _alpnProbeEvidence,
+          }),
         );
       } catch (e, st) {
         logError(e, st);
@@ -404,8 +450,25 @@ class KingNationalScannerEngine {
         profiles.remove(entry.key);
       }
     }
-    if (_history.length > _maxProfiles) {
-      _history.remove(_history.keys.first);
+    _trimHistory();
+  }
+
+  static void _trimHistory() {
+    if (_history.length <= _maxProfiles) return;
+    final oldest = _history.entries.toList()
+      ..sort((a, b) {
+        DateTime newest(Map<int, _KingNatVariantStats> variants) {
+          var result = DateTime.fromMillisecondsSinceEpoch(0);
+          for (final stat in variants.values) {
+            final at = stat.lastAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+            if (at.isAfter(result)) result = at;
+          }
+          return result;
+        }
+        return newest(a.value).compareTo(newest(b.value));
+      });
+    for (final entry in oldest.take(_history.length - _maxProfiles)) {
+      _history.remove(entry.key);
     }
   }
 
