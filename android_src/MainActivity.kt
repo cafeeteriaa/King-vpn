@@ -294,7 +294,7 @@ class MainActivity : FlutterActivity() {
                                     )
                                 } catch (_: Throwable) {
                                     mapOf(
-                                        "protocolVersion" to 2,
+                                        "protocolVersion" to 3,
                                         "serviceRunning" to false,
                                         "diagnosticError" to "snapshot_unavailable",
                                         "lastErrorPresent" to false,
