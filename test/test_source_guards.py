@@ -2498,6 +2498,8 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('king_nat_domain_inventory.json', source)
         self.assertIn('king_nat_configured_ranges.json', source)
         self.assertIn('king_nat_range_state.json', source)
+        self.assertIn('king_nat_learning_state.json', source)
+        self.assertNotIn('natVarNormal.length > 3000', source)
         self.assertNotIn('_ipMemMax', source)
         self.assertNotIn('_domMemMax', source)
         self.assertNotIn('Duration(days: 14)', source)
