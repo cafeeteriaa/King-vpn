@@ -6840,6 +6840,31 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         logError(e, stk);
       }
     }
+    // NET-MELLI-LOCAL-FALLBACK: domestic-only connectivity often leaves
+    // public GitHub lists unreachable even though an existing VPN endpoint may
+    // still work. Consume the next bounded on-device archive page alongside
+    // domestic/public discovery; never load the four-million inventory into RAM.
+    // The dedicated offlineOnly branch above remains strict and never downloads.
+    if (nationalMode && !offlineOnly) {
+      try {
+        final diskBatch = await FreshResourceStore.readBatch(limit: 300);
+        final known = <String>{for (final item in fetchedAll) item.key};
+        var restored = 0;
+        for (final link in diskBatch) {
+          final parsed = Server.parse(link);
+          if (parsed == null || _inPF(parsed) || !known.add(parsed.key)) continue;
+          parsed.src = 'fresh-device-folder';
+          fetchedAll.add(parsed);
+          restored++;
+        }
+        if (restored > 0) {
+          dbg('NET-MELLI-LOCAL-FALLBACK: restored $restored on-device profiles');
+        }
+      } catch (e, st) {
+        logError(e, st);
+      }
+    }
+
     final fetched = fetchedAll;
     if (fetched.isNotEmpty) total = fetched.length;
     // TCP probes are meaningless while the tunnel is up.
