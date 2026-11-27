@@ -335,9 +335,9 @@ class NatNetworkDiagnosis {
   }
 }
 
-/// Dedicated Smart Pilot link scanner. Its target inventory and results are
-/// independent from the general DNS/IP/SNI scanners and their user-defined ranges.
-/// It verifies TLS handshakes to a small fixed HTTPS endpoint set; it never sweeps subnets.
+/// Dedicated Smart Pilot link scanner. It verifies TLS handshakes against
+/// fixed HTTPS targets and combines an independent IPv6 path probe. Its target
+/// inventory is separate from general DNS/IP/SNI scanners; it never sweeps subnets.
 class PilotNetworkProbe {
   static const List<String> domesticTargets = <String>[
     'www.aparat.com',
