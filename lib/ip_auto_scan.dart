@@ -105,14 +105,12 @@ Future<List<String>> _ipAutoBlocks(
   required bool modeSnapshot,
   bool Function()? shouldAbort,
 }) async {
-  if (modeSnapshot) await _natAutoScanLoad();
   final ips = <String>{};
   final hostnames = <String>{};
   if (modeSnapshot) {
     ips
       ..addAll(natNationalIpMemHosts())
       ..addAll(natScanHits)
-      ..addAll(_natAutoScanCandidates['ip']!);
     hostnames
       ..addAll(natNationalDomMemHosts())
       ..addAll(natRelayHosts);
