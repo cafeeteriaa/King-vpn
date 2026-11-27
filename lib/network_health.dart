@@ -238,8 +238,10 @@ class KingNetworkFingerprint {
     }
     for (final line in ipv6Lines) {
       final fields = line.trim().split(RegExp(r'\s+'));
-      if (fields.length < 10 || fields[0] != List<String>.filled(32, '0').join() ||
-          fields[1].toLowerCase() != '00') continue;
+      if (fields.length < 10 ||
+          fields[0] != List<String>.filled(32, '0').join() ||
+          fields[1].toLowerCase() != '00' ||
+          fields[3].toLowerCase() != '00') continue;
       final flags = int.tryParse(fields[8], radix: 16) ?? 0;
       final iface = fields[9].toLowerCase();
       if ((flags & 1) == 0 || _vpnInterfaceName.hasMatch(iface)) continue;
