@@ -121,6 +121,19 @@ class MainActivity : FlutterActivity() {
             .setMethodCallHandler { call, result ->
                 try {
                     when (call.method) {
+                        "bridgeInfo" -> result.success(
+                            mapOf(
+                                "protocolVersion" to 1,
+                                "channel" to "vpn/bg",
+                                "activity" to javaClass.simpleName,
+                                "packageName" to packageName,
+                                "engineAttached" to engineAttached,
+                                "vpnSettings" to true,
+                                "back" to true,
+                                "alive" to true,
+                                "androidSdk" to Build.VERSION.SDK_INT
+                            )
+                        )
                         "alive" -> result.success(
                             engineAttached && !isFinishing && !isDestroyed
                         )
