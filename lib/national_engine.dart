@@ -175,7 +175,9 @@ class NatNetworkDiagnosis {
       final parts = <String>[
         for (final i in ifs) for (final a in i.addresses) '${i.name}=${a.address}',
       ]..sort();
-      return sha256.convert(utf8.encode(parts.join(';'))).toString();
+      // Carrier/operator identity participates in cache invalidation, but only
+      // its one-way digest is persisted in memory.
+      return sha256.convert(utf8.encode('${natOpKey.trim()}|${parts.join(';')}')).toString();
     } catch (_) {
       return '';
     }
@@ -405,7 +407,7 @@ class PilotNetworkProbe {
           for (final address in item.addresses)
             '${item.name}=${address.address}',
       ]..sort();
-      return sha256.convert(utf8.encode(values.join(';'))).toString();
+      return sha256.convert(utf8.encode('${natOpKey.trim()}|${values.join(';')}')).toString();
     } catch (_) {
       return '';
     }
