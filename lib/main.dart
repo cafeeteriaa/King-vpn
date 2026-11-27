@@ -1,5 +1,7 @@
 import 'dart:async';
 import 'network_health.dart';
+import 'king_resource_intelligence.dart';
+import 'dns_policy.dart';
 import 'king_local_ai.dart';
 import 'king_ai_console.dart';
 import 'king_chat_page.dart';
@@ -618,6 +620,8 @@ const _pingUrls = [
 const _tunnelTestUrlsGlobal = [
   'https://www.google.com/generate_204',
   'https://www.gstatic.com/generate_204',
+  'https://cp.cloudflare.com/generate_204',
+  'https://www.apple.com/library/test/success.html',
 ];
 const _tunnelTestUrlsNational = [
   'https://www.aparat.com/',
@@ -2843,23 +2847,46 @@ String _reliableVpnCfg(String cfg) {
         '78.157.42.101', '10.202.10.10', '10.202.10.11',
       ];
       final existingList = existing is List ? existing : const <dynamic>[];
-      final merged = <dynamic>[];
-      final seenDns = <String>{};
-      for (final item in [...domesticFirst, ...existingList]) {
-        final value = item.toString().trim();
-        if (!secureDns && value.toLowerCase().startsWith('https://')) continue;
-        if (value.isNotEmpty && seenDns.add(value.toLowerCase())) merged.add(item);
-      }
-      d['servers'] = merged;
-    } else if (secureDns && !ultraMode && !indestructibleMode) {
-      d['servers'] = <dynamic>[
+      const secureFallback = <dynamic>[
+        {'address': 'https://1.1.1.1/dns-query', 'timeoutMs': 1500},
+        {'address': 'https://8.8.8.8/dns-query', 'timeoutMs': 1500},
+      ];
+      d['servers'] = mergeNationalDnsServers(
+        domesticFirst: domesticFirst,
+        existing: existingList,
+        secureDns: secureDns,
+        secureFallback: secureFallback,
+      );
+    } else if (shouldApplyGlobalSecureDns(
+      secureDns: secureDns,
+      ultraMode: ultraMode,
+    )) {
+      // Xray tries DNS servers sequentially by default. DoH must be first or
+      // a healthy plaintext resolver would make the Secure DNS entries unused.
+      const secureFirst = <dynamic>[
+        {'address': 'https://1.1.1.1/dns-query', 'timeoutMs': 1500},
+        {'address': 'https://8.8.8.8/dns-query', 'timeoutMs': 1500},
+      ];
+      const plaintextFallback = <dynamic>[
         '1.1.1.1', '1.0.0.1', '8.8.8.8', '8.8.4.4',
         '9.9.9.9', '149.112.112.112', '208.67.222.222',
         '208.67.220.220', '94.140.14.14', '94.140.15.15',
         '2606:4700:4700::1111', '2001:4860:4860::8888', '2620:fe::fe',
-        'https://1.1.1.1/dns-query', 'https://8.8.8.8/dns-query',
-        'https://9.9.9.9/dns-query', 'https://dns.adguard-dns.com/dns-query',
       ];
+      d['servers'] = mergeGlobalDnsServers(
+        encryptedFirst: secureFirst,
+        plaintextFallback: plaintextFallback,
+      );
+    }
+    // Parallel DNS racing could send the plaintext fallback even while DoH
+    // succeeds. Keep Secure DNS ordered unless the global experiment matrix
+    // explicitly owns the resolver strategy.
+    if (shouldSerializeDnsQueries(
+      secureDns: secureDns,
+      nationalMode: nationalMode,
+      ultraMode: ultraMode,
+    )) {
+      d['enableParallelQuery'] = false;
     }
     // UseIP = هم IPv4 و هم IPv6 (هر کدام در دسترس باشد)
     d['queryStrategy'] = 'UseIP';
@@ -2867,7 +2894,9 @@ String _reliableVpnCfg(String cfg) {
     final rt = j['routing'] is Map
         ? Map<String, dynamic>.from(j['routing'] as Map)
         : <String, dynamic>{};
-    rt['domainStrategy'] = 'AsIs';
+    // Preserve routing strategy selected by withIranRouting (e.g. IPIfNonMatch).
+    // AsIs is only the fallback when the incoming config has no strategy.
+    rt.putIfAbsent('domainStrategy', () => 'AsIs');
     j['routing'] = rt;
     // Keep local SOCKS/HTTP so post-connect social checks (TG/IG/YT) go through
     // the REAL core path — not the app's direct network (often bypasses VPN).
@@ -2934,8 +2963,11 @@ int _connGen = 0;
 // FIX #107: true when a stop gave up waiting for DISCONNECTED, so an old core may still send a
 // late CONNECTED. While this is true, a CONNECTED only completes the waiter after a real traffic check.
 bool _staleCoreMayBeUp = false;
-// جدید: completes when the V2Ray core really reports DISCONNECTED
-Completer<bool>? downSig;
+// Prevent duplicate CONNECTED callbacks from launching overlapping traffic probes
+// for the same waiter. A newer waiter has a distinct Completer and can proceed.
+final Set<Completer<bool>> _connectVerificationInFlight = <Completer<bool>>{};
+// Coalesce duplicate DISCONNECTED recovery probes for the same connection generation.
+final Set<int> _disconnectVerificationInFlight = <int>{};
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -4140,9 +4172,34 @@ Future<bool> waitProxyPort(
 // normally), so without this check the app can say "connected" while the
 // phone has no VPN key and other apps get nothing.
 bool lastStartNoTunnel = false; // last _start failed because Android built no tunnel
-String kVpnLastStateTop = ''; // TUNSTATE-FIX: آینه‌ی سراسری lastState برای tunUp()
 String tunNames = ''; // interface names seen by the last tunUp() (diagnostics)
 Future<bool?> tunUp() async {
+  // The native signal confirms only plugin daemon-process liveness.
+  // It does NOT prove that Android installed a TUN interface or that traffic passes.
+  // Keep it diagnostic-only unless Android also reports an active VPN transport.
+  bool? nativeVpn;
+  bool? vpnTransport;
+  try {
+    if (Platform.isAndroid) {
+      nativeVpn = await bgChannel.invokeMethod<bool>('kingVpnTunnelActive');
+      if (nativeVpn != null) {
+        tunNames = nativeVpn ? 'android:KINGVPN_DAEMON_ALIVE' : 'android:KINGVPN_DAEMON_INACTIVE';
+      }
+      vpnTransport = await bgChannel.invokeMethod<bool>('kingVpnTransportActive');
+      if (nativeVpn == true && vpnTransport == true) {
+        tunNames = 'android:KINGVPN_DAEMON_AND_TRANSPORT_ACTIVE';
+        return true;
+      }
+      // A definitive negative Android transport result must not be overridden
+      // by a generic interface name that may belong to another VPN provider.
+      if (nativeVpn != null && vpnTransport == false) {
+        tunNames = 'android:KINGVPN_TRANSPORT_INACTIVE';
+        return false;
+      }
+    }
+  } catch (_nativeTunError) {
+    _swl('tunUp#native', _nativeTunError);
+  }
   try {
     for (var attempt = 0; attempt < 5; attempt++) {
       final l = await NetworkInterface.list(includeLoopback: false);
@@ -4156,15 +4213,17 @@ Future<bool?> tunUp() async {
             n.contains('xray') ||
             n.contains('v2ray');
       });
-      if (hasTunnel) return true;
+      // A stale/absent plugin daemon state must not be rescued by an unrelated
+      // system VPN interface. If the native method is unavailable, retain the
+      // interface-only compatibility fallback.
+      if (hasTunnel && nativeVpn != false) return true;
       if (attempt < 4) await Future.delayed(const Duration(milliseconds: 800));
     }
-    // kVpnLastStateTop آینه‌ی lastState است (tunUp سراسری است و به فیلد کلاس دسترسی ندارد)
-    if (kVpnLastStateTop == 'CONNECTED') return true;
+    // A CONNECTED callback is not evidence that Android installed a TUN.
     return false;
   } catch (_swE) {
     _swl('tunUp#1', _swE);
-    return kVpnLastStateTop == 'CONNECTED' ? true : null;
+    return null;
   }
 }
 
@@ -4715,7 +4774,11 @@ Future<List<Server>> fetchServers({bool Function()? stop, int? quickCap}) async 
   final sw = Stopwatch()..start();
   final dl = quickCap != null ? const Duration(seconds: 12) : fetchDeadline;
   // لینک‌های اضافه‌ی کاربر اول دریافت می‌شوند
-  await pool<String>([...userListUrls, ...listUrls], fetchWorkers, (u) async {
+  await pool<String>(KingResourceIntelligence.orderSources(
+      [...userListUrls, ...listUrls],
+      nationalMode: nationalMode,
+      userProvidedSources: userListUrls,
+  ), fetchWorkers, (u) async {
     if ((stop?.call() ?? false) || sw.elapsed > dl || (quickCap != null && all.length >= quickCap)) {
       srcFetchState[u] = 'skip';
       return;
@@ -5058,6 +5121,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   // already up (app was closed, VPN kept running) is picked up again
   bool startAdopt = true;
   List<Server> fetchedAll = []; // full downloaded list (kept in memory + disk)
+  FreshResourceCursor? _offlineFreshCursor; // paged cursor for the 4M offline cache
   DateTime? listTime;
   final Map<String, String> favs = {}; // pinned servers: key -> link
   final Map<String, Server> favObj = {}; // parsed objects of the pinned ones
@@ -5409,7 +5473,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             'بعد از آخرین تعویض=${DateTime.now().difference(lastSwitch).inSeconds}s');
       }
       lastState = st.state;
-      kVpnLastStateTop = st.state; // mirror for top-level tunUp()
       try {
         final d = st as dynamic; // LIVESTATS
         liveDown = (d.downloadSpeed as num?)?.toInt() ?? liveDown;
@@ -5418,11 +5481,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         totalUp = (d.upload as num?)?.toInt() ?? totalUp;
       } catch (e, stk) { logError(e, stk); }
       dbgState(st.state);
-      if (st.state == 'DISCONNECTED' &&
-          downSig != null &&
-          !downSig!.isCompleted) {
-        downSig!.complete(true);
-      }
       // LIVEQUIET جدید: تا ۹۰ ثانیه بعد از وصل شدن تونل، تست‌های هسته‌ی پس‌زمینه
       // (getServerDelay، یک نمونه‌ی Xray دوم داخل همان پروسه) اجرا نمی‌شوند؛
       // در لاگ، قطع‌های ۲ تا ۱۲ ثانیه‌ای دقیقاً همین‌جا رخ می‌داد.
@@ -5434,7 +5492,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           !connSig!.isCompleted) {
         if (_staleCoreMayBeUp) {
           // FIX #107: this CONNECTED may come from the old core; prove it with traffic first
-          _verifyPendingConnect(connSig!);
+          _verifyPendingConnect(connSig!, _connGen);
         } else {
           connSig!.complete(true);
         }
@@ -5469,18 +5527,18 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       if (on) {
         dropTimer?.cancel();
       } else if (st.state == 'DISCONNECTED' && wantVpn && !_ownStopNow()) {
-        // short wait: a tiny glitch must not cause a switch, a real
-        // disconnect is replaced right away (no 10 minute wait)
+        // Plugin status events have no attempt ID. Before failover, re-check
+        // that the current TUN and its core data path are really down.
         dropTimer?.cancel();
+        final dropGeneration = _connGen;
         dropTimer = Timer(const Duration(seconds: 2), () {
           if (wantVpn &&
-              lastState != 'CONNECTED' &&
               !busy &&
               !netDown &&
               !switching &&
               !_ownStopNow()) {
-            lastWhy = 'هسته/اندروید اتصال را قطع کرد';
-            unawaited(_failover().catchError((e) => logError(e)));
+            unawaited(_confirmDisconnectBeforeFailover(dropGeneration)
+                .catchError((e) => logError(e)));
           }
         });
       }
@@ -5495,9 +5553,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
       if (_dropDeferred && mounted && !busy && !switching) {
         _dropDeferred = false;
-        if (wantVpn && lastState != 'CONNECTED' && !netDown) {
-          lastWhy = 'هسته/اندروید اتصال را قطع کرد';
-          unawaited(_failover().catchError((e) => logError(e)));
+        if (wantVpn && !netDown) {
+          unawaited(_confirmDisconnectBeforeFailover(_connGen)
+              .catchError((e) => logError(e)));
         }
       }
       if (mounted && connected && inForeground) {
@@ -5941,30 +5999,16 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           DateTime.now().difference(_lastOwnStop!) < const Duration(seconds: 6));
 
   Future<void> _stopCoreInner() async {
-    // جدید: wait for the real DISCONNECTED event (not just a fixed delay), so
-    // the next start can never race with the old VPN service still closing
-    final wasUp = lastState == 'CONNECTED' || lastState == 'CONNECTING';
-    if (wasUp) downSig = Completer<bool>();
+    // FlutterV2ray status events have no attempt identifier. A late DISCONNECTED
+    // from an older core can therefore complete a newer stop waiter incorrectly.
+    // Treat stopV2Ray's completed method call only as a shutdown request, never as
+    // proof of a correlated DISCONNECTED event. Keep the stale-core traffic fence
+    // enabled for every restart; CONNECTED must pass a real core-proxy probe.
     await _stopV2();
-    var gotDown = !wasUp;
-    if (wasUp && downSig != null) {
-      // RARE BUG FIX: complete on timeout so a late DISCONNECTED cannot
-      // complete a future stop's downSig
-      final waitDown = downSig!;
-      gotDown = await waitDown.future
-          .timeout(const Duration(seconds: 5), onTimeout: () {
-        if (!waitDown.isCompleted) waitDown.complete(false);
-        return false;
-      });
-    }
-    downSig = null;
-    // FIX #107: a stop that timed out leaves a core that may still report CONNECTED later
-    _staleCoreMayBeUp = !gotDown;
-    // a stale CONNECTED must not stay behind after a stop
+    _staleCoreMayBeUp = true;
     lastState = 'DISCONNECTED';
-    // Android needs a moment to tear the old VPN service down, or the next
-    // start can hang in CONNECTING and run without a tunnel (no key icon)
-    await Future.delayed(Duration(milliseconds: gotDown ? 1200 : 2200));
+    // Conservative teardown grace: do not shorten it based on an unattributed event.
+    await Future.delayed(const Duration(milliseconds: 2200));
   }
 
   // ---------- cache ----------
@@ -6240,7 +6284,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           s.restored = true; // RESTORE: همان سرورهای سالم قبلی؛ حذف نمی‌شوند
           warmKeys.add(s.key);
           // checkedAt stays null: these are tested FIRST at the next connect
-          _resAdd(s); // SCREENGOOD: بعد از باز شدن برنامه روی صفحه نمی‌آید؛ فقط در پوشه‌ی سالم می‌ماند
+          _resAdd(s, verified: false); // cached delay success is only a candidate until a real tunnel connects
         }
       }
       // servers that failed recently are not tested again (kept on disk)
@@ -6750,19 +6794,12 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   // (new servers appear in the hot lists all the time) and the cycle goes on.
   Future<void> _loadPending({bool bg = false, bool exhausted = false}) async {
     _purgePersonalLeaks(); // ONLYFOLDER
-    // FRESH-DISK: load the phone's reusable fresh-resource folder before choosing a mode.
-    // Never mix its entries into the personal-server folder.
-    try {
-      final diskLinks = await FreshResourceStore.readLinks();
-      final known = <String>{for (final item in fetchedAll) item.key};
-      for (final link in diskLinks) {
-        final parsed = Server.parse(link);
-        if (parsed != null && !_inPF(parsed) && known.add(parsed.key)) {
-          parsed.src = 'fresh-device-folder';
-          fetchedAll.add(parsed);
-        }
-      }
-    } catch (e, st) { logError(e, st); }
+    // The offline cache is paged only in offline mode; never inflate fetchedAll
+    // with millions of disk entries during ordinary online/national discovery.
+    if (!offlineOnly && _offlineFreshCursor != null) {
+      await _offlineFreshCursor!.close();
+      _offlineFreshCursor = null;
+    }
     // ULTIMATE: offline-only never downloads new lists
     if (offlineOnly) {
       if (!bg) _set('حالت آفلاین: پوشه‌ی منابع تازه و سرورهای ذخیره‌شده');
@@ -6771,12 +6808,26 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         _set('پوشه‌ی منابع تازه هنوز ساخته نشده: روی «پوشه منابع تازه» بزن و حدود ۱۰ دقیقه صبر کن');
       }
       final hotOff = await natHotNext(300, fetch: false); // هر دور ۳۰۰ تا؛ اگر پیدا نشد دور بعد ادامه می‌دهد
-      // FRESH-DISK: منابع تازه‌ی ذخیره‌شده روی گوشی در اتصال آفلاین هم قابل استفاده‌اند.
-      final diskLinks = await FreshResourceStore.readLinks();
+      // FRESH-DISK: read one bounded page; never load the multi-million-entry
+      // offline folder into RAM. The cursor survives queue refills in this session.
+      _offlineFreshCursor ??= await FreshResourceStore.openCursor();
+      final diskLinks = await (_offlineFreshCursor?.nextPage(limit: 300) ??
+          Future<List<String>>.value(<String>[]));
+      if (_offlineFreshCursor != null) {
+        await FreshResourceStore.saveCursor(_offlineFreshCursor!.byteOffset);
+      }
       final diskOff = <Server>[];
       for (final link in diskLinks) {
         final parsed = Server.parse(link);
-        if (parsed != null) diskOff.add(parsed);
+        if (parsed != null) {
+          parsed.src = 'fresh-device-folder';
+          diskOff.add(parsed);
+        }
+      }
+      if (_offlineFreshCursor?.isDone == true) {
+        await _offlineFreshCursor!.close();
+        _offlineFreshCursor = null;
+        await FreshResourceStore.saveCursor(0);
       }
       // OFFLINE-SRC: صف قبلی (آنلاین) کنار گذاشته می‌شود؛ فقط منابع تازه‌ی محلی تست می‌شوند.
       // پوشه‌ی سرورهای شخصی و بانک IP نت ملی عمداً جدا می‌مانند.
@@ -7191,8 +7242,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           }
           // NNIE: سابقه‌ی واقعی همین endpoint فقط اولویت را تغییر می‌دهد؛ هیچ کانفیگ ناشناخته‌ای حذف نمی‌شود.
           int nnieCompare(Server a, Server b) {
-            final ak = NationalNetworkIntelligence.keyOfServer(a);
-            final bk = NationalNetworkIntelligence.keyOfServer(b);
+            final ak = NationalNetworkIntelligence.keyOfServer(a, nationalMode: true);
+            final bk = NationalNetworkIntelligence.keyOfServer(b, nationalMode: true);
             return NationalNetworkIntelligence.scoreFor(bk)
                 .compareTo(NationalNetworkIntelligence.scoreFor(ak));
           }
@@ -7349,10 +7400,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         good.add(s);
         _saveSoon();
       }
-      // FOLDER-ALL: every server that passes a test goes into the healthy folder now,
-      // not only the one that ends up connected (_resAdd ignores personal servers and
-      // only refreshes an entry that is already saved)
-      _resAdd(s);
+      // A core-delay pass is only a candidate result. Keep it in the candidate cache,
+      // but never promote it to end-to-end verified or the global gold folder.
+      _resAdd(s, verified: false);
     } else {
       // The timestamp belongs to the failed check, not to the previous ping.
       // Clear that ping so freshness gates cannot promote stale latency evidence.
@@ -8366,6 +8416,19 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           await _stopCore();
           return false;
         }
+        // Proxy mode is a real connection too: an open local port is not proof
+        // that requests pass through the remote server. Verify the mode-aware
+        // destinations through the core's HTTP proxy before accepting it.
+        final proxyTrafficOk = await _tunnelTrafficOk().timeout(
+          const Duration(seconds: 22),
+          onTimeout: () => false,
+        );
+        if (!proxyTrafficOk || abort || !wantVpn) {
+          _startNoTraffic = true;
+          lastFail = 'پروکسی بالا آمد ولی عبور ترافیک واقعی تأیید نشد';
+          await _stopCore();
+          return false;
+        }
         tunWarn = false;
         return true;
       }
@@ -8745,10 +8808,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     _aiLoop(aiGen);
     // the personal server has its own row, it never joins the healthy list
     if (!s.personal && !good.contains(s)) good.add(s);
-    if (nationalMode && !s.personal) unawaited(_natAdd(s));
+    if (nationalMode && !s.personal && !_inPF(s)) unawaited(_natAdd(s));
     // HEALTHY-STORE: every genuinely connected non-personal server is saved,
     // regardless of discovery source or mode. Reads/injection remain NAT-only.
-    if (!s.personal) _resAdd(s);
+    if (!s.personal) _resAdd(s, verified: true);
     upServer = null;
     fails = 0;
     slowCount = 0;
@@ -8779,7 +8842,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     // NNIE records end-to-end successes in BOTH domestic and global modes.
     // The previous nationalMode guard silently left global-route servers
     // without learned history, biasing Smart Pilot toward incomplete evidence.
-    final nnieKey = NationalNetworkIntelligence.keyOfServer(s);
+    final nnieKey = NationalNetworkIntelligence.keyOfServer(s, nationalMode: nationalMode);
     // A server's EWMA must never include time spent failing over through earlier servers.
     unawaited(NationalNetworkIntelligence.record(
       endpointKey: nnieKey,
@@ -8876,7 +8939,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           dbg('نردبان: ${s.name} با حالت «${_natSpecs[v].name}» ترافیک تونل نداد؛ حالت بعدی');
           // NNIE: only a started candidate with failed tunnel traffic is a server failure.
           unawaited(NationalNetworkIntelligence.record(
-            endpointKey: NationalNetworkIntelligence.keyOfServer(s),
+            endpointKey: NationalNetworkIntelligence.keyOfServer(s, nationalMode: nationalMode),
             success: false,
             elapsedMs: failedElapsedMs,
             stableForFiveMinutes: false,
@@ -8954,48 +9017,158 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     }
   }
 
-  // TUNCHK: ترافیک واقعی از داخل تونل (VPN) باید به مقصد متناسب با حالت شبکه برسد.
-  // در حالت پروکسی تونلی وجود ندارد، پس بررسی انجام نمی‌شود.
-  // FIX #12: national mode tests domestic destinations (international traffic is cut there);
-  // global mode tests only international ones, so a domestic site cannot pass a dead tunnel.
+  // TUNCHK: verify the actual application data path for the selected mode.
+  // VPN mode must use DIRECT so Android routes this app request through its TUN;
+  // proxy mode has no system TUN and must explicitly use the core HTTP proxy.
+  // National mode checks domestic endpoints; global mode checks international ones.
   Future<bool> _tunnelTrafficOk() async {
-    if (proxyMode) return true;
     await Future.delayed(const Duration(seconds: 2));
-    // TUNFIX: viaCore true = the core's outbound, which is what must be measured. The app is NOT
-    // excluded from its own tunnel (FIX #49, KingVpnService.java), so DIRECT requests also pass
-    // the TUN; viaCore is therefore the explicit choice for the server check.
+    // A direct HTTP request can succeed over the phone's ordinary network if
+    // Android did not install the VPN interface. Require a confirmed TUN first.
+    if (!proxyMode && await tunUp() != true) {
+      dbg('VPN data-path probe refused: Android TUN is not confirmed');
+      return false;
+    }
     final urls = nationalMode ? _tunnelTestUrlsNational : _tunnelTestUrlsGlobal;
     for (final u in urls) {
-      final ok = await _siteOpens(u, viaCore: true)
+      final ok = await _siteOpens(u, viaCore: proxyMode)
           .timeout(const Duration(seconds: 8), onTimeout: () => false);
       if (ok) return true;
     }
     return false;
   }
 
-  // Stable history requires a fresh multi-destination check through the active core.
-  // This also covers proxy mode: the core's local proxy is the measured data path.
+  // Stable history uses the same mode-correct data path and multiple destinations.
   Future<bool> _stableTunnelTrafficOk(Server server) async {
     if (!connected || !identical(current, server)) return false;
+    if (!proxyMode && await tunUp() != true) return false;
     final urls = nationalMode ? _tunnelTestUrlsNational : _tunnelTestUrlsGlobal;
     if (urls.length < 2) return false;
     final results = await Future.wait(urls.map((url) =>
-        _siteOpens(url, viaCore: true).timeout(
+        _siteOpens(url, viaCore: proxyMode).timeout(
             const Duration(seconds: 8), onTimeout: () => false)));
     final passed = results.where((ok) => ok).length;
     return connected && identical(current, server) && passed >= 2;
   }
 
+  // FlutterV2ray status events have no attempt IDs. A late DISCONNECTED from
+  // an older core must not trigger failover while the current TUN still works.
+  Future<void> _confirmDisconnectBeforeFailover(int generation) async {
+    if (!_disconnectVerificationInFlight.add(generation)) return;
+    try {
+      if (!wantVpn ||
+          generation != _connGen ||
+          busy ||
+          switching ||
+          netDown ||
+          _ownStopNow()) {
+        return;
+      }
+      var tunnelUp = false;
+      var trafficOk = false;
+      try {
+        tunnelUp = await tunUp() == true;
+        if (tunnelUp) trafficOk = await _tunnelTrafficOk();
+      } catch (e, stk) {
+        logError(e, stk);
+      }
+      if (!wantVpn ||
+          generation != _connGen ||
+          busy ||
+          switching ||
+          netDown ||
+          _ownStopNow()) {
+        dbg('DISCONNECTED verification discarded: connection changed');
+        return;
+      }
+      if (tunnelUp && trafficOk) {
+        lastState = 'CONNECTED';
+        if (mounted) setState(() => connected = true);
+        dbg('STALE-DISCONNECTED ignored: current TUN and core traffic are healthy');
+        return;
+      }
+
+      // A late CONNECTED callback can overwrite lastState after a real drop.
+      // Re-probe once after a short grace period; never use that uncorrelated
+      // callback as a reason to suppress failover when the data path is dead.
+      await Future.delayed(const Duration(milliseconds: 900));
+      if (!wantVpn ||
+          generation != _connGen ||
+          busy ||
+          switching ||
+          netDown ||
+          _ownStopNow()) {
+        dbg('DISCONNECTED second verification discarded: connection changed');
+        return;
+      }
+      tunnelUp = false;
+      trafficOk = false;
+      try {
+        tunnelUp = await tunUp() == true;
+        if (tunnelUp) trafficOk = await _tunnelTrafficOk();
+      } catch (e, stk) {
+        logError(e, stk);
+      }
+      if (!wantVpn ||
+          generation != _connGen ||
+          busy ||
+          switching ||
+          netDown ||
+          _ownStopNow()) {
+        dbg('DISCONNECTED second verification discarded: connection changed');
+        return;
+      }
+      if (tunnelUp && trafficOk) {
+        lastState = 'CONNECTED';
+        if (mounted) setState(() => connected = true);
+        dbg('STALE-DISCONNECTED ignored after second healthy data-path proof');
+        return;
+      }
+      lastState = 'DISCONNECTED';
+      if (mounted) setState(() => connected = false);
+      lastWhy = 'هسته/اندروید اتصال را قطع کرد؛ دو بررسی مسیر داده ناموفق بود';
+      unawaited(_failover().catchError((e) => logError(e)));
+    } finally {
+      _disconnectVerificationInFlight.remove(generation);
+    }
+  }
+
   // FIX #107: completes the connect waiter only when real traffic passes through the tunnel now.
   // A pass clears the stale-core flag, because the connection is now proven.
-  Future<void> _verifyPendingConnect(Completer<bool> c) async {
-    final ok = await _tunnelTrafficOk();
-    if (!ok) {
-      dbg('CONNECTED ignored: traffic not through the tunnel yet (possible stale core)');
-      return;
+  Future<void> _verifyPendingConnect(
+      Completer<bool> c, int generation) async {
+    // FlutterV2ray may emit repeated CONNECTED callbacks. Coalesce them for
+    // this waiter so they cannot create parallel HTTP probes or race the fence.
+    if (!_connectVerificationInFlight.add(c)) return;
+    try {
+      bool ok;
+      try {
+        ok = await _tunnelTrafficOk();
+      } catch (e, stk) {
+        // A proxy-selection/platform exception is a failed verification, never
+        // evidence of a working tunnel. Leave the waiter to its bounded timeout.
+        logError(e, stk);
+        dbg('CONNECTED verification probe threw; tunnel remains unverified');
+        return;
+      }
+      // The probe may outlive the attempt that triggered it. Never let an old
+      // verification clear the stale-core fence or complete a newer waiter's state.
+      if (generation != _connGen ||
+          !identical(connSig, c) ||
+          c.isCompleted ||
+          !wantVpn) {
+        dbg('CONNECTED verification discarded: attempt was superseded');
+        return;
+      }
+      if (!ok) {
+        dbg('CONNECTED ignored: traffic not through the tunnel yet (possible stale core)');
+        return;
+      }
+      _staleCoreMayBeUp = false;
+      c.complete(true);
+    } finally {
+      _connectVerificationInFlight.remove(c);
     }
-    _staleCoreMayBeUp = false;
-    if (!c.isCompleted) c.complete(true);
   }
 
   // [trust] = the server was already tested: skip the extra verification.
@@ -9219,7 +9392,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           }
           final failedElapsedMs = _nnieFinishAttempt(s) ?? 0;
           unawaited(NationalNetworkIntelligence.record(
-            endpointKey: NationalNetworkIntelligence.keyOfServer(s),
+            endpointKey: NationalNetworkIntelligence.keyOfServer(s, nationalMode: nationalMode),
             success: false,
             elapsedMs: failedElapsedMs,
             stableForFiveMinutes: false,
@@ -9674,6 +9847,23 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   int _resMergeCursor = 0; // FOLDERS: چرخش سهم سرورهای سالم در صف نت ملی
   bool _resFull = false; // second-chance pass: every variant
 
+  void _expireNatVerification({DateTime? at}) {
+    final now = at ?? DateTime.now();
+    final maxAge = Duration(hours: kGoldRetestHours);
+    for (final entry in _resMap.entries) {
+      final item = entry.value;
+      final verifiedAt = item.verifiedAt;
+      if (item.verified &&
+          (verifiedAt == null ||
+              now.isBefore(verifiedAt) ||
+              now.difference(verifiedAt) >= maxAge)) {
+        item.verified = false;
+        natGood.remove(entry.key);
+        _resDirty = true;
+      }
+    }
+  }
+
   Future<void> _resLoad() async {
     try {
       final p = await SharedPreferences.getInstance();
@@ -9690,7 +9880,12 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           final e = _NatResItem(srv.link, srv,
               DateTime.fromMillisecondsSinceEpoch((x['a'] as num).toInt()));
           final c = (x['c'] as num?)?.toInt();
-          if (c != null) e.checked = DateTime.fromMillisecondsSinceEpoch(c);
+          final verifiedAt = (x['va'] as num?)?.toInt();
+          e.verified = x['v'] == true && verifiedAt != null;
+          if (e.verified && verifiedAt != null) {
+            e.verifiedAt = DateTime.fromMillisecondsSinceEpoch(verifiedAt);
+            if (c != null) e.checked = DateTime.fromMillisecondsSinceEpoch(c);
+          } // legacy entries without end-to-end proof are candidates only
           srv.ping = (x['p'] as num?)?.toInt();
           _resMap[srv.key] = e;
         }
@@ -9698,6 +9893,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     } catch (e, stk) {
       logError(e, stk);
     }
+    _expireNatVerification();
+    if (_resDirty) await _resSave();
     _resT?.cancel();
     _resT = Timer.periodic(const Duration(minutes: 2), (_) {
       _resDaily();
@@ -9719,7 +9916,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                       'l': e.link,
                       'a': e.added.millisecondsSinceEpoch,
                       'c': e.checked?.millisecondsSinceEpoch,
-                      'p': e.s.ping
+                      'p': e.s.ping,
+                      'v': e.verified,
+                      'va': e.verifiedAt?.millisecondsSinceEpoch
                     })
                 .toList()
           }));
@@ -9732,17 +9931,22 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   // a server passed a real test: it goes into the folder (or is refreshed)
   // همهٔ سرورهای V2Ray
   // (سرور شخصی جدا می‌ماند و وارد پوشه نمی‌شود)
-  void _resAdd(Server srv) {
+  void _resAdd(Server srv, {bool verified = false}) {
     try {
-      // FOLDER-SAVE: هر سرور سالمِ هر تستی وارد پوشه می‌شود؛ استفاده از پوشه فقط برای نت ملی است
+      // Delay-only results remain candidates. Only a confirmed tunnel data-plane
+      // connection may promote a record into the trusted/gold healthy store.
       if (srv.personal || _inPF(srv)) return; // ONLYFOLDER
-      goldNoteServer(srv); // GOLDSEARCH: سرور سالم هر جستجو وارد پوشه‌ی جهانی هم می‌شود
+      if (verified) goldNoteServer(srv);
       final now = DateTime.now();
       final old = _resMap[srv.key];
       if (old != null) {
         old.checked = now;
         old.miss = 0;
         old.s.ping = srv.ping;
+        if (verified) {
+          old.verified = true; // never downgrade a previously verified record
+          old.verifiedAt = now;
+        }
       } else {
         final c = Server.parse(srv.link);
         if (c == null) return;
@@ -9750,18 +9954,25 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           // full: the entry verified the longest ago makes room
           String? oldK;
           DateTime? oldT;
-          _resMap.forEach((k, v) {
-            final t = v.checked ?? v.added;
+          // Evict unverified candidates before sacrificing any end-to-end winner.
+          final unverified = _resMap.entries
+              .where((entry) => !entry.value.verified)
+              .toList();
+          final evictionPool =
+              unverified.isNotEmpty ? unverified : _resMap.entries.toList();
+          for (final entry in evictionPool) {
+            final t = entry.value.checked ?? entry.value.added;
             if (oldT == null || t.isBefore(oldT!)) {
               oldT = t;
-              oldK = k;
+              oldK = entry.key;
             }
-          });
+          }
           if (oldK != null) _resMap.remove(oldK);
         }
         c.ping = srv.ping;
-        final e = _NatResItem(srv.link, c, now);
-        e.checked = now;
+        final e = _NatResItem(srv.link, c, now)..verified = verified;
+        e.checked = verified ? now : null;
+        if (verified) e.verifiedAt = now;
         _resMap[srv.key] = e;
       }
       _resDirty = true;
@@ -9874,6 +10085,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         (wasUp ? (!connected || !wantVpn || abort) : searching);
     if (lost() || busy || switching || upBusy || (!wasUp && searching)) return;
     final now = DateTime.now();
+    _expireNatVerification(at: now);
     if (!force) {
       if (now.difference(lastSwitch) < const Duration(seconds: 60)) return;
       final h = _resHold;
@@ -9942,6 +10154,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       }
       for (final e in dead) {
         _resMap.remove(e.s.key);
+        if (e.verified) natGood.remove(e.s.key);
       }
       _resLast = DateTime.now();
       _resDirty = true;
@@ -9965,6 +10178,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   }
 
   String _resInfo() {
+    _expireNatVerification();
     final b = StringBuffer('آخرین تست کامل: ${_resAgo(_resLast)}');
     if (_resBusy) b.write('\nدر حال تست: $_resDone/$_resTotal');
     final h = _resHold;
@@ -9972,7 +10186,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       b.write('\nتست قبلی همه‌ی سرورها را خراب نشان داد؛ مشکل از نت بود، '
           'چیزی پاک نشد و بعداً دوباره تست می‌شود');
     }
-    b.write('\nتست خودکار هر ۴۸ ساعت؛ سرور خراب حذف و سالم می‌ماند');
+    final verified = _resMap.values.where((e) => e.verified).length;
+    b.write('\nتأیید ترافیک واقعی: $verified از ${_resMap.length}؛ بقیه کاندید و نیازمند اتصال واقعی');
+    b.write('\\nتأیید واقعی حداکثر ۲۴ ساعت معتبر است؛ تأخیر به‌تنهایی آن را تمدید نمی‌کند');
     return b.toString();
   }
 
@@ -9987,7 +10203,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           child: Column(mainAxisSize: MainAxisSize.min, children: [
             ListTile(
               leading: const Icon(Icons.folder_special_outlined),
-              title: Text('پوشه‌ی سرورهای سالم: ${_resMap.length} سرور'),
+              title: Text('پوشه‌ی سرورهای ثبت‌شده: ${_resMap.length} سرور'),
               subtitle: Text(_resInfo()),
             ),
             ListTile(
@@ -10283,9 +10499,12 @@ ListTile( // KINGEXTRAS row
     _natFetched = false;
     await natDetectOperator(); // NATULTRA: per-operator learning
     try {
+      _expireNatVerification();
       if (!_natLoaded) {
         _natLoaded = true;
-        natGood.addAll(_resMap.keys); // FOLDERONLY
+        natGood.addAll(_resMap.values
+            .where((e) => e.verified && e.verifiedAt != null)
+            .map((e) => e.s.key)); // only fresh end-to-end verified records
         await natLoadPersisted(); // NATULTRA
       }
       final was = nationalMode;
@@ -12714,7 +12933,7 @@ ListTile( // KINGEXTRAS row
     // قطع اتصال: سرورهای صفحه همان لحظه حذف می‌شوند و همه‌ی سرورهای سالم به پوشه‌ی سالم می‌روند.
     // ذخیره‌ی صفحه فقط وقتی برنامه روشن است انجام می‌شود، تا بستن برنامه لیست ذخیره‌شده را خالی نکند.
     for (final g in good) {
-      _resAdd(g);
+      _resAdd(g, verified: false); // preserve as a candidate; _onConnected owns promotion
     }
     good.clear();
     _personalShown = <Server>[]; // مشکل ۱۳: قبلاً شرط !switching همیشه false بود و لیست پاک نمی‌شد
@@ -13812,15 +14031,20 @@ ListTile( // KINGEXTRAS row
     }
   }
 
-  // NETCHANGE: Wi-Fi <-> mobile data (or a new IP) while connected. The old
-  // tunnel is often dead right after such a change, so the next failed check
-  // switches server at once instead of waiting for several failures.
+  // NETCHANGE: Wi-Fi <-> mobile data (or a new IP) while connected.
+  // A link change gets a short revalidation grace period: do not switch on
+  // the first failed probe while Android is rebuilding routes/DNS.
   String _netSig = '';
   bool netDown = false; // the phone has no network interface with an address
   DateTime netUpAt = DateTime.fromMillisecondsSinceEpoch(0);
   DateTime _netDownSince = DateTime.now();
   int _netDownRun = 0;
+  bool _netWatchBusy = false;
   Future<void> _netWatch() async {
+    // Timer ticks must not overlap: an older interface snapshot must never
+    // overwrite a newer network signature or reset a newer outage decision.
+    if (_netWatchBusy) return;
+    _netWatchBusy = true;
     try {
       final l = await NetworkInterface.list(
           includeLoopback: false, includeLinkLocal: false);
@@ -13828,9 +14052,21 @@ ListTile( // KINGEXTRAS row
       final parts = <String>[];
       for (final i in l) {
         final n = i.name.toLowerCase();
-        if (n.startsWith('tun') || n.startsWith('dummy')) continue;
-        if (i.addresses.isNotEmpty) anyUp = true;
-        // هم IPv4 و هم IPv6 برای تشخیص تغییر شبکه
+        // Virtual tunnel interfaces are not evidence that the phone's
+        // underlying Wi-Fi/mobile network is available.
+        if (n.startsWith('tun') ||
+            n.startsWith('vpn') ||
+            n.startsWith('ppp') ||
+            n.startsWith('utun') ||
+            n.startsWith('wg') ||
+            n.startsWith('tailscale') ||
+            n.contains('wireguard') ||
+            n.contains('xray') ||
+            n.contains('v2ray') ||
+            n.startsWith('dummy')) {
+          continue;
+        }
+        // Count only usable IPv4/IPv6 addresses, not arbitrary address types.
         final ips = i.addresses
             .where((a) =>
                 a.type == InternetAddressType.IPv4 ||
@@ -13839,14 +14075,18 @@ ListTile( // KINGEXTRAS row
             .toList()
           ..sort(); // ترتیب آدرس‌ها ثابت باشد تا تغییر کاذب تشخیص داده نشود
         if (ips.isEmpty) continue;
+        anyUp = true;
         parts.add('${i.name}:${ips.join(',')}');
       }
       parts.sort();
       final sig = parts.join('|');
       if (_netSig.isNotEmpty && sig != _netSig) natDohCacheClear();
       if (_netSig.isNotEmpty && sig != _netSig && connected && wantVpn) {
-        dbg('تغییر شبکه (وای‌فای/دیتا)؛ بررسی فوری اتصال');
-        fails = max(fails, watchFailLimit - 1);
+        // DHCP and IPv6 privacy-address changes are not proof that the tunnel
+        // is dead. Clear stale failures and let Android settle before judging.
+        netUpAt = DateTime.now();
+        fails = 0;
+        dbg('تغییر شبکه (وای‌فای/دیتا یا IP)؛ مهلت کوتاه برای بازسازی مسیر و DNS');
       }
       _netSig = sig;
       // two checks in a row (~10 s) without any real interface = no internet
@@ -13854,6 +14094,9 @@ ListTile( // KINGEXTRAS row
         if (++_netDownRun >= 2 && !netDown) {
           netDown = true;
           _netDownSince = DateTime.now();
+          // OODA: invalidate in-flight/cached DNS reachability evidence even
+          // when Android keeps the same interface/IP signature during outage.
+          natDohCacheClear();
           dbg('اینترنت گوشی قطع شد؛ VPN نگه داشته می‌شود');
         }
         // never hold forever: after 30 minutes the normal logic takes over
@@ -13868,6 +14111,9 @@ ListTile( // KINGEXTRAS row
         if (netDown) {
           netDown = false;
           netUpAt = DateTime.now();
+          // Recovery can change resolver reachability without changing the
+          // interface signature; force the next variant check to observe anew.
+          natDohCacheClear();
           fails = 0;
           badPingRun = 0;
           lowSpeed = 0;
@@ -13876,7 +14122,11 @@ ListTile( // KINGEXTRAS row
           dbg('اینترنت گوشی برگشت؛ همان اتصال ادامه پیدا می‌کند');
         }
       }
-    } catch (e, stk) { logError(e, stk); }
+    } catch (e, stk) {
+      logError(e, stk);
+    } finally {
+      _netWatchBusy = false;
+    }
   }
 
   void _startWatch() {
@@ -13930,6 +14180,15 @@ ListTile( // KINGEXTRAS row
         await kingSelfHeal(reason: 'watch');
         if (busy || switching || !wantVpn) return;
         if (!connected) {
+          // Do not retry/fail over while the underlying link is down or still
+          // inside the network/DNS route-rebuild grace window.
+          if (netDown ||
+              DateTime.now().difference(netUpAt) < const Duration(seconds: 15)) {
+            _set(netDown
+                ? 'اینترنت پایه قطع است؛ اتصال VPN حفظ می‌شود و منتظر شبکه می‌مانیم.'
+                : 'شبکه برگشته؛ پیش از تلاش مجدد، مسیر و DNS تثبیت می‌شوند.');
+            return;
+          }
           // connection lost and the last replacement attempt failed: retry
           if (DateTime.now().difference(lastSwitch) >
               const Duration(seconds: 10)) {
@@ -17280,6 +17539,8 @@ class _NatResItem {
   final Server s;
   final DateTime added;
   DateTime? checked;
+  bool verified = false; // only _onConnected's end-to-end data-plane proof sets this
+  DateTime? verifiedAt; // timestamp of the last real tunnel traffic confirmation
   int miss = 0;
   _NatResItem(this.link, this.s, this.added);
 }

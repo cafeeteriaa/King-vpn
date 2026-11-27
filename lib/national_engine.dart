@@ -7,7 +7,7 @@ part of 'main.dart';
 /// Bounded, privacy-preserving history. Only a SHA-256 key is persisted, never
 /// the raw V2Ray link, UUID, password, server name, or full endpoint string.
 class NationalNetworkIntelligence {
-  static const String _prefsKey = 'nnie_profiles_v2'; // v2: key includes transport + TLS
+  static const String _prefsKey = 'nnie_profiles_v3'; // v3: endpoint + transport + TLS + domestic/global scope
   static const int _maxEntries = 500;
   static Map<String, NatEndpointMemory> _memory = <String, NatEndpointMemory>{};
   static bool _loaded = false;
@@ -40,9 +40,11 @@ class NationalNetworkIntelligence {
     }
   }
 
-  /// Key = hash(transport + TLS flag + canonical endpoint). The raw link is never stored.
-  static String keyOfServer(Server s) =>
-      keyFor(s.key, '${s.net}|${s.tls ? 'tls' : 'plain'}');
+  /// Key = hash(network scope + transport + TLS flag + canonical endpoint).
+  /// Domestic and global tunnel outcomes must never train each other's ranking.
+  /// The raw link is never stored; old v2 mixed-scope history is intentionally not reused.
+  static String keyOfServer(Server s, {required bool nationalMode}) =>
+      keyFor(s.key, '${nationalMode ? 'domestic' : 'global'}|${s.net}|${s.tls ? 'tls' : 'plain'}');
 
   static String keyFor(String canonicalEndpoint, String transport) {
     final raw = '${transport.toLowerCase()}|${canonicalEndpoint.trim().toLowerCase()}';
@@ -209,8 +211,14 @@ class NatNetworkDiagnosis {
     try {
       final at = _checkedAt;
       final id = await _identityHash();
-      if (!force && at != null && id == _identityAtCheck &&
-          DateTime.now().difference(at) < _ttl) {
+      if (shouldReuseNetworkProbeCache(
+          force: force,
+          currentIdentity: id,
+          cachedIdentity: _identityAtCheck,
+          checkedAt: at,
+          now: DateTime.now(),
+          ttl: _ttl,
+        )) {
         return current;
       }
       // All probes start together. Awaiting the groups one after another made
@@ -308,8 +316,14 @@ class PilotNetworkProbe {
   static Future<NetworkEvidence> _refresh({required bool force}) async {
     final identity = await _networkIdentity();
     final lastAt = _lastAt;
-    if (!force && lastAt != null && identity == _lastIdentity &&
-        DateTime.now().difference(lastAt) < const Duration(minutes: 2)) {
+    if (shouldReuseNetworkProbeCache(
+        force: force,
+        currentIdentity: identity,
+        cachedIdentity: _lastIdentity,
+        checkedAt: lastAt,
+        now: DateTime.now(),
+        ttl: const Duration(minutes: 2),
+      )) {
       return _last;
     }
     final domesticFuture = Future.wait(domesticTargets.map(_probeHttps));

@@ -1,9 +1,29 @@
 /// Independent domestic/global network evidence model for Smart Pilot ∞.
 enum LinkHealth { unknown, healthy, degraded, unreachable }
-enum DetectedNetworkMode { unknown, domesticOnly, globalOnly, dualStack, offline }
+enum DetectedNetworkMode { unknown, domesticOnly, globalOnly, dualReachable, offline }
 
 /// Internal route selected by the single Smart Pilot controller.
 enum PilotNetworkStrategy { domestic, global, preserve, offline }
+
+/// Reuse probe evidence only when its network identity is known and its age
+/// is within the TTL. An unavailable identity or a backwards clock must force
+/// a fresh probe rather than reusing potentially stale routing evidence.
+bool shouldReuseNetworkProbeCache({
+  required bool force,
+  required String currentIdentity,
+  required String? cachedIdentity,
+  required DateTime? checkedAt,
+  required DateTime now,
+  required Duration ttl,
+}) {
+  if (force || currentIdentity.isEmpty || cachedIdentity == null ||
+      cachedIdentity.isEmpty || currentIdentity != cachedIdentity ||
+      checkedAt == null) {
+    return false;
+  }
+  final age = now.difference(checkedAt);
+  return age >= Duration.zero && age < ttl;
+}
 
 class NetworkEvidence {
   const NetworkEvidence({
@@ -46,7 +66,8 @@ class NetworkEvidence {
           ? DetectedNetworkMode.offline
           : DetectedNetworkMode.unknown;
     }
-    if (domesticUp && globalUp) return DetectedNetworkMode.dualStack;
+    // This is geographic endpoint reachability, not IPv4/IPv6 dual-stack support.
+    if (domesticUp && globalUp) return DetectedNetworkMode.dualReachable;
     if (domesticUp && global == LinkHealth.unreachable) return DetectedNetworkMode.domesticOnly;
     if (globalUp && domestic == LinkHealth.unreachable) return DetectedNetworkMode.globalOnly;
     return DetectedNetworkMode.unknown;
@@ -60,7 +81,13 @@ class NetworkEvidence {
   double get confidence {
     // Count actual successful TLS handshakes, not attempts. Failed probes are
     // evidence for route classification but must never inflate reachability confidence.
-    final successfulSamples = (domesticSuccesses + globalSuccesses).clamp(0, 6);
+    // Treat the evidence object as an external boundary: malformed counters
+    // must not claim more successes than the scanner actually sampled.
+    final domesticCount = domesticSamples < 0 ? 0 : domesticSamples;
+    final globalCount = globalSamples < 0 ? 0 : globalSamples;
+    final domesticOk = domesticSuccesses.clamp(0, domesticCount);
+    final globalOk = globalSuccesses.clamp(0, globalCount);
+    final successfulSamples = (domesticOk + globalOk).clamp(0, 6);
     if (successfulSamples <= 0) return 0;
     // The dedicated pilot scanner samples exactly three domestic and three global targets.
     // Six successful samples with both groups verified reach 100%.
@@ -78,13 +105,19 @@ PilotNetworkStrategy choosePilotNetworkStrategy(NetworkEvidence evidence) {
   // A single successful endpoint is only a hint (degraded), not enough to
   // change the active route. Require the scanner's >=2/3 quorum on each side.
   final domesticConfirmed = evidence.domestic == LinkHealth.healthy &&
-      evidence.domesticSamples >= 3;
+      evidence.domesticSamples >= 3 &&
+      evidence.domesticSuccesses >= 2 &&
+      evidence.domesticTlsReachabilityVerified;
   final globalConfirmed = evidence.global == LinkHealth.healthy &&
-      evidence.globalSamples >= 3;
+      evidence.globalSamples >= 3 &&
+      evidence.globalSuccesses >= 2 &&
+      evidence.globalTlsReachabilityVerified;
   final domesticFailed = evidence.domestic == LinkHealth.unreachable &&
-      evidence.domesticSamples >= 2;
+      evidence.domesticSamples >= 2 &&
+      evidence.domesticSuccesses == 0;
   final globalFailed = evidence.global == LinkHealth.unreachable &&
-      evidence.globalSamples >= 2;
+      evidence.globalSamples >= 2 &&
+      evidence.globalSuccesses == 0;
 
   if (domesticConfirmed && globalFailed) return PilotNetworkStrategy.domestic;
   if (globalConfirmed && domesticFailed) return PilotNetworkStrategy.global;

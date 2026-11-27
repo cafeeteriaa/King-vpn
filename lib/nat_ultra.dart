@@ -424,12 +424,21 @@ List<_NatSpec> _natGenerate() {
 
 int _natGrowCounter = 0;
 int natGrow(int n) {
-  if (_natSpecs.length > 500000) return 0;
+  // Keep the generated search space bounded on low-memory Android devices.
+  // The old 500,000-entry guard contradicted natMaxVariants (5,000) and
+  // allowed repeated exhaustion rounds to grow an effectively unbounded list.
+  if (n <= 0 || _natSpecs.length >= natMaxVariants) return 0;
+  final remaining = natMaxVariants - _natSpecs.length;
+  final requested = min(n, remaining);
   final rnd = Random(DateTime.now().millisecondsSinceEpoch + _natGrowCounter++);
+  final known = <String>{for (final spec in _natSpecs) _natSig(spec)};
   var added = 0;
   const fps = ['chrome', 'firefox', 'randomized', 'ios', 'android', 'safari', 'edge', 'random', 'qq', '360', 'hellogolang', 'hellochrome', 'hellofirefox', 'hellosafari', 'helloios', 'helloandroid', 'helloedge', 'hello360', 'helloqq', 'hellorandomized', 'hellorandomizedalpn', 'hellorandomizednoalpn'];
   const alpns = <String?>[null, 'h2', 'http/1.1', 'h2,http/1.1'];
-  for (var i = 0; i < n; i++) {
+  // Bound attempts as well as successful additions. Duplicate signatures are
+  // common once the learned matrix has been expanded, and must not consume the
+  // variant budget or inflate ranking/cache work.
+  for (var i = 0; i < requested && added < remaining; i++) {
     final fp = fps[rnd.nextInt(fps.length)];
     final alpn = alpns[rnd.nextInt(alpns.length)];
     final frag = rnd.nextInt(_natFrags.length);
@@ -445,11 +454,13 @@ int natGrow(int n) {
     final tfo = rnd.nextBool();
     final keep = rnd.nextBool() ? rnd.nextInt(30) + 1 : null;
     final sniSwap = rnd.nextBool() ? rnd.nextInt(natFrontSnis.length) : null;
-    _natSpecs.add(_natMk(
+    final candidate = _natMk(
       fp: fp, alpn: alpn, frag: frag, port: port, portIdx: portIdx,
       clean: clean, cleanIdx: cleanIdx, v4: v4, tfo: tfo, keep: keep, doh: doh,
       sniSwap: sniSwap,
-    ));
+    );
+    if (!known.add(_natSig(candidate))) continue;
+    _natSpecs.add(candidate);
     added++;
   }
   if (added > 0) { _natNamesC = null; _natGenRankKey = ''; }
@@ -1060,20 +1071,24 @@ String _natLinkFor(Server s, int v, {bool reuse = false}) {
 
 final Map<int, bool> dohPreOk = {};
 final Map<int, DateTime> _dohPreAt = {};
+final Map<int, bool> _dohPreNationalMode = {};
 int _dohGen = 0; // نسل کش: هر تغییر شبکه آن را بالا می‌برد
-// نتیجه‌ی probe به شبکه‌ی فعلی وابسته است؛ با تغییر شبکه باید پاک شود.
+// نتیجه‌ی probe به شبکه و حالت داخلی/جهانی وابسته است؛ با تغییر هرکدام پاک شود.
 void natDohCacheClear() {
   _dohGen++;
   dohPreOk.clear();
   _dohPreAt.clear();
+  _dohPreNationalMode.clear();
 }
 Future<bool> natDohUsable(int v) async {
   if (v < 0 || v >= _natSpecs.length) return false;
   final doh = _natSpecs[v].doh;
   if (doh == null) return true;
+  final mode = nationalMode;
   final cached = dohPreOk[v];
   final at = _dohPreAt[v];
   if (cached != null &&
+      _dohPreNationalMode[v] == mode &&
       at != null &&
       DateTime.now().difference(at) < const Duration(minutes: 10)) {
     return cached;
@@ -1081,22 +1096,34 @@ Future<bool> natDohUsable(int v) async {
   var host = doh;
   final u = Uri.tryParse(doh);
   if (u != null && u.hasAuthority) host = u.host;
-  final gen = _dohGen; // نسل قبل از probe گرفته می‌شود
   // A TCP-open port or successful TLS handshake is not proof of DoH.
   // Require a valid DNS-over-HTTPS JSON response for a mode-appropriate name.
   final path = (u?.path.isNotEmpty ?? false) ? u!.path : '/dns-query';
   final query = Uri.https(host, path, <String, String>{
-    'name': nationalMode ? 'nic.ir' : 'google.com',
+    'name': mode ? 'nic.ir' : 'google.com',
     'type': 'A',
   }).toString();
-  final ms = await _probeDoh(query, expectedDomain: nationalMode ? 'nic.ir' : 'google.com');
-  final ok = ms != null;
-  // ج-۱: اگر در این فاصله شبکه عوض شده، نتیجه مربوط به شبکه‌ی قبلی است؛ ننویس
-  if (gen == _dohGen) {
+  // A network generation can change while an asynchronous probe is in flight.
+  // Discard that answer and retry once on the new network; never return a
+  // stale positive (or negative) result to the server-variant ladder.
+  for (var attempt = 0; attempt < 2; attempt++) {
+    final gen = _dohGen;
+    final ms = await _probeDoh(
+      query,
+      expectedDomain: mode ? 'nic.ir' : 'google.com',
+    );
+    if (gen != _dohGen) {
+      if (attempt == 0) continue;
+      return false;
+    }
+    if (nationalMode != mode) return false;
+    final ok = ms != null;
     dohPreOk[v] = ok;
     _dohPreAt[v] = DateTime.now();
+    _dohPreNationalMode[v] = mode;
+    return ok;
   }
-  return ok;
+  return false;
 }
 
 String _natApplyTweaks(String link, _NatSpec x, Server s) {
@@ -2221,6 +2248,12 @@ Future<List<String>> natRangeScanStep({
   bool Function()? stop,
   Duration budget = const Duration(minutes: 2),
 }) async {
+  // Reject invalid caller budgets before entering the global single-flight gate.
+  // Iterable.take() throws for a negative count; zero-sized requests should be
+  // a cheap no-op rather than starting compute/network work.
+  if (maxAddrs <= 0 || budget <= Duration.zero) return const <String>[];
+  maxAddrs = maxAddrs.clamp(1, 4096).toInt();
+  conc = conc.clamp(1, 32).toInt();
   if (_natRangeScanBusy) return const <String>[];
   _natRangeScanBusy = true;
   try {
@@ -2477,10 +2510,17 @@ Future<void> hotExportToDownload() async {
 
 List<String> natHotUrls() {
   final seen = <String>{};
-  return [
+  final sources = [
     for (final u in [...userListUrls, ...listUrls])
       if (u.startsWith('http') && seen.add(u)) u
   ];
+  // Net Melli must try reachable domestic catalogs first, while preserving
+  // every user-provided (including paid) source as an existing input.
+  return KingResourceIntelligence.orderSources(
+    sources,
+    nationalMode: true,
+    userProvidedSources: userListUrls,
+  );
 }
 
 // فیکس ۱۱: split خط‌ها برای بدنه‌ی بزرگ لیست (top-level تا با compute کار کند)
@@ -2573,10 +2613,23 @@ Future<void> _natHotEnsureImpl({bool force = false}) async {
         ];
         await File(extraPath).writeAsString(ex.join('\n'), flush: true);
       }
+      final sourcePriorities = <int>[
+        for (final url in urls)
+          KingResourceIntelligence.describe(
+            url,
+            userProvided: userListUrls.contains(url),
+            nationalMode: true,
+          ).priority,
+      ];
       final order = natStableSorted<int>(
-          [for (var i = 0; i < urls.length; i++) i],
-          (a, b) => (natSrcRates[urls[b]] ?? 0.3)
-              .compareTo(natSrcRates[urls[a]] ?? 0.3));
+        [for (var i = 0; i < urls.length; i++) i],
+        (a, b) {
+          final priority = sourcePriorities[b].compareTo(sourcePriorities[a]);
+          if (priority != 0) return priority;
+          return (natSrcRates[urls[b]] ?? 0.3)
+              .compareTo(natSrcRates[urls[a]] ?? 0.3);
+        },
+      );
       final mixed = order;
       final newPath = '${_hotPath()}.new';
       final offs = <int>[0];

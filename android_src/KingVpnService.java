@@ -143,6 +143,9 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
     private volatile ScheduledFuture<?> watchdogTask = null;
     /** Attempt id of the start that is currently active; sent with every status message. */
     private volatile int activeAttemptId = 0;
+    // Native ownership token; Dart attempt ids can be reused after engine restart.
+    private long requestGenerationSeq = 0L;
+    private volatile long activeRequestGeneration = 0L;
     private int currentIdx = 0;
     private int fails = 0;
     private int listExhaustedStreak = 0;
@@ -150,6 +153,8 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
     private volatile boolean active = false;
     private volatile boolean stopping = false;
     private volatile boolean retryWaiting = false;
+    /** Latest Android start id; stopSelfResult must not cancel a newer command. */
+    private volatile int latestStartId = 0;
     // ---- Core ownership -------------------------------------------------------
     // The V2Ray core is ONE native instance and the TUN is ONE fd. Lock order is
     // lock -> coreLock -> tunLock. Every operation that starts or stops the core,
@@ -160,6 +165,8 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
     private final ReentrantLock coreLock = new ReentrantLock();
     /** Every new attempt, every stop and every timeout increments this. */
     private final AtomicInteger attemptSeq = new AtomicInteger(0);
+    /** Generation owned by the most recently requested stop; queued cleanup must not mint one. */
+    private volatile int requestedStopGeneration = 0;
     /** bringUp calls that have not returned yet, orphans included. */
     private final AtomicInteger inFlight = new AtomicInteger(0);
     /** True while a stopCore call is still running on its thread (it may hang). Core is fenced. */
@@ -174,6 +181,10 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
      * and resumeSaved() reconnects from the saved list.
      */
     private static final long HUNG_NATIVE_MS = 45_000L;
+    /** Separate durable latch: stop requests must survive a process death before cleanup. */
+    private static final String CONTROL_PREFS = "king_vpn_control";
+    private static final String KEY_USER_STOPPED = "user_stopped";
+
     private final AtomicLong nativeToken = new AtomicLong(0);
     private volatile boolean nativeBusy = false;
     private final AtomicBoolean recovering = new AtomicBoolean(false);
@@ -189,6 +200,8 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
     private volatile ExecutorService worker = null;
     /** Serializes worker submission with onDestroy() detaching and shutting it down. */
     private final Object workerLock = new Object();
+    /** Serializes the tiny stop-vs-connected state transition, never network/native work. */
+    private final Object lifecycleLock = new Object();
 
     /** Persisted national-mode flag (see EXTRA_NATIONAL). */
     private volatile boolean nationalMode = false;
@@ -221,7 +234,7 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
 
     /** جدید: stop requested by the app while it is in the background. */
     public void stopFromApp() {
-        requestStop();
+        requestStopAndPersist("app stop");
         submit(this::stopEverything);
     }
 
@@ -252,45 +265,93 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
+        latestStartId = startId;
         // Keep this method short: it runs on the main thread, and the system
         // expects a foreground service to be promoted within a few seconds.
         if (intent == null) {
+            // Re-check consent before restoring persisted state. A sticky restart must
+            // never attempt to resurrect a tunnel after Android revoked VPN permission.
+            if (VpnService.prepare(this) != null) {
+                Log.w(TAG, "VPN consent missing during sticky restart; refusing recovery");
+                requestStop();
+                invalidateRecoveryAfterStartFailure("VPN consent missing during sticky restart");
+                stopSelf(startId);
+                return START_NOT_STICKY;
+            }
             // Android restarted the service (START_STICKY): promote immediately on the
             // main thread before queuing recovery, otherwise a busy worker can miss the
             // foreground-service deadline and Android may terminate the VPN process.
             if (!startForegroundSafe("در حال بازیابی اتصال…")) {
-                lastError = "Unable to enter foreground mode during VPN service recovery";
+                requestStop();
+                invalidateRecoveryAfterStartFailure("Unable to enter foreground mode during VPN service recovery");
                 Log.e(TAG, lastError);
+                submit(this::stopEverything);
+                return START_NOT_STICKY;
+            }
+            // An explicit user stop is durable across process death. Never let a
+            // queued START_STICKY/null-intent restart resurrect the previous tunnel.
+            if (hasPersistedUserStopMarker()) {
+                Log.i(TAG, "ignoring sticky restart after explicit user stop");
                 requestStop();
                 submit(this::stopEverything);
                 return START_NOT_STICKY;
             }
             // No Dart attempt is waiting for it, so its status uses attempt 0 (accepted by all).
-            activeAttemptId = 0;
-            submit(this::resumeSaved);
+            final long recoveryGeneration;
+            synchronized (lifecycleLock) {
+                recoveryGeneration = ++requestGenerationSeq;
+                activeAttemptId = 0;
+                activeRequestGeneration = recoveryGeneration;
+            }
+            submit(() -> resumeSaved(0, recoveryGeneration));
             return START_STICKY;
         }
+        // Any non-null intent may have been delivered through startForegroundService().
+        // Promote before inspecting the action or validating its payload: malformed or
+        // unknown commands must not leave Android's foreground-start deadline unsatisfied.
+        if (!startForegroundSafe("در حال آماده‌سازی اتصال…")) {
+            requestStop();
+            invalidateRecoveryAfterStartFailure("Unable to enter foreground mode before processing VPN command");
+            Log.e(TAG, lastError);
+            submit(this::stopEverything);
+            return START_NOT_STICKY;
+        }
+
         String action = intent.getAction();
         if (ACTION_STOP.equals(action)) {
             // ACTION_STOP may itself arrive through startForegroundService; satisfy the
             // same deadline before asynchronous shutdown work is queued.
-            startForegroundSafe("در حال قطع اتصال…");
-            requestStop();
+            // If the dedicated stop latch cannot be committed, synchronously erase
+            // the resumable VPN configuration as a second line of defense. Do not
+            // silently rely on the worker cleanup: Android may kill this process first.
+            // Invalidate in-flight startup under lifecycleLock before persisting the
+            // stop latch. A worker may release the latch only while holding that same
+            // lock and proving its request is still current.
+            requestStopAndPersist("STOP command");
+
             submit(this::stopEverything);
             return START_NOT_STICKY;
         }
         if (!ACTION_START.equals(action)) {
+            // Reject unknown commands as a durable stop. Merely removing the
+            // foreground notification can leave an active core/TUN alive until
+            // Android eventually destroys the service, and must not permit sticky
+            // recovery to resurrect the previous session.
+            Log.w(TAG, "unknown VPN service action; stopping current session");
+            requestStopAndPersist("unknown service action");
+
+            submit(this::stopEverything);
             return START_NOT_STICKY;
         }
 
         String json = intent.getStringExtra(EXTRA_CONFIG);
         if (json == null || json.isEmpty()) {
             Log.e(TAG, "start without config");
-            lastError = "start called with empty config";
+            requestStop();
+            invalidateRecoveryAfterStartFailure("start called with empty config");
             // جدید: startForegroundService requires startForeground() within 5 s, or Android
             // kills the process with ForegroundServiceDidNotStartInTimeException.
             updateNotification("خطا: تنظیمات سرور خالی است");
-            requestStop();
             submit(this::stopEverything);
             return START_NOT_STICKY;
         }
@@ -302,20 +363,68 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
                 orEmpty(intent.getStringExtra(EXTRA_PORT)));
         List<Srv> backups = parseBackups(intent.getStringExtra(EXTRA_BACKUPS));
         sortByScoreDesc(backups);
-        nationalMode = intent.getBooleanExtra(EXTRA_NATIONAL, false);
-        activeAttemptId = intent.getIntExtra(EXTRA_ATTEMPT, 0);
-        userStopped = false;
+        // Fence every older start BEFORE writing the durable latch. Otherwise an
+        // older worker can release user_stopped=false in the gap between these two
+        // operations and re-enable sticky recovery for the previous server list.
+        final int startGeneration;
+        final long startRequestGeneration;
+        synchronized (lifecycleLock) {
+            startGeneration = attemptSeq.incrementAndGet();
+            startRequestGeneration = ++requestGenerationSeq;
+            activeRequestGeneration = startRequestGeneration;
+            userStopped = true;
+            stopping = true;
+            active = false;
+            retryWaiting = false;
+        }
+
+        // Keep sticky recovery blocked until the worker has durably stored this
+        // exact request's server list. Process death before that commit must not
+        // restore the previous session.
+        if (!persistUserStopMarker(true)) {
+            requestStop();
+            invalidateRecoveryAfterStartFailure("Unable to latch recovery while preparing VPN startup");
+            emit("FAILED", lastError, intent.getIntExtra(EXTRA_ATTEMPT, 0));
+            submit(this::stopEverything);
+            return START_NOT_STICKY;
+        }
+        synchronized (lock) {
+            // Persisted snapshots read this field under the same lock; publish the
+            // request's mode under that lock as well to avoid mixed-generation state.
+            nationalMode = intent.getBooleanExtra(EXTRA_NATIONAL, false);
+        }
+
+        // A concurrent Stop/revocation may have arrived while commit() was running.
+        // Only the exact generation that installed the latch may activate this Start.
+        final boolean startActivated;
+        synchronized (lifecycleLock) {
+            startActivated = attemptSeq.get() == startGeneration
+                    && activeRequestGeneration == startRequestGeneration
+                    && userStopped && stopping;
+            if (startActivated) {
+                activeAttemptId = intent.getIntExtra(EXTRA_ATTEMPT, 0);
+                userStopped = false;
+                // The durable latch remains true until startFlow commits the new list.
+                stopping = false;
+            }
+        }
+        if (!startActivated) {
+            Log.i(TAG, "explicit Start superseded before activation; preserving newer lifecycle request");
+            emit("FAILED", "VPN start superseded by a newer stop or lifecycle request",
+                    intent.getIntExtra(EXTRA_ATTEMPT, 0));
+            return START_NOT_STICKY;
+        }
 
         if (!startForegroundSafe(first.remark)) {
-            lastError = "Unable to enter foreground mode; VPN startup was refused";
+            requestStop();
+            invalidateRecoveryAfterStartFailure("Unable to enter foreground mode; VPN startup was refused");
             Log.e(TAG, lastError);
             emit("FAILED", lastError, activeAttemptId);
-            requestStop();
             submit(this::stopEverything);
             return START_NOT_STICKY;
         }
         final int attempt = activeAttemptId; // مشکل ۹: شناسه‌ی همین شروع، نه فیلد سراسری بعدی
-        submit(() -> startFlow(first, backups, attempt));
+        submit(() -> startFlow(first, backups, attempt, startRequestGeneration));
         return START_STICKY;
     }
 
@@ -347,15 +456,18 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
     }
 
     /** Worker side of ACTION_START: builds the list and connects. */
-    private void startFlow(Srv first, List<Srv> backups, int attempt) {
+    private void startFlow(Srv first, List<Srv> backups, int attempt, long requestGeneration) {
         synchronized (lock) {
-            if (stopping) return; // a stop request arrived first
+            if (stopping || attempt != activeAttemptId
+                    || requestGeneration != activeRequestGeneration) return; // a stop request arrived first
             // جدید: without the user's VPN consent, establish() fails for every server one by one.
             // Check once here and report a single clear error instead.
             if (VpnService.prepare(this) != null) {
+                if (!requestStopIfCurrent(attempt, requestGeneration)) return;
                 lastError = "VPN permission not granted";
                 Log.e(TAG, lastError);
-                emit("FAILED", lastError, attempt); // جدید
+                invalidateRecoveryAfterStartFailure(lastError);
+                emit("FAILED", lastError, attempt);
                 stopEverything();
                 return;
             }
@@ -370,33 +482,112 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
             }
             currentIdx = 0; // جدید: new list starts at 0; a stale index from the last session was saved before
             fails = 0;      // جدید
-            saveState(); // persist the pending list first, so a restart mid-connect can resume it
-            if (connectFrom(0)) {
-                saveState();
-                startWatchdog(CHECK_EVERY_SEC);
-                emit("CONNECTED", "", attempt); // جدید
+            if (!saveStateDurably()) {
+                if (!requestStopIfCurrent(attempt, requestGeneration)) return;
+                invalidateRecoveryAfterStartFailure("Unable to durably save the new VPN server list");
+                emit("FAILED", lastError, attempt);
+                stopEverything();
+                return;
+            }
+            // Only the newly committed server list may be restored after process death.
+            // Serialize latch release with Stop/revoke so an old start cannot overwrite
+            // a newer stop request after its durable config write completes.
+            boolean recoveryEnabled = false;
+            synchronized (lifecycleLock) {
+                if (!stopping && !userStopped && attempt == activeAttemptId
+                        && requestGeneration == activeRequestGeneration) {
+                    recoveryEnabled = persistUserStopMarker(false);
+                }
+            }
+            if (!recoveryEnabled) {
+                if (!requestStopIfCurrent(attempt, requestGeneration)) return;
+                invalidateRecoveryAfterStartFailure("Unable to enable recovery for the current committed VPN server list");
+                emit("FAILED", lastError, attempt);
+                stopEverything();
+                return;
+            }
+            if (connectFrom(0, attempt, requestGeneration)) {
+                synchronized (lifecycleLock) {
+                    // Stop or a newer start can arrive after native startup but before
+                    // publication. Never publish a stale CONNECTED event.
+                    if (stopping || userStopped || attempt != activeAttemptId
+                            || requestGeneration != activeRequestGeneration) return;
+                    if (!saveStateDurably()) {
+                        Log.e(TAG, "could not durably persist selected server after connection");
+                    }
+                    startWatchdog(CHECK_EVERY_SEC);
+                    emit("CONNECTED", "", attempt); // جدید
+                }
             } else {
+                // A newer request owns the service now. The old worker must not fail
+                // or stop that newer request merely because it was superseded.
+                if (!requestStopIfCurrent(attempt, requestGeneration)) return;
                 lastError = "no server could be started";
                 Log.e(TAG, lastError);
-                emit("FAILED", lastError, attempt); // جدید
+                emit("FAILED", lastError, attempt);
+                if (!persistStopStateIfCurrent("all servers failed")) {
+                    Log.e(TAG, "could not persist stop intent after all servers failed");
+                }
                 stopEverything();
             }
         }
     }
 
-    private void resumeSaved() {
+    private void resumeSaved(int recoveryAttempt, long requestGeneration) {
         synchronized (lock) {
-            if (stopping) return;
+            // Sticky recovery is lower priority than any explicit Start/Stop received
+            // after Android queued this restore operation.
+            if (stopping || activeAttemptId != recoveryAttempt
+                    || activeRequestGeneration != requestGeneration) return;
             if (!loadState()) {
-                stopSelf();
+                synchronized (lifecycleLock) {
+                    if (activeAttemptId == recoveryAttempt && !stopping
+                            && activeRequestGeneration == requestGeneration) {
+                        lastError = "No valid saved VPN state is available for sticky recovery";
+                        Log.w(TAG, lastError);
+                        // A failed restore must not leave an idle foreground service or
+                        // allow Android to retry the same corrupt/incomplete state forever.
+                        userStopped = true;
+                        stopping = true;
+                        active = false;
+                        retryWaiting = false;
+                        attemptSeq.incrementAndGet();
+                        if (!persistUserStopMarker(true)) {
+                            Log.e(TAG, "could not persist stop marker after invalid recovery state");
+                        }
+                        if (!clearStateDurably()) {
+                            Log.e(TAG, "could not clear invalid recovery state durably");
+                        }
+                        stopWatchdog();
+                        try {
+                            stopForeground(true);
+                        } catch (Throwable stopError) {
+                            Log.w(TAG, "could not remove foreground notification after failed recovery",
+                                    stopError);
+                        }
+                        stopSelfResult(latestStartId);
+                    }
+                }
                 return;
             }
-            startForegroundSafe(servers.get(currentIdx).remark);
-            if (connectFrom(currentIdx)) {
-                saveState();
-                startWatchdog(CHECK_EVERY_SEC);
+            // onStartCommand already promoted this sticky restart before queuing recovery.
+            // Do not silently attempt a second promotion here; connectFrom checks the
+            // foreground update after native startup and tears the tunnel down on failure.
+            if (connectFrom(currentIdx, recoveryAttempt, requestGeneration)) {
+                synchronized (lifecycleLock) {
+                    if (stopping || activeAttemptId != recoveryAttempt
+                            || activeRequestGeneration != requestGeneration) return;
+                    if (!saveStateDurably()) {
+                        Log.e(TAG, "could not durably persist restored server index");
+                    }
+                    startWatchdog(CHECK_EVERY_SEC);
+                }
                 return;
             }
+            // A failed sticky recovery may only stop the exact recovery request.
+            // Dart attempt ids can be reused by a newer engine/session, so ownership
+            // must include the native generation and be checked atomically with Stop.
+            if (!requestStopIfCurrent(recoveryAttempt, requestGeneration)) return;
             stopEverything();
         }
     }
@@ -405,29 +596,151 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
      * Non-blocking half of a stop. Safe to call on the main thread: it only sets
      * flags and cancels the running attempt. The real work runs on the worker.
      */
-    private void requestStop() {
-        userStopped = true;
-        stopping = true;
-        active = false;
-        retryWaiting = false;
-        // Supersede whatever attempt is running. It can no longer act on the core.
-        attemptSeq.incrementAndGet();
+    private boolean persistUserStopMarker(boolean stoppedByUser) {
+        try {
+            boolean saved = getSharedPreferences(CONTROL_PREFS, MODE_PRIVATE)
+                    .edit().putBoolean(KEY_USER_STOPPED, stoppedByUser).commit();
+            if (!saved) Log.e(TAG, "could not persist explicit user-stop marker");
+            return saved;
+        } catch (Exception e) {
+            Log.e(TAG, "failed to persist explicit user-stop marker", e);
+            return false;
+        }
     }
 
-    /** Try each server starting at [first]; the first one that comes up wins. */
-    private boolean connectFrom(int first) {
+    /**
+     * Fail closed before asynchronous cleanup when a start command is rejected.
+     * The durable stop latch prevents START_STICKY from reviving an older saved
+     * tunnel if Android kills this process before the worker can clear state.
+     */
+    private void invalidateRecoveryAfterStartFailure(String reason) {
+        lastError = reason;
+        synchronized (lifecycleLock) {
+            // A delayed failure from an obsolete Start must not invalidate a newer
+            // Start's recovery state. requestStopIfCurrent()/requestStop() owns this
+            // exact stop generation before the durable writes are allowed.
+            if (!stopping || !userStopped || attemptSeq.get() != requestedStopGeneration) {
+                Log.i(TAG, "skipping stale recovery invalidation: " + reason);
+                return;
+            }
+            boolean markerSaved = persistUserStopMarker(true);
+            boolean stateCleared = clearStateDurably();
+            if (!markerSaved || !stateCleared) {
+                Log.e(TAG, "failed to fully invalidate sticky recovery after start failure"
+                        + " (markerSaved=" + markerSaved + ", stateCleared=" + stateCleared + ")");
+            }
+        }
+    }
+
+    /**
+     * Persist an explicit Stop while holding lifecycleLock across both ownership
+     * invalidation and the durable write. Without this critical section, a delayed
+     * Stop marker can overwrite a newer Start's later user_stopped=false commit.
+     */
+    private void requestStopAndPersist(String context) {
+        synchronized (lifecycleLock) {
+            requestStop();
+            if (!persistUserStopMarker(true) && !clearStateDurably()) {
+                Log.e(TAG, context + " could not persist stop marker or clear recovery state");
+            }
+        }
+    }
+
+    /** Persist only if the currently active stop generation still owns the service. */
+    private boolean persistStopStateIfCurrent(String context) {
+        synchronized (lifecycleLock) {
+            if (!stopping || !userStopped || attemptSeq.get() != requestedStopGeneration) {
+                Log.i(TAG, "skipping stale stop-state persistence: " + context);
+                return false;
+            }
+            if (!persistUserStopMarker(true) && !clearStateDurably()) {
+                Log.e(TAG, context + " could not persist stop marker or clear recovery state");
+                return false;
+            }
+            return true;
+        }
+    }
+
+    private boolean hasPersistedUserStopMarker() {
+        try {
+            return getSharedPreferences(CONTROL_PREFS, MODE_PRIVATE)
+                    .getBoolean(KEY_USER_STOPPED, false);
+        } catch (Exception e) {
+            Log.e(TAG, "failed to read explicit user-stop marker", e);
+            // Fail closed: do not reconnect if the stop intent cannot be verified.
+            return true;
+        }
+    }
+
+    private void requestStop() {
+        synchronized (lifecycleLock) {
+            userStopped = true;
+            stopping = true;
+            active = false;
+            retryWaiting = false;
+            // Capture the generation now. A delayed cleanup must never supersede
+            // a newer Start by incrementing the generation when it eventually runs.
+            requestedStopGeneration = attemptSeq.incrementAndGet();
+        }
+    }
+
+    /**
+     * Stop only the attempt that is still the active owner. A stale worker must
+     * never cancel a newer Start merely because its own startup path failed.
+     */
+    private boolean requestStopIfCurrent(int attempt, long requestGeneration) {
+        synchronized (lifecycleLock) {
+            if (attempt != activeAttemptId
+                    || requestGeneration != activeRequestGeneration
+                    || stopping || userStopped) {
+                return false;
+            }
+            userStopped = true;
+            stopping = true;
+            active = false;
+            retryWaiting = false;
+            requestedStopGeneration = attemptSeq.incrementAndGet();
+            return true;
+        }
+    }
+
+    /** Request-scoped variant used by explicit starts; stale requests cannot keep failing over. */
+    private boolean connectFrom(int first, int requestAttempt, long requestGeneration) {
         int n = servers.size();
         for (int k = 0; k < n; k++) {
-            if (stopping) return false; // جدید: a Stop stops the list walk at once; no next server starts
+            if (stopping || requestAttempt != activeAttemptId
+                    || requestGeneration != activeRequestGeneration) {
+                return false;
+            }
             int idx = (first + k) % n;
             Srv s = servers.get(idx);
             Log.i(TAG, "starting server " + idx + "/" + n + " " + s.remark);
             if (bringUpWithTimeout(s)) {
-                currentIdx = idx;
-                fails = 0;
-                healthyStreak = 0;
-                active = true;
-                startForegroundSafe(s.remark);
+                synchronized (lifecycleLock) {
+                    // Stop or a newer explicit start may supersede this native result.
+                    if (stopping || userStopped
+                            || requestAttempt != activeAttemptId
+                            || requestGeneration != activeRequestGeneration) return false;
+                    currentIdx = idx;
+                    fails = 0;
+                    healthyStreak = 0;
+                    active = true;
+                }
+                if (!startForegroundSafe(s.remark)) {
+                    lastError = "VPN core started but foreground notification update failed";
+                    Log.e(TAG, lastError);
+                    // A VPN must not remain active after losing its foreground contract.
+                    // Only the still-current request may stop the service; an older
+                    // bring-up must not cancel a newer explicit Start.
+                    final boolean ownsStop =
+                            requestStopIfCurrent(requestAttempt, requestGeneration);
+                    if (!ownsStop) return false;
+                    if (!persistStopStateIfCurrent("foreground update failure")) {
+                        Log.e(TAG, "foreground failure could not persist stop intent or clear recovery state");
+                    }
+                    stopEverything();
+                    return false;
+                }
                 cancelPluginNotification(); // جدید
                 return true;
             }
@@ -483,7 +796,11 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
         }
         // Not finished: either a Stop arrived or the timeout expired. Supersede this attempt
         // BEFORE reporting, so that if it returns later from startCore it sees it is stale.
-        attemptSeq.incrementAndGet();
+        synchronized (lifecycleLock) {
+            // requestStop() already invalidated this token. Incrementing the shared
+            // sequence again here would make stopEverything reject its own cleanup.
+            if (!stopping) attemptSeq.incrementAndGet();
+        }
         if (stopping) {
             lastError = "stopped by user"; // جدید
             Log.i(TAG, lastError + " for " + s.remark);
@@ -539,8 +856,17 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
         Log.e(TAG, what + " has not returned after " + (HUNG_NATIVE_MS / 1000)
                 + "s; restarting the VPN process");
         try {
-            if (userStopped) clearState();
-            else saveState();
+            if (userStopped) {
+                // killProcess follows immediately; apply() is asynchronous and may lose
+                // the stop state before Android performs a sticky service restart.
+                if (!clearStateDurably()) {
+                    Log.e(TAG, "could not durably clear recovery state before process restart");
+                }
+            } else {
+                if (!saveStateDurably()) {
+                    Log.e(TAG, "could not durably save VPN state before native process restart");
+                }
+            }
         } catch (Throwable t) {
             Log.w(TAG, "state save before restart failed", t);
         }
@@ -750,7 +1076,9 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
 
     /** Schedule the next watchdog tick (single-shot; each tick reschedules). */
     private void startWatchdog(int delaySec) {
-        scheduleTask(this::checkOnce, delaySec);
+        final int requestAttempt = activeAttemptId;
+        final long requestGeneration = activeRequestGeneration;
+        scheduleTask(() -> checkOnce(requestAttempt, requestGeneration), delaySec);
     }
 
     /** جدید: schedules one task on the single shared scheduler, replacing any pending tick. */
@@ -778,14 +1106,25 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
      * watchdog stopped permanently. Now we always reschedule, even when we skip
      * the actual probe.
      */
-    private void checkOnce() {
+    private void checkOnce(int requestAttempt, long requestGeneration) {
+        final int probeAttempt;
+        final Srv probeServer;
         synchronized (lock) {
-            if (!active || stopping) return;
+            if (!active || stopping || requestAttempt != activeAttemptId
+                    || requestGeneration != activeRequestGeneration) return;
             if (isStarting()) {
                 // A server is starting right now; skip the probe but keep alive.
                 rescheduleNormal();
                 return;
             }
+            if (servers.isEmpty() || currentIdx < 0 || currentIdx >= servers.size()) {
+                rescheduleNormal();
+                return;
+            }
+            // Bind this network probe to the exact connection generation/server.
+            // A newer start or failover invalidates its result while I/O is outside lock.
+            probeAttempt = attemptSeq.get();
+            probeServer = servers.get(currentIdx);
         }
         // The probe does network I/O (several seconds at worst). It runs OUTSIDE the
         // lock, so a stop request or a server switch is never blocked behind it.
@@ -798,14 +1137,24 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
             // Keep the current TUN and retry on the next tick; never fail over on unknown state.
             Log.e(TAG, "watchdog could not read core state; retaining current tunnel", stateError);
             synchronized (lock) {
-                if (active && !stopping) rescheduleNormal();
+                if (active && !stopping && requestAttempt == activeAttemptId
+                        && requestGeneration == activeRequestGeneration) rescheduleNormal();
             }
             return;
         }
         ProbeResult pr = coreUp ? probeResult() : ProbeResult.HARD_FAIL;
 
         synchronized (lock) {
-            if (!active || stopping) return;
+            if (!active || stopping || requestAttempt != activeAttemptId
+                    || requestGeneration != activeRequestGeneration) return;
+            // Discard stale probe results: never let a previous server/session trigger
+            // a score change or failover on a newer connection.
+            if (probeAttempt != attemptSeq.get() || servers.isEmpty()
+                    || currentIdx < 0 || currentIdx >= servers.size()
+                    || servers.get(currentIdx) != probeServer) {
+                rescheduleNormal();
+                return;
+            }
             if (isStarting()) {
                 rescheduleNormal();
                 return;
@@ -846,8 +1195,10 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
             }
             Log.w(TAG, "switching to next server");
             int next = (currentIdx + 1) % servers.size();
-            if (connectFrom(next)) {
-                saveState();
+            if (connectFrom(next, requestAttempt, requestGeneration)) {
+                if (!saveStateDurably()) {
+                    Log.e(TAG, "could not durably persist server index after watchdog failover");
+                }
                 rescheduleNormal();
             } else {
                 Log.e(TAG, "all servers failed this round");
@@ -873,16 +1224,22 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
         lastError = "all servers down; retrying in " + delay + "s";
         Log.w(TAG, lastError);
         updateNotification("در حال تلاش برای اتصال مجدد… (" + delay + "s)");
-        scheduleTask(this::retryWholeListNow, delay);
+        final int retryAttempt = activeAttemptId;
+        final long retryGeneration = activeRequestGeneration;
+        scheduleTask(() -> retryWholeListNow(retryAttempt, retryGeneration), delay);
     }
 
-    private void retryWholeListNow() {
+    private void retryWholeListNow(int retryAttempt, long retryGeneration) {
         synchronized (lock) {
+            if (stopping || retryAttempt != activeAttemptId
+                    || retryGeneration != activeRequestGeneration) return;
             retryWaiting = false;
-            if (stopping || servers.isEmpty()) return;
+            if (servers.isEmpty()) return;
             Log.i(TAG, "retrying full server list after backoff");
-            if (connectFrom(0)) {
-                saveState();
+            if (connectFrom(0, retryAttempt, retryGeneration)) {
+                if (!saveStateDurably()) {
+                    Log.e(TAG, "could not durably persist server index after full-list retry");
+                }
                 rescheduleNormal();
             } else {
                 retryWholeListLater();
@@ -942,7 +1299,12 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
                 b.addAddress("fd00:1:fd00:1:fd00:1:fd00:1", 126);
                 b.addRoute("::", 0);
             } catch (Exception e) {
-                Log.w(TAG, "ipv6 sinkhole not supported", e);
+                // Do not establish an IPv4-only tunnel after the IPv6 address was
+                // partially accepted: that can leave IPv6 outside the VPN.
+                // Fail closed so the caller reports a connection failure instead
+                // of presenting a connected state with an incomplete IP-family route.
+                throw new IllegalStateException(
+                        "IPv6 VPN address/route setup failed; refusing possible IPv6 leak", e);
             }
             b.addRoute("0.0.0.0", 0);
             // FIX #49: the app is NOT excluded from the tunnel. Its own requests (e.g. the ASN
@@ -1022,9 +1384,15 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
 
     private void stopEverything() {
         synchronized (lock) {
-            // Supersede every attempt first: a stale one that returns later does nothing.
-            stopping = true;
-            attemptSeq.incrementAndGet();
+            // This cleanup belongs to the exact requestStop() generation. If a newer
+            // Start has arrived since it was queued, do not touch its core or state.
+            final int stopGeneration = requestedStopGeneration;
+            synchronized (lifecycleLock) {
+                if (attemptSeq.get() != stopGeneration || !stopping || !userStopped) {
+                    Log.i(TAG, "obsolete stop cleanup skipped before touching the core");
+                    return;
+                }
+            }
             active = false;
             retryWaiting = false;
             stopWatchdog(); // جدید: cancel only; the shared scheduler is closed in onDestroy
@@ -1051,15 +1419,27 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
                 Log.w(TAG, "core busy in a previous attempt; leaving it to that attempt");
                 lastError = "core busy from a previous attempt";
             }
-            clearState();
-            servers.clear();
-            try {
-                stopForeground(true);
-            } catch (Exception ignored) {
+            synchronized (lifecycleLock) {
+                // A newer Start/Stop owns the service now. Do not erase its persisted
+                // configuration, clear its in-memory server list, or stop its foreground
+                // notification/service as a side effect of this older cleanup.
+                if (attemptSeq.get() != stopGeneration) {
+                    Log.i(TAG, "stop cleanup superseded by a newer lifecycle request");
+                    return;
+                }
+                if (!clearStateDurably()) {
+                    Log.e(TAG, "could not durably clear saved VPN state during stop");
+                }
+                servers.clear();
+                try {
+                    stopForeground(true);
+                } catch (Exception ignored) {
+                }
+                // Android refuses to stop the service for an obsolete start id.
+                stopSelfResult(latestStartId);
+                stopping = false;
             }
-            stopSelf();
-            stopping = false;
-            emit("STOPPED", "", -1); // جدید: با هیچ تلاشی تطابق ندارد
+            emit("STOPPED", "", -1); // generic stop event; not tied to a start attempt
         }
     }
 
@@ -1070,24 +1450,37 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
         }
     }
 
-    private void saveState() {
-        try {
-            JSONArray arr = new JSONArray();
-            for (Srv s : servers) {
-                JSONObject o = new JSONObject();
-                o.put("config", s.config);
-                o.put("remark", s.remark);
-                o.put("addr", s.addr);
-                o.put("port", s.port);
-                arr.put(o);
+    /** Persist the complete pending server list before enabling sticky recovery. */
+    private boolean saveStateDurably() {
+        // Serialize the snapshot and its durable write with every mutation of the
+        // in-memory server list. Releasing this lock between snapshot and commit lets
+        // a delayed recovery writer overwrite a newer Start's persisted server list.
+        synchronized (lock) {
+            try {
+                final List<Srv> snapshot = new ArrayList<>(servers);
+                final int snapshotIndex = currentIdx;
+                final boolean snapshotNationalMode = nationalMode;
+                if (snapshot.isEmpty()) return false;
+
+                JSONArray arr = new JSONArray();
+                for (Srv s : snapshot) {
+                    JSONObject o = new JSONObject();
+                    o.put("config", s.config);
+                    o.put("remark", s.remark);
+                    o.put("addr", s.addr);
+                    o.put("port", s.port);
+                    arr.put(o);
+                }
+                int safeIndex = Math.max(0, Math.min(snapshotIndex, snapshot.size() - 1));
+                return getSharedPreferences(PREFS, MODE_PRIVATE).edit()
+                        .putString("list", arr.toString())
+                        .putInt("idx", safeIndex)
+                        .putBoolean("national", snapshotNationalMode)
+                        .commit();
+            } catch (Exception e) {
+                Log.e(TAG, "saveStateDurably failed", e);
+                return false;
             }
-            SharedPreferences sp = getSharedPreferences(PREFS, MODE_PRIVATE);
-            sp.edit().putString("list", arr.toString())
-                    .putInt("idx", currentIdx)
-                    .putBoolean("national", nationalMode)
-                    .apply();
-        } catch (Exception e) {
-            Log.w(TAG, "saveState failed", e);
         }
     }
 
@@ -1096,20 +1489,37 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
             SharedPreferences sp = getSharedPreferences(PREFS, MODE_PRIVATE);
             String raw = sp.getString("list", "");
             if (raw == null || raw.isEmpty()) return false;
+
+            // Parse and validate into a temporary collection. Never partially mutate the
+            // live server list when persisted JSON is truncated or contains bad entries.
             JSONArray arr = new JSONArray(raw);
-            servers.clear();
+            if (arr.length() == 0 || arr.length() > MAX_BACKUPS + 1) {
+                Log.w(TAG, "saved VPN server list has an invalid entry count: " + arr.length());
+                return false;
+            }
+            List<Srv> restored = new ArrayList<>(arr.length());
             for (int i = 0; i < arr.length(); i++) {
                 JSONObject o = arr.getJSONObject(i);
-                servers.add(new Srv(o.optString("config"), o.optString("remark"),
+                String config = o.optString("config", "");
+                if (config == null || config.trim().isEmpty()) {
+                    Log.w(TAG, "saved VPN server entry " + i + " has no config");
+                    return false;
+                }
+                restored.add(new Srv(config, o.optString("remark"),
                         o.optString("addr"), o.optString("port")));
             }
-            currentIdx = Math.max(0, Math.min(sp.getInt("idx", 0), servers.size() - 1));
+
+            int restoredIndex = Math.max(0, Math.min(sp.getInt("idx", 0), restored.size() - 1));
+            boolean restoredNationalMode = sp.getBoolean("national", false);
+            servers.clear();
+            servers.addAll(restored);
+            currentIdx = restoredIndex;
             listExhaustedStreak = 0;
             healthyStreak = 0;
-            nationalMode = sp.getBoolean("national", false);
-            return !servers.isEmpty();
+            nationalMode = restoredNationalMode;
+            return true;
         } catch (Exception e) {
-            Log.w(TAG, "loadState failed", e);
+            Log.w(TAG, "loadState failed; saved state was not applied", e);
             return false;
         }
     }
@@ -1118,6 +1528,16 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
         try {
             getSharedPreferences(PREFS, MODE_PRIVATE).edit().clear().apply();
         } catch (Exception ignored) {
+        }
+    }
+
+    /** Synchronous invalidation used before refusing a sticky recovery. */
+    private boolean clearStateDurably() {
+        try {
+            return getSharedPreferences(PREFS, MODE_PRIVATE).edit().clear().commit();
+        } catch (Exception e) {
+            Log.e(TAG, "could not durably clear saved VPN recovery state", e);
+            return false;
         }
     }
 
@@ -1178,8 +1598,12 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
 
     @Override
     public void onRevoke() {
-        // Another VPN took over: stop our core and free the TUN, without blocking the main thread.
-        requestStop();
+        // Another VPN took over or Android revoked our VPN consent. Persist the revocation
+        // before async cleanup so a sticky restart cannot resurrect a tunnel without consent.
+        // Fence any in-flight start before writing the durable stop marker. If the
+        // marker were written first, a racing start worker could clear it after its
+        // config commit and briefly re-enable sticky recovery after VPN revocation.
+        requestStopAndPersist("VPN revocation");
         submit(this::stopEverything);
     }
 

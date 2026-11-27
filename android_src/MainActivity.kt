@@ -1,5 +1,6 @@
 package com.kingvpn.king_vpn
 
+import dev.amirzr.flutter_v2ray_client.v2ray.services.V2rayVPNService
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
@@ -124,6 +125,23 @@ class MainActivity : FlutterActivity() {
                         "alive" -> result.success(
                             engineAttached && !isFinishing && !isDestroyed
                         )
+                        "kingVpnTunnelActive" -> {
+                            // This proves plugin daemon-process liveness only, not Xray core health or traffic flow.
+                            result.success(V2rayVPNService.isKingVpnTunnelActive(this))
+                        }
+                        "kingVpnTransportActive" -> {
+                            // Ask Android whether this app's active default network is a VPN transport.
+                            val connectivity = getSystemService(android.net.ConnectivityManager::class.java)
+                            val capabilities = if (connectivity == null) {
+                                null
+                            } else {
+                                val activeNetwork = connectivity.activeNetwork
+                                if (activeNetwork == null) null else connectivity.getNetworkCapabilities(activeNetwork)
+                            }
+                            result.success(
+                                capabilities?.hasTransport(android.net.NetworkCapabilities.TRANSPORT_VPN) == true
+                            )
+                        }
                         "back" -> {
                             moveTaskToBack(true)
                             result.success(true)

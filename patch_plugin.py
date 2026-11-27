@@ -461,6 +461,25 @@ for svc_path, svc_name in ((vpn, 'VPN'), (proxy_svc, 'ProxyOnly')):
             V2rayCoreManager.getInstance().stopCore();''', f'V3 #86 {svc_name} STOP promotes')
 
 
+# 4e) Active FlutterV2ray path: do not continue with a partial IPv6 TUN.
+#     The upstream plugin logs and swallows IPv6 address/route failures, then may establish
+#     only IPv4. Since this plugin path is the app default, fail the interface setup closed.
+exact_replace(vpn, '''        // Force IPv4 path: sinkhole IPv6 so apps don't bypass a broken dual-stack route.
+        try {
+            builder.addAddress("fd00:1:fd00:1:fd00:1:fd00:1", 126);
+            builder.addRoute("::", 0);
+        } catch (Exception e) {
+            Log.w("V2rayVPNService", "IPv6 sinkhole not supported", e);
+        }''', '''        // FIX: IPv6 is part of the default tunnel contract. Never establish an IPv4-only
+        // interface after IPv6 address/route setup failed, because that can leak IPv6 traffic.
+        try {
+            builder.addAddress("fd00:1:fd00:1:fd00:1:fd00:1", 126);
+            builder.addRoute("::", 0);
+        } catch (Exception e) {
+            Log.e("V2rayVPNService", "IPv6 TUN setup failed; refusing partial VPN", e);
+            return false;
+        }''', 'Active FlutterV2ray path refuses partial IPv6 TUN');
+
 # 5) FIX #49: the app is not excluded from the VPN (its own requests must go through the tunnel).
 #    Only the core's outbound sockets are exempt, through protect() (see the protector below).
 exact_replace(vpn, '''        // Keep this process outside the VPN so outbound sockets don't loop.
@@ -1009,3 +1028,81 @@ exact_replace(core, '''        }
 
     private String createNotificationChannelID''',
 'P1-38 keep disconnect lock through broadcast');
+
+
+# P1-39: publish the plugin-owned VPN state across the service process boundary.
+# V2rayVPNService runs in :RunSoLibV2RayDaemon, so static fields are NOT shared
+# with MainActivity. Persist an atomic state record and validate the service PID.
+exact_replace(vpn, '''import android.util.Log;''', '''import android.util.Log;
+import android.content.Context;
+import android.util.AtomicFile;
+import java.io.ByteArrayOutputStream;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
+import java.io.IOException;''', 'P1-39 cross-process state imports');
+
+exact_replace(vpn, '''    private boolean vpnInterfaceReady = false;''', '''    private boolean vpnInterfaceReady = false;
+    private static volatile boolean kingVpnTunnelActive = false;
+    private static final String KING_VPN_STATE_FILE = "king_vpn_tunnel_state";
+
+    private void setKingVpnTunnelActive(boolean active) {
+        kingVpnTunnelActive = active;
+        AtomicFile state = new AtomicFile(new File(getFilesDir(), KING_VPN_STATE_FILE));
+        FileOutputStream stream = null;
+        try {
+            stream = state.startWrite();
+            stream.write((active + "\\n" + android.os.Process.myPid()).getBytes("UTF-8"));
+            state.finishWrite(stream);
+        } catch (IOException e) {
+            if (stream != null) state.failWrite(stream);
+            Log.e("V2rayVPNService", "Unable to persist plugin tunnel state", e);
+        }
+    }
+
+    public static boolean isKingVpnTunnelActive(Context context) {
+        AtomicFile state = new AtomicFile(new File(context.getFilesDir(), KING_VPN_STATE_FILE));
+        try (FileInputStream input = state.openRead()) {
+            byte[] bytes = new byte[128];
+            int count = input.read(bytes);
+            if (count <= 0) return false;
+            String[] fields = new String(bytes, 0, count, "UTF-8").trim().split("\\n");
+            if (fields.length != 2 || !"true".equals(fields[0])) return false;
+            int pid = Integer.parseInt(fields[1]);
+            File cmdline = new File("/proc/" + pid + "/cmdline");
+            try (FileInputStream process = new FileInputStream(cmdline)) {
+                ByteArrayOutputStream output = new ByteArrayOutputStream();
+                byte[] chunk = new byte[256];
+                int read;
+                while ((read = process.read(chunk)) > 0) output.write(chunk, 0, read);
+                String processName = new String(output.toByteArray(), "UTF-8");
+                return processName.contains(context.getPackageName() + ":RunSoLibV2RayDaemon");
+            }
+        } catch (Exception e) {
+            return false;
+        }
+    }''', 'P1-39 process-safe plugin tunnel state');
+
+exact_replace(vpn, '''        if (startCommand.equals(AppConfigs.V2RAY_SERVICE_COMMANDS.START_SERVICE)) {
+            v2rayConfig =''', '''        if (startCommand.equals(AppConfigs.V2RAY_SERVICE_COMMANDS.START_SERVICE)) {
+            setKingVpnTunnelActive(false);
+            v2rayConfig =''', 'P1-39 clear stale state before new start');
+
+exact_replace(vpn, '''                Log.i("V2rayVPNService", "onStartCommand success => native TUN core started.");''', '''                // Publish only after establish() and native Xray startup both succeeded.
+                setKingVpnTunnelActive(true);
+                Log.i("V2rayVPNService", "onStartCommand success => native TUN core started.");''', 'P1-39 publish active state after core start');
+
+exact_replace(vpn, '''    private void stopAllProcess() {
+        stopForeground(true);''', '''    private void stopAllProcess() {
+        setKingVpnTunnelActive(false);
+        stopForeground(true);''', 'P1-39 clear active state on stop');
+
+exact_replace(vpn, '''    public void onDestroy() {
+        Log.i("V2rayVPNService", "onDestroy called - cleaning up resources");''', '''    public void onDestroy() {
+        setKingVpnTunnelActive(false);
+        Log.i("V2rayVPNService", "onDestroy called - cleaning up resources");''', 'P1-39 clear active state on destroy');
+
+exact_replace(vpn, '''    public void onRevoke() {
+        try {''', '''    public void onRevoke() {
+        setKingVpnTunnelActive(false);
+        try {''', 'P1-39 clear active state on revoke');

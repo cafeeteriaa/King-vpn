@@ -54,10 +54,18 @@ Future<bool> ownVpnStart({
   bool national = false, // NATPROBE: national mode skips the international health probe
 }) async {
   _ensureStatusHandler();
+
+  // There is one native VPN service and one status stream. A second start must
+  // explicitly supersede the first waiter instead of orphaning it for 190 seconds.
+  final previousWaiter = _startWaiter;
+  if (previousWaiter != null && !previousWaiter.isCompleted) {
+    previousWaiter.complete('SUPERSEDED');
+  }
+
   final waiter = Completer<String>();
-  _startWaiter = waiter;
   final attemptId = ++_ownAttemptSeq;
   _ownAttemptCurrent = attemptId;
+  _startWaiter = waiter;
   try {
     final ok = await _kingVpnChannel.invokeMethod<bool>('start', {
       'config': config,
@@ -77,7 +85,10 @@ Future<bool> ownVpnStart({
         .timeout(const Duration(seconds: 190), onTimeout: () => 'TIMEOUT');
     if (state == 'CONNECTED') return true;
     errJournalAdd(StateError('king/vpn start ended with $state'), kind: 'OWNVPN');
-    if (state == 'TIMEOUT') await ownVpnStop();
+    // A stale start must never stop a newer attempt after its own timeout fires.
+    if (state == 'TIMEOUT' && _ownAttemptCurrent == attemptId) {
+      await ownVpnStop();
+    }
     return false;
   } catch (e, st) {
     errJournalAdd(e, kind: 'OWNVPN', st: st);
@@ -88,7 +99,9 @@ Future<bool> ownVpnStart({
 }
 
 Future<void> ownVpnStop() async {
-  // جدید: release a start that is still waiting for its result
+  // Invalidate the active attempt before completing its waiter. Late CONNECTED
+  // callbacks from that attempt must not be accepted after a user stop.
+  _ownAttemptCurrent = ++_ownAttemptSeq;
   final w = _startWaiter;
   if (w != null && !w.isCompleted) w.complete('STOPPED');
   try {

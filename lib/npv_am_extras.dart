@@ -1422,7 +1422,10 @@ class _GoldIp {
 class _GoldSrv {
   final String link;
   int ping, okAt, testAt;
-  _GoldSrv(this.link, this.ping, this.okAt, this.testAt);
+  bool verified;
+  int? verifiedAt;
+  _GoldSrv(this.link, this.ping, this.okAt, this.testAt,
+      {this.verified = false, this.verifiedAt});
 }
 
 final Map<String, _GoldIp> _goldIps = {};
@@ -1469,8 +1472,11 @@ Future<void> _goldLoadOnce() async {
     for (final e in (m['srv'] as List? ?? const [])) {
       final x = e as List;
       final link = x[0].toString();
+      final verifiedAt = x.length > 5 ? (x[5] as num?)?.toInt() : null;
+      final verified = x.length > 4 && x[4] == true && verifiedAt != null;
       _goldSrv[link] = _GoldSrv(link, (x[1] as num).toInt(),
-          (x[2] as num).toInt(), (x[3] as num).toInt());
+          (x[2] as num).toInt(), (x[3] as num).toInt(),
+          verified: verified, verifiedAt: verifiedAt);
     }
     for (final e in (m['dns'] as List? ?? const [])) {
       final x = e as List;
@@ -1495,7 +1501,7 @@ String _goldEncode() => jsonEncode({
       ],
       'srv': [
         for (final v in (_goldSrv.values.toList()..sort((a, b) => a.ping.compareTo(b.ping))))
-          [v.link, v.ping, v.okAt, v.testAt]
+          [v.link, v.ping, v.okAt, v.testAt, v.verified, v.verifiedAt]
       ],
       'dns': [for (final e in _goldDns.entries) [e.key, e.value]],
       'scan': _goldScan,
@@ -1527,7 +1533,12 @@ void _goldTrimIps() {
 
 void _goldTrimSrv() {
   if (_goldSrv.length <= kGoldSrvCap) return;
-  final l = _goldSrv.values.toList()..sort((a, b) => a.ping.compareTo(b.ping));
+  final l = _goldSrv.values.toList()
+    ..sort((a, b) {
+      // Keep verified records; discard delay-only candidates first at capacity.
+      if (a.verified != b.verified) return a.verified ? -1 : 1;
+      return a.ping.compareTo(b.ping);
+    });
   for (final v in l.skip(kGoldSrvCap)) {
     _goldSrv.remove(v.link);
   }
@@ -1719,28 +1730,46 @@ Future<void> _goldIpStep() async {
 
 Future<void> _goldSrvStep(_HomePageState h) async {
   final nowMs = DateTime.now().millisecondsSinceEpoch;
+  final retestMs = kGoldRetestHours * 3600 * 1000;
   var changed = false;
 
-  for (final s in h.good) {
-    final p = s.ping;
-    if (p == null || h._bad(s)) continue;
-    final link = s.useLink;
-    final ex = _goldSrv[link];
-    if (ex == null) {
-      _goldSrv[link] = _GoldSrv(link, p, nowMs, nowMs);
-    } else {
-      ex.ping = p;
-      ex.okAt = nowMs;
-      ex.testAt = nowMs;
+  // Delay alone is not fresh end-to-end proof. Re-probe the active server
+  // through multiple mode-appropriate destinations when its proof is due.
+  final active = h.current;
+  if (active != null && !active.personal && !h._bad(active)) {
+    final p = active.ping;
+    if (p != null && p > 0) {
+      final link = active.useLink;
+      final ex = _goldSrv[link];
+      final proofDue = ex == null ||
+          !ex.verified ||
+          ex.verifiedAt == null ||
+          nowMs < ex.verifiedAt! ||
+          nowMs - ex.verifiedAt! >= retestMs;
+      final proofOk =
+          !proofDue || await h._stableTunnelTrafficOk(active);
+      if (proofOk) {
+        if (ex == null) {
+          _goldSrv[link] = _GoldSrv(
+            link, p, nowMs, nowMs, verified: true, verifiedAt: nowMs);
+        } else {
+          ex.ping = p;
+          ex.okAt = nowMs;
+          ex.testAt = nowMs;
+          if (proofDue) {
+            ex.verified = true;
+            ex.verifiedAt = nowMs;
+          }
+        }
+        changed = true;
+      }
     }
-    changed = true;
   }
   _goldTrimSrv();
 
   if (!nationalMode) {
-    final retestMs = kGoldRetestHours * 3600 * 1000;
     final due = _goldSrv.values
-        .where((v) => nowMs - v.testAt >= retestMs)
+        .where((v) => v.verified && nowMs - v.testAt >= retestMs)
         .take(20)
         .toList();
     // GATEMAX: سقف گیت تست قبل از حلقه‌ی due
@@ -1762,6 +1791,19 @@ Future<void> _goldSrvStep(_HomePageState h) async {
         v.okAt = nowMs;
         v.testAt = nowMs;
       }
+      changed = true;
+    }
+  }
+
+  // End-to-end proof expires after the configured interval in BOTH network
+  // modes. Old entries remain candidates but cannot stay trusted indefinitely.
+  for (final v in _goldSrv.values) {
+    final verifiedAt = v.verifiedAt;
+    if (v.verified &&
+        (verifiedAt == null ||
+            nowMs < verifiedAt ||
+            nowMs - verifiedAt >= retestMs)) {
+      v.verified = false;
       changed = true;
     }
   }
@@ -1813,7 +1855,8 @@ String goldInfo() {
   final when = lastMs == 0
       ? 'هنوز تست نشده'
       : 'آخرین تست: ${DateTime.fromMillisecondsSinceEpoch(lastMs).toString().substring(0, 16)}';
-  return 'IP تمیز: ${_goldIps.length} • سرور سالم: ${_goldSrv.length} • DNS: ${_goldDns.length} • $when';
+  final verifiedServers = _goldSrv.values.where((v) => v.verified).length;
+  return 'IP تمیز: ${_goldIps.length} • سرورهای ثبت‌شده: ${_goldSrv.length} (تأیید واقعی: $verifiedServers) • DNS: ${_goldDns.length} • $when';
 }
 
 Future<void> goldShowList(BuildContext context) async {
@@ -1846,10 +1889,10 @@ Future<void> goldShowList(BuildContext context) async {
                   Text(dnsStatus,
                       style: const TextStyle(fontSize: 12, color: Color(0xFFD9AE55))),
                 const Divider(),
-                const Text('سرورهای سالم (سریع → کند):',
+                const Text('سرورهای ثبت‌شده (تأییدشده و کاندید؛ سریع → کند):',
                     style: TextStyle(fontWeight: FontWeight.bold)),
                 for (final v in srvL.take(200))
-                  Text('${v.ping} ms  •  ${Server.parse(v.link)?.name ?? v.link}',
+                  Text('${v.ping} ms  •  ${v.verified ? 'تأیید ترافیک واقعی' : 'کاندید؛ نیازمند اتصال واقعی'}  •  ${Server.parse(v.link)?.name ?? v.link}',
                       style: const TextStyle(fontSize: 12)),
                 const Divider(),
                 const Text('IP تمیز (سریع → کند):',
@@ -1977,11 +2020,13 @@ void goldNoteServer(Server srv) {
   final now = DateTime.now().millisecondsSinceEpoch;
   final ex = _goldSrv[link];
   if (ex == null) {
-    _goldSrv[link] = _GoldSrv(link, p, now, now);
+    _goldSrv[link] = _GoldSrv(link, p, now, now, verified: true, verifiedAt: now);
   } else {
     ex.ping = p;
     ex.okAt = now;
     ex.testAt = now;
+    ex.verified = true;
+    ex.verifiedAt = now;
   }
   _goldTrimSrv();
   _goldSaveT ??= Timer(const Duration(seconds: 20), () {

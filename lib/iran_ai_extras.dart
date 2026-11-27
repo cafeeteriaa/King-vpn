@@ -523,10 +523,10 @@ extension HomeExtras on _HomePageState {
     sb.writeln('National diagnosis: ${natNetworkClassLabel(NatNetworkDiagnosis.current)}');
     if (c != null) {
       final history = NationalNetworkIntelligence.memoryFor(
-          NationalNetworkIntelligence.keyOfServer(c));
+          NationalNetworkIntelligence.keyOfServer(c, nationalMode: nationalMode));
       sb.writeln('Current endpoint history: success=${history.successes}/${history.attempts} '
           'failStreak=${history.failStreak} stable=${history.stableSuccesses} '
-          'score=${NationalNetworkIntelligence.scoreFor(NationalNetworkIntelligence.keyOfServer(c)).toStringAsFixed(1)}');
+          'score=${NationalNetworkIntelligence.scoreFor(NationalNetworkIntelligence.keyOfServer(c, nationalMode: nationalMode)).toStringAsFixed(1)}');
     }
     return 'You are a network assistant inside a censorship-circumvention VPN '
         'client used in Iran. Use only the measured statistics and the independent domestic/global TLS evidence above. '
@@ -1815,7 +1815,7 @@ extension HomeExtras on _HomePageState {
     }
     // Verified historical tunnel outcomes decay independently in NNIE.
     final learned = NationalNetworkIntelligence.scoreFor(
-      NationalNetworkIntelligence.keyOfServer(s),
+      NationalNetworkIntelligence.keyOfServer(s, nationalMode: nationalMode),
     );
     score += (learned.clamp(-20.0, 100.0) * 0.25).toDouble();
     score += (_profRate(s) - 0.5) * 30;
@@ -1825,9 +1825,19 @@ extension HomeExtras on _HomePageState {
   // Hysteresis: don't disrupt a working tunnel for a marginal score gain.
   // A 12-point margin filters noisy ping/throughput fluctuations.
   Server? _pilotBestStandby() {
-    final candidates = _pickList()
-        .where((s) => !identical(s, current) && !_bad(s))
-        .toList();
+    final now = DateTime.now();
+    // A standby must have a successful, recent core endpoint check in this
+    // session. Cached NNIE/profile scores may rank verified candidates, but
+    // must never make an untested or stale endpoint eligible for disruption.
+    // This is endpoint reachability evidence, NOT proof of tunnel data-plane.
+    final candidates = _pickList().where((s) {
+      final checked = s.checkedAt;
+      final freshPing = checked != null &&
+          !now.difference(checked).isNegative &&
+          now.difference(checked) <= const Duration(minutes: 4) &&
+          s.ping != null && s.ping! > 0;
+      return !identical(s, current) && !_bad(s) && freshPing;
+    }).toList();
     Server? best;
     var bestScore = -1e12;
     for (final s in candidates) {
@@ -2516,7 +2526,7 @@ extension HomeExtras on _HomePageState {
       final modeLabel = switch (evidence.mode) {
         DetectedNetworkMode.domesticOnly => 'فقط مسیر داخلی تأیید شد',
         DetectedNetworkMode.globalOnly => 'مسیر جهانی تأیید شد',
-        DetectedNetworkMode.dualStack => 'مسیر داخلی و جهانی هر دو در دسترس‌اند',
+        DetectedNetworkMode.dualReachable => 'مسیر داخلی و جهانی هر دو در دسترس‌اند',
         DetectedNetworkMode.offline => 'هیچ مسیر آزمایشی پاسخ نداد',
         DetectedNetworkMode.unknown => 'شواهد کافی نیست؛ حالت قبلی حفظ شد',
       };
@@ -2527,7 +2537,7 @@ extension HomeExtras on _HomePageState {
       return switch (evidence.mode) {
         DetectedNetworkMode.domesticOnly => NatNetworkClass.domesticOnlyLikely,
         DetectedNetworkMode.globalOnly ||
-        DetectedNetworkMode.dualStack => NatNetworkClass.globalReachable,
+        DetectedNetworkMode.dualReachable => NatNetworkClass.globalReachable,
         DetectedNetworkMode.offline => NatNetworkClass.transportRestricted,
         DetectedNetworkMode.unknown => NatNetworkClass.unknown,
       };
