@@ -1028,6 +1028,19 @@ class KingNationalScannerEngine {
           if (!wasCompleted && previous['cursor'] is Map) {
             resumeCursor = Map<String, Object?>.from(previous['cursor'] as Map);
           }
+          final previousCounters = previous['counters'];
+          if (previousCounters is Map) {
+            int restored(String key) {
+              final value = previousCounters[key];
+              return value is int && value >= 0 ? value : 0;
+            }
+            dnsCount = restored('dnsResolvers');
+            domainHits = restored('domainEndpoints');
+            ipHits = restored('ipEndpoints');
+            sniHits = restored('sniHandshakes');
+            alpnHits = restored('alpnNegotiations');
+            configsValidated = restored('configsValidated');
+          }
           if (resumePhase.isNotEmpty) warnings.add('resuming_from_$resumePhase');
         }
       } catch (e, st) {
