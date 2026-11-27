@@ -77,6 +77,14 @@ jobs:
           set -o pipefail
           flutter test test/king_national_scanner_test.dart 2>&1 | tee scanner-test.log
 
+      - name: Run durable scanner journal tests
+        id: scanner_memory_tests
+        continue-on-error: true
+        working-directory: build_app
+        run: |
+          set -o pipefail
+          flutter test test/king_scan_memory_test.dart 2>&1 | tee scanner-memory-test.log
+
       - name: Run unit tests
         id: unit_tests
         continue-on-error: true
@@ -97,7 +105,7 @@ jobs:
         working-directory: build_app
         run: |
           set -o pipefail
-          flutter analyze lib test/king_national_scanner_test.dart --no-fatal-warnings --no-fatal-infos 2>&1 | tee analyze.log
+          flutter analyze lib test/king_national_scanner_test.dart test/king_scan_memory_test.dart --no-fatal-warnings --no-fatal-infos 2>&1 | tee analyze.log
 
       - name: Build optimized Android release-mode APK (arm64)
         working-directory: build_app
@@ -214,7 +222,8 @@ jobs:
         run: |
           scanner_result="${{ steps.scanner_tests.outcome }}"
           unit_result="${{ steps.unit_tests.outcome }}"
-          if [ "$scanner_result" != "success" ] || [ "$unit_result" != "success" ]; then
-            echo "Scanner tests: $scanner_result; full unit tests: $unit_result"
+          memory_result="${{ steps.scanner_memory_tests.outcome }}"
+          if [ "$scanner_result" != "success" ] || [ "$memory_result" != "success" ] || [ "$unit_result" != "success" ]; then
+            echo "Scanner tests: $scanner_result; scanner memory tests: $memory_result; full unit tests: $unit_result"
             exit 1
           fi
