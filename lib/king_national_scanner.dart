@@ -109,8 +109,8 @@ class KingNationalScannerEngine {
   KingNationalScannerEngine._();
 
   static const String _prefsKey = 'king_nat_strategy_memory_v1';
-  static const int _maxProfiles = 80;
-  static const int _maxVariantsPerProfile = 128;
+  static const int _maxProfiles = 5000;
+  static const int _maxVariantsPerProfile = 1024;
   static final Map<String, Map<int, _KingNatVariantStats>> _history =
       <String, Map<int, _KingNatVariantStats>>{};
   static final Map<String, int> _featureEvidence = <String, int>{};
@@ -943,13 +943,13 @@ class KingNationalScannerEngine {
       if (!stopped() && seeds.isNotEmpty && kNatIpScanOn) {
         final phaseClock = Stopwatch()..start();
         final found = await _natDomainFirst(
-          seeds, conc: max(2, natAdaptiveWorkers()),
-          stop: () => stopped() || phaseClock.elapsed >= const Duration(seconds: 90),
+          seeds, conc: max(2, natAdaptiveWorkers()).toInt(),
+          stop: stopped,
         );
         if (!stopped() && found.isNotEmpty) {
           domainHits = found.length;
           await addDiscovered(found);
-        } else if (phaseClock.elapsed >= const Duration(seconds: 90)) {
+        } else if (phaseClock.elapsed >= const Duration(minutes: 2)) {
           warnings.add('domain_phase_budget_reached');
         }
       }
@@ -958,8 +958,8 @@ class KingNationalScannerEngine {
       if (!stopped() && kNatIpScanOn && !ipAutoBusy && !_natRangeScanBusy) {
         final found = await natRangeScanStep(
           known: seeds,
-          maxAddrs: max(256, natAdaptiveWorkers() * 512),
-          conc: max(1, natAdaptiveWorkers()),
+          maxAddrs: max(256, natAdaptiveWorkers() * 512).toInt(),
+          conc: max(1, natAdaptiveWorkers()).toInt(),
           stop: stopped, budget: const Duration(minutes: 2), coordinatorOwned: true,
         );
         if (!stopped() && found.isNotEmpty) {
