@@ -2850,10 +2850,11 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('class PilotIpv6Probe', engine)
         self.assertIn('InternetAddressType.IPv6', engine)
         self.assertIn('Socket.connect(address, 443', engine)
-        self.assertIn('PilotIpv6Probe.refresh()', scanner)
+        self.assertIn('refreshPilotNetworkEvidence()', scanner)
         self.assertIn('PilotIpv6Probe.current.toMap()', scanner)
-        self.assertIn('PilotIpv6Probe.refresh()', diagnostics)
-        self.assertIn('final ipv6 = routeSamples[2] as PilotIpv6Evidence;', diagnostics)
+        self.assertIn('refreshPilotNetworkEvidence()', diagnostics)
+        self.assertIn('final ipv6 = PilotIpv6Probe.current;', diagnostics)
+        self.assertIn('Future<NetworkEvidence> refreshPilotNetworkEvidence', engine)
 
 if __name__ == '__main__':
     unittest.main()
