@@ -12101,7 +12101,7 @@ ListTile( // KINGEXTRAS row
 
   Future<void>? _personalPrep;
   /// PERSLIVE: ردیف‌های لیست شخصی؛ در مسیر فعلی ping=-2 یعنی عمداً بدون تست مستقیم
-  /// PERSPAGE: تمام سرورهای پوشهٔ شخصی در ردیف اختصاصی نمایش داده و بررسی می‌شوند
+  /// PERSPAGE: صفحهٔ اول سرورهای پوشه برای نمایش و بازیابی وضعیت اتصال
   List<Server> _personalShown = <Server>[];
   final ValueNotifier<List<_PRow>> _personalRows = ValueNotifier<List<_PRow>>(<_PRow>[]);
   int _personalTotalInFolder = 0;
@@ -12412,6 +12412,9 @@ ListTile( // KINGEXTRAS row
   Future<void> _personalConnectFallback() async {
     if (_personalFallbackBusy || _personalHardFail || !mounted) return;
     _personalFallbackBusy = true;
+    // Restored sessions may seed _personalRanked from the persisted first
+    // page rather than the fresh 32-candidate latency window.
+    _personalPreferredLinks.addAll(_personalRanked.map((server) => server.link));
     wantVpn = true;
     abort = false;
     try {
