@@ -1755,11 +1755,25 @@ Future<File> _natMemoryFile(String name) async {
 Future<KingDiskInventory>? _natIpInventoryFuture;
 Future<KingDiskInventory>? _natDomainInventoryFuture;
 
-Future<KingDiskInventory> _natIpInventory() =>
-    _natIpInventoryFuture ??= KingDiskInventory.open(name: 'nat-ip-endpoints');
+Future<KingDiskInventory> _natIpInventory() async {
+  try {
+    return await (_natIpInventoryFuture ??=
+        KingDiskInventory.open(name: 'nat-ip-endpoints'));
+  } catch (_) {
+    _natIpInventoryFuture = null;
+    rethrow;
+  }
+}
 
-Future<KingDiskInventory> _natDomainInventory() =>
-    _natDomainInventoryFuture ??= KingDiskInventory.open(name: 'nat-domain-endpoints');
+Future<KingDiskInventory> _natDomainInventory() async {
+  try {
+    return await (_natDomainInventoryFuture ??=
+        KingDiskInventory.open(name: 'nat-domain-endpoints'));
+  } catch (_) {
+    _natDomainInventoryFuture = null;
+    rethrow;
+  }
+}
 
 
 Future<void> _natFileWriteQueue = Future<void>.value();
