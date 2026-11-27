@@ -20,6 +20,7 @@ class FreshResourceStore {
   static const String _metadataFileName = 'metadata.json';
   static const String _dirtyFileName = '.inventory_dirty';
   static final Map<String, Future<void>> _queues = <String, Future<void>>{};
+  static final Map<String, Future<void>> _mergeQueues = <String, Future<void>>{};
 
   static Future<Directory> directory() async {
     final root = await getApplicationSupportDirectory();
@@ -184,8 +185,18 @@ class FreshResourceStore {
           } catch (_) {}
         }
       }
+      var needsSeparator = false;
+      if (await file.exists()) {
+        final length = await file.length();
+        if (length > 0) {
+          final tail = await file.openRead(length - 1, length).fold<List<int>>(
+            <int>[], (bytes, chunk) => bytes..addAll(chunk));
+          needsSeparator = tail.isNotEmpty && tail.last != 10;
+        }
+      }
       final sink = file.openWrite(mode: FileMode.append);
       try {
+        if (needsSeparator) sink.write('\\n');
         for (final entry in group.value.entries) {
           if (!existing.add(entry.key)) continue;
           sink.writeln(jsonEncode(<String, Object?>{
@@ -208,8 +219,9 @@ class FreshResourceStore {
     final dir = await directory();
     await _migrateLegacy(dir);
     final path = dir.path;
+    final previous = _mergeQueues[path] ?? Future<void>.value();
+    final operation = previous.then((_) async {
     var total = await count();
-    var addedTotal = 0;
     var batch = <String>[];
     await for (final value in Stream<String>.fromIterable(links)) {
       final link = normalizeLink(value);
@@ -220,8 +232,7 @@ class FreshResourceStore {
       if (remaining <= 0) break;
       if (batch.length > remaining) batch = batch.take(remaining).toList();
       await File('${dir.path}/$_dirtyFileName').writeAsString('1', flush: true);
-      final added = await _enqueue(path, () => _appendBatch(dir, batch, source: source));
-      addedTotal += added;
+      final added = await _appendBatch(dir, batch, source: source);
       total = (total + added).clamp(0, maxEntries);
       batch = <String>[];
       await _writeMetadata(dir, total, source: source);
@@ -233,14 +244,16 @@ class FreshResourceStore {
       final remaining = maxEntries - total;
       if (batch.length > remaining) batch = batch.take(remaining).toList();
       await File('${dir.path}/$_dirtyFileName').writeAsString('1', flush: true);
-      final added = await _enqueue(path, () => _appendBatch(dir, batch, source: source));
-      addedTotal += added;
+      final added = await _appendBatch(dir, batch, source: source);
       total = (total + added).clamp(0, maxEntries);
       await _writeMetadata(dir, total, source: source);
       final dirty = File('${dir.path}/$_dirtyFileName');
       if (await dirty.exists()) await dirty.delete();
     }
     return total;
+    });
+    _mergeQueues[path] = operation.then<void>((_) {}, onError: (Object _) {});
+    return operation;
   }
 
   static Future<int> saveSnapshot(Iterable<String> links,
