@@ -1752,6 +1752,16 @@ Future<File> _natMemoryFile(String name) async {
   return File('${directory.path}/$name');
 }
 
+Future<KingDiskInventory>? _natIpInventoryFuture;
+Future<KingDiskInventory>? _natDomainInventoryFuture;
+
+Future<KingDiskInventory> _natIpInventory() =>
+    _natIpInventoryFuture ??= KingDiskInventory.open(name: 'nat-ip-endpoints');
+
+Future<KingDiskInventory> _natDomainInventory() =>
+    _natDomainInventoryFuture ??= KingDiskInventory.open(name: 'nat-domain-endpoints');
+
+
 Future<void> _natFileWriteQueue = Future<void>.value();
 
 Future<void> _natWriteJsonSnapshot(String name, Object value) {
@@ -1917,26 +1927,73 @@ Set<String> natIpMemHosts() => {for (final e in natIpMem) '${e['ip']}'};
 
 Future<void> natIpMemLoad() async {
   try {
-    final p = await SharedPreferences.getInstance();
-    final file = await _natMemoryFile('king_nat_ip_inventory.json');
-    final hasDiskStore = await file.exists();
-    final s = hasDiskStore ? await file.readAsString() : p.getString(_ipMemKey);
-    if (s != null) {
-      natIpMem
-        ..clear()
-        ..addAll((jsonDecode(s) as List).cast<Map<String, dynamic>>());
-      if (!hasDiskStore) {
-        await _natWriteMemorySnapshot('king_nat_ip_inventory.json', natIpMem);
+    final prefs = await SharedPreferences.getInstance();
+    final inventory = await _natIpInventory();
+    if (await inventory.records().isEmpty) {
+      final legacyFile = await _natMemoryFile('king_nat_ip_inventory.json');
+      var legacy = await legacyFile.exists()
+          ? await legacyFile.readAsString()
+          : null;
+      if (legacy == null || legacy.isEmpty) legacy = prefs.getString(_ipMemKey);
+      if (legacy != null && legacy.isNotEmpty) {
+        final decoded = jsonDecode(legacy);
+        if (decoded is List) {
+          final migrated = <Map<String, Object?>>[];
+          for (final raw in decoded) {
+            if (raw is! Map) continue;
+            final ip = raw['ip']?.toString() ?? '';
+            final port = raw['port'];
+            if (InternetAddress.tryParse(ip) == null || port is! num ||
+                port.toInt() < 1 || port.toInt() > 65535) continue;
+            migrated.add(<String, Object?>{
+              'key': '$ip|${port.toInt()}',
+              'ip': ip,
+              'port': port.toInt(),
+              't': raw['t'] is num ? (raw['t'] as num).toInt() : 0,
+            });
+          }
+          if (migrated.isNotEmpty) await inventory.upsertBatch(migrated);
+        }
+      }
+    }
+    natIpMem.clear();
+    await for (final record in inventory.records()) {
+      final ip = record['ip'];
+      final port = record['port'];
+      if (ip is String && port is num) {
+        natIpMem.add(<String, dynamic>{
+          'ip': ip,
+          'port': port.toInt(),
+          't': record['t'] is num ? (record['t'] as num).toInt() : 0,
+        });
       }
     }
     final rangesFile = await _natMemoryFile('king_nat_configured_ranges.json');
     final hasRangeFile = await rangesFile.exists();
     final savedRanges = hasRangeFile
         ? jsonDecode(await rangesFile.readAsString())
-        : (p.getString(_rangeKey) ?? '')
+        : (prefs.getString(_rangeKey) ?? '')
             .split(RegExp(r'[\r\n,; ]+'))
-            .where((x) => x.contains('/') || x.contains('-') ||
-                InternetAddress.tryParse(x) != null)
+            .where((raw) {
+              final value = raw.trim();
+              if (value.contains('/')) {
+                final parts = value.split('/');
+                if (parts.length != 2) return false;
+                final address = InternetAddress.tryParse(parts[0].trim());
+                final prefix = int.tryParse(parts[1].trim());
+                if (address == null || prefix == null) return false;
+                return address.type == InternetAddressType.IPv4
+                    ? prefix >= 0 && prefix <= 32
+                    : prefix == 128;
+              }
+              if (value.contains('-')) {
+                final parts = value.split('-');
+                if (parts.length != 2) return false;
+                return InternetAddress.tryParse(parts[0].trim())?.type == InternetAddressType.IPv4 &&
+                    InternetAddress.tryParse(parts[1].trim())?.type == InternetAddressType.IPv4;
+              }
+              return InternetAddress.tryParse(value) != null;
+            })
             .toList();
     natRanges = savedRanges is List
         ? savedRanges.map((value) => value.toString()).toList()
@@ -1944,7 +2001,7 @@ Future<void> natIpMemLoad() async {
     if (!hasRangeFile && natRanges.isNotEmpty) {
       await _natWriteJsonSnapshot('king_nat_configured_ranges.json', natRanges);
     }
-    await _natRangeStateLoad(p);
+    await _natRangeStateLoad(prefs);
   } catch (e, stk) {
     logError(e, stk);
   }
@@ -1958,16 +2015,45 @@ Set<String> natDomMemHosts() => {for (final e in natDomMem) '${e['h']}:${e['port
 
 Future<void> natDomMemLoad() async {
   try {
-    final p = await SharedPreferences.getInstance();
-    final file = await _natMemoryFile('king_nat_domain_inventory.json');
-    final hasDiskStore = await file.exists();
-    final s = hasDiskStore ? await file.readAsString() : p.getString(_domMemKey);
-    if (s != null) {
-      natDomMem
-        ..clear()
-        ..addAll((jsonDecode(s) as List).cast<Map<String, dynamic>>());
-      if (!hasDiskStore) {
-        await _natWriteMemorySnapshot('king_nat_domain_inventory.json', natDomMem);
+    final prefs = await SharedPreferences.getInstance();
+    final inventory = await _natDomainInventory();
+    if (await inventory.records().isEmpty) {
+      final legacyFile = await _natMemoryFile('king_nat_domain_inventory.json');
+      var legacy = await legacyFile.exists()
+          ? await legacyFile.readAsString()
+          : null;
+      if (legacy == null || legacy.isEmpty) legacy = prefs.getString(_domMemKey);
+      if (legacy != null && legacy.isNotEmpty) {
+        final decoded = jsonDecode(legacy);
+        if (decoded is List) {
+          final migrated = <Map<String, Object?>>[];
+          for (final raw in decoded) {
+            if (raw is! Map) continue;
+            final host = raw['h']?.toString() ?? '';
+            final port = raw['port'];
+            if (host.isEmpty || port is! num ||
+                port.toInt() < 1 || port.toInt() > 65535) continue;
+            migrated.add(<String, Object?>{
+              'key': '$host|${port.toInt()}',
+              'h': host,
+              'port': port.toInt(),
+              't': raw['t'] is num ? (raw['t'] as num).toInt() : 0,
+            });
+          }
+          if (migrated.isNotEmpty) await inventory.upsertBatch(migrated);
+        }
+      }
+    }
+    natDomMem.clear();
+    await for (final record in inventory.records()) {
+      final host = record['h'];
+      final port = record['port'];
+      if (host is String && port is num) {
+        natDomMem.add(<String, dynamic>{
+          'h': host,
+          'port': port.toInt(),
+          't': record['t'] is num ? (record['t'] as num).toInt() : 0,
+        });
       }
     }
   } catch (e, stk) {
@@ -1976,10 +2062,21 @@ Future<void> natDomMemLoad() async {
 }
 
 Future<void> natDomMemSave(String host, int port) async {
-  natDomMem.removeWhere((e) => e['h'] == host && e['port'] == port);
-  natDomMem.insert(0, {'h': host, 'port': port, 't': DateTime.now().millisecondsSinceEpoch});
+  if (host.trim().isEmpty || port < 1 || port > 65535) return;
+  final normalizedHost = host.trim();
+  final now = DateTime.now().millisecondsSinceEpoch;
   try {
-    await _natWriteMemorySnapshot('king_nat_domain_inventory.json', natDomMem);
+    final inventory = await _natDomainInventory();
+    await inventory.upsertBatch(<Map<String, Object?>>[
+      <String, Object?>{
+        'key': '$normalizedHost|$port',
+        'h': normalizedHost,
+        'port': port,
+        't': now,
+      },
+    ]);
+    natDomMem.removeWhere((e) => e['h'] == normalizedHost && e['port'] == port);
+    natDomMem.insert(0, {'h': normalizedHost, 'port': port, 't': now});
   } catch (e, stk) {
     logError(e, stk);
   }
@@ -1987,6 +2084,7 @@ Future<void> natDomMemSave(String host, int port) async {
 
 Future<void> natIpMemMergeHits(List<String> hits) async {
   final now = DateTime.now().millisecondsSinceEpoch;
+  final updates = <String, Map<String, Object?>>{};
   for (final item in hits) {
     final parts = item.split('|');
     if (parts.length < 2) continue;
@@ -1994,23 +2092,39 @@ Future<void> natIpMemMergeHits(List<String> hits) async {
     final port = int.tryParse(parts[1].trim());
     if (InternetAddress.tryParse(ip) == null ||
         port == null || port < 1 || port > 65535) continue;
-    natIpMem.removeWhere((entry) => entry['ip'] == ip && entry['port'] == port);
-    natIpMem.insert(0, <String, dynamic>{'ip': ip, 'port': port, 't': now});
+    updates['$ip|$port'] = <String, Object?>{
+      'key': '$ip|$port', 'ip': ip, 'port': port, 't': now,
+    };
   }
-  if (hits.isNotEmpty) {
-    await _natWriteMemorySnapshot('king_nat_ip_inventory.json', natIpMem);
-  }
+  if (updates.isEmpty) return;
+  final inventory = await _natIpInventory();
+  await inventory.upsertBatch(updates.values);
+  final updatedKeys = updates.keys.toSet();
+  natIpMem.removeWhere((entry) =>
+      updatedKeys.contains('${entry['ip']}|${entry['port']}'));
+  natIpMem.insertAll(0, <Map<String, dynamic>>[
+    for (final record in updates.values)
+      <String, dynamic>{
+        'ip': record['ip'], 'port': record['port'], 't': now,
+      },
+  ]);
 }
 
 Future<void> natIpMemSave(String ip, int port) async {
-  natIpMem.removeWhere((e) => e['ip'] == ip && e['port'] == port);
-  natIpMem.insert(0, {'ip': ip, 'port': port, 't': DateTime.now().millisecondsSinceEpoch});
+  if (InternetAddress.tryParse(ip) == null || port < 1 || port > 65535) return;
+  final now = DateTime.now().millisecondsSinceEpoch;
   try {
-    await _natWriteMemorySnapshot('king_nat_ip_inventory.json', natIpMem);
+    final inventory = await _natIpInventory();
+    await inventory.upsertBatch(<Map<String, Object?>>[
+      <String, Object?>{'key': '$ip|$port', 'ip': ip, 'port': port, 't': now},
+    ]);
+    natIpMem.removeWhere((e) => e['ip'] == ip && e['port'] == port);
+    natIpMem.insert(0, {'ip': ip, 'port': port, 't': now});
   } catch (e, stk) {
     logError(e, stk);
   }
 }
+
 
 
 /// Stream every configured address in bounded batches. Each range has its own
