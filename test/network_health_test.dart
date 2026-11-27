@@ -329,6 +329,13 @@ void main() {
       expect(withVpn, physical);
     });
 
+    test('missing interface and route evidence fails closed with an empty fingerprint', () {
+      expect(KingNetworkFingerprint.withDefaultRoutes('', const <String>[]), isEmpty);
+      final guard = KingNetworkScanGuard(initialFingerprint:
+          KingNetworkFingerprint.withDefaultRoutes('', const <String>[]));
+      expect(guard.shouldCancel, isTrue);
+    });
+
     test('default route changes are detected even when both interfaces stay up', () {
       const interfaces = 'rmnet_data0|10.20.30.40;wlan0|192.168.1.10';
       final wifiRoute = KingNetworkFingerprint.withDefaultRoutes(
