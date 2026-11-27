@@ -32,13 +32,13 @@ void main() {
 
 
     test('48-hour refresh quality gate preserves a large inventory on partial source responses', () {
-      expect(FreshResourceStore.minimumSnapshotReplacementCount(4000000), 1000000);
+      expect(FreshResourceStore.minimumSnapshotReplacementCount(4000000), 3000000);
       expect(FreshResourceStore.minimumSnapshotReplacementCount(20), 20);
       expect(FreshResourceStore.minimumSnapshotReplacementCount(0), 1);
       expect(
         FreshResourceStore.isSufficientSnapshotReplacement(
           previousCount: 4000000,
-          incomingCount: 999999,
+          incomingCount: 2999999,
           successfulSources: 2,
           configuredSources: 3,
         ),
@@ -47,7 +47,7 @@ void main() {
       expect(
         FreshResourceStore.isSufficientSnapshotReplacement(
           previousCount: 4000000,
-          incomingCount: 1000000,
+          incomingCount: 3000000,
           successfulSources: 2,
           configuredSources: 3,
         ),
