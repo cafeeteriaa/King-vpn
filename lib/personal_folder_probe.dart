@@ -121,6 +121,7 @@ class PersonalFolderProbeCoordinator {
 
     if (isCancelled()) cancelled = true;
     if (scores.isEmpty && !cancelled) {
+      failedLinks.clear();
       final fallback = await fallbackLinks();
       return PersonalFolderProbeResult(
         links: List<String>.unmodifiable(fallback),
@@ -130,6 +131,7 @@ class PersonalFolderProbeCoordinator {
       );
     }
 
+    failedLinks.clear();
     scores.sort((a, b) {
       final byLatency = a.milliseconds.compareTo(b.milliseconds);
       if (byLatency != 0) return byLatency;
