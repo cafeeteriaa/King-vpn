@@ -44,7 +44,7 @@
 
 اسکنر دستی SNI/Port نیز از همان اصل source-driven پیروی می‌کند:
 
-- در حالت جهانی، feedهای تازه با `fetchServers(dedupeByLink: true)` دریافت می‌شوند؛ در حالت ملی، آرشیو تازه‌شده با `natHotAll(fetch: true)` خوانده می‌شود.
+- در حالت جهانی، feedهای تازه با `fetchServers(dedupeByLink: true)` دریافت می‌شوند؛ در حالت ملی، آرشیو hot موجود با `natHotAll(fetch: false)` خوانده می‌شود؛ refresh منابع ملی توسط مسیر مستقل نگهداری/به‌روزرسانی آرشیو انجام می‌شود.
 - قالب‌های کاربر و feedهای مستقل با حفظ لینک‌های متفاوت/اعتبارنامه‌ها ترکیب می‌شوند؛ یک host:port مشترک باعث حذف قالب‌های پروتکلی متفاوت نمی‌شود.
 - IPهای ذخیره‌شده و endpointهای قالب‌ها به‌علاوهٔ A/AAAA دامنه‌های منابع، با DNS fan-out حداکثر ۱۶تایی و timeout چهارثانیه‌ای جمع‌آوری می‌شوند. سقف ۱۶ فقط concurrency است، نه سقف inventory.
 - SNIها از فهرست‌های موجود، حافظهٔ دامنه، SNI کانفیگ و hostname قالب‌ها استخراج و از نظر DNS hostname بودن اعتبارسنجی می‌شوند؛ IP literal به‌عنوان SNI پذیرفته نمی‌شود.
@@ -53,6 +53,6 @@
 
 ## ماندگاری نتایج اسکن ملی
 
-نتایج candidate اسکن SNI/Port/TLS در حالت ملی اکنون به‌صورت یک snapshot JSON در SharedPreferences ذخیره و هنگام بازشدن اسکنر بازیابی می‌شوند. فهرست IPهای دقیق candidate نیز در همان snapshot نگهداری و به inventory حافظه‌ای `natScanHits` بازگردانده می‌شود. این داده‌ها همچنان candidate هستند و به‌عنوان سرور سالم یا مقدار تأییدشدهٔ کانفیگ استفاده نمی‌شوند.
+نتایج candidate اسکن SNI/Port/TLS در حالت ملی اکنون به‌صورت یک snapshot JSON در SharedPreferences ذخیره و هنگام بازشدن اسکنر بازیابی می‌شوند. IPهای TCP-open به‌طور جداگانه از مسیر append-only فایل‌محور `natNationalIpMemSave` ذخیره می‌شوند و هنگام بارگذاری inventory به `natScanHits` بازمی‌گردند. این داده‌ها همچنان candidate هستند و به‌عنوان سرور سالم یا مقدار تأییدشدهٔ کانفیگ استفاده نمی‌شوند.
 
 IPهای TCP-open در حالت ملی به‌جای کپی‌کردن در یک blob بزرگ SharedPreferences، از مسیر append-only موجود `natNationalIpMemSave` در inventory فایل‌محور ذخیره می‌شوند. مسیر IP-auto همان inventory را پیش از ساخت endpointها بارگذاری می‌کند؛ بنابراین سقف cache موقت `natScanHits` باعث حذف دادهٔ پایدار نمی‌شود.
