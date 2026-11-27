@@ -376,7 +376,7 @@ class FreshResourceStore {
     final value = await _readMetadata(dir);
     return <String, Object?>{
       ...value,
-      'count': value['count'] is int ? value['count'] : await count(),
+      'count': value['count'] is int ? value['count'] : await count(root: root),
       'capacity': maxEntries,
     };
   }
