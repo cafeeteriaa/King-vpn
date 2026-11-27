@@ -245,7 +245,9 @@ class FreshResourceStore {
         }
         final length = await file.length();
         var offset = offsets[shard] ?? 0;
-        if (offset < 0 || offset >= length) offset = 0;
+        // Keep an EOF cursor at exactly `length`: a later append can then be read
+        // without replaying this shard from byte zero. Reset only after truncation.
+        if (offset < 0 || offset > length) offset = 0;
         var consumed = false;
         var readInShard = 0;
         var addedFromShard = 0;
@@ -253,7 +255,8 @@ class FreshResourceStore {
             .transform(utf8.decoder)
             .transform(const LineSplitter())) {
           consumed = true;
-          final nextOffset = offset + utf8.encode(line).length + 1;
+          final nextOffset = (offset + utf8.encode(line).length + 1)
+              .clamp(0, length).toInt();
           offset = nextOffset;
           offsets[shard] = nextOffset;
           try {
@@ -270,8 +273,10 @@ class FreshResourceStore {
           readInShard++;
           if (readInShard >= 32 || result.length >= limit) break;
         }
-        if (!consumed || (offsets[shard] ?? 0) >= length) {
-          offsets[shard] = 0;
+        if (!consumed) {
+          // EOF is a durable position, not a request to restart the shard.
+          // If the append-only inventory grows, the next call resumes here.
+          offsets[shard] = offset;
         }
         stagnantVisits = addedFromShard == 0 ? stagnantVisits + 1 : 0;
         shardIndex = (shardIndex + 1) % shardCount;
