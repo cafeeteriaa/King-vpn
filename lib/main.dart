@@ -12194,7 +12194,7 @@ ListTile( // KINGEXTRAS row
     // building a second full List<Server> and ping-result map before work starts.
     await for (final links in PersonalFolderStore.streamBatches(
       batchSize: 64,
-      shouldAbort: () => !mounted || !wantVpn && _personalBusy,
+      shouldAbort: () => !mounted,
     )) {
       final batch = <Server>[];
       for (final link in links) {
