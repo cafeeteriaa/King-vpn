@@ -15,6 +15,19 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn("personalFolderServers(max:", source)
         self.assertNotIn("out.length >= max", source)
 
+    def test_personal_folder_runtime_uses_disk_archive_and_compact_identity_index(self):
+        main = (ROOT / "lib" / "main.dart").read_text(encoding="utf-8")
+        folder = (ROOT / "lib" / "personal_folder.dart").read_text(encoding="utf-8")
+        self.assertIn("personalFolderCount = page.totalCount", folder)
+        self.assertIn("personalFolderCache = List<String>.of(page.items)", folder)
+        self.assertIn("Future<void> _rebuildPersonalFolderKeyIndex()", main)
+        self.assertIn("next.add(parsed.key)", main)
+        self.assertIn("PersonalFolderStore.streamBatches(", main)
+        self.assertIn("_connectPersonalFolderForRow()", main)
+        self.assertIn("await _personalConnectFallback()", main)
+        self.assertNotIn("personalFolderCache.length", main)
+        self.assertIn("personalFolderRevision++", folder)
+
     def test_personal_folder_mutations_are_serialized(self):
         folder = (ROOT / "lib" / "personal_folder.dart").read_text(encoding="utf-8")
         self.assertIn("Future<void> _personalMutationQueue", folder)
