@@ -67,14 +67,29 @@ class NetworkEvidence {
     }
     final domesticUp = domestic == LinkHealth.healthy;
     final globalUp = global == LinkHealth.healthy;
+    final domesticIpv6Hint = domesticIpv6Successes >= 2;
+    final globalIpv6Hint = globalIpv6Successes >= 2;
     if (!domesticUp && !globalUp) {
-      return domestic == LinkHealth.unreachable && global == LinkHealth.unreachable
-          ? DetectedNetworkMode.offline
-          : DetectedNetworkMode.unknown;
+      if (domestic == LinkHealth.unreachable && global == LinkHealth.unreachable) {
+        // TCP/443 over IPv6 is only a path hint; it prevents a false offline
+        // label but never upgrades the route to verified HTTPS reachability.
+        return domesticIpv6Hint || globalIpv6Hint
+            ? DetectedNetworkMode.unknown
+            : DetectedNetworkMode.offline;
+      }
+      return DetectedNetworkMode.unknown;
     }
     if (domesticUp && globalUp) return DetectedNetworkMode.dualStack;
-    if (domesticUp && global == LinkHealth.unreachable) return DetectedNetworkMode.domesticOnly;
-    if (globalUp && domestic == LinkHealth.unreachable) return DetectedNetworkMode.globalOnly;
+    if (domesticUp && global == LinkHealth.unreachable) {
+      return globalIpv6Hint
+          ? DetectedNetworkMode.unknown
+          : DetectedNetworkMode.domesticOnly;
+    }
+    if (globalUp && domestic == LinkHealth.unreachable) {
+      return domesticIpv6Hint
+          ? DetectedNetworkMode.unknown
+          : DetectedNetworkMode.globalOnly;
+    }
     return DetectedNetworkMode.unknown;
   }
 
@@ -112,8 +127,14 @@ PilotNetworkStrategy choosePilotNetworkStrategy(NetworkEvidence evidence) {
   final globalFailed = evidence.global == LinkHealth.unreachable &&
       evidence.globalSamples >= 2;
 
-  if (domesticConfirmed && globalFailed) return PilotNetworkStrategy.domestic;
-  if (globalConfirmed && domesticFailed) return PilotNetworkStrategy.global;
+  // A contradictory IPv6 path is a reason to preserve the current route,
+  // not proof that HTTPS works over IPv6. Do not label the opposite family cut.
+  if (domesticConfirmed && globalFailed && evidence.globalIpv6Successes >= 2) {
+    return PilotNetworkStrategy.preserve;
+  }
+  if (globalConfirmed && domesticFailed && evidence.domesticIpv6Successes >= 2) {
+    return PilotNetworkStrategy.preserve;
+  }
   if (domesticConfirmed && globalConfirmed) {
     final domesticMs = evidence.domesticLatencyMs;
     final globalMs = evidence.globalLatencyMs;
@@ -130,6 +151,11 @@ PilotNetworkStrategy choosePilotNetworkStrategy(NetworkEvidence evidence) {
   }
   if (domesticConfirmed && !globalConfirmed && globalFailed) return PilotNetworkStrategy.domestic;
   if (globalConfirmed && !domesticConfirmed && domesticFailed) return PilotNetworkStrategy.global;
-  if (domesticFailed && globalFailed) return PilotNetworkStrategy.offline;
+  if (domesticFailed && globalFailed) {
+    return evidence.domesticIpv6Successes >= 2 ||
+            evidence.globalIpv6Successes >= 2
+        ? PilotNetworkStrategy.preserve
+        : PilotNetworkStrategy.offline;
+  }
   return PilotNetworkStrategy.preserve;
 }
