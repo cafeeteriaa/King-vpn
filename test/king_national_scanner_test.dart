@@ -54,6 +54,44 @@ void main() {
         domesticTlsSuccesses: 0,
         globalTlsSuccesses: 0,
       ), isNull);
+      expect(KingNationalScannerEngine.chooseNationalMode(
+        diagnosis: NatNetworkClass.domesticOnlyLikely,
+        domesticTlsSuccesses: 1,
+        globalTlsSuccesses: 0,
+      ), isNull);
+      expect(KingNationalScannerEngine.chooseNationalMode(
+        diagnosis: NatNetworkClass.globalReachable,
+        domesticTlsSuccesses: 2,
+        globalTlsSuccesses: 2,
+      ), isNull);
+    });
+
+    test('scan report exposes route evidence separately from config validation', () {
+      const report = KingNatScanReport(
+        completed: true,
+        timedOut: false,
+        networkClass: NatNetworkClass.domesticOnlyLikely,
+        nationalMode: true,
+        dnsResolvers: 2,
+        domainEndpoints: 3,
+        ipEndpoints: 4,
+        sniHandshakes: 5,
+        alpnNegotiations: 2,
+        configsValidated: 8,
+        elapsedMs: 900,
+        domesticTlsSuccesses: 3,
+        globalTlsSuccesses: 0,
+        domesticLatencyMs: 110,
+        networkConfidence: 0.55,
+        inventoryPassComplete: false,
+        sliceYielded: true,
+      );
+      final map = report.toMap();
+      expect(map['domesticTlsSuccesses'], 3);
+      expect(map['globalTlsSuccesses'], 0);
+      expect(map['inventoryPassComplete'], isFalse);
+      expect(map['sliceYielded'], isTrue);
+      expect(map['configsValidated'], 8);
     });
 
     test('disabled padding noise and unsupported fake packets are not claimed as ready', () {
