@@ -234,3 +234,209 @@ class KingScanJournal {
     await _writeTail;
   }
 }
+
+
+/// Append-only, sharded inventory for large scanner result sets.
+///
+/// Records are partitioned by a SHA-256 identity prefix. Writes check only the
+/// identities in the incoming batch while streaming the affected shard, so
+/// loading or deduplicating a batch never materializes the complete inventory.
+/// Payloads are local scanner data; checkpoint cursors must remain opaque.
+class KingDiskInventory {
+  KingDiskInventory._(this._directory, this.name);
+
+  final Directory _directory;
+  final String name;
+  static final Map<String, Future<void>> _writeQueues = <String, Future<void>>{};
+
+  Future<void> get _writeTail =>
+      _writeQueues[_directory.path] ?? Future<void>.value();
+
+  static Future<KingDiskInventory> open({
+    required String name,
+    Directory? root,
+  }) async {
+    if (!RegExp(r'^[a-zA-Z0-9][a-zA-Z0-9_-]{0,79}$').hasMatch(name)) {
+      throw ArgumentError.value(name, 'name', 'Expected a safe inventory name.');
+    }
+    final base = root ?? await getApplicationSupportDirectory();
+    final directory = Directory(base.path + '/king_inventory_' + name);
+    await directory.create(recursive: true);
+    return KingDiskInventory._(directory, name);
+  }
+
+  String _identity(String key) {
+    final normalized = key.trim();
+    if (normalized.isEmpty || normalized.length > 4096) {
+      throw ArgumentError.value(key, 'key', 'Inventory identity is empty or too long.');
+    }
+    return sha256.convert(utf8.encode(normalized)).toString();
+  }
+
+  /// Adds only previously unseen identities. The existing shard is streamed
+  /// and only incoming identities are retained in memory for deduplication.
+  Future<int> appendBatch(Iterable<Map<String, Object?>> records) {
+    final path = _directory.path;
+    final previous = _writeQueues[path] ?? Future<void>.value();
+    final task = previous.then((_) async {
+      final grouped = <String, List<MapEntry<String, Map<String, Object?>>>>{};
+      for (final record in records) {
+        final key = record['key'];
+        if (key is! String) {
+          throw ArgumentError('Every inventory record must include a string key.');
+        }
+        final identity = _identity(key);
+        final payload = Map<String, Object?>.from(record)..remove('key');
+        grouped.putIfAbsent(identity.substring(0, 2), () => <MapEntry<String, Map<String, Object?>>[])
+            .add(MapEntry(identity, payload));
+      }
+      var added = 0;
+      for (final entry in grouped.entries) {
+        final file = File(_directory.path + '/' + entry.key + '.jsonl');
+        final wanted = <String>{for (final item in entry.value) item.key};
+        final existing = <String>{};
+        if (await file.exists()) {
+          await for (final line in file.openRead()
+              .transform(utf8.decoder)
+              .transform(const LineSplitter())) {
+            if (line.trim().isEmpty) continue;
+            try {
+              final decoded = jsonDecode(line);
+              if (decoded is Map && decoded['id'] is String &&
+                  wanted.contains(decoded['id'])) {
+                existing.add(decoded['id'] as String);
+              }
+            } catch (_) {
+              // Ignore torn/malformed records; continue through later records.
+            }
+          }
+        }
+        var needsSeparator = false;
+        if (await file.exists()) {
+          final length = await file.length();
+          if (length > 0) {
+            final tail = await file.openRead(length - 1, length).first;
+            needsSeparator = tail.isNotEmpty && tail.last != 10;
+          }
+        }
+        final sink = file.openWrite(mode: FileMode.append);
+        try {
+          if (needsSeparator) sink.write('\n');
+          for (final item in entry.value) {
+            if (!existing.add(item.key)) continue;
+            sink.writeln(jsonEncode(<String, Object?>{
+              'version': 1,
+              'id': item.key,
+              'payload': item.value,
+            }));
+            added++;
+          }
+          await sink.flush();
+        } finally {
+          await sink.close();
+        }
+      }
+      return added;
+    });
+    _writeQueues[path] = task.then<void>((_) {}, onError: (Object error, StackTrace stack) {
+      logError(error, stack);
+    });
+    return task;
+  }
+
+  /// Replaces incoming identities atomically per shard. This keeps endpoint
+  /// metadata (such as last-seen timestamps) current without rewriting the
+  /// complete inventory or loading a shard into memory.
+  Future<int> upsertBatch(Iterable<Map<String, Object?>> records) {
+    final path = _directory.path;
+    final previous = _writeQueues[path] ?? Future<void>.value();
+    final task = previous.then((_) async {
+      final grouped = <String, Map<String, Map<String, Object?>>>{};
+      for (final record in records) {
+        final key = record['key'];
+        if (key is! String) {
+          throw ArgumentError('Every inventory record must include a string key.');
+        }
+        final identity = _identity(key);
+        final payload = Map<String, Object?>.from(record)..remove('key');
+        grouped.putIfAbsent(identity.substring(0, 2), () => <String, Map<String, Object?>>{})[identity] = payload;
+      }
+      var written = 0;
+      for (final entry in grouped.entries) {
+        final file = File(_directory.path + '/' + entry.key + '.jsonl');
+        final temporary = File(file.path + '.tmp');
+        final sink = temporary.openWrite();
+        try {
+          if (await file.exists()) {
+            await for (final line in file.openRead()
+                .transform(utf8.decoder)
+                .transform(const LineSplitter())) {
+              if (line.trim().isEmpty) continue;
+              try {
+                final decoded = jsonDecode(line);
+                if (decoded is Map && decoded['id'] is String &&
+                    entry.value.containsKey(decoded['id'])) {
+                  continue;
+                }
+                if (decoded is Map && decoded['version'] == 1 &&
+                    decoded['id'] is String && decoded['payload'] is Map) {
+                  sink.writeln(line);
+                }
+              } catch (_) {
+                // A torn record is discarded while valid records are retained.
+              }
+            }
+          }
+          for (final item in entry.value.entries) {
+            sink.writeln(jsonEncode(<String, Object?>{
+              'version': 1,
+              'id': item.key,
+              'payload': item.value,
+            }));
+            written++;
+          }
+          await sink.flush();
+        } finally {
+          await sink.close();
+        }
+        try {
+          await temporary.rename(file.path);
+        } catch (_) {
+          if (await temporary.exists()) await temporary.delete();
+          rethrow;
+        }
+      }
+      return written;
+    });
+    _writeQueues[path] = task.then<void>((_) {}, onError: (Object error, StackTrace stack) {
+      logError(error, stack);
+    });
+    return task;
+  }
+
+  /// Streams records shard-by-shard; the full inventory is never hydrated.
+  Stream<Map<String, Object?>> records() async* {
+    await _writeTail;
+    final shards = _directory.list(followLinks: false)
+        .where((entity) => entity is File && entity.path.endsWith('.jsonl'));
+    await for (final entity in shards) {
+      final file = entity as File;
+      await for (final line in file.openRead()
+          .transform(utf8.decoder)
+          .transform(const LineSplitter())) {
+        if (line.trim().isEmpty) continue;
+        try {
+          final decoded = jsonDecode(line);
+          if (decoded is! Map || decoded['version'] != 1 ||
+              decoded['id'] is! String || decoded['payload'] is! Map) continue;
+          yield <String, Object?>{
+            'id': decoded['id'] as String,
+            ...Map<String, Object?>.from(decoded['payload'] as Map),
+          };
+        } catch (_) {
+          // Skip only the invalid record, not the rest of the shard.
+        }
+      }
+    }
+  }
+}
