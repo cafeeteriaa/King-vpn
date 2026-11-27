@@ -16,6 +16,7 @@ class _FreshResourcesPageState extends State<FreshResourcesPage> {
   List<String> _links = <String>[];
   Map<String, Object?> _metadata = <String, Object?>{};
   String _path = 'در حال خواندن مسیر...';
+  int _totalCount = 0;
   bool _busy = true;
   String _message = '';
 
@@ -36,7 +37,7 @@ class _FreshResourcesPageState extends State<FreshResourcesPage> {
     setState(() => _busy = true);
     try {
       final values = await Future.wait<Object>([
-        FreshResourceStore.readLinks(),
+        FreshResourceStore.readPreview(limit: 100),
         FreshResourceStore.metadata(),
         FreshResourceStore.storagePath,
       ]);
@@ -45,6 +46,7 @@ class _FreshResourcesPageState extends State<FreshResourcesPage> {
         _links = values[0] as List<String>;
         _metadata = values[1] as Map<String, Object?>;
         _path = values[2] as String;
+        _totalCount = (_metadata['count'] as int?) ?? 0;
         _message = '';
       });
     } catch (error) {
@@ -75,7 +77,7 @@ class _FreshResourcesPageState extends State<FreshResourcesPage> {
   Future<void> _copyAll() async {
     if (_links.isEmpty) return;
     await Clipboard.setData(ClipboardData(text: _links.join('\\n')));
-    if (mounted) setState(() => _message = 'لینک همه منابع کپی شد.');
+    if (mounted) setState(() => _message = '۱۰۰ کانفیگ اولِ فهرست کپی شد؛ برای جلوگیری از مصرف شدید حافظه، کل بانک چندمیلیونی در کلیپ‌بورد بارگذاری نمی‌شود.');
   }
 
   Future<void> _clear() async {
@@ -121,7 +123,7 @@ class _FreshResourcesPageState extends State<FreshResourcesPage> {
                   children: [
                     const Icon(Icons.auto_awesome, size: 52),
                     const SizedBox(height: 8),
-                    Text('${_links.length} منبع ذخیره‌شده',
+                    Text('$_totalCount منبع ذخیره‌شده • نمایش ${_links.length} مورد اول',
                         textAlign: TextAlign.center, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
                     const SizedBox(height: 6),
                     Text('آخرین به‌روزرسانی: $updated', textAlign: TextAlign.center),
@@ -153,12 +155,12 @@ class _FreshResourcesPageState extends State<FreshResourcesPage> {
             ),
             const SizedBox(height: 8),
             FilledButton.icon(onPressed: _busy ? null : _importText, icon: const Icon(Icons.save), label: const Text('ذخیره در پوشه منابع تازه')),
-            OutlinedButton.icon(onPressed: _links.isEmpty ? null : _copyAll, icon: const Icon(Icons.copy), label: const Text('کپی همه کانفیگ‌ها')),
+            OutlinedButton.icon(onPressed: _links.isEmpty ? null : _copyAll, icon: const Icon(Icons.copy), label: const Text('کپی ۱۰۰ کانفیگ اول')),
             OutlinedButton.icon(onPressed: _busy ? null : _clear, icon: const Icon(Icons.delete_outline), label: const Text('پاک‌کردن فقط منابع تازه')),
             if (_busy) const Padding(padding: EdgeInsets.all(12), child: Center(child: CircularProgressIndicator())),
             if (_message.isNotEmpty) Padding(padding: const EdgeInsets.all(8), child: Text(_message)),
             const SizedBox(height: 8),
-            Text('ظرفیت داخلی پوشه: حداکثر ${FreshResourceStore.maxEntries} کانفیگ. هر کانفیگ قبل از ذخیره از نظر قالب لینک بررسی می‌شود.'),
+            Text('ظرفیت داخلی پوشه: ${FreshResourceStore.maxEntries} کانفیگ. داده‌ها در ۲۵۶ بخش روی دیسک ذخیره و به‌صورت جریانی خوانده می‌شوند؛ کل مجموعه در RAM بارگذاری نمی‌شود.'),
           ],
         ),
       ),
