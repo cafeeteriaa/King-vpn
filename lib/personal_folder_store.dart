@@ -68,8 +68,12 @@ class PersonalFolderStore {
 
     await temp.writeAsString(contents, flush: true);
     if (await target.exists()) {
-      if (await backup.exists()) await backup.delete();
-      await target.copy(backup.path);
+      // Never replace a known-good backup with a corrupt primary snapshot.
+      final primaryIsValid = await _readFile(target) != null;
+      if (primaryIsValid) {
+        if (await backup.exists()) await backup.delete();
+        await target.copy(backup.path);
+      }
       await target.delete();
     }
     try {
