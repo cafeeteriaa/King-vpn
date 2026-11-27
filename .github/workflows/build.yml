@@ -69,7 +69,17 @@ jobs:
         working-directory: build_app
         run: python3 ../patch_plugin.py
 
+      - name: Run focused national scanner tests
+        id: scanner_tests
+        continue-on-error: true
+        working-directory: build_app
+        run: |
+          set -o pipefail
+          flutter test test/king_national_scanner_test.dart 2>&1 | tee scanner-test.log
+
       - name: Run unit tests
+        id: unit_tests
+        continue-on-error: true
         working-directory: build_app
         run: |
           set -o pipefail
@@ -196,3 +206,15 @@ jobs:
           path: build_app/build/app/outputs/flutter-apk/app-arm64-v8a-release.apk
           if-no-files-found: error
           retention-days: 14
+
+      # Preserve analyzer/build evidence after a failing test suite without
+      # reporting an overall successful CI run.
+      - name: Enforce test gates
+        if: always()
+        run: |
+          scanner_result="${{ steps.scanner_tests.outcome }}"
+          unit_result="${{ steps.unit_tests.outcome }}"
+          if [ "$scanner_result" != "success" ] || [ "$unit_result" != "success" ]; then
+            echo "Scanner tests: $scanner_result; full unit tests: $unit_result"
+            exit 1
+          fi
