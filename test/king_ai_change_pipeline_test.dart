@@ -179,6 +179,26 @@ void main() {
       );
     });
 
+
+    test('detects stale input when a prior stage intentionally produced an empty file', () {
+      final bundle = KingAiPatchBundle();
+      bundle.addStage(
+        stageIndex: 0,
+        sourceFiles: const {'lib/empty.dart': 'original'},
+        changes: const {'lib/empty.dart': ''},
+      );
+      expect(
+        () => bundle.addStage(
+          stageIndex: 1,
+          sourceFiles: const {'lib/empty.dart': 'original'},
+          changes: const {'lib/empty.dart': 'later'},
+        ),
+        throwsStateError,
+      );
+      expect(bundle.changes['lib/empty.dart'], isEmpty);
+      expect(bundle.completedStages, 1);
+    });
+
     test('ignores no-op outputs and counts completed empty stages', () {
       final bundle = KingAiPatchBundle();
       bundle.addStage(
