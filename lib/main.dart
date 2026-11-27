@@ -9716,7 +9716,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       unawaited(_refreshFreshResourceSnapshotIfDue());
       _resDaily();
     });
-    unawaited(_refreshFreshResourceSnapshotIfDue());
     if (mounted) setState(() {});
   }
 
@@ -9726,7 +9725,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   Future<void> _refreshFreshResourceSnapshotIfDue() async {
     // Do not race live connection/scanner work or probe through a VPN tunnel.
     if (!mounted || offlineOnly || connected || busy || searching || switching ||
-        upBusy || nationalMode || _freshResourceRefreshBusy) return;
+        upBusy || nationalMode || warm != null || _freshResourceRefreshBusy) return;
     final retryAfter = _freshResourceRefreshRetryAfter;
     if (retryAfter != null && DateTime.now().isBefore(retryAfter)) return;
     _freshResourceRefreshBusy = true;
