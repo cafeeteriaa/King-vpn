@@ -52,7 +52,7 @@ void main() {
       final scheduler = KingScanMaintenanceScheduler(
         shouldRun: () => eligible,
         runDns: () async => eligible = false,
-        runIp: () async => ipCalls++,
+        runIp: () async { ipCalls++; },
       );
 
       await scheduler.runOnce();
