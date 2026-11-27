@@ -28,10 +28,23 @@ class FreshResourceStore {
   static final Map<String, Uint8List> _shardBlooms = <String, Uint8List>{};
   static final Set<String> _shardTailChecked = <String>{};
   static final Map<String, Future<void>> _migrationFutures = <String, Future<void>>{};
+  static Future<void> _replacementQueue = Future<void>.value();
 
   static Future<Directory> directory({Directory? root}) async {
+    // Default-root readers/writers wait while a staged refresh swaps the store.
+    if (root == null) await _replacementQueue;
     final base = root ?? await getApplicationSupportDirectory();
     final dir = Directory('${base.path}/$directoryName');
+    if (root == null) {
+      final backup = Directory('${dir.path}.backup');
+      if (!await dir.exists() && await backup.exists()) {
+        await backup.rename(dir.path);
+      } else if (await dir.exists() && await backup.exists()) {
+        await backup.delete(recursive: true);
+      }
+      final stageRoot = Directory('${base.path}/.kingvpn-resource-stage');
+      if (await stageRoot.exists()) await stageRoot.delete(recursive: true);
+    }
     if (!await dir.exists()) await dir.create(recursive: true);
     return dir;
   }
@@ -402,7 +415,7 @@ class FreshResourceStore {
     final operation = previous.then((_) async {
     var total = await _countUnlocked(dir, root: root);
     var batch = <String>[];
-    await for (final value in Stream<String>.fromIterable(links)) {
+    for (final value in links) {
       final link = normalizeLink(value);
       if (link == null) continue;
       batch.add(link);
@@ -433,11 +446,58 @@ class FreshResourceStore {
     return operation;
   }
 
-  static Future<int> saveSnapshot(Iterable<String> links,
-      {String source = 'online', Directory? root}) async {
-    await clear(root: root);
-    return merge(links, source: source, root: root);
+  /// Replaces the complete inventory only after a staged snapshot has been
+  /// fully written and counted. The current inventory remains intact on any
+  /// download, validation, write, or process failure before the directory swap.
+  static Future<int> replaceSnapshot(Iterable<String> links,
+      {String source = 'online-refresh', Directory? root}) async {
+    final base = root ?? await getApplicationSupportDirectory();
+    final target = Directory('${base.path}/$directoryName');
+    final stageRoot = Directory('${base.path}/.kingvpn-resource-stage');
+    final staged = Directory('${stageRoot.path}/$directoryName');
+    final backup = Directory('${target.path}.backup');
+    final previous = _replacementQueue;
+    final operation = previous.then((_) async {
+      final targetPath = target.path;
+      await Future.wait<void>(<Future<void>>[
+        _mergeQueues[targetPath] ?? Future<void>.value(),
+        _readQueues[targetPath] ?? Future<void>.value(),
+      ]);
+      if (await stageRoot.exists()) await stageRoot.delete(recursive: true);
+      if (await backup.exists()) await backup.delete(recursive: true);
+      final total = await merge(links, source: source, root: stageRoot);
+      if (total <= 0 || total > maxEntries) {
+        throw StateError('Fresh resource refresh produced no valid profiles; previous inventory preserved.');
+      }
+      final verified = await count(root: stageRoot);
+      if (verified != total) {
+        throw StateError('Staged resource count mismatch ($verified != $total); previous inventory preserved.');
+      }
+      if (await target.exists()) await target.rename(backup.path);
+      try {
+        await staged.rename(target.path);
+      } catch (_) {
+        if (!await target.exists() && await backup.exists()) {
+          await backup.rename(target.path);
+        }
+        rethrow;
+      }
+      if (await backup.exists()) await backup.delete(recursive: true);
+      if (await stageRoot.exists()) await stageRoot.delete(recursive: true);
+      _shardBlooms.clear();
+      _shardTailChecked.clear();
+      _mergeQueues.remove(targetPath);
+      _readQueues.remove(targetPath);
+      return total;
+    });
+    _replacementQueue = operation.then<void>((_) {}, onError: (Object _) {});
+    return operation;
   }
+
+  /// Compatibility API; now uses the crash-recoverable staged replacement.
+  static Future<int> saveSnapshot(Iterable<String> links,
+      {String source = 'online', Directory? root}) =>
+      replaceSnapshot(links, source: source, root: root);
 
   static Future<void> _migrateLegacy(Directory dir) async {
     final marker = File('${dir.path}/.migration_v2_done');
