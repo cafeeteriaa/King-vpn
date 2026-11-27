@@ -1,8 +1,8 @@
-import 'dart:async';
 import 'dart:convert';
 
-import 'package:http/http.dart' as http;
 import 'dart:io';
+
+import 'package:http/http.dart' as http;
 
 import 'package:path_provider/path_provider.dart';
 
@@ -15,8 +15,6 @@ import 'package:path_provider/path_provider.dart';
 class KingDynamicSourceDiscovery {
   KingDynamicSourceDiscovery._();
 
-  static const _cacheKey = 'king_dynamic_sources_v2';
-  static const _updatedKey = 'king_dynamic_sources_updated_v2';
   static const _ttl = Duration(hours: 12);
   static const _maxRepos = 24;
   static const _maxFiles = 48;
