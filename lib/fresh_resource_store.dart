@@ -251,9 +251,11 @@ class FreshResourceStore {
   static Future<int> count({Directory? root}) async {
     final dir = await directory(root: root);
     await _migrateLegacy(dir);
-    final pendingWrite = _mergeQueues[dir.path];
-    if (pendingWrite != null) await pendingWrite;
-    return _countUnlocked(dir, root: root);
+    final path = dir.path;
+    final previous = _mergeQueues[path] ?? Future<void>.value();
+    final operation = previous.then((_) => _countUnlocked(dir, root: root));
+    _mergeQueues[path] = operation.then<void>((_) {}, onError: (Object _) {});
+    return operation;
   }
 
   /// Called only after the per-directory write queue has drained, or by the
