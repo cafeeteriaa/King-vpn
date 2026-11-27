@@ -126,6 +126,58 @@ Future<bool> _autoPortOk(String ip, int port) async {
   }
 }
 
+// Bounded fan-out limits concurrent sockets, never the number of inventory items.
+const int _autoProbeConcurrency = 8;
+
+Future<bool> _autoAnyAddress(
+  List<String> addresses,
+  Future<bool> Function(String ip) probe, {
+  bool Function()? shouldStop,
+}) async {
+  if (addresses.isEmpty) return false;
+  var cursor = 0;
+  var matched = false;
+  Future<void> worker() async {
+    while (!matched && !(shouldStop?.call() ?? false)) {
+      final index = cursor++;
+      if (index >= addresses.length) return;
+      if (await probe(addresses[index])) matched = true;
+    }
+  }
+
+  final workers = <Future<void>>[];
+  for (var i = 0; i < addresses.length && i < _autoProbeConcurrency; i++) {
+    workers.add(worker());
+  }
+  await Future.wait(workers);
+  return matched;
+}
+
+Future<List<String>> _autoCollectAddresses(
+  List<String> addresses,
+  Future<bool> Function(String ip) probe, {
+  bool Function()? shouldStop,
+}) async {
+  if (addresses.isEmpty) return const <String>[];
+  var cursor = 0;
+  final matched = <String>[];
+  Future<void> worker() async {
+    while (!(shouldStop?.call() ?? false)) {
+      final index = cursor++;
+      if (index >= addresses.length) return;
+      final ip = addresses[index];
+      if (await probe(ip)) matched.add(ip);
+    }
+  }
+
+  final workers = <Future<void>>[];
+  for (var i = 0; i < addresses.length && i < _autoProbeConcurrency; i++) {
+    workers.add(worker());
+  }
+  await Future.wait(workers);
+  return List<String>.unmodifiable(matched);
+}
+
 Future<void> autoScanRun(
   void Function(String) say, {
   bool Function()? isVpnActive,
@@ -301,14 +353,16 @@ Future<void> autoScanRun(
       }
       var successPort = 0;
       for (final port in ports) {
-        for (final ip in ips) {
-          if (cancelled()) break sniLoop;
-          if (await _autoSniOk(ip, port, domain) != null) {
-            successPort = port;
-            break;
-          }
+        if (cancelled()) break sniLoop;
+        final matched = await _autoAnyAddress(
+          ips,
+          (ip) async => await _autoSniOk(ip, port, domain) != null,
+          shouldStop: cancelled,
+        );
+        if (matched) {
+          successPort = port;
+          break;
         }
-        if (successPort != 0) break;
       }
       if (successPort != 0) {
         sniHits.add(domain);
@@ -332,15 +386,25 @@ Future<void> autoScanRun(
         await natManualYield(shouldAbort: () => cancelled());
         if (cancelled()) break portLoop;
       }
-      var success = false;
-      for (final ip in ips) {
-        if (cancelled()) break portLoop;
-        if (await _autoPortOk(ip, port)) {
-          success = true;
-          if (scanNationalMode) nationalPortEndpoints.add('$ip|$port');
-          else break;
+      bool success;
+      if (scanNationalMode) {
+        final openIps = await _autoCollectAddresses(
+          ips,
+          (ip) => _autoPortOk(ip, port),
+          shouldStop: cancelled,
+        );
+        for (final ip in openIps) {
+          nationalPortEndpoints.add('$ip|$port');
         }
+        success = openIps.isNotEmpty;
+      } else {
+        success = await _autoAnyAddress(
+          ips,
+          (ip) => _autoPortOk(ip, port),
+          shouldStop: cancelled,
+        );
       }
+      if (cancelled()) break portLoop;
       if (success) portHits.add('$port');
       say('Port $portIndex/${ports.length} • TCP candidates: ${portHits.length}');
     }
@@ -354,16 +418,16 @@ Future<void> autoScanRun(
     final tlsSni = sniHits.isNotEmpty ? sniHits.first : 'www.google.com';
     for (final alpn in const <String>['h2', 'http/1.1']) {
       if (cancelled()) break;
-      var success = false;
-      for (final ip in ips) {
-        if (cancelled()) break;
-        final selected = await _autoAlpnOk(ip, 443, tlsSni, alpn);
-        if (selected != null && selected.isNotEmpty) {
+      final success = await _autoAnyAddress(
+        ips,
+        (ip) async {
+          final selected = await _autoAlpnOk(ip, 443, tlsSni, alpn);
+          if (selected == null || selected.isEmpty) return false;
           if (!tlsHits.contains(selected)) tlsHits.add(selected);
-          success = true;
-          break;
-        }
-      }
+          return true;
+        },
+        shouldStop: cancelled,
+      );
       if (success) say('ALPN: $alpn ✓');
     }
     if (cancelled()) {
