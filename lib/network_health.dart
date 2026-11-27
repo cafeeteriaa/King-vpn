@@ -257,6 +257,7 @@ class KingNetworkFingerprint {
 
   static String withDefaultRoutes(String interfaces, Iterable<String> routes) {
     final sorted = routes.toList()..sort();
+    if (interfaces.trim().isEmpty && sorted.isEmpty) return '';
     return '$interfaces#${sorted.join(';')}';
   }
 
