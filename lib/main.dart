@@ -5310,7 +5310,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
   // the pinned / manually added configs as server objects (the same object
   // that is in the healthy list or in the queue when there is one)
-  /// همهٔ سرورهای پوشهٔ شخصی؛ محدودیت تعداد ساختگی اعمال نمی‌شود.
+  /// سازگاری با مصرف‌کننده‌های قدیمی: فقط صفحهٔ نمایشی اول.
+  /// مسیر اتصال کامل باید از personalFolderConnect و پیمایش دیسکی استفاده کند.
   List<Server> personalFolderServers() {
     final out = <Server>[];
     for (final l in personalFolderCache) {
