@@ -38,8 +38,8 @@ class PersonalFolderStore {
   /// Encode one profile per JSON line without losing Unicode/newline content.
   static String encodeSnapshot(Iterable<String> links) {
     final values = _normalize(links);
-    return values.map(jsonEncode).join('\\n') +
-        (values.isEmpty ? '' : '\\n');
+    return values.map(jsonEncode).join('\n') +
+        (values.isEmpty ? '' : '\n');
   }
 
   /// null signals corruption; an empty valid snapshot decodes to [].
