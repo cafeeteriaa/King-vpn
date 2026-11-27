@@ -77,6 +77,18 @@ void main() {
       expect(reopened.latestCheckpoint?['phase'], 'domain');
     });
 
+    test('rejects sensitive journal identities and arbitrary phase labels', () async {
+      await expectLater(
+        KingScanJournal.open(jobId: 'https://user:password@example.com'),
+        throwsArgumentError,
+      );
+      final journal = await KingScanJournal.open(jobId: 'safe-job', root: root);
+      await expectLater(
+        journal.commit(phase: 'https://example.com', phaseCompleted: false),
+        throwsArgumentError,
+      );
+    });
+
     test('rejects unrecognized cursor fields and negative offsets', () async {
       final journal = await KingScanJournal.open(jobId: 'cursor-validation', root: root);
       await expectLater(
