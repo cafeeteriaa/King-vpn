@@ -10355,12 +10355,32 @@ ListTile( // KINGEXTRAS row
           choosePilotNetworkStrategy(evidence),
           diagnosis,
         );
-        if (strategy == PilotNetworkStrategy.domestic) {
-          nationalMode = true;
-        } else if (strategy == PilotNetworkStrategy.global) {
-          nationalMode = false;
+        final wasOfflineOnly = offlineOnly;
+        switch (strategy) {
+          case PilotNetworkStrategy.domestic:
+            nationalMode = true;
+            offlineOnly = false;
+            break;
+          case PilotNetworkStrategy.global:
+            nationalMode = false;
+            offlineOnly = false;
+            break;
+          case PilotNetworkStrategy.offline:
+            // Both independent TLS route groups failed their minimum quorum
+            // and IPv6 did not provide a contradictory path hint. Route the
+            // existing connection pipeline to its bounded on-device inventory
+            // instead of retrying unreachable public lists.
+            nationalMode = true;
+            offlineOnly = true;
+            break;
+          case PilotNetworkStrategy.preserve:
+            // Incomplete or contradictory evidence must not overwrite the
+            // user's last confirmed mode or their explicit offline setting.
+            break;
         }
-        // Unknown/dual-failure evidence preserves the previous strategy.
+        if (offlineOnly != wasOfflineOnly) await ultimateSave();
+        // Keep the existing single Smart Pilot path; offline is a source policy,
+        // not a separate connection button or a third VPN/proxy mode.
         natForce = nationalMode;
         userModeChoice = nationalMode;
       } else {
