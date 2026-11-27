@@ -71,7 +71,7 @@ void main() {
       await PersonalFolderStore.writeSnapshot(second);
 
       final primary = File('${tempDirectory.path}/servers.jsonl');
-      await primary.writeAsString('corrupt-record\\n');
+      await primary.writeAsString('corrupt-record\n');
 
       expect(await PersonalFolderStore.readSnapshot(), first);
 
