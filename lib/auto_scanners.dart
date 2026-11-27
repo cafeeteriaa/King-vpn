@@ -439,13 +439,10 @@ Future<void> autoScanRun(
     // remain separate.
     if (scanNationalMode) {
       final nationalDomains = <String>{...sniHits};
-      for (final endpoint in nationalPortEndpoints) {
-        final parts = endpoint.split('|');
-        final ip = parts.first;
-        final port = int.tryParse(parts.last) ?? 0;
-        natScanHits.add(ip);
-        await natNationalIpMemSave(ip, port);
-      }
+      await natNationalIpMemSaveMany(nationalPortEndpoints);
+      natScanHits.addAll(
+        nationalPortEndpoints.map((endpoint) => endpoint.substring(0, endpoint.lastIndexOf('|'))),
+      );
       for (final domain in nationalDomains) {
         await natNationalDomMemSave(domain, sniHitPorts[domain] ?? 443);
       }
