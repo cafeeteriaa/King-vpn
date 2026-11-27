@@ -153,6 +153,47 @@ void main() {
       expect(result.items, <String>['trojan://Special-Edge.example.net:443']);
     });
 
+    test('streams the complete archive in bounded batches without losing order', () async {
+      final input = List<String>.generate(
+        1003,
+        (i) => 'vless://node$i@example.com:443',
+      );
+      await PersonalFolderStore.writeSnapshot(input);
+      final batches = <List<String>>[];
+      await for (final batch in PersonalFolderStore.streamBatches(batchSize: 73)) {
+        expect(batch.length, lessThanOrEqualTo(73));
+        batches.add(batch);
+      }
+      expect(batches.expand((batch) => batch).toList(), input);
+      expect(await PersonalFolderStore.count(), input.length);
+    });
+
+    test('streams filtered archive matches and honors cancellation', () async {
+      final input = <String>[
+        ...List<String>.generate(200, (i) => 'vless://node$i@example.com:443'),
+        'trojan://wanted-edge@example.net:443',
+      ];
+      await PersonalFolderStore.writeSnapshot(input);
+      final found = <String>[];
+      await for (final batch in PersonalFolderStore.streamBatches(
+        batchSize: 7,
+        query: 'WANTED-EDGE',
+      )) {
+        found.addAll(batch);
+      }
+      expect(found, <String>['trojan://wanted-edge@example.net:443']);
+
+      var checks = 0;
+      final cancelled = <String>[];
+      await for (final batch in PersonalFolderStore.streamBatches(
+        batchSize: 5,
+        shouldAbort: () => ++checks > 1,
+      )) {
+        cancelled.addAll(batch);
+      }
+      expect(cancelled, hasLength(5));
+    });
+
     test('paged reads recover from a corrupt primary using the backup', () async {
       const first = <String>[
         'vless://backup-one@example.com:443',
