@@ -185,6 +185,9 @@ class KingScanJournal {
       _latest = record;
     });
     _writeTail = task.catchError((Object error, StackTrace stack) {
+      // The failed write may have left a partial final JSON line. Force a
+      // separator before the next queued commit in this same process.
+      _needsSeparator = true;
       logError(error, stack);
     });
     return task;
