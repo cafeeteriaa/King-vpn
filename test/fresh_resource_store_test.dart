@@ -253,6 +253,23 @@ void main() {
       }
     });
 
+    test('interrupted directory swap recovers backup before a failed refresh', () async {
+      final root = await Directory.systemTemp.createTemp('king-offline-replace-recover-');
+      try {
+        const oldLink = 'vless://recovered@example.test:443';
+        await FreshResourceStore.merge(<String>[oldLink], root: root);
+        final target = Directory('${root.path}/${FreshResourceStore.directoryName}');
+        await target.rename('${target.path}.backup');
+        await expectLater(
+          FreshResourceStore.replaceSnapshot(<String>['invalid'], root: root),
+          throwsA(isA<StateError>()),
+        );
+        expect(await FreshResourceStore.streamLinks(root: root).toList(), <String>[oldLink]);
+      } finally {
+        await root.delete(recursive: true);
+      }
+    });
+
     test('failed or empty staged refresh preserves the previous inventory', () async {
       final root = await Directory.systemTemp.createTemp('king-offline-replace-fail-');
       try {
