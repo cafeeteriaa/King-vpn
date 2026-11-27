@@ -2359,7 +2359,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         tls_start = source.index('final tlsHits = <String>[];')
         tls_end = source.index("await goldAddScans(", tls_start)
         tls = source[tls_start:tls_end]
-        ip_loop = tls.index('for (final ip in validIps) {')
+        ip_loop = tls.index('for (final ip in ips) {')
         stop_check = tls.index('if (cancelled()) break;', ip_loop)
         probe = tls.index('final selected = await _autoAlpnOk', ip_loop)
         self.assertLess(ip_loop, stop_check)
@@ -2589,18 +2589,18 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn('scanBudget', body)
         self.assertNotIn('timedOut()', body)
         self.assertIn('if (scanNationalMode) ...natNationalIpMemHosts() else ..._goldIps.keys', body)
-        self.assertIn('for (final server in [...configuredServers, ...sourceTemplates])', body)
+        self.assertIn('for (final server in <Server>[...configuredServers, ...sourceTemplates])', body)
         self.assertIn('await fetchServers(', body)
-        self.assertIn('await natHotAll(fetch: true)', body)
+        self.assertIn('await natHotAll(fetch: false)', body)
         self.assertIn('offset += 16', body)
         self.assertIn('.where(_autoValidSni)', body)
         self.assertIn('await natRelayHostsLoad();', body)
         self.assertIn('if (scanNationalMode) ...natRelayHosts,', body)
-        self.assertIn('for (final server in [...configuredServers, ...sourceTemplates])', body)
-        self.assertIn('await fetchServers(', body)
-        self.assertIn('await natHotAll(fetch: true)', body)
-        self.assertIn('offset += 16', body)
-        self.assertIn('.where(_autoValidSni)', body)
+
+
+
+
+
         self.assertIn('...kAutoSniDomains', body)
         self.assertIn('...frontSnis', body)
         self.assertIn('for (final port in ports)', body)
