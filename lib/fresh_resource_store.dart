@@ -520,7 +520,7 @@ class FreshResourceStore {
              entity.uri.pathSegments.last == _dirtyFileName ||
              entity.uri.pathSegments.last == _cursorFileName ||
              entity.uri.pathSegments.last == _legacyFileName ||
-             entity.uri.pathSegments.last == '\$_legacyFileName.migrated')) {
+             entity.uri.pathSegments.last == '${_legacyFileName}.migrated')) {
           await entity.delete();
         }
       }
