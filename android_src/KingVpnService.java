@@ -210,6 +210,7 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
     private final Map<Network, Integer> validatedPhysicalNetworks = new LinkedHashMap<>();
     private volatile ConnectivityManager connectivityManager;
     private volatile ConnectivityManager.NetworkCallback physicalNetworkCallback;
+    private volatile boolean physicalNetworkMonitorClosed = false;
     private final AtomicLong physicalNetworkChangeCount = new AtomicLong(0);
     private volatile long lastPhysicalNetworkChangeElapsedMs = 0L;
     private volatile int validatedWifiNetworkCount = 0;
@@ -1327,6 +1328,7 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
 
     private void registerPhysicalNetworkMonitor() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.LOLLIPOP) return;
+        physicalNetworkMonitorClosed = false;
         try {
             ConnectivityManager cm = (ConnectivityManager) getSystemService(CONNECTIVITY_SERVICE);
             if (cm == null) return;
@@ -1338,9 +1340,11 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
                     .build();
             ConnectivityManager.NetworkCallback callback = new ConnectivityManager.NetworkCallback() {
                 @Override public void onCapabilitiesChanged(Network network, NetworkCapabilities capabilities) {
-                    updatePhysicalNetwork(network, capabilities);
+                    if (!physicalNetworkMonitorClosed) updatePhysicalNetwork(network, capabilities);
                 }
-                @Override public void onLost(Network network) { removePhysicalNetwork(network); }
+                @Override public void onLost(Network network) {
+                    if (!physicalNetworkMonitorClosed) removePhysicalNetwork(network);
+                }
             };
             cm.registerNetworkCallback(request, callback);
             connectivityManager = cm;
@@ -1351,6 +1355,7 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
     }
 
     private void unregisterPhysicalNetworkMonitor() {
+        physicalNetworkMonitorClosed = true;
         ConnectivityManager cm = connectivityManager;
         ConnectivityManager.NetworkCallback callback = physicalNetworkCallback;
         connectivityManager = null;
