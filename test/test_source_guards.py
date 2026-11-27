@@ -104,6 +104,8 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn("page.hasNext", sheet)
         self.assertIn("page.hasPrevious", sheet)
         self.assertIn("onSubmitted:", sheet)
+        self.assertIn("تازه‌سازی فهرست", sheet)
+        self.assertIn("page.totalCount - 1", sheet)
         self.assertNotIn("List<String>.of(personalFolderCache)", sheet)
 
     def test_personal_folder_store_serializes_file_mutations(self):
