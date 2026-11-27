@@ -10181,14 +10181,15 @@ ListTile( // KINGEXTRAS row
           nationalMode &&
           localPilotOn &&
           !appGone &&
-          !abort &&) {
+          !abort) {
         await Future.delayed(const Duration(seconds: 2));
         if (connected) {
           seen = true;
           idle = 0;
           autoUpgrade = true;
           autoCycle = true;
-          // NATRANGE: پس‌زمینه، هر ۵ دقیقه، بخشی کم از بازه‌های IP با سرعت کم          if (localPilotOn && cpuHot == 0 &&
+          // NATRANGE: پس‌زمینه، هر ۵ دقیقه، بخشی کم از بازه‌های IP با سرعت کم
+          if (localPilotOn && cpuHot == 0 &&
               DateTime.now().difference(natRangeLast) >
                   const Duration(minutes: 5)) {
             natRangeLast = DateTime.now();
