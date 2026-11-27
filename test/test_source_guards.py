@@ -545,6 +545,21 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn("old_java_main = os.path.join(ja, 'MainActivity.java')", prepare)
         self.assertIn("os.remove(old_java_main)", prepare)
 
+    def test_android_bridge_has_versioned_runtime_handshake_and_retry(self):
+        native = (ROOT / 'android_src' / 'MainActivity.kt').read_text(encoding='utf-8')
+        main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        prepare = (ROOT / 'prepare_android.py').read_text(encoding='utf-8')
+        self.assertIn('"bridgeInfo" -> result.success(', native)
+        for field in ('"protocolVersion" to 1', '"channel" to "vpn/bg"',
+                      '"packageName" to packageName', '"vpnSettings" to true'):
+            self.assertIn(field, native)
+        self.assertIn('_bgBridgeProtocolVersion = 1', main)
+        self.assertIn("invokeMapMethod<String, dynamic>('bridgeInfo')", main)
+        self.assertIn('_scheduleBgBridgeRetry(error)', main)
+        self.assertIn('_bgBridgeRetryAfter', main)
+        self.assertNotIn('_bgAliveUnsupported', main)
+        self.assertIn("shutil.copy('android_src/MainActivity.kt', os.path.join(ka, 'MainActivity.kt'))", prepare)
+
     def test_background_supervisor_is_initialized_with_its_own_dispatcher(self):
         main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
         self.assertIn("import 'king_ai_background.dart';", main)
