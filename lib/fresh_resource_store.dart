@@ -211,7 +211,7 @@ class FreshResourceStore {
             if (row is Map && row['v'] == 1 &&
                 row['id'] is String && row['link'] is String) {
               final link = normalizeLink(row['link'] as String);
-              if (link != null && (_id(link) == row['id'] || _legacyId(link) == row['id']) && emitted.add(row['id'] as String)) {
+              if (link != null && _id(link) == row['id'] && emitted.add(row['id'] as String)) {
                 result.add(link);
                 addedFromShard++;
               }
