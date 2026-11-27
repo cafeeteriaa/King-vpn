@@ -160,6 +160,8 @@ extension IpAutoExt on _HomePageState {
   Future<void> ipAutoBackground({bool Function()? stop}) async {
     final runNationalMode = nationalMode;
     if (!kNatIpScanOn || !runNationalMode) return;
+    if (ipAutoBusy || dnsxManualBusy || _natRangeScanBusy || _dnsxAutoBusy || _autoScanRunning) return;
+    if (connected || busy || (stop?.call() ?? false)) return;
 
     bool externallyStopped() =>
         (stop?.call() ?? false) ||
@@ -192,8 +194,9 @@ extension IpAutoExt on _HomePageState {
         _dnsxAutoBusy ||
         _autoScanRunning;
 
-    // National idle discovery is a single ordered pipeline. It deliberately
-    // does not enter the global IP-auto inventory or its cursor namespace.
+    // Run the National Net discovery pipeline before the legacy exact-IP
+    // verifier. Its DNS/endpoint/range phases reuse the existing scanners and
+    // national-only stores; it never touches global cursors or inventories.
     await kingNationalScanner.runDiscoveryCycle(
       isNationalMode: () => nationalMode,
       canRun: canRun,
@@ -233,6 +236,38 @@ extension IpAutoExt on _HomePageState {
         }
       },
     );
+    if (externallyStopped()) return;
+
+    // Preserve the established exact-known-IP/core verifier and its durable
+    // cursor, retry interval and result inventory after the new discovery pass.
+    // Acquire both shared scan locks before the first await so manual scans
+    // cannot overlap preference I/O or the core verification stage.
+    ipAutoBusy = true;
+    dnsxManualBusy = true;
+    ipAutoStopFlag = false;
+    try {
+      await ipAutoLoad();
+      if (_ipAutoHalt(modeSnapshot: runNationalMode, stop: stop)) return;
+
+      final p = await SharedPreferences.getInstance();
+      if (_ipAutoHalt(modeSnapshot: runNationalMode, stop: stop)) return;
+
+      final last = int.tryParse(p.getString(_ipAutoAtKey) ?? '') ?? 0;
+      final now = DateTime.now().millisecondsSinceEpoch;
+      final gapMs = ipAutoHits.isEmpty ? 6 * 3600 * 1000 : 24 * 3600 * 1000;
+      if (now - last < gapMs) return;
+
+      final completed = await _ipAutoRunOnce((s) => ipAutoStatus = s, externalStop: stop);
+      if (completed && !_ipAutoHalt(modeSnapshot: runNationalMode, stop: stop)) {
+        await p.setString(_ipAutoAtKey, now.toString());
+      }
+    } catch (e, stk) {
+      logError(e, stk);
+    } finally {
+      await _ipAutoSave();
+      ipAutoBusy = false;
+      dnsxManualBusy = false;
+    }
   }
 
   /// دلیل رد شدن شروع اسکن؛ null یعنی می‌شود شروع کرد
