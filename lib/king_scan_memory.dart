@@ -316,7 +316,7 @@ class KingDiskInventory {
         }
         final sink = file.openWrite(mode: FileMode.append);
         try {
-          if (needsSeparator) sink.write('\\n');
+          if (needsSeparator) sink.write('\n');
           for (final item in entry.value) {
             if (!existing.add(item.key)) continue;
             sink.writeln(jsonEncode(<String, Object?>{
