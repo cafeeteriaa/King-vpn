@@ -1073,9 +1073,14 @@ class KingNationalScannerEngine {
             ...seeds.where((s) => s.cdn && !s.reality && _natIsSecure(s)),
           ];
           final seenTargets = <String>{};
-          final resumeServer = resumePhase == 'sni'
-              ? (resumeCursor['serverIndex'] as num?)?.toInt() ?? 0 : 0;
-          final resumeCandidate = resumePhase == 'sni'
+          final resumeServerHash = resumePhase == 'sni'
+              ? resumeCursor['serverKeyHash']?.toString() : null;
+          final foundResumeServer = resumeServerHash == null
+              ? 0
+              : targets.indexWhere((server) =>
+                  sha256.convert(utf8.encode(server.key)).toString() == resumeServerHash);
+          final resumeServer = foundResumeServer < 0 ? 0 : foundResumeServer;
+          final resumeCandidate = resumePhase == 'sni' && foundResumeServer >= 0
               ? (resumeCursor['candidateIndex'] as num?)?.toInt() ?? -1 : -1;
           for (var serverIndex = 0; serverIndex < targets.length; serverIndex++) {
             if (stopped()) break;
@@ -1119,6 +1124,7 @@ class KingNationalScannerEngine {
                   completed: false,
                   cursor: <String, Object?>{
                     'serverIndex': serverIndex,
+                    'serverKeyHash': sha256.convert(utf8.encode(server.key)).toString(),
                     'candidateIndex': candidateIndex,
                   },
                 );
@@ -1130,6 +1136,7 @@ class KingNationalScannerEngine {
                 completed: false,
                 cursor: <String, Object?>{
                   'serverIndex': serverIndex,
+                  'serverKeyHash': sha256.convert(utf8.encode(server.key)).toString(),
                   'candidateIndex': candidates.length - 1,
                 },
               );
@@ -1143,9 +1150,14 @@ class KingNationalScannerEngine {
         await beginPhase('config');
         status(KingNatScanPhase.config, 'اسکنر: اعتبارسنجی ساختار کانفیگ‌ها...');
         if (!stopped()) {
-          final resumeServer = resumePhase == 'config'
-              ? (resumeCursor['serverIndex'] as num?)?.toInt() ?? 0 : 0;
-          final resumeVariant = resumePhase == 'config'
+          final resumeServerHash = resumePhase == 'config'
+              ? resumeCursor['serverKeyHash']?.toString() : null;
+          final foundResumeServer = resumeServerHash == null
+              ? 0
+              : seeds.indexWhere((server) =>
+                  sha256.convert(utf8.encode(server.key)).toString() == resumeServerHash);
+          final resumeServer = foundResumeServer < 0 ? 0 : foundResumeServer;
+          final resumeVariant = resumePhase == 'config' && foundResumeServer >= 0
               ? (resumeCursor['variantIndex'] as num?)?.toInt() ?? -1 : -1;
           for (var serverIndex = 0; serverIndex < seeds.length; serverIndex++) {
             if (stopped()) break;
@@ -1171,6 +1183,7 @@ class KingNationalScannerEngine {
                 completed: false,
                 cursor: <String, Object?>{
                   'serverIndex': serverIndex,
+                  'serverKeyHash': sha256.convert(utf8.encode(server.key)).toString(),
                   'variantIndex': variantIndex,
                 },
               );
@@ -1181,6 +1194,7 @@ class KingNationalScannerEngine {
                 completed: false,
                 cursor: <String, Object?>{
                   'serverIndex': serverIndex,
+                  'serverKeyHash': sha256.convert(utf8.encode(server.key)).toString(),
                   'variantIndex': variants.length - 1,
                 },
               );
