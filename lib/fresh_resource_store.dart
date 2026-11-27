@@ -127,10 +127,18 @@ class FreshResourceStore {
   static Future<List<String>> readPreview({int limit = 100, Directory? root}) async {
     final result = <String>[];
     if (limit <= 0) return result;
-    await for (final link in streamLinks(root: root)) {
-      result.add(link);
-      if (result.length >= limit) break;
-    }
+    final dir = await directory(root: root);
+    await _migrateLegacy(dir);
+    final path = dir.path;
+    final previous = _readQueues[path] ?? Future<void>.value();
+    final operation = previous.then((_) async {
+      await for (final link in streamLinks(root: root)) {
+        result.add(link);
+        if (result.length >= limit) break;
+      }
+    });
+    _readQueues[path] = operation.then<void>((_) {}, onError: (Object _) {});
+    await operation;
     return result;
   }
 
