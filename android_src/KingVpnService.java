@@ -219,8 +219,19 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
         snapshot.put("activeAttempt", activeAttemptId);
         snapshot.put("attemptSequence", attemptSeq.get());
         snapshot.put("inFlightOperations", inFlight.get());
-        String error = lastError == null ? "" : lastError;
-        snapshot.put("lastError", error.length() > 240 ? error.substring(0, 240) : error);
+        String error = lastError == null ? "" : lastError.toLowerCase(java.util.Locale.ROOT);
+        snapshot.put("lastErrorPresent", !error.isEmpty());
+        String category = "none";
+        if (!error.isEmpty()) {
+            if (error.contains("permission")) category = "permission";
+            else if (error.contains("timeout") || error.contains("timed out")) category = "timeout";
+            else if (error.contains("empty config")) category = "invalid_config";
+            else if (error.contains("establish")) category = "tun_setup";
+            else if (error.contains("core")) category = "core";
+            else if (error.contains("stopped")) category = "stopped";
+            else category = "service";
+        }
+        snapshot.put("lastErrorCategory", category);
         return snapshot;
     }
 
