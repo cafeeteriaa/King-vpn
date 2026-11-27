@@ -6,7 +6,7 @@ Repository: cafeeteriaa/King-vpn
 Revision branch: feature/rust-ip-range-accelerator-20261127
 Parent revision branch: feat/king-ai-multistage-engineering-20261127
 Parent PR: https://github.com/cafeeteriaa/King-vpn/pull/72
-Revision PR: pending
+Revision PR: https://github.com/cafeeteriaa/King-vpn/pull/73
 Consolidated integration PR: https://github.com/cafeeteriaa/King-vpn/pull/66
 
 ## Revision history
@@ -212,3 +212,8 @@ Increment the revision number by exactly one for each substantial edit set. Reco
 - Review pass 2 (FFI/security/reliability): inspect pointer ownership, output sizing, panic boundary, invalid response handling and ABI-specific packaging.
 - Review pass 3 (compatibility/verification): inspect CI ordering, Cargo lock, existing scanner tests and full diff. Automated execution remains pending; this is not a build/test sign-off.
 - Exact-head GitHub Actions, Flutter tests/analyzer, Android arm64 APK build and physical-device validation are pending. No merge or release is authorized by this revision.
+
+
+### Revision 69 CI correction note
+- The first Rust CI run exposed an incorrect test expectation: the existing IPv4 batch cursor deliberately wraps within the requested page. The implementation matched the pre-existing Dart behavior; the regression test was corrected to assert the same wrap order.
+- The exact current head includes the corrected test, explicit unsafe blocks, a crate-level unsafe-operation lint, an FFI batch-size guard and preserved dynamic symbols. The new exact-head workflow result is pending.
