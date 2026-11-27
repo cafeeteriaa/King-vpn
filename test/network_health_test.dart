@@ -213,13 +213,13 @@ void main() {
       );
     });
 
-    test('independent DNS evidence prevents a false offline switch', () {
+    test('transport-only DNS evidence does not override the dedicated offline quorum', () {
       expect(
         corroboratePilotStrategy(
           PilotNetworkStrategy.offline,
           NatNetworkClass.transportRestricted,
         ),
-        PilotNetworkStrategy.preserve,
+        PilotNetworkStrategy.offline,
       );
     });
 
