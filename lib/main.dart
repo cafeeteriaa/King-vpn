@@ -12192,7 +12192,7 @@ ListTile( // KINGEXTRAS row
     _personalHardFail = false;
 
     if (personal != null &&
-        !personalFolderCache.any((entry) => entry.trim() == personal!.link.trim())) {
+        !await PersonalFolderStore.contains(personal!.link)) {
       await addToPersonalFolder([personal!.link]);
     }
 
@@ -12333,7 +12333,7 @@ ListTile( // KINGEXTRAS row
                     ListTile(
                       leading: const Icon(Icons.speed),
                       title: Text(
-                          'همه‌ی سرورهای شخصی: ${rows.length} • پینگ گرفته می‌شود'),
+                          '۵۰ سرور نخست از ${_personalTotalInFolder} سرور • پینگ دسته‌ای'),
                       subtitle: const Text(
                           'به کمترین پینگ وصل می‌شود؛ اگر یکی خراب بود، بعدی امتحان می‌شود'),
                     ),
@@ -12547,9 +12547,7 @@ ListTile( // KINGEXTRAS row
                           children: [
                             Expanded(
                               child: FilledButton(
-                                onPressed: personalFolderCache.isEmpty
-                                    ? null
-                                    : () {
+                                onPressed: () {
                                         Navigator.pop(ctx);
                                         unawaited(pickEngineThenStart(
                                           () => _personalAdThen(personalFolderConnect),
