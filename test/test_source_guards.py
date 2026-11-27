@@ -2856,5 +2856,17 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('final ipv6 = PilotIpv6Probe.current;', diagnostics)
         self.assertIn('Future<NetworkEvidence> refreshPilotNetworkEvidence', engine)
 
+    def test_offline_resource_store_is_four_million_and_disk_streamed(self):
+        store = (ROOT / 'lib' / 'fresh_resource_store.dart').read_text(encoding='utf-8')
+        page = (ROOT / 'lib' / 'fresh_resources_page.dart').read_text(encoding='utf-8')
+        self.assertIn('static const int maxEntries = 4000000;', store)
+        self.assertIn('static const int shardCount = 256;', store)
+        self.assertIn('static Stream<String> streamLinks()', store)
+        self.assertIn('openRead()', store)
+        self.assertIn('static Future<List<String>> readPreview({int limit = 100})', store)
+        self.assertIn('FreshResourceStore.readPreview(limit: 100)', page)
+        self.assertNotIn('FreshResourceStore.readLinks()', page)
+        self.assertIn('بدون بارگذاری کل مجموعه در RAM', page)
+
 if __name__ == '__main__':
     unittest.main()
