@@ -222,6 +222,37 @@ void main() {
       }
     });
 
+    test('staged refresh creates the parent path for a first-time inventory', () async {
+      final root = await Directory.systemTemp.createTemp('king-offline-replace-first-');
+      try {
+        final total = await FreshResourceStore.replaceSnapshot(
+          <String>['vless://first@example.test:443'],
+          source: 'online-public-sources-48h-refresh', root: root);
+        expect(total, 1);
+        expect(await FreshResourceStore.count(root: root), 1);
+      } finally {
+        await root.delete(recursive: true);
+      }
+    });
+
+    test('manual imports do not reset the successful online snapshot clock', () async {
+      final root = await Directory.systemTemp.createTemp('king-offline-refresh-clock-');
+      try {
+        await FreshResourceStore.replaceSnapshot(
+          <String>['vless://online@example.test:443'],
+          source: 'online-public-sources-48h-refresh', root: root);
+        final before = (await FreshResourceStore.metadata(root: root))['onlineSnapshotRefreshedAt'];
+        await FreshResourceStore.merge(
+          <String>['vless://manual@example.test:443'],
+          source: 'manual-import', root: root);
+        final after = (await FreshResourceStore.metadata(root: root))['onlineSnapshotRefreshedAt'];
+        expect(before, isNotNull);
+        expect(after, before);
+      } finally {
+        await root.delete(recursive: true);
+      }
+    });
+
     test('failed or empty staged refresh preserves the previous inventory', () async {
       final root = await Directory.systemTemp.createTemp('king-offline-replace-fail-');
       try {
