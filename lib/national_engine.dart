@@ -581,10 +581,10 @@ PilotNetworkStrategy corroboratePilotStrategy(
 
 NetworkEvidence currentPilotNetworkEvidence() =>
     PilotNetworkProbe.current.withIpv6Evidence(
-      domesticSuccesses: PilotIpv6Probe.current.domesticIpv6Successes,
-      globalSuccesses: PilotIpv6Probe.current.globalIpv6Successes,
-      domesticLatencyMs: PilotIpv6Probe.current.domesticIpv6LatencyMs,
-      globalLatencyMs: PilotIpv6Probe.current.globalIpv6LatencyMs,
+      domesticIpv6Successes: PilotIpv6Probe.current.domesticIpv6Successes,
+      globalIpv6Successes: PilotIpv6Probe.current.globalIpv6Successes,
+      domesticIpv6LatencyMs: PilotIpv6Probe.current.domesticIpv6LatencyMs,
+      globalIpv6LatencyMs: PilotIpv6Probe.current.globalIpv6LatencyMs,
     );
 
 Future<NetworkEvidence> refreshPilotNetworkEvidence({bool force = false}) async {
@@ -595,10 +595,10 @@ Future<NetworkEvidence> refreshPilotNetworkEvidence({bool force = false}) async 
   final route = samples[0] as NetworkEvidence;
   final ipv6 = samples[1] as PilotIpv6Evidence;
   return route.withIpv6Evidence(
-    domesticSuccesses: ipv6.domesticIpv6Successes,
-    globalSuccesses: ipv6.globalIpv6Successes,
-    domesticLatencyMs: ipv6.domesticIpv6LatencyMs,
-    globalLatencyMs: ipv6.globalIpv6LatencyMs,
+    domesticIpv6Successes: ipv6.domesticIpv6Successes,
+    globalIpv6Successes: ipv6.globalIpv6Successes,
+    domesticIpv6LatencyMs: ipv6.domesticIpv6LatencyMs,
+    globalIpv6LatencyMs: ipv6.globalIpv6LatencyMs,
   );
 }
 
