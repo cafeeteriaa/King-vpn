@@ -591,8 +591,10 @@ const Duration _varcbCooldown = Duration(hours: 1);
 final Map<int, int> _variantFailStreak = {};
 final Map<int, DateTime> _variantCooldown = {};
 
-void natVariantResult(int v, bool ok) {
+void natVariantResult(int v, bool ok, {String? profile}) {
   if (v <= 0) return;
+  // KNS: this hook is called only after the real tunnel data-plane probe.
+  KingNationalScannerEngine.recordVariantOutcome(v, ok, profile: profile);
   final cd = _variantCooldown[v];
   if (cd != null && DateTime.now().isBefore(cd)) return;
   if (ok) {

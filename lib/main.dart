@@ -45,6 +45,7 @@ import 'king_extras2.dart'; // KINGEXTRAS: share sheet / UUID / check-host.net
 part 'iran_ai_extras.dart';
 part 'npv_am_extras.dart';
 part 'nat_ultra.dart';
+part 'king_national_scanner.dart'; // KNS: unified national scanner/strategy registry
 part 'net_diag.dart';
 part 'extras_plus.dart';
 part 'nip_scan.dart';
@@ -7815,9 +7816,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     // ultraMode alone no longer enables matrix during ordinary connect tests.
     final useMatrix = nationalMode;
     final multi = useMatrix;
+    if (useMatrix) await KingNationalScannerEngine.load();
     final order = useMatrix
-        ? <int>[0, ..._natOrder(s, full: _resFull).where((v) => v != 0).take(max(0, natMaxVariants - 1))]
-        : const [0]; // اول کانفیگ اصلی، سپس variantهای سازگار
+        ? <int>[0, ...KingNationalScannerEngine.planVariants(s, full: _resFull).where((v) => v != 0).take(max(0, natMaxVariants - 1))]
+        : const [0]; // KNS: shared registry + learned compatibility; original config first
     // NATBUDGET: one server may only use a limited time per pass; the rest of
     // its variants continue in the next pass (natCursorAdvance)
     final budget = multi ? natBudget(full: _resFull) : null;
@@ -8554,7 +8556,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           await _stopCore();
           return false;
         }
-        if (nationalMode && nv > 0) natVariantResult(nv, pp != null);
+        if (nationalMode && nv > 0) natVariantResult(nv, pp != null, profile: KingNationalScannerEngine.profileKey(s));
         if (pp != null) {
           trafficFailure = false;
           break;
@@ -8585,7 +8587,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           await _stopCore();
           return false;
         }
-        if (nationalMode && nv > 0) natVariantResult(nv, earlyPing != null);
+        if (nationalMode && nv > 0) natVariantResult(nv, earlyPing != null, profile: KingNationalScannerEngine.profileKey(s));
         if (earlyPing != null) {
           trafficFailure = false;
           break; // this config variant has real outbound traffic
@@ -9003,6 +9005,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   // they are connected as they are, and the watchdog replaces them only if
   // they really stay dead. The real reason of a failure is shown at the bottom.
   Future<bool> _connectLoop(List<Server> list, {bool trust = false}) async {
+    if (nationalMode) await KingNationalScannerEngine.load(); // KNS: load bounded per-destination strategy memory once
     var siteSkips = 0; // SITEPRECHECK: servers skipped because no site opened
     var coreDownCount = 0, coreUpCount = 0; // CORE-SYSTEMIC: core up/down per run
     for (final s in list) {
