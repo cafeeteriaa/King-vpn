@@ -210,13 +210,14 @@ void main() {
       }
       expect(found, <String>['trojan://wanted-edge@example.net:443']);
 
-      var checks = 0;
+      var cancel = false;
       final cancelled = <String>[];
       await for (final batch in PersonalFolderStore.streamBatches(
         batchSize: 5,
-        shouldAbort: () => ++checks > 1,
+        shouldAbort: () => cancel,
       )) {
         cancelled.addAll(batch);
+        cancel = true;
       }
       expect(cancelled, hasLength(5));
     });
