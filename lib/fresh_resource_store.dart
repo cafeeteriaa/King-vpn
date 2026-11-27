@@ -71,11 +71,6 @@ class FreshResourceStore {
     return sha256.convert(utf8.encode(canonical)).toString();
   }
 
-  /// Version-2 identity used by early development snapshots. Kept only for
-  /// reading/deduplicating those rows while new writes preserve credential case.
-  static String _legacyId(String link) =>
-      sha256.convert(utf8.encode(link.toLowerCase())).toString();
-
   static String _shard(String id) => id.substring(0, 2);
 
   static Future<File> _shardFile(Directory dir, String shard) async =>
@@ -126,7 +121,7 @@ class FreshResourceStore {
           if (row is! Map || row['v'] != 1 ||
               row['id'] is! String || row['link'] is! String) continue;
           final link = normalizeLink(row['link'] as String);
-          if (link != null && (_id(link) == row['id'] || _legacyId(link) == row['id'])) yield link;
+          if (link != null && _id(link) == row['id']) yield link;
         } catch (_) {
           // A damaged record is skipped; subsequent valid records remain readable.
         }
@@ -323,8 +318,7 @@ class FreshResourceStore {
           final row = jsonDecode(line);
           if (row is Map && row['id'] is String &&
               row['link'] is String &&
-              (_id(row['link'] as String) == row['id'] ||
-               _legacyId(row['link'] as String) == row['id'])) {
+              _id(row['link'] as String) == row['id']) {
             _bloomAdd(bits, row['id'] as String);
           }
         } catch (_) {}
@@ -345,9 +339,8 @@ class FreshResourceStore {
       final file = await _shardFile(dir, group.key);
       final bloom = await _loadShardBloom(dir, group.key);
       final wanted = <String>{
-        for (final entry in group.value.entries)
-          for (final id in <String>{entry.key, _legacyId(entry.value)})
-            if (_bloomMayContain(bloom, id)) id,
+        for (final id in group.value.keys)
+          if (_bloomMayContain(bloom, id)) id,
       };
       final existing = <String>{};
       if (wanted.isNotEmpty && await file.exists()) {
@@ -376,7 +369,7 @@ class FreshResourceStore {
       try {
         if (needsSeparator) sink.write('\n');
         for (final entry in group.value.entries) {
-          if (existing.contains(entry.key) || existing.contains(_legacyId(entry.value))) continue;
+          if (!existing.add(entry.key)) continue;
           existing.add(entry.key);
           sink.writeln(jsonEncode(<String, Object?>{
             'v': 1, 'id': entry.key, 'link': entry.value,
