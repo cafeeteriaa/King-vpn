@@ -1,10 +1,4 @@
-import 'dart:async';
-import 'dart:convert';
-import 'package:flutter/material.dart';
-import 'king_local_ai.dart';
-import 'king_ai_background.dart';
-import 'king_ai_owner_auth.dart';
-import 'king_voice_output.dart';
+part of 'main.dart';
 
 /// In-app control surface for the local coding model and guarded GitHub PR workflow.
 class KingAiConsolePage extends StatefulWidget {
