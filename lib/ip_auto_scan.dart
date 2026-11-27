@@ -172,7 +172,7 @@ extension IpAutoExt on _HomePageState {
       if (_ipAutoHalt(modeSnapshot: runNationalMode, stop: stop)) return;
 
       final p = await SharedPreferences.getInstance();
-      if (_ipAutoHalt(modeSnapshot: runNationalMode)) return;
+      if (_ipAutoHalt(modeSnapshot: runNationalMode, stop: stop)) return;
 
       final last = int.tryParse(p.getString(_ipAutoAtKey) ?? '') ?? 0;
       final now = DateTime.now().millisecondsSinceEpoch;
