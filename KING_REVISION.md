@@ -1,7 +1,7 @@
 # KING VPN Revision Ledger
 
-Current revision: 65
-Next revision: 66
+Current revision: 66
+Next revision: 67
 Repository: cafeeteriaa/King-vpn
 Revision branch: fix/personal-folder-uncapped-20261127
 Parent revision branch: fix/healthy-folder-unbounded-retention-20261127
@@ -158,3 +158,15 @@ Each numbered revision must be a substantial functional change and pass three se
 ## Numbering rule
 
 Increment the revision number by exactly one for each substantial edit set. Record the new number and its PR in this file. Do not change the revision number for routine CI reruns or review-only corrections within the same revision.
+
+
+### Revision 66 — crash-safe personal-folder persistence and transactional cache updates
+- Reworked snapshot rotation so the previous valid backup is never deleted before its replacement is fully staged and flushed.
+- Replaced delete-before-rename of the primary snapshot with same-directory rename replacement on Android/Linux, avoiding an intentional missing-file window.
+- Add/remove operations now persist the proposed full snapshot before publishing the new in-memory cache; failed writes retain the previous cache.
+- Made add deduplication case-insensitive and report only entries successfully committed to disk.
+- Added tests for failed staged writes, serialized overlapping snapshots, and source guards for cache commit ordering and safe backup rotation.
+- Review pass 1 (architecture/behavior): reviewed personal-only inventory isolation, public API compatibility and full-folder retention.
+- Review pass 2 (persistence/recovery): reviewed primary/backup rotation, staged writes, corrupt-primary recovery and mutation serialization.
+- Review pass 3 (compatibility/tests): source and test changes re-read; automated execution is still pending, so this pass is not a test/build sign-off.
+- No CI result is available yet for the new exact head. No merge or release is authorized by this revision.
