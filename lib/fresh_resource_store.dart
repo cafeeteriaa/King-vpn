@@ -26,9 +26,9 @@ class FreshResourceStore {
   static final Map<String, Uint8List> _shardBlooms = <String, Uint8List>{};
   static final Map<String, Future<void>> _migrationFutures = <String, Future<void>>{};
 
-  static Future<Directory> directory() async {
-    final root = await getApplicationSupportDirectory();
-    final dir = Directory('${root.path}/$directoryName');
+  static Future<Directory> directory({Directory? root}) async {
+    final base = root ?? await getApplicationSupportDirectory();
+    final dir = Directory('${base.path}/$directoryName');
     if (!await dir.exists()) await dir.create(recursive: true);
     return dir;
   }
@@ -97,8 +97,8 @@ class FreshResourceStore {
   }
 
   /// Streams normalized, deduplicated records without loading the inventory.
-  static Stream<String> streamLinks() async* {
-    final dir = await directory();
+  static Stream<String> streamLinks({Directory? root}) async* {
+    final dir = await directory(root: root);
     await _migrateLegacy(dir);
     final shards = dir.list(followLinks: false)
         .where((entity) => entity is File &&
@@ -122,10 +122,10 @@ class FreshResourceStore {
     }
   }
 
-  static Future<List<String>> readPreview({int limit = 100}) async {
+  static Future<List<String>> readPreview({int limit = 100, Directory? root}) async {
     final result = <String>[];
     if (limit <= 0) return result;
-    await for (final link in streamLinks()) {
+    await for (final link in streamLinks(root: root)) {
       result.add(link);
       if (result.length >= limit) break;
     }
@@ -133,25 +133,25 @@ class FreshResourceStore {
   }
 
   /// Compatibility API. Prefer readPreview/streamLinks for large inventories.
-  static Future<List<String>> readLinks({int limit = maxEntries}) async {
+  static Future<List<String>> readLinks({int limit = maxEntries, Directory? root}) async {
     final result = <String>[];
     if (limit <= 0) return result;
-    await for (final link in streamLinks()) {
+    await for (final link in streamLinks(root: root)) {
       result.add(link);
       if (result.length >= limit) break;
     }
     return result;
   }
 
-  static Future<int> count() async {
-    final dir = await directory();
+  static Future<int> count({Directory? root}) async {
+    final dir = await directory(root: root);
     await _migrateLegacy(dir);
     final metadata = await _readMetadata(dir);
     final dirty = File('${dir.path}/$_dirtyFileName');
     final cached = metadata['count'];
     if (!await dirty.exists() && cached is int && cached >= 0 && cached <= maxEntries) return cached;
     var total = 0;
-    await for (final _ in streamLinks()) {
+    await for (final _ in streamLinks(root: root)) {
       total++;
       if (total >= maxEntries) break;
     }
@@ -266,13 +266,13 @@ class FreshResourceStore {
   /// Merges lazily in small batches. RAM usage is bounded by the batch and one
   /// shard's matching identities, not by the total four-million-record store.
   static Future<int> merge(Iterable<String> links,
-      {String source = 'online'}) async {
-    final dir = await directory();
+      {String source = 'online', Directory? root}) async {
+    final dir = await directory(root: root);
     await _migrateLegacy(dir);
     final path = dir.path;
     final previous = _mergeQueues[path] ?? Future<void>.value();
     final operation = previous.then((_) async {
-    var total = await count();
+    var total = await count(root: root);
     var batch = <String>[];
     await for (final value in Stream<String>.fromIterable(links)) {
       final link = normalizeLink(value);
@@ -308,9 +308,9 @@ class FreshResourceStore {
   }
 
   static Future<int> saveSnapshot(Iterable<String> links,
-      {String source = 'online'}) async {
-    await clear();
-    return merge(links, source: source);
+      {String source = 'online', Directory? root}) async {
+    await clear(root: root);
+    return merge(links, source: source, root: root);
   }
 
   static Future<void> _migrateLegacy(Directory dir) {
@@ -370,8 +370,8 @@ class FreshResourceStore {
     await marker.writeAsString('v2', flush: true);
   }
 
-  static Future<Map<String, Object?>> metadata() async {
-    final dir = await directory();
+  static Future<Map<String, Object?>> metadata({Directory? root}) async {
+    final dir = await directory(root: root);
     await _migrateLegacy(dir);
     final value = await _readMetadata(dir);
     return <String, Object?>{
@@ -381,8 +381,8 @@ class FreshResourceStore {
     };
   }
 
-  static Future<void> clear() async {
-    final dir = await directory();
+  static Future<void> clear({Directory? root}) async {
+    final dir = await directory(root: root);
     await for (final entity in dir.list(followLinks: false)) {
       if (entity is File &&
           (RegExp(r'^[0-9a-f]{2}\.jsonl$').hasMatch(entity.uri.pathSegments.last) ||
