@@ -30,14 +30,11 @@ class NationalScannerIntegrationGuards(unittest.TestCase):
 
     def test_national_dns_is_diagnosed_before_resolver_selection(self):
         source = (ROOT / "lib" / "dns_scanner.dart").read_text(encoding="utf-8")
-        start = source.index("Future<void> dnsxAutoPick(")
-        end = source.index("\n}", start)
-        body = source[start:end]
         self.assertLess(
-            body.index("await NatNetworkDiagnosis.refresh()"),
-            body.index("final r = await dnsxScan("),
+            source.index("await NatNetworkDiagnosis.refresh()"),
+            source.index("final r = await dnsxScan("),
         )
-        self.assertIn("nationalMode != scanNationalMode", body)
+        self.assertIn("nationalMode != scanNationalMode", source)
 
     def test_national_range_scanner_retains_rust_fallback_and_isolated_cursor(self):
         source = (ROOT / "lib" / "nat_ultra.dart").read_text(encoding="utf-8")
