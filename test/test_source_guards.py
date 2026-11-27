@@ -303,7 +303,9 @@ class KingVpnSourceGuardTests(unittest.TestCase):
     def test_background_supervisor_controls_require_owner_session(self):
         worker = (ROOT / 'lib' / 'king_ai_background.dart').read_text(encoding='utf-8')
         console = (ROOT / 'lib' / 'king_ai_console.dart').read_text(encoding='utf-8')
-        self.assertIn("import 'king_ai_owner_auth.dart';", worker)
+        main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        self.assertIn("import 'king_ai_owner_auth.dart';", main)
+        self.assertIn("part of 'main.dart';", worker)
         self.assertIn('static void _requireOwnerSession()', worker)
         for signature in (
             'static Future<void> enable(int pullNumber) async {',
@@ -434,7 +436,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
 
     def test_background_supervisor_is_initialized_with_its_own_dispatcher(self):
         main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
-        self.assertIn("import 'king_ai_background.dart';", main)
+        self.assertIn("part 'king_ai_background.dart';", main)
         self.assertIn('KingAiBackgroundSupervisor.initialize()', main)
         self.assertNotIn('cancelAll()', main)
 
@@ -2823,7 +2825,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('registerOneOffTask(', worker)
         self.assertIn('_runKingNationalScannerBackgroundTask()', worker)
         self.assertIn('addDiscovered: natIpMemMergeHits', worker)
-        self.assertIn('if (vpnActive() || vpnWanted()) return true;', worker)
+        self.assertIn('if (vpnActive() || vpnWanted()) return false;', worker)
         self.assertIn('requiresBatteryNotLow: true', worker)
 
     def test_foreground_scanner_slice_schedules_resume_without_blocking_vpn_start(self):
