@@ -31,6 +31,63 @@ void main() {
     });
 
 
+    test('48-hour refresh quality gate preserves a large inventory on partial source responses', () {
+      expect(
+        FreshResourceStore.isSufficientSnapshotReplacement(
+          previousCount: 4000000,
+          incomingCount: 999999,
+          successfulSources: 2,
+          configuredSources: 3,
+        ),
+        isFalse,
+      );
+      expect(
+        FreshResourceStore.isSufficientSnapshotReplacement(
+          previousCount: 4000000,
+          incomingCount: 1000000,
+          successfulSources: 2,
+          configuredSources: 3,
+        ),
+        isTrue,
+      );
+      expect(
+        FreshResourceStore.isSufficientSnapshotReplacement(
+          previousCount: 20,
+          incomingCount: 19,
+          successfulSources: 1,
+          configuredSources: 1,
+        ),
+        isFalse,
+      );
+      expect(
+        FreshResourceStore.isSufficientSnapshotReplacement(
+          previousCount: 20,
+          incomingCount: 20,
+          successfulSources: 1,
+          configuredSources: 1,
+        ),
+        isTrue,
+      );
+      expect(
+        FreshResourceStore.isSufficientSnapshotReplacement(
+          previousCount: 0,
+          incomingCount: 1,
+          successfulSources: 1,
+          configuredSources: 1,
+        ),
+        isTrue,
+      );
+      expect(
+        FreshResourceStore.isSufficientSnapshotReplacement(
+          previousCount: 1000,
+          incomingCount: 1000,
+          successfulSources: 1,
+          configuredSources: 2,
+        ),
+        isFalse,
+      );
+    });
+
     test('preserves case-sensitive credentials while normalizing scheme case', () {
       final values = FreshResourceStore.normalizeLinks([
         'trojan://Secret@node.example:443',
