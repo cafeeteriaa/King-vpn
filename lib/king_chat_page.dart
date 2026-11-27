@@ -1,10 +1,4 @@
-import 'dart:async';
-import 'package:flutter/material.dart';
-import 'package:permission_handler/permission_handler.dart';
-import 'package:speech_to_text/speech_to_text.dart' as stt;
-import 'king_ai_console.dart';
-import 'king_local_ai.dart';
-import 'king_voice_output.dart';
+part of 'main.dart';
 
 class KingChatPage extends StatefulWidget {
   const KingChatPage({super.key});

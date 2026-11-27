@@ -208,6 +208,42 @@ Future<String> netDiagnose() async {
       tcp, tls, web, home, dnsPoison, dnsDoh != null, srcRaw, srcMir,
       natOpKey, filterLayer);
 
+  // NNIE evidence summary: TLS quorum selects route strategy; IPv6 TCP is
+  // shown independently and is never mistaken for authenticated tunnel traffic.
+  try {
+    final routeSamples = await Future.wait<Object>(<Future<Object>>[
+      refreshPilotNetworkEvidence(),
+      NatNetworkDiagnosis.refresh(),
+    ]);
+    final evidence = routeSamples[0] as NetworkEvidence;
+    final diagnosis = routeSamples[1] as NatNetworkClass;
+    final ipv6 = PilotIpv6Probe.current;
+    final strategy = choosePilotNetworkStrategy(evidence);
+    final strategyLabel = switch (strategy) {
+      PilotNetworkStrategy.domestic => 'مسیر داخلی',
+      PilotNetworkStrategy.global => 'مسیر جهانی',
+      PilotNetworkStrategy.offline => 'فعلاً هیچ‌کدام قابل تأیید نیست',
+      PilotNetworkStrategy.preserve => 'حفظ انتخاب فعلی؛ شواهد کافی برای تغییر نیست',
+    };
+    b.writeln('— شواهد مستقل مسیر داخلی/جهانی —');
+    b.writeln('تشخیص: ${natNetworkClassLabel(diagnosis)}');
+    b.writeln('راهبرد پیشنهادی: $strategyLabel');
+    b.writeln('TLS داخلی: ${evidence.domesticSuccesses}/${evidence.domesticSamples}'
+        ' • تأخیر میانه: ${evidence.domesticLatencyMs ?? '-'}ms');
+    b.writeln('TLS جهانی: ${evidence.globalSuccesses}/${evidence.globalSamples}'
+        ' • تأخیر میانه: ${evidence.globalLatencyMs ?? '-'}ms');
+    b.writeln('IPv6 داخلی: ${ipv6.domesticIpv6Successes}'
+        ' • تأخیر: ${ipv6.domesticIpv6LatencyMs ?? '-'}ms');
+    b.writeln('IPv6 جهانی: ${ipv6.globalIpv6Successes}'
+        ' • تأخیر: ${ipv6.globalIpv6LatencyMs ?? '-'}ms');
+    b.writeln('اطمینان شواهد TLS: ${(evidence.confidence * 100).toStringAsFixed(0)}%');
+    b.writeln('نکته: این بررسی مسیر مستقیم گوشی است؛ موفقیت تونل فقط با عبور ترافیک واقعی VPN تأیید می‌شود.');
+    b.writeln();
+  } catch (e, st) {
+    logError(e, st);
+    b.writeln('شواهد مستقل مسیر در این نوبت کامل نشد.');
+  }
+
   b.writeln('— نتیجه و پیشنهاد —');
   if (!tcp && !web && home) {
     b.writeln('🔴 اینترنت بین‌الملل قطع است و فقط نت ملی کار می‌کند.\n'

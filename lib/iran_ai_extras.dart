@@ -812,6 +812,12 @@ extension HomeExtras on _HomePageState {
                     'برای ساخت سرور رایگان نامحدود، ساخت خودکار سرور کلودفلر را بزنید'),
                 onTap: () => Navigator.pop(ctx, 'personal'),
               ),
+              ListTile(
+                leading: const Icon(Icons.radar),
+                title: const Text('🔎 اسکنر'),
+                subtitle: const Text('تشخیص شبکه، اسکن هدفمند DNS/IP/SNI و انتخاب استراتژی سازگار'),
+                onTap: () => Navigator.pop(ctx, 'scanner'),
+              ),
             ],
           ),
         ),
@@ -973,7 +979,7 @@ extension HomeExtras on _HomePageState {
   Future<bool> _askOnlineOfflineNet(bool net) async {
     final ok = await _askOnlineOfflineMode();
     if (!ok) return false;
-    _pendingNet = net;
+    _pendingNet = scannerMode ? (_scannerTargetNationalMode ?? nationalMode) : net;
     _pendingOff = offlineOnly;
     return true;
   }
@@ -985,6 +991,8 @@ extension HomeExtras on _HomePageState {
       bool skipEngine = false}) async {
     // همه‌ی اتصال‌ها جهانی هستند؛ فقط دکمه‌ی نت ملی (forceNet: true) حالت ملی می‌دهد.
     // خلبان (keepNet) حالت شبکه را دست نمی‌زند.
+    scannerMode = false;
+    _scannerTargetNationalMode = null;
     _pendingNet = null;
     zeroTrafficRun.clear(); // LOOPCAP: هر بار دکمه‌ی اتصال شمارنده‌ها از نو
     realStartsRun = 0;
@@ -1012,14 +1020,49 @@ extension HomeExtras on _HomePageState {
     final po = _pendingOff;
     _pendingNet = null;
     if (pn != null) await _applyNetPick(pn, po);
+    if (scannerMode) {
+      final report = await KingNationalScannerEngine.runPreflight(
+        knownServers: <Server>[...pending, ...good, ...natRestPending, for (final entry in _resMap.values) entry.s],
+        onStatus: (message) => _set(message),
+        cancelled: () => !mounted || connected || appGone || !scannerMode,
+        addDiscovered: (items) => _natRangeAdd(items),
+      );
+      if (!report.completed && !report.sliceYielded) {
+        _set('اسکنر متوقف شد یا امکان ادامه نداشت؛ نتیجه ناقص به‌عنوان تکمیل‌شده ثبت نشد');
+        return false;
+      }
+      if (report.sliceYielded ||
+          report.warnings.contains('ip_inventory_cursor_preserved_for_next_slice')) {
+        _set('${report.summary}\nادامهٔ موجودی با حافظهٔ پایدار در پس‌زمینه زمان‌بندی شد؛ اتصال ادامه می‌یابد.');
+      } else {
+        _set(report.summary);
+      }
+    }
     await start();
     return true;
   }
 
   // انتخاب آنلاین/آفلاین برای دکمه‌ی اتصال اصلی؛ false = لغو شد
   Future<bool> _askOnlineOfflineMode() async {
+    scannerMode = false;
+    _scannerTargetNationalMode = null;
     var mode = await _pickOnlineOffline();
     if (mode == null) return false;
+    if (mode == 'scanner') {
+      scannerMode = true;
+      offlineOnly = false;
+      userOfflineChoice = false;
+      _scannerTargetNationalMode = await KingNationalScannerEngine.detectNationalMode();
+      if (_scannerTargetNationalMode == null) {
+        _set('اسکنر: شواهد شبکه قطعی نیست؛ حالت شبکه فعلی حفظ می‌شود');
+      } else {
+        _set(_scannerTargetNationalMode!
+            ? 'اسکنر: مسیر داخلی محتمل است؛ آماده‌سازی نت ملی...'
+            : 'اسکنر: مسیر جهانی در دسترس است؛ آماده‌سازی حالت جهانی...');
+      }
+      await ultimateSave();
+      return true;
+    }
     if (mode == 'personal') {
       // سرور شخصی مسیر جدا دارد؛ همین‌جا اجرا می‌شود و جریان آنلاین/آفلاین ادامه نمی‌یابد
       // ONLYFOLDER: همیشه از «پوشه‌ی سرورهای شخصی»: اول لیست روی صفحه، بعد پینگ، بعد اتصال
@@ -2491,12 +2534,8 @@ extension HomeExtras on _HomePageState {
     if (connected) return NatNetworkClass.unknown;
     try {
       final previousMode = nationalMode;
-      final evidence = await PilotNetworkProbe.refresh()
-          .timeout(const Duration(seconds: 9), onTimeout: () =>
-              const NetworkEvidence(
-                domestic: LinkHealth.unknown,
-                global: LinkHealth.unknown,
-              ));
+      final evidence = await refreshPilotNetworkEvidence()
+          .timeout(const Duration(seconds: 9), onTimeout: currentPilotNetworkEvidence);
       final strategy = choosePilotNetworkStrategy(evidence);
       if (!_pilotNetworkModePinned) {
         if (strategy == PilotNetworkStrategy.domestic) {

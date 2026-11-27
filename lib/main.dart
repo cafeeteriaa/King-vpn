@@ -1,9 +1,8 @@
 import 'dart:async';
 import 'network_health.dart';
 import 'king_local_ai.dart';
-import 'king_ai_console.dart';
-import 'king_chat_page.dart';
-import 'king_ai_background.dart';
+import 'king_ai_autonomy_policy.dart';
+import 'package:workmanager/workmanager.dart';
 import 'king_ai_owner_auth.dart';
 import 'king_command_safety.dart';
 import 'fresh_resource_store.dart';
@@ -42,9 +41,14 @@ import 'help_page.dart';
 import 'conn_specs.dart';
 import 'personal_folder.dart'; // پوشه‌ی «سرورهای شخصی»
 import 'king_extras2.dart'; // KINGEXTRAS: share sheet / UUID / check-host.net
+part 'king_ai_console.dart';
+part 'king_chat_page.dart';
+part 'king_ai_background.dart';
 part 'iran_ai_extras.dart';
 part 'npv_am_extras.dart';
 part 'nat_ultra.dart';
+part 'king_national_scanner.dart'; // KNS: unified national scanner/strategy registry
+part 'king_scan_memory.dart'; // KSM: durable append-only scanner checkpoints and recovery
 part 'net_diag.dart';
 part 'extras_plus.dart';
 part 'nip_scan.dart';
@@ -7813,14 +7817,16 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     final tt = t ?? delayTimeout;
     // NORMAL: only plain config (variant 0). Matrix only if nationalMode.
     // ultraMode alone no longer enables matrix during ordinary connect tests.
-    final useMatrix = nationalMode;
+    final useMatrix = nationalMode || scannerMode;
+    final fullMatrix = _resFull || scannerMode;
     final multi = useMatrix;
+    if (useMatrix) await KingNationalScannerEngine.load();
     final order = useMatrix
-        ? <int>[0, ..._natOrder(s, full: _resFull).where((v) => v != 0).take(max(0, natMaxVariants - 1))]
-        : const [0]; // اول کانفیگ اصلی، سپس variantهای سازگار
+        ? <int>[0, ...KingNationalScannerEngine.planVariants(s, full: fullMatrix).where((v) => v != 0)]
+        : const [0]; // KNS: shared registry + learned compatibility; original config first
     // NATBUDGET: one server may only use a limited time per pass; the rest of
     // its variants continue in the next pass (natCursorAdvance)
-    final budget = multi ? natBudget(full: _resFull) : null;
+    final budget = multi ? natBudget(full: fullMatrix) : null;
     final bsw = Stopwatch()..start();
     var genTried = 0;
     var attempted = 0; // FIXFIRSTTO: اولین حالت واقعاً تست‌شده timeout کامل بگیرد
@@ -7850,7 +7856,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             'حالت: $vn${dims.isEmpty ? '' : '\n$dims'}');
       }
       // NATMAX: در نت ملی TCP از گوشی معیار نیست؛ همه‌ی حالت‌ها در بودجه تست می‌شوند
-      if (!nationalMode && i >= 3 && s.ipLink == null && !_natChangesAddr(v)) {
+      if (!nationalMode && !scannerMode && i >= 3 && s.ipLink == null && !_natChangesAddr(v)) {
         tcpOk ??= s.isIp || (await probe(s)) != null;
         if (!tcpOk) continue;
       }
@@ -8554,7 +8560,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           await _stopCore();
           return false;
         }
-        if (nationalMode && nv > 0) natVariantResult(nv, pp != null);
+        if ((nationalMode || scannerMode) && nv >= 0) natVariantResult(nv, pp != null, profile: KingNationalScannerEngine.profileKey(s), latencyMs: pp);
         if (pp != null) {
           trafficFailure = false;
           break;
@@ -8585,7 +8591,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           await _stopCore();
           return false;
         }
-        if (nationalMode && nv > 0) natVariantResult(nv, earlyPing != null);
+        if ((nationalMode || scannerMode) && nv >= 0) natVariantResult(nv, earlyPing != null, profile: KingNationalScannerEngine.profileKey(s), latencyMs: earlyPing);
         if (earlyPing != null) {
           trafficFailure = false;
           break; // this config variant has real outbound traffic
@@ -9003,6 +9009,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   // they are connected as they are, and the watchdog replaces them only if
   // they really stay dead. The real reason of a failure is shown at the bottom.
   Future<bool> _connectLoop(List<Server> list, {bool trust = false}) async {
+    if (nationalMode || scannerMode) await KingNationalScannerEngine.load(); // KNS: load bounded per-destination strategy memory once
     var siteSkips = 0; // SITEPRECHECK: servers skipped because no site opened
     var coreDownCount = 0, coreUpCount = 0; // CORE-SYSTEMIC: core up/down per run
     for (final s in list) {
@@ -10171,14 +10178,12 @@ ListTile( // KINGEXTRAS row
     _natKeepOn = true;
     var seen = false; // was connected at least once
     var idle = 0;
-    final startedAt = DateTime.now(); // NATKEEP-CAP: سقف کلی ۸ ساعت
     try {
       while (mounted &&
           nationalMode &&
           localPilotOn &&
           !appGone &&
-          !abort &&
-          DateTime.now().difference(startedAt) < const Duration(hours: 8)) {
+          !abort) {
         await Future.delayed(const Duration(seconds: 2));
         if (connected) {
           seen = true;
@@ -10186,16 +10191,15 @@ ListTile( // KINGEXTRAS row
           autoUpgrade = true;
           autoCycle = true;
           // NATRANGE: پس‌زمینه، هر ۵ دقیقه، بخشی کم از بازه‌های IP با سرعت کم
-          // NATPENDCAP: اگر pending از سقف گذشته، اسکن بازه‌ی جدید اضافه نکن
           if (localPilotOn && cpuHot == 0 &&
               DateTime.now().difference(natRangeLast) >
-                  const Duration(minutes: 5) &&
-              pending.length < 3000) {
+                  const Duration(minutes: 5)) {
             natRangeLast = DateTime.now();
             unawaited(() async {
+              await natRangeStartNextPass();
               final ips = await natRangeScanStep(
                   known: [...pending, ...natRestPending],
-                  maxAddrs: 2048, // NATBG-BUDGET: اسکن پس‌زمینه‌ی متصل سبک و مرحله‌ای است
+                  maxAddrs: 8192,
                   conc: min(2, natAdaptiveWorkers()),
                   stop: () => !mounted ||
                       !connected ||
@@ -10203,8 +10207,7 @@ ListTile( // KINGEXTRAS row
                       !nationalMode ||
                       !localPilotOn ||
                       appGone ||
-                      abort,
-                  budget: const Duration(seconds: 90));
+                      abort );
               // Do not publish stale discoveries after the tunnel/pilot stops.
               if (mounted &&
                   connected &&
@@ -10290,10 +10293,19 @@ ListTile( // KINGEXTRAS row
       }
       final was = nationalMode;
       if (localPilotOn) {
-        // Pilot and national mode share their own bounded probe; the general
-        // DNS/IP/SNI scanners are never started by this detection path.
-        final evidence = await PilotNetworkProbe.refresh();
-        final strategy = choosePilotNetworkStrategy(evidence);
+        // Smart Pilot combines dedicated TLS/IPv6 path evidence with an
+        // independent DNS + multi-host diagnosis. General discovery scanners
+        // (DNS/IP/SNI inventory sweeps) are never started by this path.
+        final samples = await Future.wait<Object>(<Future<Object>>[
+          refreshPilotNetworkEvidence(),
+          NatNetworkDiagnosis.refresh(),
+        ]).timeout(const Duration(seconds: 12));
+        final evidence = samples[0] as NetworkEvidence;
+        final diagnosis = samples[1] as NatNetworkClass;
+        final strategy = corroboratePilotStrategy(
+          choosePilotNetworkStrategy(evidence),
+          diagnosis,
+        );
         if (strategy == PilotNetworkStrategy.domestic) {
           nationalMode = true;
         } else if (strategy == PilotNetworkStrategy.global) {
@@ -11457,14 +11469,17 @@ ListTile( // KINGEXTRAS row
     final runNationalMode = nationalMode;
     try {
       if (!runNationalMode || abort) return;
-      final ips = await natRangeScanStep(
-          known: [...pending, ...natRestPending],
-          maxAddrs: 30000, // SCANCAP: قبلاً ۱۰۰ هزار با بودجه ۱۲ دقیقه
-          conc: natAdaptiveWorkers(),
-          stop: () => abort || nationalMode != runNationalMode,
-          budget: const Duration(minutes: 3));
-      if (abort || nationalMode != runNationalMode) return;
-      await _natRangeAdd(ips);
+      await natRangeStartNextPass();
+      while (!abort && nationalMode == runNationalMode &&
+          !natRangeInventoryPassComplete) {
+        final ips = await natRangeScanStep(
+            known: [...pending, ...natRestPending],
+            maxAddrs: 8192,
+            conc: natAdaptiveWorkers(),
+            stop: () => abort || nationalMode != runNationalMode);
+        if (abort || nationalMode != runNationalMode) return;
+        if (ips.isNotEmpty) await _natRangeAdd(ips);
+      }
     } catch (e, stk) {
       logError(e, stk);
     }
@@ -11528,14 +11543,16 @@ ListTile( // KINGEXTRAS row
       final hasTpl = pending.isNotEmpty || natRestPending.isNotEmpty ||
           natTemplateSeeds.isNotEmpty || good.isNotEmpty;
       if (runNationalMode && !abort && !ipWaiting && pending.isEmpty && hasTpl) {
-        final ips = await natRangeScanStep(
-            known: [...pending, ...natRestPending],
-            maxAddrs: 100000, // هر دور تا ۱۰۰ هزار آدرس
-            conc: natAdaptiveWorkers(),
-            stop: () => abort || modeChanged(),
-            budget: const Duration(minutes: 3));
-        if (abort || modeChanged()) return;
-        await _natRangeAdd(ips);
+        await natRangeStartNextPass();
+        while (!abort && !modeChanged() && !natRangeInventoryPassComplete) {
+          final ips = await natRangeScanStep(
+              known: [...pending, ...natRestPending],
+              maxAddrs: 8192,
+              conc: natAdaptiveWorkers(),
+              stop: () => abort || modeChanged());
+          if (abort || modeChanged()) return;
+          if (ips.isNotEmpty) await _natRangeAdd(ips);
+        }
       }
       if (abort || modeChanged()) return;
       // CRITICAL for نت ملی: do NOT destroy existing configs.
@@ -12459,8 +12476,8 @@ ListTile( // KINGEXTRAS row
     if (nationalMode && !connected) {
       if (localPilotOn) {
         // Unified Pilot uses only its dedicated probe snapshot here.
-        await PilotNetworkProbe.refresh()
-            .timeout(const Duration(seconds: 5), onTimeout: () => PilotNetworkProbe.current);
+        await refreshPilotNetworkEvidence()
+            .timeout(const Duration(seconds: 5), onTimeout: currentPilotNetworkEvidence);
       } else {
         await NatNetworkDiagnosis.refresh()
             .timeout(const Duration(seconds: 5), onTimeout: () => NatNetworkDiagnosis.current);
@@ -12677,6 +12694,8 @@ ListTile( // KINGEXTRAS row
   // PILOTKEEP: خلبان فقط با دکمه‌ی قطع/خلبان خودش خاموش می‌شود.
   // قطع خودکار (مثل پایان ۴ ساعت) نباید خلبان را خاموش کند.
   Future<void> disconnect({bool keepPilot = false}) async {
+    scannerMode = false;
+    _scannerTargetNationalMode = null;
     aiSession = false;
     aiLoop?.cancel();
     stopNetWatch();

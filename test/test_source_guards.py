@@ -303,7 +303,9 @@ class KingVpnSourceGuardTests(unittest.TestCase):
     def test_background_supervisor_controls_require_owner_session(self):
         worker = (ROOT / 'lib' / 'king_ai_background.dart').read_text(encoding='utf-8')
         console = (ROOT / 'lib' / 'king_ai_console.dart').read_text(encoding='utf-8')
-        self.assertIn("import 'king_ai_owner_auth.dart';", worker)
+        main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        self.assertIn("import 'king_ai_owner_auth.dart';", main)
+        self.assertIn("part of 'main.dart';", worker)
         self.assertIn('static void _requireOwnerSession()', worker)
         for signature in (
             'static Future<void> enable(int pullNumber) async {',
@@ -348,6 +350,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn('await createRepairPullRequest(', audit)
         self.assertIn('_auditTaskName', worker)
         self.assertIn('frequency: const Duration(hours: 24)', worker)
+        self.assertIn('sliceBudget: const Duration(minutes: 8)', worker)
         self.assertIn('await Workmanager().cancelByTag(_auditTag)', worker)
 
     def test_official_iran_network_research_is_scheduled_automatically(self):
@@ -434,7 +437,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
 
     def test_background_supervisor_is_initialized_with_its_own_dispatcher(self):
         main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
-        self.assertIn("import 'king_ai_background.dart';", main)
+        self.assertIn("part 'king_ai_background.dart';", main)
         self.assertIn('KingAiBackgroundSupervisor.initialize()', main)
         self.assertNotIn('cancelAll()', main)
 
@@ -537,7 +540,8 @@ class KingVpnSourceGuardTests(unittest.TestCase):
     def test_owner_console_is_reachable_from_command_panel_and_code_requests_are_gated(self):
         main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
         extras = (ROOT / 'lib' / 'iran_ai_extras.dart').read_text(encoding='utf-8')
-        self.assertIn("import 'king_ai_console.dart';", main)
+        self.assertIn("part 'king_ai_console.dart';", main)
+        self.assertIn("part 'king_chat_page.dart';", main)
         self.assertIn("import 'king_ai_owner_auth.dart';", main)
         self.assertIn('const KingAiConsolePage()', main)
         self.assertIn('final codeRequest = !KingCommandSafety.isQuestionRequest(command) && RegExp(', main)
@@ -1439,6 +1443,18 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertLess(stop.index('core.stopCore();'), stop.index('if (!stillRunning && closeTunAfterCoreStop)'))
         self.assertLess(stop.index('if (coreStopping)'), stop.index('final boolean running;'))
 
+    def test_vpn_service_fails_closed_when_ipv6_tun_route_cannot_be_installed(self):
+        service = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
+        start = service.index('private ParcelFileDescriptor establish(V2rayConfig cfg)')
+        end = service.index('/** جدید: wires libv2ray exactly once', start)
+        establish = service[start:end]
+        self.assertIn('b.addAddress("fd00:1:fd00:1:fd00:1:fd00:1", 126);', establish)
+        self.assertIn('b.addRoute("::", 0);', establish)
+        self.assertIn('b.addRoute("0.0.0.0", 0);', establish)
+        self.assertNotIn('ipv6 sinkhole not supported', establish)
+        self.assertLess(establish.index('b.addRoute("::", 0);'),
+                        establish.index('b.addRoute("0.0.0.0", 0);'))
+
     def test_android_backup_excludes_vpn_credentials_and_local_ai_secrets(self):
         prepare = (ROOT / 'prepare_android.py').read_text(encoding='utf-8')
         backup = (ROOT / 'android_src' / 'king_backup_rules.xml').read_text(encoding='utf-8')
@@ -1547,9 +1563,15 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         start = main.index('Future<void> _natKeep()')
         end = main.index('// NATIONALPATCH: is the international internet cut', start)
         keep = main[start:end]
-        self.assertIn('maxAddrs: 2048', keep)
+        self.assertIn('maxAddrs: 8192', keep)
+        self.assertIn('await natRangeStartNextPass();', keep)
+        self.assertNotIn('Duration(hours: 8)', keep)
+        self.assertNotIn('pending.length < 3000', keep)
+        self.assertNotIn('budget:', keep)
         self.assertIn('conc: min(2, natAdaptiveWorkers())', keep)
-        self.assertIn('budget: const Duration(seconds: 90)', keep)
+        self.assertNotIn('budget:', keep)
+        self.assertNotIn('Duration(hours: 8)', keep)
+        self.assertNotIn('pending.length < 3000', keep)
         for condition in ('!mounted', '!connected', '!wantVpn', '!nationalMode',
                           '!localPilotOn', 'appGone', 'abort'):
             self.assertIn(condition, keep)
@@ -1570,30 +1592,33 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         compute_guard = body.index('if (shouldAbort()) return const <String>[];', compute)
         scan = body.index('await natScanIps(')
         cancel = body.index('cancelled: shouldAbort,', scan)
-        scan_guard = body.index('if (shouldAbort() || scanExpired()) return const <String>[];', scan)
-        cursor_commit = body.index('_cfRangeCursors\n    ..clear()')
-        configured_commit = body.index('_natConfiguredRangeCursor = configuredBatch.nextCursor;')
+        scan_guard = body.index('if (shouldAbort()) return const <String>[];', scan)
+        state_commit = body.index('await _natRangeStateSave(')
+        cursor_commit = body.index('_cfRangeCursors\n    ..clear()', state_commit)
+        configured_commit = body.index('_natConfiguredRangeCursor = nextConfiguredCursor;', cursor_commit)
         self.assertLess(hot, hot_guard)
         self.assertLess(compute, compute_guard)
         self.assertLess(compute_guard, scan)
         self.assertLess(cancel, scan_guard)
-        self.assertLess(scan_guard, cursor_commit)
+        self.assertLess(scan_guard, state_commit)
+        self.assertLess(state_commit, cursor_commit)
         self.assertLess(cursor_commit, configured_commit)
-        helper_start = nat.index('({List<String> addresses, int nextCursor}) _natConfiguredRangeBatch(')
+        helper_start = nat.index('_natConfiguredRangeBatch(int limit)')
         helper_end = nat.index('Future<void> natRangesSave(', helper_start)
         helper = nat[helper_start:helper_end]
-        self.assertIn('nextCursor: (start + count) % values.length', helper)
+        self.assertIn('nextRangeCursors: staged', helper)
+        self.assertIn('passCompleted: complete', helper)
         self.assertNotIn('SharedPreferences.getInstance()', helper)
         scan_only_start = main.index('Future<void> _natScanOnly()')
         scan_only_end = main.index('// NATFIRSTFAST:', scan_only_start)
         scan_only = main[scan_only_start:scan_only_end]
-        self.assertIn('stop: () => abort || nationalMode != runNationalMode,', scan_only)
+        self.assertIn('stop: () => abort || nationalMode != runNationalMode)', scan_only)
         self.assertLess(scan_only.index('if (abort || nationalMode != runNationalMode) return;'),
                         scan_only.index('await _natRangeAdd(ips);'))
         escalate_start = main.index('Future<void> _natEscalate(int round)')
         escalate_end = main.index('// CRITICAL for نت ملی: do NOT destroy existing configs.', escalate_start)
         escalate = main[escalate_start:escalate_end]
-        self.assertIn('stop: () => abort || modeChanged(),', escalate)
+        self.assertIn('stop: () => abort || modeChanged())', escalate)
         self.assertIn('if (abort || modeChanged()) return;', escalate)
         self.assertLess(escalate.index('if (abort || modeChanged()) return;', escalate.index('await natRangeScanStep(')),
                         escalate.index('await _natRangeAdd(ips);'))
@@ -2224,11 +2249,10 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         body = source[start:end]
         compute = body.index('await compute(_genAddrsIso, args)')
         abort = body.index('if (nationalMode != modeSnapshot || (shouldAbort?.call() ?? false))')
-        cursor_mutation = body.index('ipAutoCursors\n    ..clear()')
-        position_mutation = body.index('ipAutoPos = start + slice.length;')
+        staged_cursor = body.index('_ipAutoPendingCursors = generatedCursors;')
         self.assertLess(compute, abort)
-        self.assertLess(abort, cursor_mutation)
-        self.assertLess(abort, position_mutation)
+        self.assertLess(abort, staged_cursor)
+        self.assertNotIn('ipAutoCursors\n    ..clear()', body)
         self.assertIn('bool Function()? shouldAbort', body)
 
     def test_ip_auto_scan_aborts_when_network_mode_changes_mid_run(self):
@@ -2263,7 +2287,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('(cores * 2).clamp(8, 64).toInt()', source)
         self.assertIn('port < 1 || port > 65535', source)
         self.assertIn('final elapsed = Stopwatch()..start();', source)
-        self.assertIn('if (elapsed.elapsed >= budget) return;', source)
+        self.assertIn('if (budget != null && elapsed.elapsed >= budget) return;', source)
         self.assertNotIn('DateTime.now().add(budget)', source)
 
     def test_nat_ip_scan_discards_in_flight_results_after_cancellation(self):
@@ -2272,8 +2296,8 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         end = source.index('\n  }', start)
         worker = source[start:end]
         probe = worker.index('final ms = await natTcpProbe(ip, port, timeout);')
-        stale_guard = worker.index('if (aborted() || elapsed.elapsed >= budget)', probe)
-        insert = worker.index('if (ms != null && hits.length < want)', stale_guard)
+        stale_guard = worker.index('if (aborted() || (budget != null && elapsed.elapsed >= budget))', probe)
+        insert = worker.index('if (ms != null && hits.length < hitLimit)', stale_guard)
         self.assertLess(probe, stale_guard)
         self.assertLess(stale_guard, insert)
         self.assertIn('return;', worker[stale_guard:insert])
@@ -2318,17 +2342,15 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         start = source.index('Future<List<String>> _natRangeScanStepBody(')
         end = source.index('List<String> userListUrls', start)
         body = source[start:end]
-        self.assertIn('final scanClock = Stopwatch()..start();', body)
-        self.assertIn('final remainingBudget = budget - scanClock.elapsed;', body)
-        self.assertIn('final portBudget = perPortCap < remainingBudget', body)
-        self.assertIn('milliseconds: max(20000, budget.inMilliseconds ~/ max(1, portList.length)).toInt()', body)
+        self.assertNotIn('scanClock', body)
+        self.assertNotIn('scanExpired', body)
+        self.assertNotIn('Duration(minutes: 2)', body)
         scan = body.index('final hits = await natScanIps(')
-        self.assertIn('budget: portBudget,', body[scan:scan + 500])
-        expiry = body.index('if (shouldAbort() || scanExpired()) return const <String>[];', scan)
+        self.assertIn('budget: null,', body[scan:scan + 500])
+        scan_guard = body.index('if (shouldAbort()) return const <String>[];', scan)
         cursor = body.index('_cfRangeCursors\n    ..clear()')
-        self.assertLess(scan, expiry)
-        self.assertLess(expiry, cursor)
-        self.assertNotIn('DateTime.now().add(budget)', body)
+        self.assertLess(scan, scan_guard)
+        self.assertLess(scan_guard, cursor)
 
     def test_dns_wire_probe_cancellation_closes_pending_udp_work(self):
         core = (ROOT / 'lib' / 'nnie_core.dart').read_text(encoding='utf-8')
@@ -2344,19 +2366,20 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('cancelled: stop,', dns)
         self.assertIn('if (stop != null && stop()) return null;', dns)
 
-    def test_nat_domain_first_discards_partial_results_after_cancel_or_deadline(self):
+    def test_nat_domain_first_traverses_full_config_inventory_and_discards_on_cancel(self):
         source = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
         start = source.index('Future<List<String>> _natDomainFirst(')
         end = source.index('Future<List<String>> natDeviceHosts()', start)
         body = source[start:end]
-        self.assertIn('final scanClock = Stopwatch()..start();', body)
-        self.assertIn('const scanBudget = Duration(seconds: 45);', body)
-        self.assertLess(body.index('final scanClock'), body.index('for (final entry in endpoints.entries)'))
+        # No wall-clock ceiling may silently truncate the configured endpoint inventory.
+        self.assertNotIn('scanBudget', body)
+        self.assertNotIn('scanClock', body)
+        self.assertIn('for (final server in known)', body)
         lookup = body.index('await safeLookup(entry.key)')
         lookup_guard = body.index('if (cancelled()) return const <String>[];', lookup)
         self.assertLess(lookup, lookup_guard)
-        self.assertIn('bool expired() => scanClock.elapsed >= scanBudget;', body)
         scan = body.index('final hits = await natScanIps(')
+        self.assertIn('want: entry.value.length,', body[scan:scan + 500])
         self.assertIn('cancelled: cancelled,', body)
         discard = body.index('if (cancelled())', scan)
         append = body.index('out.add(', discard)
@@ -2370,8 +2393,10 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         source = (ROOT / 'lib' / 'nat_ip_scan.dart').read_text(encoding='utf-8')
         start = source.index('Future<List<NatIpHit>> natScanIps(')
         body = source[start:]
-        self.assertIn('if (ips.isEmpty || want <= 0) return <NatIpHit>[];', body)
-        self.assertIn('if (ms != null && hits.length < want)', body)
+        self.assertIn('if (ips.isEmpty || (want != null && want <= 0)) return <NatIpHit>[];', body)
+        self.assertIn('final hitLimit = want ?? ips.length;', body)
+        self.assertIn('if (ms != null && hits.length < hitLimit)', body)
+        self.assertIn('Duration? budget,', body)
 
     def test_auto_sni_scan_uses_shared_scanner_lock(self):
         source = (ROOT / 'lib' / 'auto_scanners.dart').read_text(encoding='utf-8')
@@ -2384,17 +2409,15 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertLess(body.index('dnsxManualBusy = true;'), body.index('await goldLoad();'))
         self.assertLess(body.index('_autoScanRunning = false;'), body.index('dnsxManualBusy = false;'))
 
-    def test_auto_sni_scan_has_a_hard_total_time_budget(self):
+    def test_auto_sni_scan_has_no_artificial_total_time_budget(self):
         source = (ROOT / 'lib' / 'auto_scanners.dart').read_text(encoding='utf-8')
         start = source.index('Future<void> autoScanRun(')
         end = source.index('Future<void> autoScanSheet(', start)
         body = source[start:end]
-        self.assertIn('const scanBudget = Duration(minutes: 3);', body)
-        self.assertIn('final scanClock = Stopwatch()..start();', body)
-        self.assertIn('bool timedOut() => scanClock.elapsed >= scanBudget;', body)
-        self.assertIn('|| timedOut();', body)
+        self.assertNotIn('scanBudget', body)
+        self.assertNotIn('timedOut()', body)
+        self.assertIn('nationalMode != scanNationalMode', body)
         self.assertIn('shouldAbort: () => cancelled(),', body)
-        self.assertIn('مهلت سه‌دقیقه‌ای اسکن تمام شد', body)
 
     def test_auto_sni_scan_aborts_when_network_mode_changes_mid_run(self):
         source = (ROOT / 'lib' / 'auto_scanners.dart').read_text(encoding='utf-8')
@@ -2405,7 +2428,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         first_await = body.index('await goldLoad();')
         self.assertLess(snapshot, first_await)
         self.assertIn('bool cancelled() =>', body)
-        self.assertIn('_autoScanStop || vpnActive() || vpnWanted() || nationalMode != scanNationalMode || timedOut();', body)
+        self.assertIn('_autoScanStop || vpnActive() || vpnWanted() || nationalMode != scanNationalMode;', body)
         self.assertIn('await goldAddScans(', body)
         self.assertIn('shouldAbort: () => cancelled(),', body)
         self.assertNotIn('if (_autoScanStop)', body)
@@ -2421,7 +2444,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         start = source.index('Future<void> autoScanRun(')
         end = source.index('Future<void> autoScanSheet(', start)
         body = source[start:end]
-        self.assertIn('_autoScanStop || vpnActive() || vpnWanted() || nationalMode != scanNationalMode || timedOut();', body)
+        self.assertIn('_autoScanStop || vpnActive() || vpnWanted() || nationalMode != scanNationalMode;', body)
         self.assertIn('با شروع اتصال VPN، اسکن برای جلوگیری از تداخل متوقف شد', body)
         self.assertIn('shouldAbort: () => cancelled(),', body)
 
@@ -2452,24 +2475,77 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         end = source.index('extension IpAutoExt', start)
         body = source[start:end]
         mode = body.index('final modeSnapshot = nationalMode;')
-        position = body.index('final startPosSnapshot = ipAutoPos;')
         cursors = body.index('final cursorSnapshot = Map<String, int>.of(ipAutoCursors);')
         compute = body.index('await compute(_genAddrsIso, args)')
         guard = body.index('if (nationalMode != modeSnapshot || (shouldAbort?.call() ?? false))')
-        mutation = body.index('ipAutoCursors\n    ..clear()')
         generated = body.index("final generatedCursors = Map<String, int>.from(gen['cursors'] as Map);")
-        update_pos = body.index('ipAutoPos = start + slice.length;')
+        stage = body.index('_ipAutoPendingCursors = generatedCursors;')
+        update_pos = body.index('ipAutoPos = 0;')
         self.assertLess(mode, compute)
-        self.assertLess(position, compute)
         self.assertLess(cursors, compute)
         self.assertLess(compute, guard)
         self.assertLess(guard, generated)
-        self.assertLess(generated, mutation)
+        self.assertLess(generated, stage)
         self.assertIn("'nationalMode': modeSnapshot", body)
-        self.assertIn('final start = startPosSnapshot % all.length;', body)
-        self.assertLess(mutation, update_pos)
+        self.assertIn("'outputLimit': _ipAutoBatch", body)
+        self.assertIn('return all;', body)
+        self.assertLess(stage, update_pos)
 
 
+
+    def test_nat_range_batch_persists_hits_before_committing_cursors(self):
+        source = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
+        start = source.index('Future<List<String>> _natRangeScanStepBody(')
+        end = source.index('List<String> userListUrls', start)
+        body = source[start:end]
+        hits = body.index('await natIpMemMergeHits(out);')
+        state = body.index('await _natRangeStateSave(')
+        publish = body.index('_cfRangeCursors\n    ..clear()', state)
+        self.assertLess(hits, state)
+        self.assertLess(state, publish)
+        self.assertIn('if (shouldAbort()) return const <String>[];', body[hits:state])
+
+    def test_smart_scanner_uses_resumable_bounded_range_batches(self):
+        source = (ROOT / 'lib' / 'king_national_scanner.dart').read_text(encoding='utf-8')
+        start = source.index("status(KingNatScanPhase.ip, 'اسکنر: پیمایش پیوسته")
+        end = source.index("} else if (!kNatIpScanOn)", start)
+        body = source[start:end]
+        self.assertIn('await natRangeStartNextPass();', body)
+        self.assertIn('await natRangeScanStep(', body)
+        self.assertIn('ipHits += found.length;', body)
+        self.assertIn('await addDiscovered(found);', body)
+        self.assertIn('ip_inventory_cursor_preserved_for_next_slice', body)
+        self.assertIn('while (!stopped() && !shouldYield() && !natRangeInventoryPassComplete)', body)
+        self.assertIn('Duration sliceBudget = const Duration(seconds: 60)', source)
+        self.assertIn('final portCount = max(1, natAutoPorts(seeds).length).toInt();', source)
+        self.assertIn('final batchAddressBudget = (workers * batchWaves).clamp(1, 768).toInt();', source)
+        self.assertIn('sliceYielded: didYield', source)
+
+    def test_nat_inventory_and_range_cursors_are_disk_backed_without_retention_caps(self):
+        source = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
+        self.assertIn('king_nat_ip_inventory.json', source)
+        self.assertIn('king_nat_domain_inventory.json', source)
+        self.assertIn('king_nat_configured_ranges.json', source)
+        self.assertIn('king_nat_range_state.json', source)
+        self.assertIn('king_nat_learning_state.json', source)
+        cursor_start = source.index('(List<String>, int) _natExpandAnyCursor(')
+        cursor_end = source.index('Map<String, dynamic> _genAddrsIso', cursor_start)
+        cursor = source[cursor_start:cursor_end]
+        self.assertIn('prefix < 0 || prefix > 32', cursor)
+        self.assertIn('InternetAddress.tryParse(x)?.type == InternetAddressType.IPv4', source)
+        self.assertNotIn('natVarNormal.length > 3000', source)
+        self.assertNotIn('_ipMemMax', source)
+        self.assertNotIn('_domMemMax', source)
+        self.assertNotIn('Duration(days: 14)', source)
+
+    def test_strategy_history_has_unbounded_disk_backed_persistence(self):
+        source = (ROOT / 'lib' / 'king_national_scanner.dart').read_text(encoding='utf-8')
+        self.assertIn('getApplicationSupportDirectory()', source)
+        self.assertIn('king_nat_strategy_memory_v1.json', source)
+        self.assertIn('temporary.rename(file.path)', source)
+        self.assertNotIn('_maxProfiles', source)
+        self.assertNotIn('_maxVariantsPerProfile', source)
+        self.assertNotIn('_trimHistory', source)
 
     def test_auto_scan_dialog_close_requests_cancellation(self):
         auto = (ROOT / 'lib' / 'auto_scanners.dart').read_text(encoding='utf-8')
@@ -2673,6 +2749,112 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertLess(scan, guard)
         self.assertLess(guard, save)
 
+
+    def test_manual_range_scan_has_no_fixed_result_or_time_ceiling(self):
+        source = (ROOT / 'lib' / 'npv_am_extras.dart').read_text(encoding='utf-8')
+        start = source.index('Future<void> manualRangeScan(')
+        end = source.index('\n}', start)
+        body = source[start:end]
+        self.assertIn('want: null,', body)
+        self.assertIn('budget: null,', body)
+        self.assertNotIn('want: 1000', body)
+        self.assertNotIn('Duration(minutes: userAddrs.length', body)
+
+    def test_connection_strategy_matrix_has_no_global_variant_count_ceiling(self):
+        main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        nat = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
+        self.assertNotIn('natMaxVariants', main)
+        self.assertNotIn('natMaxVariants', nat)
+        self.assertIn('KingNationalScannerEngine.planVariants(s, full: fullMatrix).where((v) => v != 0)', main)
+
+    def test_nat_learning_maps_and_variant_cursors_are_not_retention_capped(self):
+        source = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
+        self.assertNotIn('natDimWins.length > 6000', source)
+        self.assertNotIn('natVar.length > 4000', source)
+        self.assertNotIn('_natCursor.length > 4000', source)
+        save_start = source.index('Future<void> natSavePersisted()')
+        save_end = source.index('// NATLOADED-ONCE:', save_start)
+        save = source[save_start:save_end]
+        self.assertIn("'c': _natCursor", save)
+        load_start = source.index('Future<void> natLoadPersisted()')
+        load_end = source.index('const String _ipMemKey', load_start)
+        load = source[load_start:load_end]
+        self.assertIn("j['c']", load)
+        cursor_start = source.index('void natCursorAdvance(')
+        cursor_end = source.index('Duration natBudget(', cursor_start)
+        self.assertIn('natSaveSoon();', source[cursor_start:cursor_end])
+
+    def test_dynamic_strategy_growth_has_no_global_variant_ceiling(self):
+        source = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
+        start = source.index('int natGrow(int n)')
+        end = source.index('List<String>? _natNamesC;', start)
+        growth = source[start:end]
+        self.assertNotIn('_natSpecs.length > 500000', growth)
+        self.assertIn('for (var i = 0; i < n; i++)', growth)
+        self.assertIn('_natSpecs.add(_natMk(', growth)
+
+    def test_dynamic_strategy_growth_is_persisted_before_learning_indices(self):
+        source = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
+        self.assertIn("king_nat_dynamic_specs.jsonl", source)
+        save_start = source.index('Future<void> natSavePersisted()')
+        save_end = source.index('// NATLOADED-ONCE:', save_start)
+        save = source[save_start:save_end]
+        self.assertIn('await _natAppendDynamicSpecs();', save)
+        self.assertIn('await file.length() == 0', source)
+        self.assertIn('header = null;', source)
+        load_start = source.index('Future<void> natLoadPersisted()')
+        load_end = source.index('const String _ipMemKey', load_start)
+        load = source[load_start:load_end]
+        self.assertIn('await _natDynamicSpecsLoad();', load)
+        self.assertLess(load.index('await _natDynamicSpecsLoad();'), load.index("(j['v'] as Map)"))
+
+    def test_national_scanner_journal_resumes_every_phase_without_advancing_partial_work(self):
+        source = (ROOT / 'lib' / 'king_national_scanner.dart').read_text(encoding='utf-8')
+        self.assertIn('KingScanJournal.open(', source)
+        self.assertIn("const phaseOrder = <String>['dns', 'domain', 'ip', 'sni', 'config', 'complete'];", source)
+        self.assertIn("resumeCursor['serverKeyHash']", source)
+        self.assertIn('await flushLearning();', source)
+        self.assertIn("await persistPhase(\n              'ip',", source)
+        self.assertIn('king_national_scanner.lock', source)
+        self.assertIn('Duration sliceBudget = const Duration(seconds: 60)', source)
+        self.assertIn('if (!didCancel && !didYield && !phaseDeferred)', source)
+
+    def test_national_scanner_background_schedule_reuses_the_single_workmanager_dispatcher(self):
+        main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        worker = (ROOT / 'lib' / 'king_ai_background.dart').read_text(encoding='utf-8')
+        self.assertIn("part 'king_ai_background.dart';", main)
+        self.assertIn('Workmanager().initialize(kingAiBackgroundDispatcher)', worker)
+        self.assertIn("const String _nationalScannerTaskName = 'kingNationalNetworkScan';", worker)
+        self.assertIn('frequency: const Duration(hours: 24)', worker)
+        self.assertIn('registerOneOffTask(', worker)
+        self.assertIn('_runKingNationalScannerBackgroundTask()', worker)
+        self.assertIn('addDiscovered: natIpMemMergeHits', worker)
+        self.assertIn('final vpnInterfaceActive = await _kingHasVpnInterface();', worker)
+        self.assertIn('if (vpnInterfaceActive) return false;', worker)
+        self.assertIn('requiresBatteryNotLow: true', worker)
+
+    def test_foreground_scanner_slice_schedules_resume_without_blocking_vpn_start(self):
+        scanner = (ROOT / 'lib' / 'king_national_scanner.dart').read_text(encoding='utf-8')
+        background = (ROOT / 'lib' / 'king_ai_background.dart').read_text(encoding='utf-8')
+        caller = (ROOT / 'lib' / 'iran_ai_extras.dart').read_text(encoding='utf-8')
+        self.assertIn('scheduleNationalScannerContinuation()', scanner)
+        self.assertIn('static Future<void> scheduleNationalScannerContinuation()', background)
+        self.assertIn('return false;', background[background.index('Future<bool> _runKingNationalScannerBackgroundTask'):background.index('class KingAiBackgroundSupervisor')])
+        self.assertIn('!report.completed && !report.sliceYielded', caller)
+        self.assertIn('ادامهٔ موجودی با حافظهٔ پایدار در پس‌زمینه', caller)
+
+    def test_ipv6_reachability_remains_independent_from_tls_route_quorum(self):
+        engine = (ROOT / 'lib' / 'national_engine.dart').read_text(encoding='utf-8')
+        scanner = (ROOT / 'lib' / 'king_national_scanner.dart').read_text(encoding='utf-8')
+        diagnostics = (ROOT / 'lib' / 'net_diag.dart').read_text(encoding='utf-8')
+        self.assertIn('class PilotIpv6Probe', engine)
+        self.assertIn('InternetAddressType.IPv6', engine)
+        self.assertIn('Socket.connect(address, 443', engine)
+        self.assertIn('refreshPilotNetworkEvidence()', scanner)
+        self.assertIn('PilotIpv6Probe.current.toMap()', scanner)
+        self.assertIn('refreshPilotNetworkEvidence()', diagnostics)
+        self.assertIn('final ipv6 = PilotIpv6Probe.current;', diagnostics)
+        self.assertIn('Future<NetworkEvidence> refreshPilotNetworkEvidence', engine)
 
 if __name__ == '__main__':
     unittest.main()

@@ -11,7 +11,6 @@ part of 'main.dart';
 
 int natLevel = 1;
 int natRound = 1; // V12: 1 = pass 1 (skip failed), 2 = pass 2 (retry all)
-const int natMaxVariants = 5000; // V8 • فیکس ۱۷: قبلاً 0x7FFFFFFF
 int natFloor = 0;
 List<Server> natRestPending = [];
 
@@ -199,6 +198,52 @@ const List<_NatSpec> _natBase = [
 ];
 
 final List<_NatSpec> _natSpecs = [..._natBase, ..._natGenerate(), ..._natExtra];
+
+final int _natInitialSpecCount = _natSpecs.length;
+int _natDynamicPersistedCount = 0;
+
+Map<String, Object?> _natSpecToJson(_NatSpec s) => <String, Object?>{
+  'name': s.name, 'other': s.other, 'fp': s.fp, 'alpn': s.alpn,
+  'frag': s.frag, 'port': s.port, 'clean': s.clean, 'mux': s.mux,
+  'sniHost': s.sniHost, 'v4': s.v4, 'tfo': s.tfo, 'ed': s.ed,
+  'noise': s.noise, 'doh': s.doh, 'muxN': s.muxN, 'noiseK': s.noiseK,
+  'nodelay': s.nodelay, 'mode': s.mode, 'edN': s.edN,
+  'portIdx': s.portIdx, 'cleanIdx': s.cleanIdx, 'keep': s.keep,
+  'mss': s.mss, 'sniSwap': s.sniSwap,
+};
+
+_NatSpec _natSpecFromJson(Object? raw) {
+  if (raw is! Map) throw const FormatException('Invalid NAT strategy record');
+  String? stringValue(Object? value) => value is String ? value : null;
+  int? intValue(Object? value) => value is num ? value.toInt() : null;
+  bool boolValue(Object? value) => value is bool ? value : false;
+  return _NatSpec(
+    stringValue(raw['name']) ?? 'Recovered strategy',
+    other: boolValue(raw['other']),
+    fp: stringValue(raw['fp']),
+    alpn: stringValue(raw['alpn']),
+    frag: intValue(raw['frag']),
+    port: boolValue(raw['port']),
+    clean: boolValue(raw['clean']),
+    mux: boolValue(raw['mux']),
+    sniHost: boolValue(raw['sniHost']),
+    v4: boolValue(raw['v4']),
+    tfo: boolValue(raw['tfo']),
+    ed: boolValue(raw['ed']),
+    noise: boolValue(raw['noise']),
+    doh: stringValue(raw['doh']),
+    muxN: intValue(raw['muxN']) ?? 0,
+    noiseK: intValue(raw['noiseK']) ?? 0,
+    nodelay: boolValue(raw['nodelay']),
+    mode: stringValue(raw['mode']),
+    edN: intValue(raw['edN']),
+    portIdx: intValue(raw['portIdx']),
+    cleanIdx: intValue(raw['cleanIdx']),
+    keep: intValue(raw['keep']),
+    mss: intValue(raw['mss']),
+    sniSwap: intValue(raw['sniSwap']),
+  );
+}
 
 const List<_NatSpec> _natExtra = [
   _NatSpec('MTU 1280 (MSS 1240)', mss: 1240),
@@ -424,7 +469,6 @@ List<_NatSpec> _natGenerate() {
 
 int _natGrowCounter = 0;
 int natGrow(int n) {
-  if (_natSpecs.length > 500000) return 0;
   final rnd = Random(DateTime.now().millisecondsSinceEpoch + _natGrowCounter++);
   var added = 0;
   const fps = ['chrome', 'firefox', 'randomized', 'ios', 'android', 'safari', 'edge', 'random', 'qq', '360', 'hellogolang', 'hellochrome', 'hellofirefox', 'hellosafari', 'helloios', 'helloandroid', 'helloedge', 'hello360', 'helloqq', 'hellorandomized', 'hellorandomizedalpn', 'hellorandomizednoalpn'];
@@ -452,7 +496,11 @@ int natGrow(int n) {
     ));
     added++;
   }
-  if (added > 0) { _natNamesC = null; _natGenRankKey = ''; }
+  if (added > 0) {
+    _natNamesC = null;
+    _natGenRankKey = '';
+    natSaveSoon();
+  }
   return added;
 }
 
@@ -591,8 +639,11 @@ const Duration _varcbCooldown = Duration(hours: 1);
 final Map<int, int> _variantFailStreak = {};
 final Map<int, DateTime> _variantCooldown = {};
 
-void natVariantResult(int v, bool ok) {
-  if (v <= 0) return;
+void natVariantResult(int v, bool ok, {String? profile, int? latencyMs}) {
+  if (v < 0) return;
+  // KNS: this hook is called only after the real tunnel data-plane probe.
+  KingNationalScannerEngine.recordVariantOutcome(v, ok, profile: profile, latencyMs: latencyMs);
+  if (v == 0) return;
   final cd = _variantCooldown[v];
   if (cd != null && DateTime.now().isBefore(cd)) return;
   if (ok) {
@@ -622,12 +673,17 @@ bool _natAppliesF(_NatFacts f, int v) {
   if (natVariantCooling(v)) return false; // VARCB
   if (natRetired(v)) return false;
   final x = _natSpecs[v];
+  if (x.sniSwap != null) {
+    final index = x.sniSwap!;
+    if (index < 0 || index >= natFrontSnis.length ||
+        InternetAddress.tryParse(natFrontSnis[index]) != null) return false;
+  }
   if (x.other && !f.hasOther) return false;
   if ((x.fp != null || x.alpn != null || x.frag != null || x.noise) &&
       !f.sec) {
     return false;
   }
-  if (x.sniHost && !(f.sec && !f.reality)) return false;
+  if (x.sniHost && !(f.sec && !f.reality && !f.isIp)) return false;
   if (x.ed && !(f.sec && !f.reality && f.ws)) return false;
   if (x.port && !(f.sec && !f.reality && f.cdnNet && f.cfPort)) return false;
   final pi = x.portIdx;
@@ -751,8 +807,8 @@ String _natCk(Server s) => '$natOpKey#${s.key}';
 void natCursorAdvance(Server s, int n) {
   if (n <= 0) return;
   final k = _natCk(s);
-  if (_natCursor.length > 4000) _natCursor.remove(_natCursor.keys.first);
   _natCursor[k] = (_natCursor[k] ?? 0) + n;
+  natSaveSoon();
 }
 
 Duration natBudget({bool full = false}) {
@@ -800,8 +856,8 @@ List<int> _natOrder(Server s, {bool full = false}) {
     if (used.add(c)) out.add(c);
   }
 
-  final preferLight = !nationalMode;
-  final skipHeavy = !nationalMode;
+  final preferLight = !nationalMode && !scannerMode;
+  final skipHeavy = !nationalMode && !scannerMode;
 
   final knownOk = known != null && _natAppliesF(f, known);
   if (knownOk && (!skipHeavy || !_natIsSlowHeavy(known!))) put(known!);
@@ -1405,7 +1461,7 @@ String _natSmartSni(String cfg, Server s, {bool forceAll = false}) {
       if (tls is! Map) continue;
       if (tlsHasEch(tls)) continue;
       tls['serverName'] = 'cdnjs.cloudflare.com';
-      tls['allowInsecure'] = true;
+      tls['allowInsecure'] = false;
     }
     return jsonEncode(j);
   } catch (_) { return cfg; }
@@ -1579,10 +1635,6 @@ void natVarSet(Server s, int v) {
     _natLearnVer++;
   }
   _natCursor.remove(_natCk(s));
-  if (natDimWins.length > 6000) natDimWins.remove(natDimWins.keys.first);
-  while (natVar.length > 4000) {
-    natVar.remove(natVar.keys.first);
-  }
   _natSaveT ??= Timer(const Duration(seconds: 5), () {
     _natSaveT = null;
     natSavePersisted();
@@ -1599,15 +1651,15 @@ void natSaveSoon() {
 
 Future<void> natSavePersisted() async {
   try {
-    final p = await SharedPreferences.getInstance();
-    await p.setString('natvar2',
-        jsonEncode({
-          'v': natVar,
-          'w': natWins,
-          'd': natDimWins,
-          'g': _natGenVer,
-          'n': natVarNormal, // NORMALCACHE: پایدار بین session‌ها
-        }));
+    await _natAppendDynamicSpecs();
+    await _natWriteJsonSnapshot('king_nat_learning_state.json', <String, Object?>{
+      'v': natVar,
+      'w': natWins,
+      'd': natDimWins,
+      'g': _natGenVer,
+      'n': natVarNormal,
+      'c': _natCursor,
+    });
   } catch (e, stk) {
     logError(e, stk);
   }
@@ -1625,13 +1677,25 @@ Future<void> natLoadPersisted() async {
   await natDomMemLoad();
   await userListsLoad();
   try {
+    await _natDynamicSpecsLoad();
     final p = await SharedPreferences.getInstance();
-    final s = p.getString('natvar2');
+    final file = await _natMemoryFile('king_nat_learning_state.json');
+    final hasDiskStore = await file.exists();
+    final s = hasDiskStore ? await file.readAsString() : p.getString('natvar2');
     if (s == null) return;
     final j = jsonDecode(s);
     (j['v'] as Map).forEach((k, v) => natVar['$k'] = (v as num).toInt());
     (j['w'] as Map).forEach((k, v) => natWins['$k'] = (v as num).toInt());
     _natWinsVer++; // TOPWIN
+    final cursorMap = j['c'];
+    if (cursorMap is Map) {
+      _natCursor
+        ..clear()
+        ..addAll({
+          for (final entry in cursorMap.entries)
+            if (entry.value is num) '${entry.key}': (entry.value as num).toInt(),
+        });
+    }
     final d = j['d'];
     if (d is Map) {
       d.forEach((k, v) => natDimWins['$k'] = (v as num).toInt());
@@ -1652,9 +1716,6 @@ Future<void> natLoadPersisted() async {
           }
         }
       });
-      while (natVarNormal.length > 3000) {
-        natVarNormal.remove(natVarNormal.keys.first);
-      }
     }
     if (((j['g'] ?? 0) as num).toInt() != _natGenVer) {
       natVar.removeWhere((k, v) => v >= _natBaseCount);
@@ -1664,6 +1725,9 @@ Future<void> natLoadPersisted() async {
         return n != null && n >= _natBaseCount;
       });
     }
+    if (!hasDiskStore) {
+      await _natWriteJsonSnapshot('king_nat_learning_state.json', j);
+    }
     _natLearnVer++;
   } catch (e, stk) {
     logError(e, stk);
@@ -1672,42 +1736,292 @@ Future<void> natLoadPersisted() async {
 
 const String _ipMemKey = 'natIpMem';
 const String _rangeKey = 'natRanges';
-const int _ipMemMax = 200;
 
 final List<Map<String, dynamic>> natIpMem = [];
 final Set<String> natIpDeadRun = {};
 List<String> natRanges = [];
-int natRangeCursor = 0; // generic range cursor
-int _natConfiguredRangeCursor = 0; // isolated National Net user-range cursor
+int natRangeCursor = 0; // legacy generic range cursor
+int _natConfiguredRangeCursor = 0; // next configured-range entry
+final Map<String, int> _natConfiguredRangeCursors = <String, int>{};
+bool natRangeInventoryPassComplete = false;
+int natRangeScanBatchSequence = 0;
 DateTime natRangeLast = DateTime.fromMillisecondsSinceEpoch(0);
+
+Future<File> _natMemoryFile(String name) async {
+  final directory = await getApplicationSupportDirectory();
+  return File('${directory.path}/$name');
+}
+
+Future<KingDiskInventory>? _natIpInventoryFuture;
+Future<KingDiskInventory>? _natDomainInventoryFuture;
+
+Future<KingDiskInventory> _natIpInventory() async {
+  try {
+    return await (_natIpInventoryFuture ??=
+        KingDiskInventory.open(name: 'nat-ip-endpoints'));
+  } catch (_) {
+    _natIpInventoryFuture = null;
+    rethrow;
+  }
+}
+
+Future<KingDiskInventory> _natDomainInventory() async {
+  try {
+    return await (_natDomainInventoryFuture ??=
+        KingDiskInventory.open(name: 'nat-domain-endpoints'));
+  } catch (_) {
+    _natDomainInventoryFuture = null;
+    rethrow;
+  }
+}
+
+
+Future<void> _natFileWriteQueue = Future<void>.value();
+
+Future<void> _natWriteJsonSnapshot(String name, Object value) {
+  final next = _natFileWriteQueue.then((_) async {
+    final file = await _natMemoryFile(name);
+    final temporary = File('${file.path}.tmp');
+    await temporary.writeAsString(jsonEncode(value), flush: true);
+    await temporary.rename(file.path);
+  });
+  _natFileWriteQueue = next.catchError((Object error, StackTrace stack) {
+    logError(error, stack);
+  });
+  return next;
+}
+
+
+const String _natDynamicSpecsFileName = 'king_nat_dynamic_specs.jsonl';
+bool _natDynamicSpecsLoaded = false;
+
+Future<void> _natDynamicSpecsLoad() async {
+  if (_natDynamicSpecsLoaded) return;
+  _natDynamicSpecsLoaded = true;
+  try {
+    final file = await _natMemoryFile(_natDynamicSpecsFileName);
+    if (!await file.exists()) return;
+    final lines = await file.readAsLines();
+    if (lines.isEmpty) return;
+    Object? header;
+    try {
+      header = jsonDecode(lines.first);
+    } catch (_) {
+      header = null;
+    }
+    if (header is! Map ||
+        header['kind'] != 'king-nat-dynamic-specs' ||
+        header['version'] != 1 ||
+        header['baseCount'] != _natInitialSpecCount) {
+      final legacy = File('${file.path}.incompatible');
+      if (await legacy.exists()) await legacy.delete();
+      await file.rename(legacy.path);
+      return;
+    }
+    final validLines = <String>[lines.first];
+    for (final line in lines.skip(1)) {
+      if (line.trim().isEmpty) continue;
+      try {
+        _natSpecs.add(_natSpecFromJson(jsonDecode(line)));
+        validLines.add(line);
+        _natDynamicPersistedCount++;
+      } catch (e, stk) {
+        logError(e, stk);
+        break;
+      }
+    }
+    if (validLines.length != lines.length) {
+      await file.writeAsString('${validLines.join('\n')}\n', flush: true);
+    }
+    _natNamesC = null;
+    _natGenRankKey = '';
+  } catch (e, stk) {
+    logError(e, stk);
+  }
+}
+
+Future<void> _natAppendDynamicSpecs() {
+  final next = _natFileWriteQueue.then((_) async {
+    final pendingStart = _natInitialSpecCount + _natDynamicPersistedCount;
+    final targetLength = _natSpecs.length;
+    if (targetLength <= pendingStart) return;
+    final file = await _natMemoryFile(_natDynamicSpecsFileName);
+    if (!await file.exists() || await file.length() == 0) {
+      final header = <String, Object?>{
+        'kind': 'king-nat-dynamic-specs',
+        'version': 1,
+        'baseCount': _natInitialSpecCount,
+      };
+      await file.writeAsString('${jsonEncode(header)}\n', flush: true);
+    }
+    final sink = file.openWrite(mode: FileMode.append);
+    for (var index = pendingStart; index < targetLength; index++) {
+      sink.writeln(jsonEncode(_natSpecToJson(_natSpecs[index])));
+    }
+    await sink.flush();
+    await sink.close();
+    _natDynamicPersistedCount = targetLength - _natInitialSpecCount;
+  });
+  _natFileWriteQueue = next.catchError((Object error, StackTrace stack) {
+    logError(error, stack);
+  });
+  return next;
+}
+
+Future<void> _natWriteMemorySnapshot(
+    String name, List<Map<String, dynamic>> values) =>
+    _natWriteJsonSnapshot(name, values);
+
+Future<void> _natRangeStateLoad(SharedPreferences prefs) async {
+  const name = 'king_nat_range_state.json';
+  final file = await _natMemoryFile(name);
+  Map<dynamic, dynamic>? state;
+  if (await file.exists()) {
+    final decoded = jsonDecode(await file.readAsString());
+    if (decoded is Map) state = decoded;
+  } else {
+    final configuredRaw = prefs.getString('natConfiguredRangeCursorsV1');
+    final endpointRaw = prefs.getString('natCfRangeCursorsV1');
+    Object? configured = <String, int>{};
+    Object? endpoints = <String, int>{};
+    try {
+      if (configuredRaw != null && configuredRaw.isNotEmpty) {
+        configured = jsonDecode(configuredRaw);
+      }
+      if (endpointRaw != null && endpointRaw.isNotEmpty) {
+        endpoints = jsonDecode(endpointRaw);
+      }
+    } catch (e, stk) {
+      logError(e, stk);
+    }
+    state = <String, Object?>{
+      'configuredCursor': prefs.getInt('natConfiguredRangeCursor') ?? 0,
+      'configuredCursors': configured,
+      'endpointCursors': endpoints,
+    };
+    await _natWriteJsonSnapshot(name, state);
+  }
+  final loaded = state ?? <String, Object?>{};
+  final configuredCursor = loaded['configuredCursor'];
+  _natConfiguredRangeCursor =
+      configuredCursor is num ? configuredCursor.toInt() : 0;
+  Map<String, int> decodeCursors(Object? raw) {
+    final result = <String, int>{};
+    if (raw is Map) {
+      for (final entry in raw.entries) {
+        if (entry.value is num) {
+          result['${entry.key}'] = (entry.value as num).toInt();
+        }
+      }
+    }
+    return result;
+  }
+  _natConfiguredRangeCursors
+    ..clear()
+    ..addAll(decodeCursors(loaded['configuredCursors']));
+  _cfRangeCursors
+    ..clear()
+    ..addAll(decodeCursors(loaded['endpointCursors']));
+}
+
+Future<void> _natRangeStateSave({
+  int? configuredCursor,
+  Map<String, int>? configuredCursors,
+  Map<String, int>? endpointCursors,
+}) => _natWriteJsonSnapshot(
+  'king_nat_range_state.json',
+  <String, Object?>{
+    'configuredCursor': configuredCursor ?? _natConfiguredRangeCursor,
+    'configuredCursors': configuredCursors ?? _natConfiguredRangeCursors,
+    'endpointCursors': endpointCursors ?? _cfRangeCursors,
+  },
+);
 
 Set<String> natIpMemHosts() => {for (final e in natIpMem) '${e['ip']}'};
 
 Future<void> natIpMemLoad() async {
   try {
-    final p = await SharedPreferences.getInstance();
-    final s = p.getString(_ipMemKey);
-    if (s != null) {
-      natIpMem
-        ..clear()
-        ..addAll((jsonDecode(s) as List).cast<Map<String, dynamic>>());
-      final cutoff = DateTime.now()
-          .subtract(const Duration(days: 14))
-          .millisecondsSinceEpoch;
-      natIpMem.removeWhere((e) => ((e['t'] as num?)?.toInt() ?? 0) < cutoff);
+    final prefs = await SharedPreferences.getInstance();
+    final inventory = await _natIpInventory();
+    if (await inventory.records().isEmpty) {
+      final legacyFile = await _natMemoryFile('king_nat_ip_inventory.json');
+      var legacy = await legacyFile.exists()
+          ? await legacyFile.readAsString()
+          : null;
+      if (legacy == null || legacy.isEmpty) legacy = prefs.getString(_ipMemKey);
+      if (legacy != null && legacy.isNotEmpty) {
+        final decoded = jsonDecode(legacy);
+        if (decoded is List) {
+          final migrated = <Map<String, Object?>>[];
+          for (final raw in decoded) {
+            if (raw is! Map) continue;
+            final ip = raw['ip']?.toString() ?? '';
+            final port = raw['port'];
+            if (InternetAddress.tryParse(ip) == null || port is! num ||
+                port.toInt() < 1 || port.toInt() > 65535) continue;
+            migrated.add(<String, Object?>{
+              'key': '$ip|${port.toInt()}',
+              'ip': ip,
+              'port': port.toInt(),
+              't': raw['t'] is num ? (raw['t'] as num).toInt() : 0,
+            });
+          }
+          if (migrated.isNotEmpty) await inventory.upsertBatch(migrated);
+        }
+      }
     }
-    natRanges = (p.getString(_rangeKey) ?? '')
-        .split(RegExp(r'[\r\n,; ]+'))
-        .where((x) => x.contains('/') || x.contains('-'))
-        .toList();
-    _natConfiguredRangeCursor = (p.getInt('natConfiguredRangeCursor') ?? 0).clamp(0, 1 << 31).toInt();
+    natIpMem.clear();
+    await for (final record in inventory.records()) {
+      final ip = record['ip'];
+      final port = record['port'];
+      if (ip is String && port is num) {
+        natIpMem.add(<String, dynamic>{
+          'ip': ip,
+          'port': port.toInt(),
+          't': record['t'] is num ? (record['t'] as num).toInt() : 0,
+        });
+      }
+    }
+    final rangesFile = await _natMemoryFile('king_nat_configured_ranges.json');
+    final hasRangeFile = await rangesFile.exists();
+    final savedRanges = hasRangeFile
+        ? jsonDecode(await rangesFile.readAsString())
+        : (prefs.getString(_rangeKey) ?? '')
+            .split(RegExp(r'[\r\n,; ]+'))
+            .where((raw) {
+              final value = raw.trim();
+              if (value.contains('/')) {
+                final parts = value.split('/');
+                if (parts.length != 2) return false;
+                final address = InternetAddress.tryParse(parts[0].trim());
+                final prefix = int.tryParse(parts[1].trim());
+                if (address == null || prefix == null) return false;
+                return address.type == InternetAddressType.IPv4
+                    ? prefix >= 0 && prefix <= 32
+                    : prefix == 128;
+              }
+              if (value.contains('-')) {
+                final parts = value.split('-');
+                if (parts.length != 2) return false;
+                return InternetAddress.tryParse(parts[0].trim())?.type == InternetAddressType.IPv4 &&
+                    InternetAddress.tryParse(parts[1].trim())?.type == InternetAddressType.IPv4;
+              }
+              return InternetAddress.tryParse(value) != null;
+            })
+            .toList();
+    natRanges = savedRanges is List
+        ? savedRanges.map((value) => value.toString()).toList()
+        : <String>[];
+    if (!hasRangeFile && natRanges.isNotEmpty) {
+      await _natWriteJsonSnapshot('king_nat_configured_ranges.json', natRanges);
+    }
+    await _natRangeStateLoad(prefs);
   } catch (e, stk) {
     logError(e, stk);
   }
 }
 
 const String _domMemKey = 'natDomMem';
-const int _domMemMax = 200;
 const int natDelaySecs = 14;
 final List<Map<String, dynamic>> natDomMem = [];
 
@@ -1715,16 +2029,46 @@ Set<String> natDomMemHosts() => {for (final e in natDomMem) '${e['h']}:${e['port
 
 Future<void> natDomMemLoad() async {
   try {
-    final p = await SharedPreferences.getInstance();
-    final s = p.getString(_domMemKey);
-    if (s != null) {
-      natDomMem
-        ..clear()
-        ..addAll((jsonDecode(s) as List).cast<Map<String, dynamic>>());
-      final cutoff = DateTime.now()
-          .subtract(const Duration(days: 14))
-          .millisecondsSinceEpoch;
-      natDomMem.removeWhere((e) => ((e['t'] as num?)?.toInt() ?? 0) < cutoff);
+    final prefs = await SharedPreferences.getInstance();
+    final inventory = await _natDomainInventory();
+    if (await inventory.records().isEmpty) {
+      final legacyFile = await _natMemoryFile('king_nat_domain_inventory.json');
+      var legacy = await legacyFile.exists()
+          ? await legacyFile.readAsString()
+          : null;
+      if (legacy == null || legacy.isEmpty) legacy = prefs.getString(_domMemKey);
+      if (legacy != null && legacy.isNotEmpty) {
+        final decoded = jsonDecode(legacy);
+        if (decoded is List) {
+          final migrated = <Map<String, Object?>>[];
+          for (final raw in decoded) {
+            if (raw is! Map) continue;
+            final host = raw['h']?.toString() ?? '';
+            final port = raw['port'];
+            if (host.isEmpty || port is! num ||
+                port.toInt() < 1 || port.toInt() > 65535) continue;
+            migrated.add(<String, Object?>{
+              'key': '$host|${port.toInt()}',
+              'h': host,
+              'port': port.toInt(),
+              't': raw['t'] is num ? (raw['t'] as num).toInt() : 0,
+            });
+          }
+          if (migrated.isNotEmpty) await inventory.upsertBatch(migrated);
+        }
+      }
+    }
+    natDomMem.clear();
+    await for (final record in inventory.records()) {
+      final host = record['h'];
+      final port = record['port'];
+      if (host is String && port is num) {
+        natDomMem.add(<String, dynamic>{
+          'h': host,
+          'port': port.toInt(),
+          't': record['t'] is num ? (record['t'] as num).toInt() : 0,
+        });
+      }
     }
   } catch (e, stk) {
     logError(e, stk);
@@ -1732,69 +2076,127 @@ Future<void> natDomMemLoad() async {
 }
 
 Future<void> natDomMemSave(String host, int port) async {
-  natDomMem.removeWhere((e) => e['h'] == host && e['port'] == port);
-  natDomMem.insert(0, {'h': host, 'port': port, 't': DateTime.now().millisecondsSinceEpoch});
-  if (natDomMem.length > _domMemMax) {
-    natDomMem.removeRange(_domMemMax, natDomMem.length);
-  }
+  if (host.trim().isEmpty || port < 1 || port > 65535) return;
+  final normalizedHost = host.trim();
+  final now = DateTime.now().millisecondsSinceEpoch;
   try {
-    final p = await SharedPreferences.getInstance();
-    await p.setString(_domMemKey, jsonEncode(natDomMem));
+    final inventory = await _natDomainInventory();
+    await inventory.upsertBatch(<Map<String, Object?>>[
+      <String, Object?>{
+        'key': '$normalizedHost|$port',
+        'h': normalizedHost,
+        'port': port,
+        't': now,
+      },
+    ]);
+    natDomMem.removeWhere((e) => e['h'] == normalizedHost && e['port'] == port);
+    natDomMem.insert(0, {'h': normalizedHost, 'port': port, 't': now});
   } catch (e, stk) {
     logError(e, stk);
   }
+}
+
+Future<void> natIpMemMergeHits(List<String> hits) async {
+  final now = DateTime.now().millisecondsSinceEpoch;
+  final updates = <String, Map<String, Object?>>{};
+  for (final item in hits) {
+    final parts = item.split('|');
+    if (parts.length < 2) continue;
+    final ip = parts[0].trim();
+    final port = int.tryParse(parts[1].trim());
+    if (InternetAddress.tryParse(ip) == null ||
+        port == null || port < 1 || port > 65535) continue;
+    updates['$ip|$port'] = <String, Object?>{
+      'key': '$ip|$port', 'ip': ip, 'port': port, 't': now,
+    };
+  }
+  if (updates.isEmpty) return;
+  final inventory = await _natIpInventory();
+  await inventory.upsertBatch(updates.values);
+  final updatedKeys = updates.keys.toSet();
+  natIpMem.removeWhere((entry) =>
+      updatedKeys.contains('${entry['ip']}|${entry['port']}'));
+  natIpMem.insertAll(0, <Map<String, dynamic>>[
+    for (final record in updates.values)
+      <String, dynamic>{
+        'ip': record['ip'], 'port': record['port'], 't': now,
+      },
+  ]);
 }
 
 Future<void> natIpMemSave(String ip, int port) async {
-  natIpMem.removeWhere((e) => e['ip'] == ip && e['port'] == port);
-  natIpMem.insert(0, {'ip': ip, 'port': port, 't': DateTime.now().millisecondsSinceEpoch});
-  if (natIpMem.length > _ipMemMax) {
-    natIpMem.removeRange(_ipMemMax, natIpMem.length);
-  }
+  if (InternetAddress.tryParse(ip) == null || port < 1 || port > 65535) return;
+  final now = DateTime.now().millisecondsSinceEpoch;
   try {
-    final p = await SharedPreferences.getInstance();
-    await p.setString(_ipMemKey, jsonEncode(natIpMem));
+    final inventory = await _natIpInventory();
+    await inventory.upsertBatch(<Map<String, Object?>>[
+      <String, Object?>{'key': '$ip|$port', 'ip': ip, 'port': port, 't': now},
+    ]);
+    natIpMem.removeWhere((e) => e['ip'] == ip && e['port'] == port);
+    natIpMem.insert(0, {'ip': ip, 'port': port, 't': now});
   } catch (e, stk) {
     logError(e, stk);
   }
 }
 
 
-/// Next bounded sample from the National Net engine's own user-configured
-/// ranges. This cursor and range inventory are not shared with generic scanners.
-({List<String> addresses, int nextCursor}) _natConfiguredRangeBatch(int limit) {
+
+/// Stream every configured address in bounded batches. Each range has its own
+/// durable offset; -1 marks that range complete for the current full pass.
+({List<String> addresses, int nextCursor, Map<String, int> nextRangeCursors, bool passCompleted})
+    _natConfiguredRangeBatch(int limit) {
+  final staged = Map<String, int>.of(_natConfiguredRangeCursors);
   if (limit <= 0 || natRanges.isEmpty) {
-    return (addresses: const <String>[], nextCursor: _natConfiguredRangeCursor);
+    return (addresses: const <String>[], nextCursor: _natConfiguredRangeCursor,
+      nextRangeCursors: staged, passCompleted: true);
   }
-  final candidates = <String>{};
-  for (final range in natRanges.take(128)) {
-    final remaining = limit * 4 - candidates.length;
-    if (remaining <= 0) break;
-    candidates.addAll(natExpandAny(range, maxPerBlock: remaining));
+  if (natRanges.every((range) => (staged[range] ?? 0) < 0)) {
+    return (addresses: const <String>[], nextCursor: _natConfiguredRangeCursor,
+      nextRangeCursors: staged, passCompleted: true);
   }
-  if (candidates.isEmpty) {
-    return (addresses: const <String>[], nextCursor: _natConfiguredRangeCursor);
+  final out = <String>[];
+  var index = _natConfiguredRangeCursor % natRanges.length;
+  var visited = 0;
+  while (out.length < limit && visited < natRanges.length) {
+    final range = natRanges[index];
+    final cursor = staged[range] ?? 0;
+    if (cursor < 0) {
+      index = (index + 1) % natRanges.length;
+      visited++;
+      continue;
+    }
+    final generated = _natExpandAnyCursor(range, cursor, limit - out.length);
+    out.addAll(generated.$1);
+    if (generated.$1.isEmpty || generated.$2 <= cursor) {
+      staged[range] = -1;
+      index = (index + 1) % natRanges.length;
+      visited++;
+    } else {
+      staged[range] = generated.$2;
+      break;
+    }
   }
-  final values = candidates.toList(growable: false);
-  final start = _natConfiguredRangeCursor % values.length;
-  final count = min(limit, values.length).toInt();
-  final out = <String>[
-    for (var i = 0; i < count; i++) values[(start + i) % values.length],
-  ];
-  // The caller commits this cursor only after the corresponding scan completes.
-  return (addresses: out, nextCursor: (start + count) % values.length);
+  final complete = natRanges.every((range) => (staged[range] ?? 0) < 0);
+  return (
+    addresses: out,
+    nextCursor: complete ? 0 : index,
+    nextRangeCursors: staged,
+    passCompleted: complete,
+  );
 }
 
 Future<void> natRangesSave(String text) async {
-  natRanges = text
-      .split(RegExp(r'[\r\n,; ]+'))
-      .where((x) => x.contains('/') || x.contains('-'))
-      .toList();
+  natRanges = <String>{
+    ...text.split(RegExp(r'[\r\n,; ]+'))
+        .where((x) => x.contains('/') || x.contains('-') ||
+            InternetAddress.tryParse(x) != null),
+  }.toList(growable: false);
   _natConfiguredRangeCursor = 0;
+  _natConfiguredRangeCursors.clear();
+  natRangeInventoryPassComplete = false;
   try {
-    final p = await SharedPreferences.getInstance();
-    await p.setString(_rangeKey, natRanges.join('\n'));
-    await p.setInt('natConfiguredRangeCursor', 0);
+    await _natWriteJsonSnapshot('king_nat_configured_ranges.json', natRanges);
+    await _natRangeStateSave();
   } catch (e, stk) {
     logError(e, stk);
   }
@@ -1807,7 +2209,7 @@ const List<int> natCommonPorts = [
 
 List<int> natAutoPorts(List<Server> known) {
   final cnt = <int, int>{};
-  for (final s in known.take(100)) { // فیکس ۱۸: قبلاً کل known (تا ۳۰۰۰ سرور)
+  for (final s in known) {
     if (s.port > 0 && s.port < 65536) cnt[s.port] = (cnt[s.port] ?? 0) + 1;
   }
   for (final e in natIpMem) {
@@ -1816,7 +2218,7 @@ List<int> natAutoPorts(List<Server> known) {
   }
   final ports = natStableSorted<int>(
       cnt.keys, (x, y) => cnt[y]! - cnt[x]!);
-  final out = <int>[...ports.take(10)];
+  final out = <int>[...ports];
   for (final p in natCommonPorts) {
     if (!out.contains(p)) out.add(p);
   }
@@ -1947,16 +2349,13 @@ Future<List<String>> _natDomainFirst(List<Server> known,
   // Bound endpoint collection, DNS resolution, and TCP probes together.
   // Starting the monotonic clock only after DNS resolution allowed a slow
   // resolver to keep this background phase alive far beyond its advertised cap.
-  const scanBudget = Duration(seconds: 45);
-  final scanClock = Stopwatch()..start();
-  bool expired() => scanClock.elapsed >= scanBudget;
-  bool cancelled() => (stop != null && stop()) || expired();
+  bool cancelled() => stop != null && stop();
   try {
     // Only inspect hosts and ports explicitly present in the user's/current
     // server configurations. Do not scan unrelated public domains or all
     // 65,535 ports on third-party hosts.
     final endpoints = <String, Set<int>>{};
-    for (final server in known.take(1200)) {
+    for (final server in known) {
       if (cancelled()) return const <String>[];
       final host = server.host.trim();
       final port = server.port;
@@ -1971,7 +2370,8 @@ Future<List<String>> _natDomainFirst(List<Server> known,
       final addresses = parsed == null ? await safeLookup(entry.key) : <InternetAddress>[parsed];
       if (cancelled()) return const <String>[];
       for (final address in addresses) {
-        if (address.type != InternetAddressType.IPv4) continue;
+        // Both address families are valid endpoint results; the socket scanner
+        // performs family-aware connects and preserves IPv6 evidence.
         (resolved[address.address] ??= <int>{}).addAll(entry.value);
       }
     }
@@ -1992,8 +2392,8 @@ Future<List<String>> _natDomainFirst(List<Server> known,
         entry.value,
         port: entry.key,
         concurrency: conc.clamp(1, 32).toInt(),
-        want: 50,
-        budget: const Duration(seconds: 5),
+        want: entry.value.length,
+        budget: null,
         timeout: const Duration(milliseconds: 1200),
         cancelled: cancelled,
       );
@@ -2045,14 +2445,16 @@ Future<List<String>> natDeviceHosts() async {
 }
 
 List<String> natSeedBlocks(List<String> hosts) {
-  // A discovered DNS/server/device IP is not permission to scan its /24.
-  // Keep the candidate set to the exact observed address (/32).
+  // A discovered/configured endpoint is an exact target only. IPv6 is stored
+  // as /128; no neighboring IPv6 subnet is inferred from one address.
   final out = <String>[];
   final seen = <String>{};
   for (final host in hosts) {
     final parsed = InternetAddress.tryParse(host.trim());
-    if (parsed == null || parsed.type != InternetAddressType.IPv4) continue;
-    final cidr = '${parsed.address}/32';
+    if (parsed == null) continue;
+    final cidr = parsed.type == InternetAddressType.IPv4
+        ? '${parsed.address}/32'
+        : '${parsed.address}/128';
     if (seen.add(cidr)) out.add(cidr);
   }
   return out;
@@ -2106,7 +2508,7 @@ List<String> _getCfIps({
     final d = int.tryParse(octets[3]);
     final prefix = int.tryParse(parts[1]);
     if (a == null || b == null || c == null || d == null || prefix == null) continue;
-    if (prefix < 8 || prefix > 32) continue;
+    if (prefix < 0 || prefix > 32) continue;
     final base = (a << 24) | (b << 16) | (c << 8) | d;
     final span = 1 << (32 - prefix);
     var cursor = curMap[cidr] ?? 0;
@@ -2124,24 +2526,33 @@ List<String> _getCfIps({
 (List<String>, int) _natExpandAnyCursor(String item, int cursor, int maxPerBlock) {
   String? startIp;
   int span = 0;
-  if (item.contains('/')) {
-    final parts = item.split('/');
-    if (parts.length != 2) return (<String>[], 0);
+  final raw = item.trim();
+  if (raw.contains('/')) {
+    final parts = raw.split('/');
+    if (parts.length != 2) return (<String>[], -1);
     final ip = InternetAddress.tryParse(parts[0].trim());
     final prefix = int.tryParse(parts[1]);
-    if (ip == null || ip.type != InternetAddressType.IPv4 || prefix == null || prefix < 8 || prefix > 32) {
-      return (<String>[], 0);
+    if (ip == null || prefix == null) return (<String>[], -1);
+    if (ip.type == InternetAddressType.IPv6) {
+      // Explicit IPv6 endpoints are supported. Broad IPv6 prefixes are not
+      // enumerated; the caller must supply an exact /128 endpoint.
+      if (prefix != 128) return (<String>[], -1);
+      if (cursor != 0 || maxPerBlock <= 0) return (<String>[], -1);
+      return (<String>[ip.address], -1);
     }
+    if (prefix < 0 || prefix > 32) return (<String>[], -1);
     final base = _ipToInt(ip.address) & (0xffffffff << (32 - prefix));
     span = 1 << (32 - prefix);
     startIp = _intToIp(base);
-  } else if (item.contains('-')) {
-    final parts = item.split('-');
-    if (parts.length != 2) return (<String>[], 0);
+  } else if (raw.contains('-')) {
+    final parts = raw.split('-');
+    if (parts.length != 2) return (<String>[], -1);
     final a = InternetAddress.tryParse(parts[0].trim());
     final b = InternetAddress.tryParse(parts[1].trim());
-    if (a == null || b == null || a.type != InternetAddressType.IPv4 || b.type != InternetAddressType.IPv4) {
-      return (<String>[], 0);
+    if (a == null || b == null ||
+        a.type != InternetAddressType.IPv4 ||
+        b.type != InternetAddressType.IPv4) {
+      return (<String>[], -1);
     }
     final first = _ipToInt(a.address);
     final last = _ipToInt(b.address);
@@ -2149,27 +2560,29 @@ List<String> _getCfIps({
     span = (max(first, last) - low) + 1;
     startIp = _intToIp(low);
   } else {
-    final ip = InternetAddress.tryParse(item.trim());
-    if (ip == null || ip.type != InternetAddressType.IPv4) return (<String>[], 0);
+    final ip = InternetAddress.tryParse(raw);
+    if (ip == null) return (<String>[], -1);
+    if (ip.type == InternetAddressType.IPv6) {
+      if (cursor != 0 || maxPerBlock <= 0) return (<String>[], -1);
+      return (<String>[ip.address], -1);
+    }
     startIp = ip.address;
     span = 1;
   }
-  if (span <= 0) return (<String>[], 0);
+  if (span <= 0 || cursor < 0 || maxPerBlock <= 0) return (<String>[], -1);
   final base = _ipToInt(startIp);
-  final offset = cursor % span;
-  final count = min(maxPerBlock, span);
+  final offset = cursor.clamp(0, span).toInt();
+  if (offset >= span) return (<String>[], -1);
+  final count = min(maxPerBlock, span - offset).toInt();
   final out = <String>[];
   for (var i = 0; i < count; i++) {
-    out.add(_intToIp(base + ((offset + i) % span)));
+    out.add(_intToIp(base + offset + i));
   }
-  return (out, (offset + count) % span);
+  return (out, offset + count >= span ? -1 : offset + count);
 }
 
-// فیکس ۳: ساخت رشته‌های IP (صدها هزار تا چند میلیون) از ترد UI به isolate منتقل شد.
-// args: {cfIpsBatch:int, blocks:List<String>, nationalMode:bool,
-//        liveRanges:List<String>, cursors:Map<String,int>}
-// خروجی: {'addrs': List<String>, 'cursors': Map<String,int>} — cursor به‌روزشده باید
-// به ترد اصلی برگردد چون isolate نسخه‌ی کپی را تغییر می‌دهد (بدون آن اسکن هر دور از اول شروع می‌شد).
+// Cursor-aware exact endpoint and configured IPv4 range expansion. The batch
+// size limits only transient memory; it never reduces the total range coverage.
 Map<String, dynamic> _genAddrsIso(Map<String, dynamic> args) {
   final int cfIpsBatch = args['cfIpsBatch'] as int;
   final List<String> blocks = List<String>.from(args['blocks'] as List);
@@ -2179,27 +2592,31 @@ Map<String, dynamic> _genAddrsIso(Map<String, dynamic> args) {
   final addrs = <String>[];
   // NATMEM: هر بلوک حداکثر ۲۵۶ آدرس پراکنده و کل فهرست سقف دارد. قبلاً هر بلوک تا ۶۵۵۳۶ آدرس
   // و فهرست ISP حدود ۲۸۰۰ بلوک داشت، یعنی ده‌ها میلیون رشته در isolate و فقط ۶۰۰۰ تای آن استفاده می‌شد.
-  final cap = max(cfIpsBatch * 4, 20000);
+  final cap = max(0, (args['outputLimit'] as int?) ?? max(cfIpsBatch * 4, 20000));
   void addBlocks() {
-    if (blocks.isEmpty) return;
-    // Rotate across the entire CIDR/range catalog; otherwise a capped list
-    // repeatedly expands only its first ~N blocks and starves the rest.
+    if (blocks.isEmpty || cap <= 0) return;
     final start = (cursors['__block_cursor'] ?? 0) % blocks.length;
     var processed = 0;
-    for (var offset = 0; offset < blocks.length; offset++) {
-      if (addrs.length >= cap) break;
-      final index = (start + offset) % blocks.length;
+    while (processed < blocks.length && addrs.length < cap) {
+      final index = (start + processed) % blocks.length;
       final range = blocks[index];
       final key = 'block:$range';
       final cursor = cursors[key] ?? 0;
-      final generated = _natExpandAnyCursor(range, cursor, 256);
+      final generated = _natExpandAnyCursor(
+          range, cursor, min(256, cap - addrs.length).toInt());
       if (generated.$1.isNotEmpty) {
         addrs.addAll(generated.$1);
         cursors[key] = generated.$2;
+      } else {
+        // Persist exhaustion for this endpoint block; zero would restart it
+        // from the beginning and prevent a complete inventory pass.
+        cursors[key] = -1;
       }
       processed++;
     }
-    cursors['__block_cursor'] = ((start + max(1, processed)) % blocks.length).toInt();
+    if (processed > 0) {
+      cursors['__block_cursor'] = (start + processed) % blocks.length;
+    }
   }
   if (nationalMode) {
     addrs.addAll(_getCfIps(batchSize: cfIpsBatch, liveRanges: liveRanges, cursors: cursors));
@@ -2211,6 +2628,26 @@ Map<String, dynamic> _genAddrsIso(Map<String, dynamic> args) {
   return {'addrs': addrs, 'cursors': cursors};
 }
 
+// Begin another complete pass only after the previous inventory pass finished.
+// Interrupted passes retain their durable cursors and are never reset here.
+Future<void> natRangeStartNextPass() async {
+  final configuredPassDone = natRanges.isEmpty ||
+      natRanges.every((range) => (_natConfiguredRangeCursors[range] ?? 0) < 0);
+  final endpointPassDone = _cfRangeCursors['__block_pass_done'] == 1;
+  if (!natRangeInventoryPassComplete &&
+      !(configuredPassDone && endpointPassDone)) return;
+  _natConfiguredRangeCursor = 0;
+  _natConfiguredRangeCursors.clear();
+  _cfRangeCursors.removeWhere((key, value) =>
+      key.startsWith('block:') || key.startsWith('__block_'));
+  natRangeInventoryPassComplete = false;
+  try {
+    await _natRangeStateSave();
+  } catch (e, stk) {
+    logError(e, stk);
+  }
+}
+
 // RANGEGUARD: یک اسکن بازه در هر لحظه؛ _natKeep و _natEscalate روی cursors مشترک نمی‌نویسند
 bool _natRangeScanBusy = false;
 
@@ -2219,13 +2656,13 @@ Future<List<String>> natRangeScanStep({
   int maxAddrs = 256,
   int conc = 4,
   bool Function()? stop,
-  Duration budget = const Duration(minutes: 2),
+  bool coordinatorOwned = false,
 }) async {
-  if (_natRangeScanBusy) return const <String>[];
+  if ((dnsxManualBusy && !coordinatorOwned) || _natRangeScanBusy) return const <String>[];
   _natRangeScanBusy = true;
   try {
     return await _natRangeScanStepBody(
-        known: known, maxAddrs: maxAddrs, conc: conc, stop: stop, budget: budget);
+        known: known, maxAddrs: maxAddrs, conc: conc, stop: stop);
   } finally {
     _natRangeScanBusy = false;
   }
@@ -2236,7 +2673,6 @@ Future<List<String>> _natRangeScanStepBody({
   int maxAddrs = 256,
   int conc = 4,
   bool Function()? stop,
-  Duration budget = const Duration(minutes: 2),
 }) async {
   // A stop request or a network-mode switch invalidates the whole scan batch.
   // Keep all shared cursors and discoveries unchanged until every phase completes.
@@ -2258,93 +2694,128 @@ Future<List<String>> _natRangeScanStepBody({
   }
   if (shouldAbort()) return const <String>[];
 
-  // Only previously successful server IPs and exact IP endpoints from the
-  // current config pool are eligible. Device addresses and public DNS servers
-  // are not scan authorization and are deliberately excluded.
+  // Build endpoint inventory from saved scan hits and IP-literal config hosts.
+  // Configured CIDR and dash ranges are expanded by the independent range cursor.
   final hosts = <String>{
     ...natIpMemHosts(),
     for (final server in seeds) if (server.isIp) server.host,
   }.toList(growable: false);
   final blocks = natSeedBlocks(hosts);
-  // Stage the configured-range cursor; do not persist it until scan success.
+  // A changed endpoint inventory starts a fresh traversal generation. This
+  // prevents a completed old pass from hiding newly discovered endpoints.
+  final inventoryTag = int.parse(
+      sha256.convert(utf8.encode(blocks.join('\\n'))).toString().substring(0, 12),
+      radix: 16);
+  if (_cfRangeCursors['__block_inventory_tag'] != inventoryTag) {
+    // Preserve each completed/in-progress block cursor. Only reset the
+    // collection-level walk so newly discovered blocks are appended to work.
+    _cfRangeCursors.removeWhere((key, value) => key.startsWith('__block_'));
+    _cfRangeCursors.removeWhere((key, value) =>
+        key.startsWith('block:') && !blocks.contains(key.substring(6)));
+    _cfRangeCursors['__block_cursor'] = 0;
+    _cfRangeCursors['__block_pass_start'] = 0;
+    _cfRangeCursors['__block_pass_done'] = 0;
+    _cfRangeCursors['__block_inventory_tag'] = inventoryTag;
+  }
+  // Every call is one bounded memory batch. The coordinator repeats batches
+  // until both configured ranges and exact known endpoints complete a full pass.
   final configuredBatch = modeSnapshot
       ? _natConfiguredRangeBatch(maxAddrs)
-      : (addresses: const <String>[], nextCursor: _natConfiguredRangeCursor);
+      : (
+          addresses: const <String>[],
+          nextCursor: _natConfiguredRangeCursor,
+          nextRangeCursors: Map<String, int>.of(_natConfiguredRangeCursors),
+          passCompleted: true,
+        );
   final configuredNatRanges = configuredBatch.addresses;
-
-  // CDN refresh is unrelated to the National Net range inventory.
-  unawaited(refreshCdnRanges());
+  final blockStart = (_cfRangeCursors['__block_cursor'] ?? 0);
+  final blockPassStart = (_cfRangeCursors['__block_pass_start'] ?? blockStart);
+  final blockPassDone = _cfRangeCursors['__block_pass_done'] == 1;
+  final outputLimit = max(0, maxAddrs - configuredNatRanges.length).toInt();
+  final batchBlocks = blockPassDone ? const <String>[] : blocks;
   final args = <String, dynamic>{
-    'cfIpsBatch': 0, // no broad CDN/third-party range sweep in automatic mode
-    'blocks': blocks,
+    'cfIpsBatch': 0,
+    'blocks': batchBlocks,
     'nationalMode': modeSnapshot,
     'liveRanges': <String>[],
+    'outputLimit': outputLimit,
     'cursors': Map<String, int>.of(_cfRangeCursors),
   };
   final gen = await compute(_genAddrsIso, args);
   if (shouldAbort()) return const <String>[];
 
   final generatedCursors = Map<String, int>.from(gen['cursors'] as Map);
+  final nextBlockCursor = (generatedCursors['__block_cursor'] ?? blockStart);
+  final endpointPassComplete = batchBlocks.isEmpty ||
+      (outputLimit > 0 && nextBlockCursor == blockPassStart);
+  generatedCursors['__block_pass_start'] =
+      endpointPassComplete ? nextBlockCursor : blockPassStart;
+  if (endpointPassComplete) {
+    generatedCursors['__block_pass_done'] = 1;
+  }
   final addrs = <String>{
     ...configuredNatRanges,
     ...(gen['addrs'] as List).cast<String>(),
   }.toList(growable: false);
-  if (addrs.isEmpty) return const <String>[];
-
-  final from = modeSnapshot ? 0 : (natRangeCursor % addrs.length);
-  final slice = addrs.skip(from).take(maxAddrs).toList();
-  final nextNatRangeCursor = from + slice.length;
+  final slice = addrs;
   final out = <String>[];
   final portList = natAutoPorts(seeds);
-  final perPortCap = Duration(
-      milliseconds: max(20000, budget.inMilliseconds ~/ max(1, portList.length)).toInt());
-  // A monotonic shared deadline prevents each port from consuming a fresh
-  // minimum budget and accidentally multiplying the requested scan duration.
-  final scanClock = Stopwatch()..start();
-  bool scanExpired() => scanClock.elapsed >= budget;
+
+  // The batch is bounded in address count and worker concurrency, not by a
+  // wall-clock deadline. Each socket probe has its own timeout; cancellation
+  // and network-mode changes still abort immediately.
   for (final port in portList) {
     if (shouldAbort()) return const <String>[];
-    final remainingBudget = budget - scanClock.elapsed;
-    if (remainingBudget <= Duration.zero) return const <String>[];
-    final portBudget = perPortCap < remainingBudget
-        ? perPortCap
-        : remainingBudget;
     final hits = await natScanIps(
       slice,
       port: port,
       concurrency: conc,
-      want: 50,
-      budget: portBudget,
+      want: slice.length,
+      budget: null,
       timeout: const Duration(milliseconds: 1500),
       cancelled: shouldAbort,
     );
-    if (shouldAbort() || scanExpired()) return const <String>[];
+    if (shouldAbort()) return const <String>[];
     for (final hit in hits) {
       out.add('${hit.ip}|$port');
     }
   }
-  if (shouldAbort() || scanExpired()) return const <String>[];
+  if (shouldAbort()) return const <String>[];
+  // Persist every responsive IP:port before advancing its range cursor. If the
+  // app is killed before _natRangeAdd builds configs, the endpoint is still in
+  // the durable inventory and can be resumed/retested on the next pass.
+  await natIpMemMergeHits(out);
+  if (shouldAbort()) return const <String>[];
 
-  // Commit the address and configured-range cursors only after a non-cancelled run.
+  final nextConfiguredCursor =
+      modeSnapshot ? configuredBatch.nextCursor : _natConfiguredRangeCursor;
+  final nextConfiguredCursors = modeSnapshot
+      ? configuredBatch.nextRangeCursors
+      : Map<String, int>.of(_natConfiguredRangeCursors);
+  final passComplete = configuredBatch.passCompleted && endpointPassComplete;
+  if (shouldAbort()) return const <String>[];
+  // Persist the staged cursors before publishing them in memory. A failed
+  // durable write therefore cannot silently skip an uncommitted batch.
+  await _natRangeStateSave(
+    configuredCursor: nextConfiguredCursor,
+    configuredCursors: nextConfiguredCursors,
+    endpointCursors: generatedCursors,
+  );
+  if (shouldAbort()) return const <String>[];
   _cfRangeCursors
     ..clear()
     ..addAll(generatedCursors);
-  if (!modeSnapshot) natRangeCursor = nextNatRangeCursor;
-  if (modeSnapshot && configuredBatch.nextCursor != _natConfiguredRangeCursor) {
-    _natConfiguredRangeCursor = configuredBatch.nextCursor;
-    final persistedCursor = _natConfiguredRangeCursor;
-    unawaited(() async {
-      try {
-        final p = await SharedPreferences.getInstance();
-        await p.setInt('natConfiguredRangeCursor', persistedCursor);
-      } catch (e, st) {
-        logError(e, st);
-      }
-    }());
+  if (modeSnapshot) {
+    _natConfiguredRangeCursor = nextConfiguredCursor;
+    _natConfiguredRangeCursors
+      ..clear()
+      ..addAll(nextConfiguredCursors);
   }
-  natTemplateSeeds = seeds.take(2).toList();
+  natRangeInventoryPassComplete = passComplete;
+  natTemplateSeeds = List<Server>.of(seeds);
   natRandomLast = 0;
   natIpScanned += slice.length;
+  natRangeScanBatchSequence++;
   return out;
 }
 

@@ -4,11 +4,11 @@ part of 'main.dart';
 // This module is deliberately additive: it records evidence and ranks candidates;
 // it does not rewrite a V2Ray URI or claim that a probe proves tunnel reachability.
 
-/// Bounded, privacy-preserving history. Only a SHA-256 key is persisted, never
+/// Complete, privacy-preserving history. Only a SHA-256 key is persisted, never
 /// the raw V2Ray link, UUID, password, server name, or full endpoint string.
 class NationalNetworkIntelligence {
-  static const String _prefsKey = 'nnie_profiles_v2'; // v2: key includes transport + TLS
-  static const int _maxEntries = 500;
+  static const String _prefsKey = 'nnie_profiles_v2'; // Legacy migration source; new writes use the disk snapshot.
+  static Future<void> _saveTail = Future<void>.value();
   static Map<String, NatEndpointMemory> _memory = <String, NatEndpointMemory>{};
   static bool _loaded = false;
   static Future<void>? _loading;
@@ -19,17 +19,37 @@ class NationalNetworkIntelligence {
     await _loading;
   }
 
+  static Future<File> _evidenceFile() async {
+    final directory = await getApplicationSupportDirectory();
+    return File('${directory.path}/king_nat_strategy_evidence_v1.json');
+  }
+
   static Future<void> _loadImpl() async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final raw = prefs.getString(_prefsKey);
-      if (raw != null) {
+      File? file;
+      String? raw;
+      try {
+        file = await _evidenceFile();
+        if (await file.exists()) raw = await file.readAsString();
+      } catch (e, st) {
+        // Preserve the legacy preferences fallback if path-provider is
+        // temporarily unavailable (e.g. during early Android startup).
+        logError(e, st);
+      }
+      if (raw == null || raw.isEmpty) {
+        final prefs = await SharedPreferences.getInstance();
+        raw = prefs.getString(_prefsKey);
+      }
+      if (raw != null && raw.isNotEmpty) {
         final decoded = jsonDecode(raw);
         if (decoded is Map) {
           _memory = <String, NatEndpointMemory>{};
           for (final e in decoded.entries) {
-            if (e.key is String) _memory[e.key as String] = NatEndpointMemory.fromJson(e.value);
+            if (e.key is String) {
+              _memory[e.key as String] = NatEndpointMemory.fromJson(e.value);
+            }
           }
+          if (file != null && !await file.exists()) await _save();
         }
       }
     } catch (e, st) {
@@ -65,7 +85,7 @@ class NationalNetworkIntelligence {
   }) async {
     await load();
     final old = memoryFor(endpointKey);
-    final attempts = min(10000, old.attempts + 1);
+    final attempts = old.attempts + 1;
     final successes = min(attempts, old.successes + (success ? 1 : 0));
     final ewma = success
         ? (old.ewmaConnectMs <= 0 ? elapsedMs.toDouble() : old.ewmaConnectMs * 0.75 + elapsedMs * 0.25)
@@ -73,10 +93,10 @@ class NationalNetworkIntelligence {
     _memory[endpointKey] = NatEndpointMemory(
       attempts: attempts,
       successes: successes,
-      failStreak: success ? 0 : min(50, old.failStreak + 1),
+      failStreak: success ? 0 : old.failStreak + 1,
       ewmaConnectMs: ewma,
       lastSuccessMs: success ? DateTime.now().millisecondsSinceEpoch : old.lastSuccessMs,
-      stableSuccesses: stableForFiveMinutes ? min(1000, old.stableSuccesses + 1) : old.stableSuccesses,
+      stableSuccesses: stableForFiveMinutes ? old.stableSuccesses + 1 : old.stableSuccesses,
     );
     await _save();
   }
@@ -109,24 +129,25 @@ class NationalNetworkIntelligence {
     _memory[endpointKey] = NatEndpointMemory(
       attempts: old.attempts, successes: old.successes, failStreak: old.failStreak,
       ewmaConnectMs: old.ewmaConnectMs, lastSuccessMs: old.lastSuccessMs,
-      stableSuccesses: min(1000, old.stableSuccesses + 1),
+      stableSuccesses: old.stableSuccesses + 1,
     );
     await _save();
   }
 
-  static Future<void> _save() async {
-    try {
-      // Keep most useful/recent entries; do not let history grow indefinitely.
-      final entries = _memory.entries.toList()
-        ..sort((a, b) => b.value.score.compareTo(a.value.score));
-      if (entries.length > _maxEntries) {
-        _memory = Map<String, NatEndpointMemory>.fromEntries(entries.take(_maxEntries));
-      }
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString(_prefsKey, jsonEncode(_memory.map((k, v) => MapEntry(k, v.toJson()))));
-    } catch (e, st) {
-      logError(e, st);
-    }
+  static Future<void> _save() {
+    final next = _saveTail.then((_) async {
+      final file = await _evidenceFile();
+      final temporary = File('${file.path}.tmp');
+      final snapshot = jsonEncode(
+        _memory.map((key, value) => MapEntry(key, value.toJson())),
+      );
+      await temporary.writeAsString(snapshot, flush: true);
+      await temporary.rename(file.path);
+    });
+    _saveTail = next.catchError((Object error, StackTrace stack) {
+      logError(error, stack);
+    });
+    return next;
   }
 
   /// First stage is cheap and broad; expensive transports are deferred until
@@ -147,10 +168,28 @@ class NationalNetworkIntelligence {
 /// disables the VPN, never changes user settings and never blocks a connect.
 /// Caller must run it while the tunnel is down, otherwise probes go through it.
 class NatNetworkDiagnosis {
-  static const Duration _ttl = Duration(minutes: 10);
-  static const List<String> _domesticHosts = <String>['www.aparat.com', 'www.digikala.com'];
-  static const List<String> _globalHosts = <String>['www.google.com', 'www.cloudflare.com'];
-  static const List<String> _globalResolvers = <String>['8.8.8.8', '1.1.1.1'];
+  // Re-evaluate more frequently so a mobile carrier route change is not
+  // hidden behind a long-lived classification cache.
+  static const Duration _ttl = Duration(minutes: 2);
+  static const List<String> _domesticHosts = <String>[
+    'www.aparat.com',
+    'www.digikala.com',
+    'divar.ir',
+    'www.snapp.ir',
+    'www.tsetmc.com',
+  ];
+  static const List<String> _globalHosts = <String>[
+    'www.google.com',
+    'www.cloudflare.com',
+    'github.com',
+    'www.wikipedia.org',
+    'www.microsoft.com',
+  ];
+  static const List<String> _globalResolvers = <String>[
+    '8.8.8.8',
+    '1.1.1.1',
+    '9.9.9.9',
+  ];
   // Dedicated domestic DNS probes belong to this engine; they do not reuse
   // the general-purpose DNS scanner, its ranges, or its cached IP inventory.
   static const List<String> _domesticResolvers = <String>[
@@ -181,13 +220,39 @@ class NatNetworkDiagnosis {
     }
   }
 
-  static Future<bool> _tcpOk(String host) async {
+  /// A TCP SYN/ACK is not enough to call a route reachable. Complete a
+  /// certificate-validated TLS handshake against the intended hostname.
+  static Future<bool> _tlsOk(String host) async {
+    SecureSocket? socket;
     try {
-      final s = await Socket.connect(host, 443, timeout: const Duration(seconds: 3));
-      s.destroy();
+      socket = await SecureSocket.connect(
+        host,
+        443,
+        timeout: const Duration(seconds: 4),
+      );
+      return socket.peerCertificate != null;
+    } catch (_) {
+      return false;
+    } finally {
+      socket?.destroy();
+    }
+  }
+
+  /// Used only as a secondary DNS-answer diagnostic. It is deliberately not
+  /// treated as proof that the hostname's HTTPS service is healthy.
+  static Future<bool> _tcpOpen(String host) async {
+    Socket? socket;
+    try {
+      socket = await Socket.connect(
+        host,
+        443,
+        timeout: const Duration(seconds: 3),
+      );
       return true;
     } catch (_) {
       return false;
+    } finally {
+      socket?.destroy();
     }
   }
 
@@ -216,8 +281,8 @@ class NatNetworkDiagnosis {
       // All probes start together. Awaiting the groups one after another made
       // the total time the SUM of their timeouts (a black-holed TCP connect
       // waits the full timeout), so the caller's deadline usually expired first.
-      final domesticF = Future.wait(_domesticHosts.map(_tcpOk));
-      final globalF = Future.wait(_globalHosts.map(_tcpOk));
+      final domesticF = Future.wait(_domesticHosts.map(_tlsOk));
+      final globalF = Future.wait(_globalHosts.map(_tlsOk));
       final globalDnsF = Future.wait(
           _globalResolvers.map((r) => NatDnsWireProbe.probe(r, 'google.com')));
       final domesticDnsF = Future.wait([
@@ -231,7 +296,7 @@ class NatNetworkDiagnosis {
       final domesticDnsRes = await domesticDnsF;
       final domesticDnsOk = domesticDnsRes.any((x) => x.ok);
       final globalDnsOk = globalDnsRes.any((x) => x.ok);
-      final domesticTcpOk = domesticTcp.any((x) => x);
+      final domesticTcpOk = domesticTcp.where((x) => x).length >= 2;
       final globalTcpOk = globalTcp.any((x) => x);
       // DNS poisoning / blockpage check: a resolver returned a public A answer,
       // yet none of the answered addresses accepts TCP/443, while domestic hosts
@@ -241,7 +306,7 @@ class NatNetworkDiagnosis {
         final answered = [
           for (final r in globalDnsRes) if (r.ok) ...r.addresses,
         ].toSet().take(2).toList();
-        final reach = await Future.wait(answered.map(_tcpOk));
+        final reach = await Future.wait(answered.map(_tcpOpen));
         poison = reach.isNotEmpty && !reach.any((x) => x);
       }
       final ev = NatProbeEvidence(
@@ -257,8 +322,9 @@ class NatNetworkDiagnosis {
       _checkedAt = DateTime.now();
       _identityAtCheck = id;
       dbg('NNIE-DIAG: ${natNetworkClassLabel(current)} '
-          '(domesticTcp=${ev.domesticTcpOk} domesticDns=$domesticDnsOk '
-          'globalTcp=${ev.globalTcpOk} globalDns=${ev.globalDnsOk} poison=$poison)');
+          '(domesticTls=${domesticTcp.where((x) => x).length}/${domesticTcp.length} '
+          'domesticDns=$domesticDnsOk globalTls=${globalTcp.where((x) => x).length}/${globalTcp.length} '
+          'globalDns=${ev.globalDnsOk} poison=$poison)');
     } catch (e, st) {
       logError(e, st);
       current = NatNetworkClass.unknown;
@@ -269,9 +335,9 @@ class NatNetworkDiagnosis {
   }
 }
 
-/// Dedicated Smart Pilot link scanner. Its target inventory and results are
-/// independent from the general DNS/IP/SNI scanners and their user-defined ranges.
-/// It verifies TLS handshakes to a small fixed HTTPS endpoint set; it never sweeps subnets.
+/// Dedicated Smart Pilot link scanner. It verifies TLS handshakes against
+/// fixed HTTPS targets and combines an independent IPv6 path probe. Its target
+/// inventory is separate from general DNS/IP/SNI scanners; it never sweeps subnets.
 class PilotNetworkProbe {
   static const List<String> domesticTargets = <String>[
     'www.aparat.com',
@@ -316,6 +382,9 @@ class PilotNetworkProbe {
     final globalFuture = Future.wait(globalTargets.map(_probeHttps));
     final domestic = await domesticFuture;
     final global = await globalFuture;
+    // IPv6 path probes are independent of the TLS quorum. They can veto a
+    // false "offline/domestic-only" inference, but never count as TLS success.
+    final ipv6 = await PilotIpv6Probe.refresh(force: force);
     LinkHealth health(List<int?> samples) {
       final successes = samples.whereType<int>().length;
       if (successes >= 2) return LinkHealth.healthy;
@@ -333,12 +402,17 @@ class PilotNetworkProbe {
       globalLatencyMs: _median(global),
       domesticTlsReachabilityVerified: domestic.whereType<int>().length >= 2,
       globalTlsReachabilityVerified: global.whereType<int>().length >= 2,
+      domesticIpv6Successes: ipv6.domesticIpv6Successes,
+      globalIpv6Successes: ipv6.globalIpv6Successes,
+      domesticIpv6LatencyMs: ipv6.domesticIpv6LatencyMs,
+      globalIpv6LatencyMs: ipv6.globalIpv6LatencyMs,
     );
     _lastAt = DateTime.now();
     _lastIdentity = identity;
     dbg('PILOT-TLS-PROBE: domestic=${domestic.whereType<int>().length}/${domestic.length} '
         'global=${global.whereType<int>().length}/${global.length} '
-        'latencyDomestic=${_median(domestic)}ms latencyGlobal=${_median(global)}ms');
+        'latencyDomestic=${_median(domestic)}ms latencyGlobal=${_median(global)}ms '
+        'ipv6Domestic=${ipv6.domesticIpv6Successes} ipv6Global=${ipv6.globalIpv6Successes}');
     return _last;
   }
 
@@ -374,6 +448,158 @@ class PilotNetworkProbe {
       return '';
     }
   }
+}
+
+/// IPv6 reachability is deliberately independent from the TLS route quorum.
+/// A successful IPv6 TCP connect is path evidence only, not proof of HTTPS or
+/// successful VPN tunnel traffic.
+class PilotIpv6Evidence {
+  const PilotIpv6Evidence({
+    this.domesticIpv6Successes = 0,
+    this.globalIpv6Successes = 0,
+    this.domesticIpv6LatencyMs,
+    this.globalIpv6LatencyMs,
+  });
+
+  final int domesticIpv6Successes;
+  final int globalIpv6Successes;
+  final int? domesticIpv6LatencyMs;
+  final int? globalIpv6LatencyMs;
+
+  Map<String, Object?> toMap() => <String, Object?>{
+    'domesticIpv6Successes': domesticIpv6Successes,
+    'globalIpv6Successes': globalIpv6Successes,
+    'domesticIpv6LatencyMs': domesticIpv6LatencyMs,
+    'globalIpv6LatencyMs': globalIpv6LatencyMs,
+  };
+}
+
+class PilotIpv6Probe {
+  static const Duration _timeout = Duration(milliseconds: 2600);
+  static DateTime? _lastAt;
+  static String? _lastIdentity;
+  static PilotIpv6Evidence _last = const PilotIpv6Evidence();
+  static Future<PilotIpv6Evidence>? _flight;
+
+  static PilotIpv6Evidence get current => _last;
+
+  static Future<PilotIpv6Evidence> refresh({bool force = false}) async {
+    final active = _flight;
+    if (active != null) return active;
+    final future = _refresh(force: force);
+    _flight = future;
+    try {
+      return await future;
+    } finally {
+      if (identical(_flight, future)) _flight = null;
+    }
+  }
+
+  static Future<PilotIpv6Evidence> _refresh({required bool force}) async {
+    final identity = await PilotNetworkProbe._networkIdentity();
+    final lastAt = _lastAt;
+    if (!force && lastAt != null && identity == _lastIdentity &&
+        DateTime.now().difference(lastAt) < const Duration(minutes: 2)) {
+      return _last;
+    }
+    final domesticFuture = Future.wait(
+      PilotNetworkProbe.domesticTargets.map(_probeIpv6),
+    );
+    final globalFuture = Future.wait(
+      PilotNetworkProbe.globalTargets.map(_probeIpv6),
+    );
+    final domestic = await domesticFuture;
+    final global = await globalFuture;
+    _last = PilotIpv6Evidence(
+      domesticIpv6Successes: domestic.whereType<int>().length,
+      globalIpv6Successes: global.whereType<int>().length,
+      domesticIpv6LatencyMs: _median(domestic),
+      globalIpv6LatencyMs: _median(global),
+    );
+    _lastAt = DateTime.now();
+    _lastIdentity = identity;
+    dbg('PILOT-IPV6-PROBE: domestic=${_last.domesticIpv6Successes}/${domestic.length} '
+        'global=${_last.globalIpv6Successes}/${global.length} '
+        'latencyDomestic=${_last.domesticIpv6LatencyMs}ms '
+        'latencyGlobal=${_last.globalIpv6LatencyMs}ms');
+    return _last;
+  }
+
+  static Future<int?> _probeIpv6(String host) async {
+    final watch = Stopwatch()..start();
+    try {
+      final addresses = await InternetAddress.lookup(
+        host,
+        type: InternetAddressType.IPv6,
+      ).timeout(_timeout);
+      for (final address in addresses) {
+        if (address.type != InternetAddressType.IPv6) continue;
+        Socket? socket;
+        try {
+          socket = await Socket.connect(address, 443, timeout: _timeout);
+          watch.stop();
+          return watch.elapsedMilliseconds;
+        } catch (_) {
+          // Try another AAAA address for the same endpoint.
+        } finally {
+          socket?.destroy();
+        }
+      }
+      return null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  static int? _median(List<int?> values) {
+    final sorted = values.whereType<int>().toList()..sort();
+    return sorted.isEmpty ? null : sorted[sorted.length ~/ 2];
+  }
+}
+
+/// Corroborates Smart Pilot's TLS/IPv6 evidence with the independent
+/// DNS + multi-host diagnosis. A contradiction preserves the last route;
+/// weaker DNS/transport evidence never overrides a verified TLS quorum.
+PilotNetworkStrategy corroboratePilotStrategy(
+  PilotNetworkStrategy pilot,
+  NatNetworkClass diagnosis,
+) {
+  if (pilot == PilotNetworkStrategy.domestic &&
+      diagnosis == NatNetworkClass.globalReachable) {
+    return PilotNetworkStrategy.preserve;
+  }
+  if (pilot == PilotNetworkStrategy.global &&
+      diagnosis == NatNetworkClass.domesticOnlyLikely) {
+    return PilotNetworkStrategy.preserve;
+  }
+  if (pilot == PilotNetworkStrategy.offline &&
+      diagnosis != NatNetworkClass.unknown) {
+    return PilotNetworkStrategy.preserve;
+  }
+  return pilot;
+}
+
+NetworkEvidence currentPilotNetworkEvidence() =>
+    PilotNetworkProbe.current.withIpv6Evidence(
+      domesticIpv6Successes: PilotIpv6Probe.current.domesticIpv6Successes,
+      globalIpv6Successes: PilotIpv6Probe.current.globalIpv6Successes,
+      domesticIpv6LatencyMs: PilotIpv6Probe.current.domesticIpv6LatencyMs,
+      globalIpv6LatencyMs: PilotIpv6Probe.current.globalIpv6LatencyMs,
+    );
+
+Future<NetworkEvidence> refreshPilotNetworkEvidence({bool force = false}) async {
+  final samples = await Future.wait<Object>(<Future<Object>>[
+    PilotNetworkProbe.refresh(force: force),
+    PilotIpv6Probe.refresh(force: force),
+  ]);
+  final route = samples[0] as NetworkEvidence;
+  final ipv6 = samples[1] as PilotIpv6Evidence;
+  return route.withIpv6Evidence(
+    domesticIpv6Successes: ipv6.domesticIpv6Successes,
+    globalIpv6Successes: ipv6.globalIpv6Successes,
+    domesticIpv6LatencyMs: ipv6.domesticIpv6LatencyMs,
+    globalIpv6LatencyMs: ipv6.globalIpv6LatencyMs,
+  );
 }
 
 String natNetworkClassLabel(NatNetworkClass value) => switch (value) {

@@ -17,6 +17,10 @@ class NetworkEvidence {
     this.globalLatencyMs,
     this.domesticTlsReachabilityVerified = false,
     this.globalTlsReachabilityVerified = false,
+    this.domesticIpv6Successes = 0,
+    this.globalIpv6Successes = 0,
+    this.domesticIpv6LatencyMs,
+    this.globalIpv6LatencyMs,
   });
 
   final LinkHealth domestic;
@@ -29,6 +33,50 @@ class NetworkEvidence {
   final int? globalLatencyMs;
   final bool domesticTlsReachabilityVerified;
   final bool globalTlsReachabilityVerified;
+  /// IPv6 path reachability is tracked separately from authenticated TLS.
+  final int domesticIpv6Successes;
+  final int globalIpv6Successes;
+  final int? domesticIpv6LatencyMs;
+  final int? globalIpv6LatencyMs;
+
+  Map<String, Object?> toMap() => <String, Object?>{
+    'domestic': domestic.name,
+    'global': global.name,
+    'domesticSamples': domesticSamples,
+    'globalSamples': globalSamples,
+    'domesticSuccesses': domesticSuccesses,
+    'globalSuccesses': globalSuccesses,
+    'domesticLatencyMs': domesticLatencyMs,
+    'globalLatencyMs': globalLatencyMs,
+    'domesticIpv6Successes': domesticIpv6Successes,
+    'globalIpv6Successes': globalIpv6Successes,
+    'domesticIpv6LatencyMs': domesticIpv6LatencyMs,
+    'globalIpv6LatencyMs': globalIpv6LatencyMs,
+    'confidence': confidence,
+    'mode': mode.name,
+  };
+
+  NetworkEvidence withIpv6Evidence({
+    required int domesticIpv6Successes,
+    required int globalIpv6Successes,
+    int? domesticIpv6LatencyMs,
+    int? globalIpv6LatencyMs,
+  }) => NetworkEvidence(
+    domestic: domestic,
+    global: global,
+    domesticSamples: domesticSamples,
+    globalSamples: globalSamples,
+    domesticSuccesses: this.domesticSuccesses,
+    globalSuccesses: this.globalSuccesses,
+    domesticLatencyMs: this.domesticLatencyMs,
+    globalLatencyMs: this.globalLatencyMs,
+    domesticTlsReachabilityVerified: domesticTlsReachabilityVerified,
+    globalTlsReachabilityVerified: globalTlsReachabilityVerified,
+    domesticIpv6Successes: domesticIpv6Successes,
+    globalIpv6Successes: globalIpv6Successes,
+    domesticIpv6LatencyMs: domesticIpv6LatencyMs,
+    globalIpv6LatencyMs: globalIpv6LatencyMs,
+  );
 
   DetectedNetworkMode get mode {
     if (domestic == LinkHealth.unknown && global == LinkHealth.unknown) {
@@ -41,14 +89,29 @@ class NetworkEvidence {
     }
     final domesticUp = domestic == LinkHealth.healthy;
     final globalUp = global == LinkHealth.healthy;
+    final domesticIpv6Hint = domesticIpv6Successes >= 2;
+    final globalIpv6Hint = globalIpv6Successes >= 2;
     if (!domesticUp && !globalUp) {
-      return domestic == LinkHealth.unreachable && global == LinkHealth.unreachable
-          ? DetectedNetworkMode.offline
-          : DetectedNetworkMode.unknown;
+      if (domestic == LinkHealth.unreachable && global == LinkHealth.unreachable) {
+        // TCP/443 over IPv6 is only a path hint; it prevents a false offline
+        // label but never upgrades the route to verified HTTPS reachability.
+        return domesticIpv6Hint || globalIpv6Hint
+            ? DetectedNetworkMode.unknown
+            : DetectedNetworkMode.offline;
+      }
+      return DetectedNetworkMode.unknown;
     }
     if (domesticUp && globalUp) return DetectedNetworkMode.dualStack;
-    if (domesticUp && global == LinkHealth.unreachable) return DetectedNetworkMode.domesticOnly;
-    if (globalUp && domestic == LinkHealth.unreachable) return DetectedNetworkMode.globalOnly;
+    if (domesticUp && global == LinkHealth.unreachable) {
+      return globalIpv6Hint
+          ? DetectedNetworkMode.unknown
+          : DetectedNetworkMode.domesticOnly;
+    }
+    if (globalUp && domestic == LinkHealth.unreachable) {
+      return domesticIpv6Hint
+          ? DetectedNetworkMode.unknown
+          : DetectedNetworkMode.globalOnly;
+    }
     return DetectedNetworkMode.unknown;
   }
 
@@ -86,8 +149,14 @@ PilotNetworkStrategy choosePilotNetworkStrategy(NetworkEvidence evidence) {
   final globalFailed = evidence.global == LinkHealth.unreachable &&
       evidence.globalSamples >= 2;
 
-  if (domesticConfirmed && globalFailed) return PilotNetworkStrategy.domestic;
-  if (globalConfirmed && domesticFailed) return PilotNetworkStrategy.global;
+  // A contradictory IPv6 path is a reason to preserve the current route,
+  // not proof that HTTPS works over IPv6. Do not label the opposite family cut.
+  if (domesticConfirmed && globalFailed && evidence.globalIpv6Successes >= 2) {
+    return PilotNetworkStrategy.preserve;
+  }
+  if (globalConfirmed && domesticFailed && evidence.domesticIpv6Successes >= 2) {
+    return PilotNetworkStrategy.preserve;
+  }
   if (domesticConfirmed && globalConfirmed) {
     final domesticMs = evidence.domesticLatencyMs;
     final globalMs = evidence.globalLatencyMs;
@@ -104,6 +173,11 @@ PilotNetworkStrategy choosePilotNetworkStrategy(NetworkEvidence evidence) {
   }
   if (domesticConfirmed && !globalConfirmed && globalFailed) return PilotNetworkStrategy.domestic;
   if (globalConfirmed && !domesticConfirmed && domesticFailed) return PilotNetworkStrategy.global;
-  if (domesticFailed && globalFailed) return PilotNetworkStrategy.offline;
+  if (domesticFailed && globalFailed) {
+    return evidence.domesticIpv6Successes >= 2 ||
+            evidence.globalIpv6Successes >= 2
+        ? PilotNetworkStrategy.preserve
+        : PilotNetworkStrategy.offline;
+  }
   return PilotNetworkStrategy.preserve;
 }

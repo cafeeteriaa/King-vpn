@@ -313,7 +313,7 @@ extension NipHunt on _HomePageState {
   /// می‌کند و کانفیگ‌های خود کاربر را روی آن‌ها امتحان می‌کند.
   /// موفق‌ها ذخیره می‌شوند تا دفعه‌ی بعد اول امتحان شوند.
   Future<bool> _natIpHunt() async {
-    if (!nationalMode || connected || abort) return false;
+    if (!nationalMode || connected || abort || KingNationalScannerEngine.isScanning) return false;
     final last = _nipLastHunt;
     if (last != null &&
         DateTime.now().difference(last) < const Duration(minutes: 4)) {

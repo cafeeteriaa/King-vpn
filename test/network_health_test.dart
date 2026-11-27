@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import '../lib/network_health.dart';
+import 'package:king_vpn/main.dart';
 
 void main() {
   group('Smart Pilot route policy', () {
@@ -28,6 +28,26 @@ void main() {
       );
       expect(evidence.confidence, greaterThan(0));
       expect(evidence.confidence, lessThan(1));
+    });
+
+    test('keeps IPv6 reachability separate from TLS route classification', () {
+      const evidence = NetworkEvidence(
+        domestic: LinkHealth.healthy,
+        global: LinkHealth.unreachable,
+        domesticSamples: 3,
+        globalSamples: 3,
+        domesticSuccesses: 3,
+        globalSuccesses: 0,
+        domesticTlsReachabilityVerified: true,
+        domesticIpv6Successes: 2,
+        globalIpv6Successes: 0,
+        domesticIpv6LatencyMs: 85,
+      );
+      expect(evidence.mode, DetectedNetworkMode.domesticOnly);
+      expect(evidence.toMap()['domesticIpv6Successes'], 2);
+      expect(evidence.toMap()['globalIpv6Successes'], 0);
+      expect(evidence.toMap()['domesticIpv6LatencyMs'], 85);
+      expect(choosePilotNetworkStrategy(evidence), PilotNetworkStrategy.domestic);
     });
 
     test('failed attempts do not inflate reachability confidence', () {
@@ -126,6 +146,79 @@ void main() {
         domesticTlsReachabilityVerified: false,
       );
       expect(choosePilotNetworkStrategy(evidence), PilotNetworkStrategy.preserve);
+    });
+
+    test('does not classify domestic-only when global IPv6 path is independently reachable', () {
+      const evidence = NetworkEvidence(
+        domestic: LinkHealth.healthy,
+        global: LinkHealth.unreachable,
+        domesticSamples: 3,
+        globalSamples: 3,
+        domesticSuccesses: 3,
+        domesticTlsReachabilityVerified: true,
+        globalIpv6Successes: 2,
+      );
+      expect(evidence.mode, DetectedNetworkMode.unknown);
+      expect(choosePilotNetworkStrategy(evidence), PilotNetworkStrategy.preserve);
+    });
+
+    test('merges independent IPv6 hints before Smart Pilot route selection', () {
+      const tlsOnly = NetworkEvidence(
+        domestic: LinkHealth.healthy,
+        global: LinkHealth.unreachable,
+        domesticSamples: 3,
+        globalSamples: 3,
+        domesticSuccesses: 3,
+        domesticTlsReachabilityVerified: true,
+      );
+      final merged = tlsOnly.withIpv6Evidence(
+        domesticIpv6Successes: 0,
+        globalIpv6Successes: 2,
+      );
+      expect(merged.mode, DetectedNetworkMode.unknown);
+      expect(choosePilotNetworkStrategy(merged), PilotNetworkStrategy.preserve);
+    });
+
+    test('does not classify offline when either IPv6 path has independent reachability', () {
+      const evidence = NetworkEvidence(
+        domestic: LinkHealth.unreachable,
+        global: LinkHealth.unreachable,
+        domesticSamples: 3,
+        globalSamples: 3,
+        globalIpv6Successes: 2,
+      );
+      expect(evidence.mode, DetectedNetworkMode.unknown);
+      expect(choosePilotNetworkStrategy(evidence), PilotNetworkStrategy.preserve);
+    });
+
+    test('independent DNS diagnosis vetoes contradictory domestic-only selection', () {
+      expect(
+        corroboratePilotStrategy(
+          PilotNetworkStrategy.domestic,
+          NatNetworkClass.globalReachable,
+        ),
+        PilotNetworkStrategy.preserve,
+      );
+    });
+
+    test('independent DNS diagnosis vetoes contradictory global-only selection', () {
+      expect(
+        corroboratePilotStrategy(
+          PilotNetworkStrategy.global,
+          NatNetworkClass.domesticOnlyLikely,
+        ),
+        PilotNetworkStrategy.preserve,
+      );
+    });
+
+    test('independent DNS evidence prevents a false offline switch', () {
+      expect(
+        corroboratePilotStrategy(
+          PilotNetworkStrategy.offline,
+          NatNetworkClass.transportRestricted,
+        ),
+        PilotNetworkStrategy.preserve,
+      );
     });
 
     test('does not infer offline from missing evidence', () {
