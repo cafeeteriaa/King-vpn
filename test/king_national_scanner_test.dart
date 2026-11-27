@@ -3,7 +3,7 @@ import 'dart:convert';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:king_vpn/main.dart';
 import 'package:king_vpn/nnie_core.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import 'package:king_vpn/prefs_store.dart';
 
 void main() {
   group('KING National Scanner Engine capability registry', () {
