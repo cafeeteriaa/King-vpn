@@ -5654,12 +5654,14 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
   bool _scanMaintenanceShouldStop() =>
       !mounted ||
-      !inForeground ||
       connected ||
       wantVpn ||
       busy ||
       searching ||
       switching ||
+      _natRangeScanBusy ||
+      ipAutoBusy ||
+      dnsxManualBusy ||
       appGone;
 
   void _startScanMaintenance() {
