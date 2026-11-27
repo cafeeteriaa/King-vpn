@@ -1,3 +1,43 @@
+## Current checkpoint — 2026-11-27 08:53 Europe/Rome
+
+- Repository: `cafeeteriaa/King-vpn`.
+- Development branch: `fix/native-bridge-contract-validation-20261127`.
+- Parent development branch: `fix/personal-folder-uncapped-20261127`.
+- Parent SHA before this change: `ce8fa5731514162a4377048e9d4d871d143127f3`.
+- Implementation commit SHA: resolve from this branch ref after commit creation; exact-head CI is pending.
+- Parent PRs #65 and #66 remain Draft/open and unmerged. No changes are being merged to `main`.
+- Active GitHub Actions at branch creation: none. No workflow was cancelled.
+- The parent already exposed a versioned `vpn/bg` bridge and exponential retry. This revision strengthens the handshake contract; it does not claim real-device VPN validation.
+
+## Revision 68 — validate the full native background bridge contract
+
+- Added a pure Dart contract validator for protocol version, channel name, expected app package, attached Flutter engine, all three consumed capabilities (`alive`, `back`, `vpnSettings`) and positive Android SDK metadata.
+- `_probeBgBridge` now rejects incomplete, detached, wrong-package or incompatible bridge responses and enters its existing retry/backoff path.
+- Added unit tests for valid metadata, wrong package, detached engine, missing capabilities, protocol mismatch and invalid SDK.
+- Added a source guard connecting the runtime handshake to the pure contract validator.
+- No IP Clean sources, ranges, CIDRs, ports, cursors, or scanner behavior changed.
+
+## Validation
+
+- New tests: `test/native_bridge_contract_test.dart`; source guard in `test/test_source_guards.py`.
+- Local Flutter/Python execution: not performed in this connector session.
+- Exact-head source guards, Flutter tests, Dart analysis, ARM64 release build and artifact inspection: pending CI.
+- Three source-level review passes completed: (1) protocol/feature contract, (2) engine lifecycle and retry behavior, (3) unit/source-guard compatibility. These are not device-test sign-off.
+
+## Open issues
+
+- The personal-folder startup and connection preparation paths still materialize O(N) collections; UI paging alone does not make connection preparation memory-bounded.
+- The native VPN service, real TUN traffic, DNS leak behavior, IPv4/IPv6 handover, competing VPN, failover and CPU/battery usage still need physical-device validation.
+- Parent PRs #65/#66 are diverged from their base refs and must remain Draft until ancestry is reconciled and three reviews plus exact-head CI are complete.
+
+## First next action
+
+1. Inspect exact-head CI for this bridge-contract commit; diagnose any failure from the job log without weakening tests.
+2. If CI passes, inspect the exact-run APK artifact, archive digest, APK SHA-256, ABI and signing identity.
+3. Then continue Android service lifecycle and real tunnel/DNS/failover validation, keeping VPN/Proxy modes and personal-only routing intact.
+
+---
+
 # King VPN — continuation checkpoint
 
 ## Source of truth

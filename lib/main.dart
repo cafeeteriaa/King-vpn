@@ -43,7 +43,8 @@ import 'nat_ip_scan.dart'; // اسکن TCP آدرس IP و دامنه
 import 'help_page.dart';
 import 'conn_specs.dart';
 import 'personal_folder.dart'; // پوشه‌ی «سرورهای شخصی»
-import 'personal_folder_store.dart'; // صفحه‌بندی فایل‌محور پوشه شخصی
+import 'personal_folder_store.dart';
+import 'native_bridge_contract.dart'; // صفحه‌بندی فایل‌محور پوشه شخصی
 import 'king_extras2.dart'; // KINGEXTRAS: share sheet / UUID / check-host.net
 part 'iran_ai_extras.dart';
 part 'npv_am_extras.dart';
@@ -128,10 +129,11 @@ Future<void> _probeBgBridge({bool force = false}) async {
     final info = await bgChannel
         .invokeMapMethod<String, dynamic>('bridgeInfo')
         .timeout(const Duration(seconds: 5));
-    if (info == null ||
-        info['protocolVersion'] != _bgBridgeProtocolVersion ||
-        info['channel'] != 'vpn/bg' ||
-        info['vpnSettings'] != true) {
+    if (!bgBridgeInfoMatches(
+      info,
+      expectedProtocolVersion: _bgBridgeProtocolVersion,
+      expectedPackageName: ownPkg,
+    )) {
       throw StateError('Native bridge protocol/capability mismatch: $info');
     }
     _bgBridgeVerified = true;

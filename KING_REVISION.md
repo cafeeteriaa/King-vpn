@@ -183,3 +183,12 @@ Increment the revision number by exactly one for each substantial edit set. Reco
 - Review pass 3: re-read the changed Dart files and tests; no Dart formatter/analyzer or runtime test has been executed yet.
 - Important limitation: the app's startup loader and personal connection/ping path still materialize/use the complete personalFolderCache. This revision pages the folder screen's disk reads; it does not yet deliver end-to-end memory-bounded personal inventory processing.
 - Exact-head CI, Flutter tests, Dart analysis, Android build and device-level connection/recovery validation remain pending. No merge or release is authorized by this revision.
+
+### Revision 68 — validate the complete Android background bridge contract
+- Added a pure validator for the versioned `vpn/bg` handshake: protocol version, channel, expected package name, attached Flutter engine, `alive`, `back`, `vpnSettings` capabilities, and positive Android SDK metadata.
+- The Dart probe now rejects incomplete or mismatched native metadata and uses the existing exponential retry path rather than accepting a partial handler.
+- Added unit tests for valid metadata, wrong package, detached engine, missing capabilities, protocol mismatch and invalid SDK, plus a source guard for runtime integration.
+- Review pass 1: verified every capability consumed by Dart is part of the handshake and package identity is checked against the app constant.
+- Review pass 2: verified an invalid/detached response falls through the existing retry/backoff path; no VPN start/stop behavior or TUN routing was changed.
+- Review pass 3: checked pure unit-test cases and source-guard integration; exact-head CI and device validation remain pending.
+- No IP Clean resources, ranges, CIDRs, ports, cursors or scan behavior were modified.
