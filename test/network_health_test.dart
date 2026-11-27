@@ -274,6 +274,40 @@ void main() {
       );
       expect(choosePilotNetworkStrategy(evidence), PilotNetworkStrategy.offline);
     });
+
+    test('uses directional IPv6 quorum to prioritize domestic source pool when TLS is filtered', () {
+      const evidence = NetworkEvidence(
+        domestic: LinkHealth.unreachable,
+        global: LinkHealth.unreachable,
+        domesticSamples: 3,
+        globalSamples: 3,
+        domesticIpv6Successes: 2,
+      );
+      expect(choosePilotNetworkStrategy(evidence), PilotNetworkStrategy.domestic);
+    });
+
+    test('uses directional IPv6 quorum to prioritize global source pool when TLS is filtered', () {
+      const evidence = NetworkEvidence(
+        domestic: LinkHealth.unreachable,
+        global: LinkHealth.unreachable,
+        domesticSamples: 3,
+        globalSamples: 3,
+        globalIpv6Successes: 2,
+      );
+      expect(choosePilotNetworkStrategy(evidence), PilotNetworkStrategy.global);
+    });
+
+    test('preserves previous route when both IPv6 route groups are reachable but TLS is filtered', () {
+      const evidence = NetworkEvidence(
+        domestic: LinkHealth.unreachable,
+        global: LinkHealth.unreachable,
+        domesticSamples: 3,
+        globalSamples: 3,
+        domesticIpv6Successes: 2,
+        globalIpv6Successes: 2,
+      );
+      expect(choosePilotNetworkStrategy(evidence), PilotNetworkStrategy.preserve);
+    });
   });
   group('Net Melli network-change guard', () {
     test('fingerprint is stable regardless of interface ordering', () {
