@@ -314,8 +314,12 @@ class PilotNetworkProbe {
     }
     final domesticFuture = Future.wait(domesticTargets.map(_probeHttps));
     final globalFuture = Future.wait(globalTargets.map(_probeHttps));
+    final domesticIpv6Future = Future.wait(domesticTargets.map(_probeIpv6));
+    final globalIpv6Future = Future.wait(globalTargets.map(_probeIpv6));
     final domestic = await domesticFuture;
     final global = await globalFuture;
+    final domesticIpv6 = await domesticIpv6Future;
+    final globalIpv6 = await globalIpv6Future;
     LinkHealth health(List<int?> samples) {
       final successes = samples.whereType<int>().length;
       if (successes >= 2) return LinkHealth.healthy;
@@ -333,6 +337,10 @@ class PilotNetworkProbe {
       globalLatencyMs: _median(global),
       domesticTlsReachabilityVerified: domestic.whereType<int>().length >= 2,
       globalTlsReachabilityVerified: global.whereType<int>().length >= 2,
+      domesticIpv6Successes: domesticIpv6.whereType<int>().length,
+      globalIpv6Successes: globalIpv6.whereType<int>().length,
+      domesticIpv6LatencyMs: _median(domesticIpv6),
+      globalIpv6LatencyMs: _median(globalIpv6),
     );
     _lastAt = DateTime.now();
     _lastIdentity = identity;
@@ -340,6 +348,34 @@ class PilotNetworkProbe {
         'global=${global.whereType<int>().length}/${global.length} '
         'latencyDomestic=${_median(domestic)}ms latencyGlobal=${_median(global)}ms');
     return _last;
+  }
+
+  /// IPv6 TCP reachability is recorded independently from TLS success.
+  /// A missing AAAA record is not treated as a failure of the IPv4 route.
+  static Future<int?> _probeIpv6(String host) async {
+    final watch = Stopwatch()..start();
+    try {
+      final addresses = await InternetAddress.lookup(
+        host,
+        type: InternetAddressType.IPv6,
+      ).timeout(_timeout);
+      for (final address in addresses) {
+        if (address.type != InternetAddressType.IPv6) continue;
+        Socket? socket;
+        try {
+          socket = await Socket.connect(address, 443, timeout: _timeout);
+          watch.stop();
+          return watch.elapsedMilliseconds;
+        } catch (_) {
+          // Try the next AAAA answer for this same endpoint.
+        } finally {
+          socket?.destroy();
+        }
+      }
+      return null;
+    } catch (_) {
+      return null;
+    }
   }
 
   static Future<int?> _probeHttps(String host) async {
