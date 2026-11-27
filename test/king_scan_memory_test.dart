@@ -35,6 +35,9 @@ void main() {
       expect(reopened.latestCheckpoint?['phase'], 'ip');
       expect(reopened.latestCheckpoint?['phaseCompleted'], isTrue);
       expect((reopened.latestCheckpoint?['cursor'] as Map)['rangeIndex'], 8);
+      final offsets = (reopened.latestCheckpoint?['cursor'] as Map)['rangeOffsets'] as Map;
+      expect(offsets.keys.single, hasLength(64));
+      expect(offsets.keys.single, isNot('10.0.0.0/24'));
     });
 
     test('serializes concurrent checkpoint commits in sequence order', () async {
@@ -71,12 +74,42 @@ void main() {
       expect(reopened.latestCheckpoint?['phase'], 'domain');
     });
 
+    test('rejects unrecognized cursor fields and negative offsets', () async {
+      final journal = await KingScanJournal.open(jobId: 'cursor-validation', root: root);
+      await expectLater(
+        journal.commit(
+          phase: 'ip',
+          phaseCompleted: false,
+          cursor: <String, Object?>{'rawEndpoint': '192.0.2.1'},
+        ),
+        throwsArgumentError,
+      );
+      await expectLater(
+        journal.commit(
+          phase: 'ip',
+          phaseCompleted: false,
+          cursor: <String, Object?>{
+            'rangeOffsets': <String, int>{'10.0.0.0/24': -1},
+          },
+        ),
+        throwsArgumentError,
+      );
+      expect(journal.sequence, 0);
+    });
+
     test('does not store raw endpoints or credentials', () async {
       final journal = await KingScanJournal.open(jobId: 'privacy', root: root);
       await journal.commit(
         phase: 'sni',
         phaseCompleted: true,
-        cursor: <String, Object?>{'targetIndex': 3, 'candidateIndex': 2},
+        cursor: <String, Object?>{
+          'targetIndex': 3,
+          'candidateIndex': 2,
+          'rangeOffsets': <String, int>{
+            '192.0.2.1/32': 4,
+            'vless://user:password@example.invalid:443': 8,
+          },
+        },
         counters: <String, int>{'handshakes': 1},
       );
       final content = await Directory(root.path)
@@ -87,6 +120,9 @@ void main() {
       expect(content, isNot(contains('vless://')));
       expect(content, isNot(contains('password')));
       expect(content, isNot(contains('192.0.2.1')));
+      expect(content, isNot(contains('192.0.2.1/32')));
+      expect(content, isNot(contains('example.invalid')));
+      expect(content, isNot(contains('user:password')));
     });
   });
 }
