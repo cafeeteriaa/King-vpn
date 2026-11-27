@@ -2422,8 +2422,8 @@ void natPrepareNativeAcceleration() {
   required bool nativeEnabled,
   bool verifyNative = false,
 }) {
-  final dartResult = _natExpandAnyCursor(range, cursor, limit);
   if (!nativeEnabled) {
+    final dartResult = _natExpandAnyCursor(range, cursor, limit);
     return (
       addresses: dartResult.$1,
       nextCursor: dartResult.$2,
@@ -2438,6 +2438,7 @@ void natPrepareNativeAcceleration() {
     limit: limit,
   );
   if (accelerated == null) {
+    final dartResult = _natExpandAnyCursor(range, cursor, limit);
     return (
       addresses: dartResult.$1,
       nextCursor: dartResult.$2,
@@ -2447,6 +2448,7 @@ void natPrepareNativeAcceleration() {
   }
 
   if (verifyNative) {
+    final dartResult = _natExpandAnyCursor(range, cursor, limit);
     var equivalent = accelerated.nextCursor == dartResult.$2 &&
         accelerated.addresses.length == dartResult.$1.length;
     if (equivalent) {
