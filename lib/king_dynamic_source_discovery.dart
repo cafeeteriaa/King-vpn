@@ -21,6 +21,13 @@ class KingDynamicSourceDiscovery {
   static const _maxFileBytes = 1500000;
   static const _cycleBudget = Duration(minutes: 2);
   static const _api = 'https://api.github.com';
+  static const _searchQueries = <String>[
+    'v2ray subscription config',
+    'xray subscription config',
+    'vless vmess trojan config',
+    'shadowsocks subscription proxy',
+    'vpn proxy nodes subscription',
+  ];
   static bool _refreshing = false;
 
   static bool isCandidatePath(String path, {int? size}) {
@@ -103,7 +110,11 @@ class KingDynamicSourceDiscovery {
       var page = oldCache['nextPage'] is num
           ? (oldCache['nextPage'] as num).toInt()
           : 1;
+      var queryIndex = oldCache['nextQuery'] is num
+          ? (oldCache['nextQuery'] as num).toInt()
+          : 0;
       if (page < 1 || page > 10) page = 1;
+      if (queryIndex < 0 || queryIndex >= _searchQueries.length) queryIndex = 0;
       var cycleCompleted = false;
       final found = <String>{};
 
@@ -112,8 +123,9 @@ class KingDynamicSourceDiscovery {
       // A two-minute background budget and four workers bound resource use.
       while (stopwatch.elapsed < _cycleBudget &&
           !(shouldStop?.call() ?? false)) {
+        final query = Uri.encodeQueryComponent(_searchQueries[queryIndex]);
         final searchUri = Uri.parse(
-          '$_api/search/repositories?q=v2ray+subscription+config&sort=updated&order=desc&per_page=$_pageSize&page=$page',
+          '$_api/search/repositories?q=$query&sort=updated&order=desc&per_page=$_pageSize&page=$page',
         );
         final search = await client
             .get(searchUri, headers: _headers)
@@ -126,8 +138,13 @@ class KingDynamicSourceDiscovery {
         if (items is! List) break;
         if (items.isEmpty) {
           page = 1;
-          cycleCompleted = true;
-          break;
+          queryIndex++;
+          if (queryIndex >= _searchQueries.length) {
+            queryIndex = 0;
+            cycleCompleted = true;
+            break;
+          }
+          continue;
         }
 
         final repos = <({String fullName, String branch})>[];
@@ -200,8 +217,12 @@ class KingDynamicSourceDiscovery {
         page++;
         if (page > 10) {
           page = 1;
-          cycleCompleted = true;
-          break;
+          queryIndex++;
+          if (queryIndex >= _searchQueries.length) {
+            queryIndex = 0;
+            cycleCompleted = true;
+            break;
+          }
         }
       }
       if (shouldStop?.call() ?? false) return;
@@ -213,6 +234,7 @@ class KingDynamicSourceDiscovery {
         jsonEncode(<String, dynamic>{
           'updatedAt': cycleCompleted ? now : last,
           'nextPage': page,
+          'nextQuery': queryIndex,
           'feeds': merged,
         }),
         flush: true,
