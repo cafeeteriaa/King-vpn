@@ -202,6 +202,43 @@ void main() {
       }
     });
 
+    test('staged refresh replaces the old inventory only after validation', () async {
+      final root = await Directory.systemTemp.createTemp('king-offline-replace-');
+      try {
+        await FreshResourceStore.merge(
+          <String>['vless://old@example.test:443'], root: root);
+        final total = await FreshResourceStore.replaceSnapshot(
+          <String>['vless://new@example.test:443', 'vmess://new-two'],
+          source: 'test-48h-refresh', root: root);
+        expect(total, 2);
+        final links = await FreshResourceStore.streamLinks(root: root).toList();
+        expect(links, contains('vless://new@example.test:443'));
+        expect(links, contains('vmess://new-two'));
+        expect(links, isNot(contains('vless://old@example.test:443')));
+      } finally {
+        await root.delete(recursive: true);
+        final stage = Directory('${root.path}/.kingvpn-resource-stage');
+        if (await stage.exists()) await stage.delete(recursive: true);
+      }
+    });
+
+    test('failed or empty staged refresh preserves the previous inventory', () async {
+      final root = await Directory.systemTemp.createTemp('king-offline-replace-fail-');
+      try {
+        const oldLink = 'vless://keep-me@example.test:443';
+        await FreshResourceStore.merge(<String>[oldLink], root: root);
+        await expectLater(
+          FreshResourceStore.replaceSnapshot(<String>['not-a-config'], root: root),
+          throwsA(isA<StateError>()),
+        );
+        expect(await FreshResourceStore.streamLinks(root: root).toList(), <String>[oldLink]);
+      } finally {
+        await root.delete(recursive: true);
+        final stage = Directory('${root.path}/.kingvpn-resource-stage');
+        if (await stage.exists()) await stage.delete(recursive: true);
+      }
+    });
+
     test('clear removes all shards, cursor and legacy inventory', () async {
       final root = await Directory.systemTemp.createTemp('king-offline-clear-');
       try {
