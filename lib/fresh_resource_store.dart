@@ -402,7 +402,7 @@ class FreshResourceStore {
     final operation = previous.then((_) async {
     var total = await _countUnlocked(dir, root: root);
     var batch = <String>[];
-    await for (final value in Stream<String>.fromIterable(links)) {
+    for (final value in links) {
       final link = normalizeLink(value);
       if (link == null) continue;
       batch.add(link);
