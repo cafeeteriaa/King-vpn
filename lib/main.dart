@@ -10295,8 +10295,16 @@ ListTile( // KINGEXTRAS row
       if (localPilotOn) {
         // Pilot and national mode share their own bounded probe; the general
         // DNS/IP/SNI scanners are never started by this detection path.
-        final evidence = await PilotNetworkProbe.refresh();
-        final strategy = choosePilotNetworkStrategy(evidence);
+        final samples = await Future.wait<Object>(<Future<Object>>[
+          PilotNetworkProbe.refresh(),
+          NatNetworkDiagnosis.refresh(),
+        ]).timeout(const Duration(seconds: 12));
+        final evidence = samples[0] as NetworkEvidence;
+        final diagnosis = samples[1] as NatNetworkClass;
+        final strategy = corroboratePilotStrategy(
+          choosePilotNetworkStrategy(evidence),
+          diagnosis,
+        );
         if (strategy == PilotNetworkStrategy.domestic) {
           nationalMode = true;
         } else if (strategy == PilotNetworkStrategy.global) {
