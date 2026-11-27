@@ -209,8 +209,12 @@ class KingDynamicSourceDiscovery {
                     .split('/')
                     .map(Uri.encodeComponent)
                     .join('/');
+                final rawBranch = repo.branch
+                    .split('/')
+                    .map(Uri.encodeComponent)
+                    .join('/');
                 final url = normalizeFeedUrl(
-                  'https://raw.githubusercontent.com/${repo.fullName}/${Uri.encodeComponent(repo.branch)}/$encodedPath',
+                  'https://raw.githubusercontent.com/${repo.fullName}/$rawBranch/$encodedPath',
                 );
                 if (url != null) found.add(url);
               }
