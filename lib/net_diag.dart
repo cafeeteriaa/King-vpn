@@ -211,8 +211,12 @@ Future<String> netDiagnose() async {
   // NNIE evidence summary: TLS quorum selects route strategy; IPv6 TCP is
   // shown independently and is never mistaken for authenticated tunnel traffic.
   try {
-    final evidence = await PilotNetworkProbe.refresh();
-    final diagnosis = await NatNetworkDiagnosis.refresh();
+    final routeSamples = await Future.wait<Object>(<Future<Object>>[
+      PilotNetworkProbe.refresh(),
+      NatNetworkDiagnosis.refresh(),
+    ]);
+    final evidence = routeSamples[0] as NetworkEvidence;
+    final diagnosis = routeSamples[1] as NatNetworkClass;
     final strategy = choosePilotNetworkStrategy(evidence);
     final strategyLabel = switch (strategy) {
       PilotNetworkStrategy.domestic => 'مسیر داخلی',
