@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'king_proxy_sources.dart';
 
@@ -377,11 +378,20 @@ class KingServerPayloadParser {
 /// Fetches only HTTPS sources, keeps TLS verification enabled, and leaves
 /// source failures isolated so one dead feed cannot discard successful feeds.
 class KingHttpSourceFetcher {
-  KingHttpSourceFetcher({HttpClient? client, this.timeout = const Duration(seconds: 35)})
-      : _client = client ?? HttpClient();
+  KingHttpSourceFetcher({
+    HttpClient? client,
+    this.timeout = const Duration(seconds: 35),
+    this.maxResponseBytes = 8 * 1024 * 1024,
+  }) : _client = client ?? HttpClient() {
+    if (maxResponseBytes <= 0) {
+      throw ArgumentError.value(maxResponseBytes, 'maxResponseBytes');
+    }
+  }
 
   final HttpClient _client;
   final Duration timeout;
+  /// A per-response memory guard, not a source-count or inventory ceiling.
+  final int maxResponseBytes;
 
   Future<String> fetch(String sourceUrl) async {
     final uri = Uri.parse(sourceUrl);
@@ -414,7 +424,19 @@ class KingHttpSourceFetcher {
       await response.drain<void>();
       throw HttpException('Source returned HTTP ${response.statusCode}', uri: uri);
     }
-    return response.transform(utf8.decoder).join().timeout(timeout);
+    final builder = BytesBuilder(copy: false);
+    await (() async {
+      await for (final chunk in response) {
+        builder.add(chunk);
+        if (builder.length > maxResponseBytes) {
+          throw HttpException(
+            'Source response exceeds the configured per-response byte budget',
+            uri: uri,
+          );
+        }
+      }
+    })().timeout(timeout);
+    return utf8.decode(builder.takeBytes());
   }
 
   void close({bool force = false}) => _client.close(force: force);
@@ -444,58 +466,95 @@ class KingServerSourceSync {
   KingServerSourceSync({
     required this.fetchText,
     KingServerPayloadParser? parser,
-  }) : _parser = parser ?? KingServerPayloadParser();
+    this.maxConcurrentSources = 4,
+    this.maxPayloadCharacters = 8 * 1024 * 1024,
+    this.shouldStop,
+  }) : _parser = parser ?? KingServerPayloadParser() {
+    if (maxConcurrentSources < 1) {
+      throw ArgumentError.value(maxConcurrentSources, 'maxConcurrentSources');
+    }
+    if (maxPayloadCharacters < 1) {
+      throw ArgumentError.value(maxPayloadCharacters, 'maxPayloadCharacters');
+    }
+  }
 
   final Future<String> Function(String url) fetchText;
   final KingServerPayloadParser _parser;
+  /// Bounds simultaneous I/O without limiting the number of registered feeds.
+  final int maxConcurrentSources;
+  /// Protects parsers from unexpectedly large remote responses.
+  final int maxPayloadCharacters;
+  /// Optional cancellation hook for app shutdown / mode changes.
+  final bool Function()? shouldStop;
 
   Future<KingServerSyncResult> refresh(String engineId) async {
     final sources = KingEngineServerSourceCatalog.forEngine(engineId);
     final profiles = <KingImportedServerProfile>[];
     final fingerprints = <String>{};
     final failures = <KingServerSourceFailure>[];
+    var nextSource = 0;
 
-    for (final source in sources) {
-      try {
-        final payload = await fetchText(source.url);
-        if (source.kind == KingServerSourceKind.generatedDirectory) {
-          final directory = jsonDecode(payload);
-          if (directory is! List) {
-            throw const FormatException('Generated directory response is not a JSON list');
-          }
-          for (final entry in directory) {
-            if (entry is! Map) continue;
-            final name = (entry['name'] ?? '').toString();
-            final downloadUrl = (entry['download_url'] ?? '').toString();
-            final downloadUri = Uri.tryParse(downloadUrl);
-            if (!name.toLowerCase().endsWith('.ovpn') ||
-                downloadUri == null ||
-                downloadUri.scheme.toLowerCase() != 'https' ||
-                downloadUri.host.isEmpty ||
-                downloadUri.userInfo.isNotEmpty ||
-                downloadUri.hasFragment) {
-              continue;
-            }
-            final config = await fetchText(downloadUri.toString());
-            final parsed = _parser.parse(
-              engineId: engineId, payload: config, sourceId: source.id,
-            );
-            for (final profile in parsed) {
-              if (fingerprints.add(profile.fingerprint)) profiles.add(profile);
-            }
-          }
-        } else {
-          final parsed = _parser.parse(
-            engineId: engineId, payload: payload, sourceId: source.id,
-          );
-          for (final profile in parsed) {
-            if (fingerprints.add(profile.fingerprint)) profiles.add(profile);
-          }
-        }
-      } catch (error) {
-        failures.add(KingServerSourceFailure(source.id, error.toString()));
+    void addProfiles(Iterable<KingImportedServerProfile> parsed) {
+      for (final profile in parsed) {
+        if (fingerprints.add(profile.fingerprint)) profiles.add(profile);
       }
     }
+
+    Future<void> processSource(KingEngineServerSource source) async {
+      final payload = await fetchText(source.url);
+      if (payload.length > maxPayloadCharacters) {
+        throw const FormatException('Source payload exceeds the configured character budget');
+      }
+      if (source.kind == KingServerSourceKind.generatedDirectory) {
+        final directory = jsonDecode(payload);
+        if (directory is! List) {
+          throw const FormatException('Generated directory response is not a JSON list');
+        }
+        for (final entry in directory) {
+          if (shouldStop?.call() ?? false) break;
+          if (entry is! Map) continue;
+          final name = (entry['name'] ?? '').toString();
+          final downloadUrl = (entry['download_url'] ?? '').toString();
+          final downloadUri = Uri.tryParse(downloadUrl);
+          if (!name.toLowerCase().endsWith('.ovpn') ||
+              downloadUri == null ||
+              downloadUri.scheme.toLowerCase() != 'https' ||
+              downloadUri.host.isEmpty ||
+              downloadUri.userInfo.isNotEmpty ||
+              downloadUri.hasFragment) {
+            continue;
+          }
+          final config = await fetchText(downloadUri.toString());
+          if (config.length > maxPayloadCharacters) {
+            throw const FormatException('Generated profile exceeds the configured character budget');
+          }
+          addProfiles(_parser.parse(
+            engineId: engineId, payload: config, sourceId: source.id,
+          ));
+        }
+      } else {
+        addProfiles(_parser.parse(
+          engineId: engineId, payload: payload, sourceId: source.id,
+        ));
+      }
+    }
+
+    Future<void> worker() async {
+      while (!(shouldStop?.call() ?? false)) {
+        if (nextSource >= sources.length) return;
+        final source = sources[nextSource++];
+        try {
+          await processSource(source);
+        } catch (error) {
+          failures.add(KingServerSourceFailure(source.id, error.toString()));
+        }
+      }
+    }
+
+    final workerCount = maxConcurrentSources < sources.length
+        ? maxConcurrentSources
+        : sources.length;
+    await Future.wait(List<Future<void>>.generate(workerCount, (_) => worker()));
     return KingServerSyncResult(
       engineId: engineId,
       profiles: List.unmodifiable(profiles),
