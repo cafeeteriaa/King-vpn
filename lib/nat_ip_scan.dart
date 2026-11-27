@@ -42,7 +42,7 @@ List<String> natExpandCidr(String cidr, {int maxPerBlock = 4096}) {
   if (parts.length != 2) return const [];
   final octets = parts[0].split('.');
   final prefix = int.tryParse(parts[1].trim());
-  if (octets.length != 4 || prefix == null || prefix < 8 || prefix > 32) {
+  if (octets.length != 4 || prefix == null || prefix < 0 || prefix > 32) {
     return const [];
   }
   int base = 0;
