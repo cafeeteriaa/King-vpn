@@ -73,7 +73,7 @@ void main() {
       }
     });
 
-    test('deduplicates case-insensitively and rejects oversized links', () {
+    test('normalizes URI scheme case and rejects oversized links', () {
       final values = FreshResourceStore.normalizeLinks([
         'vless://id@example.com:443',
         'VLESS://id@example.com:443',
