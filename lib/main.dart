@@ -5772,6 +5772,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     _netWatchTimer?.cancel();
     _natHotInitialTimer?.cancel();
     _natHotRefreshTimer?.cancel();
+    personalFolderIndexRefresh = null;
     _personalPingT?.cancel();
     final personalFallback = _personalFallbackIterator;
     _personalFallbackIterator = null;
@@ -6377,8 +6378,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         listTime = legacy ? null : DateTime.fromMillisecondsSinceEpoch(lt);
         total = fetchedAll.length;
       }
-      await loadPersonalFolder(); // پوشه‌ی «سرورهای شخصی»
-      await _rebuildPersonalFolderKeyIndex(); // compact identity index for ONLYFOLDER
+      personalFolderIndexRefresh = _rebuildPersonalFolderKeyIndex;
+      await loadPersonalFolder(); // loads first page, count and compact identity index
+
       await _restoreScreenLists(); // KEEPSCREEN
       for (final l in p.getStringList('favs') ?? <String>[]) {
         final s = Server.parse(l);
