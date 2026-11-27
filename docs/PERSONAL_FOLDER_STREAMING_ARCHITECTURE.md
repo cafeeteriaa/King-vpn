@@ -51,3 +51,8 @@ The storage tests cover:
 The source guard ensures the personal-folder preparation path uses paged display data and streaming batches rather than calling `personalFolderServers()` to materialize the whole folder.
 
 Android CI must still complete the Flutter unit-test, Dart analysis, and release APK stages on the final branch head before this stage is considered verified for merge.
+
+
+## Scan maintenance scheduler boundary
+
+A serial DNS-then-IP maintenance scheduler primitive is included and tested for coalescing, cancellation, ordering, and error isolation. It is not yet wired into the live app lifecycle or WorkManager; its periodic Timer only operates while the owning process is alive. It must not be described as a 24/7 or process-resilient background service until a platform scheduler integration and device-level verification are completed.
