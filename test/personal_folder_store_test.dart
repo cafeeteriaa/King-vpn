@@ -168,6 +168,27 @@ void main() {
       expect(await PersonalFolderStore.count(), input.length);
     });
 
+    test('streamed append and removal preserve the archive and backup', () async {
+      final first = List<String>.generate(
+        1200,
+        (i) => 'vless://base$i@example.com:443',
+      );
+      await PersonalFolderStore.writeSnapshot(first);
+      final added = await PersonalFolderStore.appendAll(<String>[
+        first.first,
+        'trojan://new-one@example.com:443',
+        'ss://new-two@example.com:443',
+      ]);
+      expect(added, 2);
+      expect(await PersonalFolderStore.count(), 1202);
+      expect(await PersonalFolderStore.removeLink(first[500]), isTrue);
+      expect(await PersonalFolderStore.removeLink('vless://absent@example.com:443'), isFalse);
+      expect(await PersonalFolderStore.count(), 1201);
+      expect(await PersonalFolderStore.contains(first[500]), isFalse);
+      expect(await PersonalFolderStore.contains(first[501]), isTrue);
+      expect(await PersonalFolderStore.hasValidSnapshot(), isTrue);
+    });
+
     test('checks exact membership without materializing the archive', () async {
       final input = List<String>.generate(
         900,
