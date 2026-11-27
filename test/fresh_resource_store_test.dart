@@ -2,7 +2,16 @@ import 'package:flutter_test/flutter_test.dart';
 import '../lib/fresh_resource_store.dart';
 
 void main() {
-  group('FreshResourceStore normalization', () {
+  group('FreshResourceStore capacity and normalization', () {
+    test('declares four million persistent entries and sharded streaming', () {
+      expect(FreshResourceStore.maxEntries, 4000000);
+      expect(FreshResourceStore.shardCount, 256);
+    });
+
+    test('exposes bounded preview and streaming APIs', () {
+      expect(FreshResourceStore.readPreview, isA<Function>());
+      expect(FreshResourceStore.streamLinks, isA<Function>());
+    });
     test('accepts supported V2Ray URI schemes', () {
       expect(
         FreshResourceStore.normalizeLinks([
