@@ -6,7 +6,7 @@ void main() {
     test('round-trips Unicode and embedded line breaks without record loss', () {
       final input = <String>[
         'vless://one@example.com:443?remarks=سلام',
-        'vmess://two@example.com:443?remarks=line\\nbreak',
+        'vmess://two@example.com:443?remarks=line\nbreak',
         'trojan://three@example.com:443',
       ];
       final encoded = PersonalFolderStore.encodeSnapshot(input);
@@ -27,8 +27,8 @@ void main() {
 
     test('distinguishes a valid empty snapshot from corrupt content', () {
       expect(PersonalFolderStore.decodeSnapshot(''), isEmpty);
-      expect(PersonalFolderStore.decodeSnapshot('not-json\\n'), isNull);
-      expect(PersonalFolderStore.decodeSnapshot('42\\n'), isNull);
+      expect(PersonalFolderStore.decodeSnapshot('not-json\n'), isNull);
+      expect(PersonalFolderStore.decodeSnapshot('42\n'), isNull);
     });
 
     test('retains inventories beyond former fixed folder limits', () {
