@@ -1157,13 +1157,15 @@ class KingNationalScannerEngine {
               : seeds.indexWhere((server) =>
                   sha256.convert(utf8.encode(server.key)).toString() == resumeServerHash);
           final resumeServer = foundResumeServer < 0 ? 0 : foundResumeServer;
-          final resumeVariant = resumePhase == 'config' && foundResumeServer >= 0
-              ? (resumeCursor['variantIndex'] as num?)?.toInt() ?? -1 : -1;
+          final resumeVariantCode = resumePhase == 'config' && foundResumeServer >= 0
+              ? (resumeCursor['variantCode'] as num?)?.toInt() : null;
           for (var serverIndex = 0; serverIndex < seeds.length; serverIndex++) {
             if (stopped()) break;
             final server = seeds[serverIndex];
             if (serverIndex < resumeServer || coreUnsupportedReason(server.link) != null) continue;
             final variants = planVariants(server, full: true);
+            final resumeVariant = serverIndex == resumeServer && resumeVariantCode != null
+                ? variants.indexOf(resumeVariantCode) : -1;
             for (var variantIndex = 0; variantIndex < variants.length; variantIndex++) {
               if (stopped()) break;
               if (serverIndex == resumeServer && variantIndex <= resumeVariant) continue;
@@ -1185,6 +1187,7 @@ class KingNationalScannerEngine {
                   'serverIndex': serverIndex,
                   'serverKeyHash': sha256.convert(utf8.encode(server.key)).toString(),
                   'variantIndex': variantIndex,
+                  'variantCode': code,
                 },
               );
             }
@@ -1196,6 +1199,7 @@ class KingNationalScannerEngine {
                   'serverIndex': serverIndex,
                   'serverKeyHash': sha256.convert(utf8.encode(server.key)).toString(),
                   'variantIndex': variants.length - 1,
+                  if (variants.isNotEmpty) 'variantCode': variants.last,
                 },
               );
             }
