@@ -89,6 +89,12 @@ Consolidated integration PR: https://github.com/cafeeteriaa/King-vpn/pull/66
 - Important: UI/connection consumers still materialize the full folder into personalFolderCache. This is durable file-backed persistence, not yet memory-bounded pagination. A paged repository API and consumer migration remain required.
 - Exact-head CI, migration tests, Android build and device recovery tests are pending.
 
+### Revision 65.1 — protect valid backup during corrupt-primary recovery
+- Hardened snapshot replacement so a corrupt primary file cannot overwrite the last known-good backup.
+- The primary snapshot is validated before it is copied over the backup; invalid primary data is discarded while the valid backup remains available for recovery.
+- Added a regression source guard for this crash/corruption sequence.
+- Exact-head CI and Android fault-injection tests remain pending.
+
 ## Mandatory three-pass review protocol
 
 Each numbered revision must be a substantial functional change and pass three separate reviews:
