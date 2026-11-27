@@ -113,8 +113,9 @@ void main() {
         );
         await FreshResourceStore.clear(root: root);
         expect(await FreshResourceStore.count(root: root), 0);
-        expect(await FreshResourceStore.readBatch(limit: 10, root: root), isEmpty);
         final folder = Directory(root.path + '/' + FreshResourceStore.directoryName);
+        expect(await File(folder.path + '/.inventory_dirty').exists(), isFalse);
+        expect(await FreshResourceStore.readBatch(limit: 10, root: root), isEmpty);
         final shards = await folder.list(followLinks: false)
             .where((entity) => entity is File &&
                 RegExp(r'^[0-9a-f]{2}\.jsonl$').hasMatch(entity.uri.pathSegments.last))
