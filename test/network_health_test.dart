@@ -309,6 +309,10 @@ void main() {
     });
 
     test('Android IPsec and XFRM VPN interfaces are excluded from physical fingerprint', () {
+      expect(KingNetworkFingerprint.isVpnInterfaceName('ipsec0'), isTrue);
+      expect(KingNetworkFingerprint.isVpnInterfaceName('xfrm0'), isTrue);
+      expect(KingNetworkFingerprint.isVpnInterfaceName('tailscale0'), isTrue);
+      expect(KingNetworkFingerprint.isVpnInterfaceName('rmnet_data0'), isFalse);
       final physical = KingNetworkFingerprint.fromInterfaces(
         const <KingNetworkInterfaceSnapshot>[
           KingNetworkInterfaceSnapshot(name: 'rmnet_data0', addresses: <String>['10.20.30.40']),
