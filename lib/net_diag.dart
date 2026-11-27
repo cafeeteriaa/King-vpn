@@ -212,13 +212,12 @@ Future<String> netDiagnose() async {
   // shown independently and is never mistaken for authenticated tunnel traffic.
   try {
     final routeSamples = await Future.wait<Object>(<Future<Object>>[
-      PilotNetworkProbe.refresh(),
+      refreshPilotNetworkEvidence(),
       NatNetworkDiagnosis.refresh(),
-      PilotIpv6Probe.refresh(),
     ]);
     final evidence = routeSamples[0] as NetworkEvidence;
     final diagnosis = routeSamples[1] as NatNetworkClass;
-    final ipv6 = routeSamples[2] as PilotIpv6Evidence;
+    final ipv6 = PilotIpv6Probe.current;
     final strategy = choosePilotNetworkStrategy(evidence);
     final strategyLabel = switch (strategy) {
       PilotNetworkStrategy.domestic => 'مسیر داخلی',
