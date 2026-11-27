@@ -196,14 +196,14 @@ class KingNationalScannerEngine {
       if (rawAlpnEvidence is num && rawAlpnEvidence >= 0) {
         _alpnProbeEvidence = rawAlpnEvidence.toInt().clamp(0, 1000000000).toInt();
       }
-      final orderedProfiles = profiles.entries.where((entry) =>
+      final orderedProfiles = profiles.entries.take(_maxProfiles * 4).where((entry) =>
           entry.key.toString().isNotEmpty && entry.key.toString().length <= 256 &&
           entry.value is Map).toList()
         ..sort((a, b) {
           DateTime newest(Object? raw) {
             var result = DateTime.fromMillisecondsSinceEpoch(0);
             if (raw is Map) {
-              for (final value in raw.values) {
+              for (final value in raw.values.take(_maxVariantsPerProfile)) {
                 if (value is Map && value['t'] is num) {
                   final stamp = (value['t'] as num).toInt();
                   if (stamp > result.millisecondsSinceEpoch) {
