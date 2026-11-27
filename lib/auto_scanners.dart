@@ -20,7 +20,6 @@ bool _autoScanStop = false;
 const String _natAutoScanCandidatesKey = 'nat_auto_scan_candidates_v1';
 bool _natAutoScanLoaded = false;
 final Map<String, List<String>> _natAutoScanCandidates = <String, List<String>>{
-  'ip': <String>[],
   'sni': <String>[],
   'port': <String>[],
   'tls': <String>[],
@@ -34,7 +33,7 @@ Future<void> _natAutoScanLoad() async {
     if (raw != null && raw.isNotEmpty) {
       final decoded = jsonDecode(raw);
       if (decoded is Map) {
-        for (final key in const <String>['ip', 'sni', 'port', 'tls']) {
+        for (final key in const <String>['sni', 'port', 'tls']) {
           final values = decoded[key];
           if (values is List) {
             _natAutoScanCandidates[key] = values
@@ -45,7 +44,6 @@ Future<void> _natAutoScanLoad() async {
         }
       }
     }
-    natScanHits.addAll(_natAutoScanCandidates['ip']!);
     _natAutoScanLoaded = true;
   } catch (error, stackTrace) {
     logError(error, stackTrace);
@@ -54,7 +52,7 @@ Future<void> _natAutoScanLoad() async {
 
 Future<void> _natAutoScanSave() async {
   final snapshot = <String, List<String>>{
-    for (final key in const <String>['ip', 'sni', 'port', 'tls'])
+    for (final key in const <String>['sni', 'port', 'tls'])
       key: List<String>.unmodifiable(_natAutoScanCandidates[key]!),
   };
   try {
@@ -377,17 +375,16 @@ Future<void> autoScanRun(
     // remain separate.
     if (scanNationalMode) {
       final nationalDomains = <String>{...sniHits};
-      final nationalIps = <String>{
-        for (final endpoint in nationalPortEndpoints) endpoint.split('|').first,
-      };
-      natScanHits.addAll(nationalIps);
+      for (final endpoint in nationalPortEndpoints) {
+        final parts = endpoint.split('|');
+        final ip = parts.first;
+        final port = int.tryParse(parts.last) ?? 0;
+        natScanHits.add(ip);
+        await natNationalIpMemSave(ip, port);
+      }
       for (final domain in nationalDomains) {
         await natNationalDomMemSave(domain, sniHitPorts[domain] ?? 443);
       }
-      _natAutoScanCandidates['ip'] = <String>{
-        ..._natAutoScanCandidates['ip']!,
-        ...nationalIps,
-      }.toList(growable: false);
       _natAutoScanCandidates['sni'] = <String>{
         ..._natAutoScanCandidates['sni']!,
         ...sniHits,
@@ -454,15 +451,13 @@ Future<void> autoScanSheet(
                 const SizedBox(height: 8),
                 Text(status),
                 const SizedBox(height: 8),
-                Text('IP: ${(results['ip'] ?? const <String>[]).length} • SNI: ${(results['sni'] ?? const <String>[]).length} • Port: ${(results['port'] ?? const <String>[]).length} • TLS: ${(results['tls'] ?? const <String>[]).length}'),
-                for (final key in const <String>['ip', 'sni', 'port', 'tls'])
+                Text('IP: ${nationalMode ? natNationalIpMemHosts().length : 0} • SNI: ${(results['sni'] ?? const <String>[]).length} • Port: ${(results['port'] ?? const <String>[]).length} • TLS: ${(results['tls'] ?? const <String>[]).length}'),
+                for (final key in const <String>['sni', 'port', 'tls'])
                   if ((results[key] ?? const <String>[]).isNotEmpty) ...<Widget>[
                     const SizedBox(height: 6),
                     Text(key == 'sni'
                         ? 'SNI handshake candidates:'
-                        : key == 'ip'
-                            ? 'IP endpoint candidates:'
-                            : key == 'port'
+                        : key == 'port'
                             ? 'TCP-open port candidates:'
                             : 'ALPN candidates:'),
                     SelectableText((results[key] ?? const <String>[]).join('\n')),
