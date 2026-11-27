@@ -164,6 +164,9 @@ class KingScanJournal {
       _latest = record;
     });
     _writeTail = task.catchError((Object error, StackTrace stack) {
+      // A failed append may have written a partial tail. Force the next writer
+      // onto a fresh JSONL record even when the failure happened before flush.
+      _needsSeparator = true;
       logError(error, stack);
     });
     return task;
