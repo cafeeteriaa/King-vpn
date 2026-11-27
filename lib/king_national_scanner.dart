@@ -824,6 +824,8 @@ class KingNationalScannerEngine {
     bool stopped() => cancelled() || nationalMode != modeSnapshot;
     final warnings = <String>[];
     var ownsScannerLease = false;
+    var domainHits = 0, ipHits = 0, sniHits = 0, alpnHits = 0;
+    var configsValidated = 0, dnsCount = 0;
     KingScanJournal? journal;
     String resumePhase = '';
     Map<String, Object?> resumeCursor = <String, Object?>{};
@@ -868,8 +870,6 @@ class KingNationalScannerEngine {
     Future<void> completePhase(String phase) async {
       await persistPhase(phase, completed: true);
     }
-    var domainHits = 0, ipHits = 0, sniHits = 0, alpnHits = 0;
-    var configsValidated = 0, dnsCount = 0;
     void status(KingNatScanPhase phase, String message) {
       _scanPhase = phase;
       if (!stopped()) onStatus(message);
