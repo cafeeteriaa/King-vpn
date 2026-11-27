@@ -123,7 +123,7 @@ class MainActivity : FlutterActivity() {
                     when (call.method) {
                         "bridgeInfo" -> result.success(
                             mapOf(
-                                "protocolVersion" to 1,
+                                "protocolVersion" to 2,
                                 "channel" to "vpn/bg",
                                 "activity" to javaClass.simpleName,
                                 "packageName" to packageName,
@@ -258,7 +258,7 @@ class MainActivity : FlutterActivity() {
                                 val snapshot: Map<String, Any> = try {
                                     val service = KingVpnService.instance
                                     service?.diagnosticSnapshot() ?: mapOf(
-                                        "protocolVersion" to 1,
+                                        "protocolVersion" to 2,
                                         "serviceRunning" to false,
                                         "active" to false,
                                         "stopping" to false,
@@ -271,15 +271,41 @@ class MainActivity : FlutterActivity() {
                                         "attemptSequence" to 0,
                                         "inFlightOperations" to 0,
                                         "lastErrorPresent" to false,
-                                        "lastErrorCategory" to "none"
+                                        "lastErrorCategory" to "none",
+                                        "serviceUptimeMs" to 0L,
+                                        "watchdogChecks" to 0L,
+                                        "healthyProbes" to 0L,
+                                        "softProbeFailures" to 0L,
+                                        "hardProbeFailures" to 0L,
+                                        "failoverCount" to 0L,
+                                        "retryCount" to 0L,
+                                        "currentFailureStreak" to 0,
+                                        "healthyStreak" to 0,
+                                        "lastProbeResult" to "never",
+                                        "lastProbeMode" to "unknown",
+                                        "lastProbeDurationMs" to 0L,
+                                        "lastProbeAgeMs" to -1L
                                     )
                                 } catch (_: Throwable) {
                                     mapOf(
-                                        "protocolVersion" to 1,
+                                        "protocolVersion" to 2,
                                         "serviceRunning" to false,
                                         "diagnosticError" to "snapshot_unavailable",
                                         "lastErrorPresent" to false,
-                                        "lastErrorCategory" to "unavailable"
+                                        "lastErrorCategory" to "unavailable",
+                                        "serviceUptimeMs" to 0L,
+                                        "watchdogChecks" to 0L,
+                                        "healthyProbes" to 0L,
+                                        "softProbeFailures" to 0L,
+                                        "hardProbeFailures" to 0L,
+                                        "failoverCount" to 0L,
+                                        "retryCount" to 0L,
+                                        "currentFailureStreak" to 0,
+                                        "healthyStreak" to 0,
+                                        "lastProbeResult" to "unavailable",
+                                        "lastProbeMode" to "unknown",
+                                        "lastProbeDurationMs" to 0L,
+                                        "lastProbeAgeMs" to -1L
                                     )
                                 }
                                 try {
