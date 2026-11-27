@@ -1641,6 +1641,10 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         scan_end = source.index('Future<void> ipAutoSheet', scan_start)
         scan = source[scan_start:scan_end]
         self.assertIn('ipAutoCursors\n      ..clear()\n      ..addAll(addressBatch.nextCursors);', scan)
+        empty_start = scan.index('if (addressBatch.addresses.isEmpty)')
+        empty_end = scan.index('final addrs = addressBatch.addresses;', empty_start)
+        self.assertIn('return true;', scan[empty_start:empty_end])
+        self.assertIn('15-minute scheduler tick', scan[empty_start:empty_end])
         self.assertLess(scan.index('if (halted()) {'), scan.index('addressBatch.nextCursors'))
 
     def test_dns_and_ip_maintenance_runs_through_one_serialized_scheduler(self):
