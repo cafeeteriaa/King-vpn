@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:king_vpn/main.dart';
+import 'package:king_vpn/network_health.dart';
 
 void main() {
   group('Smart Pilot route policy', () {
