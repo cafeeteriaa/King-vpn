@@ -3280,5 +3280,28 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('lib/king_ai_change_pipeline.dart', protected)
         self.assertIn('test/king_ai_change_pipeline_test.dart', protected)
 
+
+    def test_staged_owner_change_uses_one_pinned_base_commit(self):
+        ai = (ROOT / 'lib' / 'king_local_ai.dart').read_text(encoding='utf-8')
+        context_start = ai.index('Future<Map<String, String>> readRepositoryContext(')
+        context_end = ai.index('Future<String> createRepairPullRequest(', context_start)
+        context = ai[context_start:context_end]
+        private_start = ai.index('Future<String> _createRepairPullRequest(')
+        private_end = ai.index('Future<KingAiWorkPlan> _planOwnerFeature(', private_start)
+        writer = ai[private_start:private_end]
+        feature_start = ai.index('Future<Map<String, Object?>> createOwnerFeatureProposal({')
+        feature_end = ai.index('Future<void> dispose()', feature_start)
+        feature = ai[feature_start:feature_end]
+        self.assertIn('String? baseCommitSha', context)
+        self.assertIn('final commitSha = baseCommitSha ??', context)
+        self.assertIn('hasMatch(commitSha)', context)
+        self.assertIn('final baseCommitSha = (baseRef[', feature)
+        self.assertIn('baseCommitSha: baseCommitSha', feature)
+        self.assertIn('expectedBaseSha: baseCommitSha', feature)
+        self.assertIn('String? expectedBaseSha', writer)
+        self.assertIn('parentSha != expectedBaseSha', writer)
+        self.assertIn('restart from the new head', writer)
+
+
 if __name__ == '__main__':
     unittest.main()
