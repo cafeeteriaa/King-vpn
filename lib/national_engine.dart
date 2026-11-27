@@ -382,6 +382,9 @@ class PilotNetworkProbe {
     final globalFuture = Future.wait(globalTargets.map(_probeHttps));
     final domestic = await domesticFuture;
     final global = await globalFuture;
+    // IPv6 path probes are independent of the TLS quorum. They can veto a
+    // false "offline/domestic-only" inference, but never count as TLS success.
+    final ipv6 = await PilotIpv6Probe.refresh(force: force);
     LinkHealth health(List<int?> samples) {
       final successes = samples.whereType<int>().length;
       if (successes >= 2) return LinkHealth.healthy;
@@ -399,12 +402,17 @@ class PilotNetworkProbe {
       globalLatencyMs: _median(global),
       domesticTlsReachabilityVerified: domestic.whereType<int>().length >= 2,
       globalTlsReachabilityVerified: global.whereType<int>().length >= 2,
+      domesticIpv6Successes: ipv6.domesticIpv6Successes,
+      globalIpv6Successes: ipv6.globalIpv6Successes,
+      domesticIpv6LatencyMs: ipv6.domesticIpv6LatencyMs,
+      globalIpv6LatencyMs: ipv6.globalIpv6LatencyMs,
     );
     _lastAt = DateTime.now();
     _lastIdentity = identity;
     dbg('PILOT-TLS-PROBE: domestic=${domestic.whereType<int>().length}/${domestic.length} '
         'global=${global.whereType<int>().length}/${global.length} '
-        'latencyDomestic=${_median(domestic)}ms latencyGlobal=${_median(global)}ms');
+        'latencyDomestic=${_median(domestic)}ms latencyGlobal=${_median(global)}ms '
+        'ipv6Domestic=${ipv6.domesticIpv6Successes} ipv6Global=${ipv6.globalIpv6Successes}');
     return _last;
   }
 
