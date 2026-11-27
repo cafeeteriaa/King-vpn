@@ -71,7 +71,6 @@ jobs:
 
       - name: Run focused national scanner tests
         id: scanner_tests
-        continue-on-error: true
         working-directory: build_app
         run: |
           set -o pipefail
@@ -79,7 +78,6 @@ jobs:
 
       - name: Run durable scanner journal tests
         id: scanner_memory_tests
-        continue-on-error: true
         working-directory: build_app
         run: |
           set -o pipefail
@@ -87,7 +85,6 @@ jobs:
 
       - name: Run Net Melli IPv4/IPv6 endpoint tests
         id: net_melli_ip_tests
-        continue-on-error: true
         working-directory: build_app
         run: |
           set -o pipefail
@@ -95,7 +92,6 @@ jobs:
 
       - name: Run unit tests
         id: unit_tests
-        continue-on-error: true
         working-directory: build_app
         run: |
           set -o pipefail
