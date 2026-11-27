@@ -3348,5 +3348,14 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn("_writeCacheAtomically", source)
         self.assertIn("if (treeJson is! Map || treeJson['truncated'] == true)", source)
 
+    def test_king_local_ai_contains_one_complete_class_without_duplicate_tail_blocks(self):
+        source = (ROOT / "lib" / "king_local_ai.dart").read_text(encoding="utf-8")
+        self.assertEqual(source.count("class KingLocalAi"), 1)
+        self.assertEqual(source.count("Future<void> dispose() async"), 1)
+        self.assertEqual(source.count("Future<String> createRepairPullRequest("), 1)
+        self.assertEqual(source.count("createOwnerFeatureProposal("), 1)
+        self.assertIn("Future<Map<String, dynamic>> _github(", source)
+        self.assertIn("_ownerPlannerSystemPrompt", source)
+
 if __name__ == '__main__':
     unittest.main()

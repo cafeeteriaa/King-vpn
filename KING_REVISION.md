@@ -224,3 +224,9 @@ Increment the revision number by exactly one for each substantial edit set. Reco
 - Replaced the duplicated/corrupt source-discovery file with one complete incremental implementation preserving the five GitHub search queries, 100-result pages, 10-page GitHub API boundary, 2-minute cycle budget, four workers, 12-hour cache TTL, 15-minute retry delay, path scoring, safe raw URL policy, and persistent query/page cursor.
 - Added partial-result persistence on cancellation, atomic cache replacement with backup recovery, strict Git-ref and raw URL validation, and truncated-tree handling. Existing cached feeds are retained and merged; no total feed/repository cap is introduced.
 - Expanded policy tests and source guards to prevent duplicate class blocks and loss of the incremental checkpoint/worker behavior.
+
+
+### Revision 69 — remove duplicated KING AI method tails
+- After repairing the dynamic-source parser blocker, the next compiler pass exposed a second pre-existing structural corruption in `king_local_ai.dart`: the complete `KingLocalAi` class closed at line 2014, followed by repeated out-of-class copies of `createRepairPullRequest`, `_createRepairPullRequest`, `_planOwnerFeature`, `createOwnerFeatureProposal` and `dispose`.
+- Kept the complete original class implementation, including GitHub/CI repair, owner planning, proposal generation and disposal; removed only the duplicate invalid tails after the class boundary.
+- Added source guards asserting one class and one copy of each critical method so this duplication cannot silently return.

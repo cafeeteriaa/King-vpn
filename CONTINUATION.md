@@ -14,3 +14,8 @@
 - The first full Flutter test run exposed a pre-existing parser failure on the PR #72 base: `lib/king_dynamic_source_discovery.dart` had duplicated class blocks and truncated string literals. Errors reported later in `king_local_ai.dart` and `iran_ai_extras.dart` were downstream parser cascades.
 - Revision 69 replaces the corrupted duplicate module with one coherent incremental discovery implementation and adds regression guards/tests. It preserves GitHub search pagination, bounded workers/time budget, persistent checkpoints, cache TTL/retry, candidate scoring, safe raw URLs and all cached feed inventory.
 - Exact-head Flutter tests/analyzer and Android APK packaging must be rerun after this repair; no full-build success is claimed yet.
+
+
+## Revision 69 — KING AI source integrity follow-up
+- The next Flutter compiler pass exposed another pre-existing duplicate-tail corruption in `lib/king_local_ai.dart`: one complete `KingLocalAi` class was followed by repeated out-of-class method copies.
+- Retained the complete class and all its existing capabilities; removed only duplicate invalid tails and added source guards for the class/method counts. Flutter tests/analyzer must be rerun on the updated exact head.
