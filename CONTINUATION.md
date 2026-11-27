@@ -34,6 +34,10 @@
 - Add/remove now persist through the dedicated file store; last-good marker remains in preferences.
 - The current UI still materializes the complete folder in memory; true paged consumers remain follow-up work.
 
+## Revision 65.1 recovery hardening
+- Preserve a valid backup if the primary JSONL snapshot is corrupt; only rotate a validated primary into the backup slot.
+- Added a source guard for corrupt-primary/valid-backup recovery.
+
 ## Remaining work and validation
 - SharedPreferences string-list storage and the in-memory personalFolderCache remain. This is not yet a file-backed, memory-bounded inventory; design and migrate transactionally before claiming very-large-folder readiness.
 - Exact-head CI, Flutter tests, Dart analysis, Android build, and device tests are pending.
