@@ -17,6 +17,21 @@ String _s(Object? v) {
   return t.isEmpty || t == 'null' ? '-' : t;
 }
 
+/// Parses VPN URIs defensively. A malformed percent sign in a path/name is
+/// literal data in many public subscriptions; escape only stray '%' bytes so
+/// one bad component cannot discard an otherwise valid endpoint.
+Uri? parseConfigUri(String raw) {
+  final repaired = raw.replaceAllMapped(
+    RegExp(r'%(?![0-9A-Fa-f]{2})'),
+    (_) => '%25',
+  );
+  try {
+    return Uri.parse(repaired);
+  } on FormatException {
+    return null;
+  }
+}
+
 String _dec(String s) {
   var t = s.replaceAll('-', '+').replaceAll('_', '/').trim();
   while (t.length % 4 != 0) {
@@ -163,7 +178,8 @@ ConfigSpec describeConfig(String link, {String? knownIp}) {
       return c;
     }
 
-    final u = Uri.parse(body);
+    final u = parseConfigUri(body);
+    if (u == null) return c;
     final qp = u.queryParameters;
     final ui = u.userInfo;
     c.host = _s(u.host);
