@@ -861,8 +861,7 @@ class KingNationalScannerEngine {
       // generic scanner. The lease is represented by dnsxManualBusy so legacy
       // scanner entry points already respect it; only this coordinator's DNS
       // call is allowed through the lease.
-      final lockWait = Stopwatch()..start();
-      bool externalScannerBusy() =>
+      bool externalScannerBusy()      bool externalScannerBusy() =>
           dnsxManualBusy || _dnsxAutoBusy || ipAutoBusy ||
           _natRangeScanBusy || _autoScanRunning;
       while (externalScannerBusy() && !stopped()) {
@@ -941,8 +940,7 @@ class KingNationalScannerEngine {
 
       status(KingNatScanPhase.domain, 'اسکنر: کشف دامنه و endpointهای کانفیگ...');
       if (!stopped() && seeds.isNotEmpty && kNatIpScanOn) {
-        final phaseClock = Stopwatch()..start();
-        final found = await _natDomainFirst(
+        final found = await _natDomainFirst(        final found = await _natDomainFirst(
           seeds, conc: max(2, natAdaptiveWorkers()).toInt(),
           stop: stopped,
         );
