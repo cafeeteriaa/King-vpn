@@ -102,7 +102,7 @@ jobs:
           flutter test 2>&1 | tee test.log
 
       - name: Run four-million offline resource soak
-        if: github.event_name == 'pull_request' && github.event.pull_request.number == 88
+        if: github.event_name == 'pull_request' && contains(fromJSON('[88,89]'), github.event.pull_request.number)
         timeout-minutes: 60
         working-directory: build_app
         run: |
