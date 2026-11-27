@@ -1,3 +1,5 @@
+import 'dart:async';
+
 /// Serial, cancellation-aware orchestration for background scanner phases.
 typedef KingScanGate = bool Function();
 typedef KingScanTask = Future<void> Function();
