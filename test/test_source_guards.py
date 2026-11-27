@@ -1649,15 +1649,17 @@ class KingVpnSourceGuardTests(unittest.TestCase):
 
     def test_national_auto_candidates_survive_restart_and_feed_ip_scanner(self):
         auto = (ROOT / 'lib' / 'auto_scanners.dart').read_text(encoding='utf-8')
+        nat = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
         ip = (ROOT / 'lib' / 'ip_auto_scan.dart').read_text(encoding='utf-8')
         self.assertIn("const String _natAutoScanCandidatesKey = 'nat_auto_scan_candidates_v1';", auto)
         self.assertIn('await prefs.setString(_natAutoScanCandidatesKey, jsonEncode(snapshot));', auto)
-        self.assertIn("natScanHits.addAll(_natAutoScanCandidates['ip']!);", auto)
+        self.assertIn('await natNationalIpMemSave(ip, port);', auto)
+        self.assertIn('await _natAppendInventoryRecord(_natNationalIpMemFileName, row);', nat)
         start = ip.index('Future<List<String>> _ipAutoBlocks(')
         end = ip.index('Future<_IpAutoAddressBatch?>', start)
         inventory = ip[start:end]
-        self.assertIn('if (modeSnapshot) await _natAutoScanLoad();', inventory)
-        self.assertIn("..addAll(_natAutoScanCandidates['ip']!);", inventory)
+        self.assertIn('natNationalIpMemHosts()', inventory)
+        self.assertIn('await natNationalIpMemLoad();', ip[ip.index('Future<bool> _ipAutoRunOnce('):])
 
     def test_dns_and_ip_maintenance_runs_through_one_serialized_scheduler(self):
         scheduler = (ROOT / 'lib' / 'scan_maintenance_scheduler.dart').read_text(encoding='utf-8')
