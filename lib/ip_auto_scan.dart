@@ -136,7 +136,7 @@ Future<({List<String> addresses, Map<String, int> cursors, int nextPosition})>
   final all = (gen['addrs'] as List).cast<String>();
   final generatedCursors = Map<String, int>.from(gen['cursors'] as Map);
   if (all.isEmpty) {
-    return (addresses: const <String>[], cursors: cursorSnapshot, nextPosition: startPosSnapshot);
+    return (addresses: const <String>[], cursors: cursorSnapshot, nextPosition: 0);
   }
   // The isolate generated exactly one probe batch, so its cursor matches the
   // addresses returned here. The caller commits both only after full verification.
