@@ -1893,7 +1893,7 @@ was tested unless supplied evidence proves it. Keep the answer concise and usefu
         owner: owner,
         repository: repository,
         baseBranch: 'main',
-        task: '$request\n${stage.task}',
+        task: '${plan.summary}\n${stage.task}',
       );
       if (context.isEmpty) {
         return {
