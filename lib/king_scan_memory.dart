@@ -287,7 +287,7 @@ class KingDiskInventory {
         }
         final identity = _identity(key);
         final payload = Map<String, Object?>.from(record)..remove('key');
-        grouped.putIfAbsent(identity.substring(0, 2), () => <MapEntry<String, Map<String, Object?>>[]>)
+        grouped.putIfAbsent(identity.substring(0, 2), () => <MapEntry<String, Map<String, Object?>>>[])
             .add(MapEntry(identity, payload));
       }
       var added = 0;
