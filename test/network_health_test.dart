@@ -274,6 +274,27 @@ void main() {
       expect(withTunnel, physical);
     });
 
+    test('default route changes are detected even when both interfaces stay up', () {
+      const interfaces = 'rmnet_data0|10.20.30.40;wlan0|192.168.1.10';
+      final wifiRoute = KingNetworkFingerprint.withDefaultRoutes(
+        interfaces, const <String>['v4:wlan0:0101A8C0:00000064']);
+      final cellularRoute = KingNetworkFingerprint.withDefaultRoutes(
+        interfaces, const <String>['v4:rmnet_data0:281E140A:00000032']);
+      expect(KingNetworkFingerprint.changed(wifiRoute, cellularRoute), isTrue);
+    });
+
+    test('default-route parser ignores VPN tunnel routes and non-default routes', () {
+      final routes = KingNetworkFingerprint.parseDefaultRoutes(
+        ipv4Lines: const <String>[
+          'Iface Destination Gateway Flags RefCnt Use Metric Mask MTU Window IRTT',
+          'wlan0 00000000 0101A8C0 0001 0 0 100 00000000 0 0 0',
+          'tun0 00000000 0100000A 0001 0 0 1 00000000 0 0 0',
+          'wlan0 0001A8C0 00000000 0001 0 0 100 00FFFFFF 0 0 0',
+        ],
+      );
+      expect(routes, <String>['v4:wlan0:0101A8C0:100']);
+    });
+
     test('network handover cancels the scan monotonically', () {
       const initial = 'wlan0|192.168.1.10';
       final guard = KingNetworkScanGuard(initialFingerprint: initial);
