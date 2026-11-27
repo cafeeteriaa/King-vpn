@@ -158,6 +158,7 @@ Future<void> autoScanRun(
 
   try {
     if (scanNationalMode) {
+      await _natAutoScanLoad();
       await natNationalIpMemLoad();
       await natNationalDomMemLoad();
       await natRelayHostsLoad();
