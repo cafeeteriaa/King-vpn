@@ -55,7 +55,7 @@ class _FreshResourcesPageState extends State<FreshResourcesPage> {
   }
 
   Future<void> _importText() async {
-    final before = _links.length;
+    final before = _totalCount;
     final incoming = _importController.text
         .split(RegExp(r'[\r\n\s]+'))
         .where((value) => value.trim().isNotEmpty);
