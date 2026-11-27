@@ -384,8 +384,8 @@ class FreshResourceStore {
       final remaining = maxEntries - total;
       if (batch.length > remaining) batch = batch.take(remaining).toList();
       await File('${dir.path}/$_dirtyFileName').writeAsString('1', flush: true);
-      final added = await _appendBatch(dir, batch, source: source);
-      total = (total + added).clamp(0, maxEntries);
+      final added = await _appendBatch(dir, batch);
+      total = (total + added).clamp(0, maxEntries).toInt();
       await _writeMetadata(dir, total, source: source);
       final dirty = File('${dir.path}/$_dirtyFileName');
       if (await dirty.exists()) await dirty.delete();
@@ -428,12 +428,17 @@ class FreshResourceStore {
         if (link == null) continue;
         batch.add(link);
         if (batch.length >= _batchSize) {
-          await _appendBatch(dir, batch, source: 'legacy-migration');
+          final remaining = maxEntries - migrated;
+          if (remaining <= 0) break;
+          if (batch.length > remaining) batch = batch.take(remaining).toList();
+          migrated += await _appendBatch(dir, batch);
           batch = <String>[];
         }
       }
-      if (batch.isNotEmpty) {
-        await _appendBatch(dir, batch, source: 'legacy-migration');
+      if (batch.isNotEmpty && migrated < maxEntries) {
+        final remaining = maxEntries - migrated;
+        if (batch.length > remaining) batch = batch.take(remaining).toList();
+        await _appendBatch(dir, batch);
       }
       await legacy.rename('${legacy.path}.migrated');
     }
