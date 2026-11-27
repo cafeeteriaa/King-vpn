@@ -36,8 +36,9 @@ inventory. The global idle path remains on `KingScanScheduler` and
 - DNS, endpoint and range implementations remain in their existing modules.
   The coordinator does not duplicate socket, DNS-wire, range-expansion, or
   persistent-store implementations.
-- Partial endpoint/range results are committed only when the mode is still
-  national and the caller has not requested cancellation.
+- Individually verified endpoint hits are retained when the mode is still
+  national, even if a later phase is cancelled. An incomplete range batch does
+  not advance its cursor, so its remaining work is retried safely.
 - The pre-existing connect ladder remains responsible for config compatibility,
   the curated DPI/transport strategy matrix, core startup, end-to-end tunnel
   traffic validation, failover, and self-healing. A TCP-open or DNS answer is
