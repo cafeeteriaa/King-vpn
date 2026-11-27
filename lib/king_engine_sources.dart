@@ -222,6 +222,23 @@ class KingServerPayloadParser {
 
   List<KingServerProfile> _parseText(String engineId, String text, String? sourceId) {
     final out = <KingServerProfile>[];
+    // OpenVPN and WireGuard are multi-line profile documents. Validate the
+    // whole document before considering line-oriented feed entries.
+    if (engineId == KingEngineId.openVpn && _validOpenVpn(text)) {
+      return <KingServerProfile>[
+        KingServerProfile(raw: text.trim(), format: KingServerConfigFormat.openVpnProfile, sourceId: sourceId),
+      ];
+    }
+    if (engineId == KingEngineId.wireGuard && _validWireGuard(text)) {
+      return <KingServerProfile>[
+        KingServerProfile(raw: text.trim(), format: KingServerConfigFormat.wireGuardConfig, sourceId: sourceId),
+      ];
+    }
+    if (engineId == KingEngineId.amneziaWg && _validWireGuard(text, amnezia: true)) {
+      return <KingServerProfile>[
+        KingServerProfile(raw: text.trim(), format: KingServerConfigFormat.amneziaWgConfig, sourceId: sourceId),
+      ];
+    }
     final seen = <String>{};
     for (final line in text.split(RegExp(r'[\r\n]+'))) {
       final value = line.trim();
