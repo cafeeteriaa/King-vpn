@@ -3381,10 +3381,12 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         start = source.index("void addBlocks() {")
         end = source.index("\n  if (nationalMode)", start)
         block = source[start:end]
-        self.assertIn("natExpandAddressRangeBatch(", block)
+        self.assertIn("natExpandAddressRangeBatchForWorker(", block)
         self.assertIn("generated.addresses", block)
         self.assertIn("generated.nextCursor", block)
         self.assertNotIn("_natExpandAnyCursor(", block)
+        self.assertIn("natExpandAddressRangeBatch(", source)
+        self.assertIn("nativeRejected", block)
 
     def test_idle_scan_scheduler_is_wired_and_scans_are_serialized(self):
         main = (ROOT / "lib" / "main.dart").read_text(encoding="utf-8")
