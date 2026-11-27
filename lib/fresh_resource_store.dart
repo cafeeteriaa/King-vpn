@@ -335,7 +335,7 @@ class FreshResourceStore {
       }
       final sink = file.openWrite(mode: FileMode.append);
       try {
-        if (needsSeparator) sink.write('\\n');
+        if (needsSeparator) sink.write('\n');
         for (final entry in group.value.entries) {
           if (!existing.add(entry.key)) continue;
           sink.writeln(jsonEncode(<String, Object?>{
