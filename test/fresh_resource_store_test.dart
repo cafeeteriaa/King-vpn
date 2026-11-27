@@ -10,11 +10,13 @@ void main() {
       expect(FreshResourceStore.shardCount, 256);
     });
 
-    test('exposes bounded preview and streaming APIs', () {
+    test('exposes bounded preview, resumable batch and streaming APIs', () {
       expect(FreshResourceStore.readPreview, isA<Function>());
+      expect(FreshResourceStore.readBatch, isA<Function>());
       expect(FreshResourceStore.streamLinks, isA<Function>());
     });
-    test('accepts supported V2Ray URI schemes', () {
+
+    test('accepts supported VPN URI schemes', () {
       expect(
         FreshResourceStore.normalizeLinks([
           'vless://id@example.com:443',
@@ -40,23 +42,20 @@ void main() {
       );
     });
 
-    test('deduplicates case-insensitively and enforces input bounds', () {
+    test('deduplicates case-insensitively and rejects oversized links', () {
       final values = FreshResourceStore.normalizeLinks([
         'vless://id@example.com:443',
         'VLESS://id@example.com:443',
         'vmess://abc',
       ]);
       expect(values, hasLength(2));
-    });
-
-    test('rejects oversized individual links', () {
       expect(
         FreshResourceStore.normalizeLink('vless://' + ('a' * 65537)),
         isNull,
       );
     });
 
-    test('merges disk-backed batches, deduplicates, and returns bounded previews', () async {
+    test('merges disk batches, deduplicates and advances persistent cursors', () async {
       final root = await Directory.systemTemp.createTemp('king-offline-store-');
       try {
         Iterable<String> values() sync* {
@@ -67,10 +66,7 @@ void main() {
           yield 'not-a-config';
         }
 
-        expect(
-          await FreshResourceStore.merge(values(), root: root),
-          1100,
-        );
+        expect(await FreshResourceStore.merge(values(), root: root), 1100);
         expect(await FreshResourceStore.count(root: root), 1100);
         expect(
           await FreshResourceStore.readPreview(limit: 7, root: root),
@@ -86,7 +82,6 @@ void main() {
         await root.delete(recursive: true);
       }
     });
-
 
     test('small offline inventories never repeat records inside one batch', () async {
       final root = await Directory.systemTemp.createTemp('king-offline-small-');
@@ -106,8 +101,7 @@ void main() {
       }
     });
 
-
-    test('clear serializes with the store and removes legacy and sharded data', () async {
+    test('clear removes all shards, cursor and legacy inventory', () async {
       final root = await Directory.systemTemp.createTemp('king-offline-clear-');
       try {
         await FreshResourceStore.merge(
@@ -120,40 +114,10 @@ void main() {
         await FreshResourceStore.clear(root: root);
         expect(await FreshResourceStore.count(root: root), 0);
         expect(await FreshResourceStore.readBatch(limit: 10, root: root), isEmpty);
-        final folder = Directory('${root.path}/${FreshResourceStore.directoryName}');
+        final folder = Directory(root.path + '/' + FreshResourceStore.directoryName);
         final shards = await folder.list(followLinks: false)
             .where((entity) => entity is File &&
-                RegExp(r'^[0-9a-f]{2}\\.jsonl
-      } finally {
-        await root.delete(recursive: true);
-      }
-    });
-
-    test('migrates the legacy flat file and repairs interrupted count metadata', () async {
-      final root = await Directory.systemTemp.createTemp('king-offline-migrate-');
-      try {
-        final folder = Directory('${root.path}/${FreshResourceStore.directoryName}');
-        await folder.create(recursive: true);
-        await File('${folder.path}/configs.txt').writeAsString(
-          'vless://one@example.test:443\nvmess://two@example.test:443\n',
-          flush: true,
-        );
-
-        expect(await FreshResourceStore.count(root: root), 2);
-        expect(
-          await File('${folder.path}/configs.txt.migrated').exists(),
-          isTrue,
-        );
-        await File('${folder.path}/metadata.json').writeAsString('{"schema":2,"count":1}');
-        await File('${folder.path}/.inventory_dirty').writeAsString('1');
-        expect(await FreshResourceStore.count(root: root), 2);
-      } finally {
-        await root.delete(recursive: true);
-      }
-    });
-  });
-}
-).hasMatch(entity.uri.pathSegments.last))
+                RegExp(r'^[0-9a-f]{2}\.jsonl$').hasMatch(entity.uri.pathSegments.last))
             .toList();
         expect(shards, isEmpty);
       } finally {
@@ -164,20 +128,18 @@ void main() {
     test('migrates the legacy flat file and repairs interrupted count metadata', () async {
       final root = await Directory.systemTemp.createTemp('king-offline-migrate-');
       try {
-        final folder = Directory('${root.path}/${FreshResourceStore.directoryName}');
+        final folder = Directory(root.path + '/' + FreshResourceStore.directoryName);
         await folder.create(recursive: true);
-        await File('${folder.path}/configs.txt').writeAsString(
+        await File(folder.path + '/configs.txt').writeAsString(
           'vless://one@example.test:443\nvmess://two@example.test:443\n',
           flush: true,
         );
 
         expect(await FreshResourceStore.count(root: root), 2);
-        expect(
-          await File('${folder.path}/configs.txt.migrated').exists(),
-          isTrue,
-        );
-        await File('${folder.path}/metadata.json').writeAsString('{"schema":2,"count":1}');
-        await File('${folder.path}/.inventory_dirty').writeAsString('1');
+        expect(await File(folder.path + '/configs.txt.migrated').exists(), isTrue);
+        await File(folder.path + '/metadata.json')
+            .writeAsString('{"schema":2,"count":1}');
+        await File(folder.path + '/.inventory_dirty').writeAsString('1');
         expect(await FreshResourceStore.count(root: root), 2);
       } finally {
         await root.delete(recursive: true);
