@@ -100,6 +100,30 @@ void main() {
       expect(journal.sequence, 0);
     });
 
+    test('accepts only opaque hashed target identity for resumable phases', () async {
+      final journal = await KingScanJournal.open(jobId: 'opaque-resume', root: root);
+      await journal.commit(
+        phase: 'sni',
+        phaseCompleted: false,
+        cursor: <String, Object?>{
+          'serverIndex': 2,
+          'serverKeyHash': List<String>.filled(64, 'a').join(),
+          'candidateIndex': 9,
+        },
+      );
+      expect(journal.latestCheckpoint?['cursor'], containsPair(
+        'serverKeyHash', List<String>.filled(64, 'a').join(),
+      ));
+      await expectLater(
+        journal.commit(
+          phase: 'config',
+          phaseCompleted: false,
+          cursor: <String, Object?>{'serverKeyHash': 'example.com'},
+        ),
+        throwsArgumentError,
+      );
+    });
+
     test('does not store raw endpoints or credentials', () async {
       final journal = await KingScanJournal.open(jobId: 'privacy', root: root);
       await journal.commit(
