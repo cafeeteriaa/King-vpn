@@ -243,6 +243,14 @@ class FreshResourceStore {
   static Future<int> count({Directory? root}) async {
     final dir = await directory(root: root);
     await _migrateLegacy(dir);
+    final pendingWrite = _mergeQueues[dir.path];
+    if (pendingWrite != null) await pendingWrite;
+    return _countUnlocked(dir, root: root);
+  }
+
+  /// Called only after the per-directory write queue has drained, or by the
+  /// merge operation that currently owns it.
+  static Future<int> _countUnlocked(Directory dir, {Directory? root}) async {
     final metadata = await _readMetadata(dir);
     final dirty = File('${dir.path}/$_dirtyFileName');
     final cached = metadata['count'];
@@ -369,7 +377,7 @@ class FreshResourceStore {
     final path = dir.path;
     final previous = _mergeQueues[path] ?? Future<void>.value();
     final operation = previous.then((_) async {
-    var total = await count(root: root);
+    var total = await _countUnlocked(dir, root: root);
     var batch = <String>[];
     await for (final value in Stream<String>.fromIterable(links)) {
       final link = normalizeLink(value);
@@ -486,19 +494,32 @@ class FreshResourceStore {
 
   static Future<void> clear({Directory? root}) async {
     final dir = await directory(root: root);
-    await for (final entity in dir.list(followLinks: false)) {
-      if (entity is File &&
-          (RegExp(r'^[0-9a-f]{2}\.jsonl$').hasMatch(entity.uri.pathSegments.last) ||
-           entity.uri.pathSegments.last == _metadataFileName ||
-           entity.uri.pathSegments.last == _dirtyFileName ||
-           entity.uri.pathSegments.last == _cursorFileName ||
-           entity.uri.pathSegments.last == '.migration_v2_done' ||
-           entity.uri.pathSegments.last == '$_legacyFileName.migrated')) {
-        await entity.delete();
+    final path = dir.path;
+    final pendingWrite = _mergeQueues[path] ?? Future<void>.value();
+    final pendingRead = _readQueues[path] ?? Future<void>.value();
+    final operation = Future.wait<void>(<Future<void>>[
+      pendingWrite,
+      pendingRead,
+    ]).then((_) async {
+      await for (final entity in dir.list(followLinks: false)) {
+        if (entity is File &&
+            (RegExp(r'^[0-9a-f]{2}\\.jsonl$').hasMatch(entity.uri.pathSegments.last) ||
+             entity.uri.pathSegments.last == _metadataFileName ||
+             entity.uri.pathSegments.last == _dirtyFileName ||
+             entity.uri.pathSegments.last == _cursorFileName ||
+             entity.uri.pathSegments.last == '.migration_v2_done' ||
+             entity.uri.pathSegments.last == _legacyFileName ||
+             entity.uri.pathSegments.last == '$_legacyFileName.migrated')) {
+          await entity.delete();
+        }
       }
-    }
-    _shardBlooms.removeWhere((key, _) => key.startsWith('${dir.path}/'));
-    await _writeMetadata(dir, 0, source: 'cleared');
-    await File('${dir.path}/.migration_v2_done').writeAsString('v2', flush: true);
+      _shardBlooms.removeWhere((key, _) => key.startsWith('${dir.path}/'));
+      await _writeMetadata(dir, 0, source: 'cleared');
+      await File('${dir.path}/.migration_v2_done').writeAsString('v2', flush: true);
+    });
+    final queued = operation.then<void>((_) {}, onError: (Object _) {});
+    _mergeQueues[path] = queued;
+    _readQueues[path] = queued;
+    await operation;
   }
 }
