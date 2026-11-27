@@ -176,10 +176,15 @@ PilotNetworkStrategy choosePilotNetworkStrategy(NetworkEvidence evidence) {
   if (domesticConfirmed && !globalConfirmed && globalFailed) return PilotNetworkStrategy.domestic;
   if (globalConfirmed && !domesticConfirmed && domesticFailed) return PilotNetworkStrategy.global;
   if (domesticFailed && globalFailed) {
-    return evidence.domesticIpv6Successes >= 2 ||
-            evidence.globalIpv6Successes >= 2
-        ? PilotNetworkStrategy.preserve
-        : PilotNetworkStrategy.offline;
+    final domesticIpv6 = evidence.domesticIpv6Successes >= 2;
+    final globalIpv6 = evidence.globalIpv6Successes >= 2;
+    // When TLS is filtered on both families, a directional IPv6 path quorum
+    // can still choose which source pool to try first. This is only a route
+    // preference: configs still require real tunnel-traffic validation.
+    if (domesticIpv6 && !globalIpv6) return PilotNetworkStrategy.domestic;
+    if (globalIpv6 && !domesticIpv6) return PilotNetworkStrategy.global;
+    if (domesticIpv6 && globalIpv6) return PilotNetworkStrategy.preserve;
+    return PilotNetworkStrategy.offline;
   }
   return PilotNetworkStrategy.preserve;
 }
