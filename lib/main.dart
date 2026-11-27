@@ -111,8 +111,8 @@ bool poolStop = false; // ABORTPOOL: stop taking new items in parallel tests
 
 void _scheduleBgBridgeRetry(Object error) {
   _bgBridgeVerified = false;
-  _bgBridgeFailures = (_bgBridgeFailures + 1).clamp(1, 16);
-  final seconds = (5 * (1 << (_bgBridgeFailures - 1))).clamp(5, 300);
+  _bgBridgeFailures = (_bgBridgeFailures + 1).clamp(1, 16).toInt();
+  final seconds = (5 * (1 << (_bgBridgeFailures - 1))).clamp(5, 300).toInt();
   _bgBridgeRetryAfter = DateTime.now().add(Duration(seconds: seconds));
   dbg('NATIVE-BRIDGE: vpn/bg unavailable; retry in ${seconds}s; '
       '${error.runtimeType}: $error');
