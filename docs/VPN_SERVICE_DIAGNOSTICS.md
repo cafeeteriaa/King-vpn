@@ -6,13 +6,17 @@
 
 ## نسخه و فیلدها
 
-نسخه فعلی قرارداد: `protocolVersion = 1`
+نسخه فعلی قرارداد: `protocolVersion = 2` (Dart برای سازگاری، نسخهٔ ۱ را نیز می‌پذیرد).
 
 فیلدهای عملیاتی:
 - وضعیت سرویس: `serviceRunning`, `active`, `stopping`, `retryWaiting`
 - وضعیت هسته و بازیابی: `nativeBusy`, `recovering`
 - نیت و حالت اتصال: `userStopped`, `nationalMode`
-- شمارنده‌ها: `activeAttempt`, `attemptSequence`, `inFlightOperations`
+- شمارنده‌های lifecycle: `activeAttempt`, `attemptSequence`, `inFlightOperations`
+- سلامت watchdog: `watchdogChecks`, `healthyProbes`, `softProbeFailures`, `hardProbeFailures`
+- بازیابی: `failoverCount`, `retryCount`, `currentFailureStreak`, `healthyStreak`
+- آخرین probe: `lastProbeResult`, `lastProbeMode`, `lastProbeDurationMs`, `lastProbeAgeMs`
+- مدت اجرای سرویس: `serviceUptimeMs`
 - خطا بدون افشای متن خام: `lastErrorPresent`, `lastErrorCategory`
 
 ## حریم خصوصی و ایمنی
@@ -26,3 +30,17 @@
 ## سازگاری
 
 تغییر نام/نوع فیلدها یا معنای آن‌ها باید با افزایش نسخه پروتکل و به‌روزرسانی هم‌زمان Java، Kotlin، Dart و آزمون‌های Python انجام شود. آزمون‌های منبعی فقط سازگاری قرارداد را بررسی می‌کنند؛ اثبات رفتار واقعی دستگاه نیازمند تست روی Android فیزیکی است.
+
+
+## مدل سنجش سلامت watchdog — نسخه ۲
+
+سرویس Android مالک شمارنده‌هاست و زمان‌ها با ساعت monotonic اندروید (`SystemClock.elapsedRealtime`) محاسبه می‌شوند؛ تغییر ساعت دیوایس روی مدت‌ها اثر ندارد. شمارنده‌ها در طول عمر همان پردازه تجمعی‌اند و با restart پردازه از صفر آغاز می‌شوند.
+
+- هر چرخهٔ watchdog یک بار در `watchdogChecks` شمرده می‌شود.
+- وضعیت نامعلوم core از شکست probe جداست؛ این وضعیت به‌تنهایی failover ایجاد نمی‌کند و در `lastProbeResult=core_state_unknown` ثبت می‌شود.
+- نتیجه‌های سالم، شکست نرم، شکست سخت و core خاموش با برچسب‌های محدود ثبت می‌شوند؛ هیچ URL، IP، host، پورت، نام سرور یا محتوای config وارد snapshot نمی‌شود.
+- مدت آخرین probe و سن آن با میلی‌ثانیه monotonic گزارش می‌شود؛ مقدار سن `-1` یعنی هنوز probe ثبت نشده است.
+- `failoverCount` فقط پس از موفقیت اتصال به سرور جایگزین افزایش می‌یابد؛ `retryCount` تعداد زمان‌بندی retry پس از شکست فهرست را می‌شمارد. منطق تصمیم‌گیری، آستانه‌ها، ترتیب سرورها و رفتار VPN/Proxy تغییر نمی‌کنند.
+- snapshot در lock وضعیت سرویس جمع‌آوری می‌شود تا فیلدهای lifecycle و streak از یک تصویر سازگار خوانده شوند؛ شمارنده‌های تجمعی atomic هستند.
+
+Dart نسخه‌های ۱ و ۲ را می‌پذیرد. نسخهٔ ۱ فقط اطلاعات پایه را ثبت می‌کند؛ نسخهٔ ۲ علاوه بر آن، telemetry watchdog را به ژورنال تشخیصی اضافه می‌کند.
