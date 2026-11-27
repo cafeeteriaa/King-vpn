@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:king_vpn/main.dart' show NatNetworkClass, corroboratePilotStrategy;
+import 'package:king_vpn/main.dart' show corroboratePilotStrategy;
+import 'package:king_vpn/nnie_core.dart' show NatNetworkClass;
 import 'package:king_vpn/network_health.dart';
 
 void main() {
