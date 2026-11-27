@@ -170,3 +170,16 @@ Increment the revision number by exactly one for each substantial edit set. Reco
 - Review pass 2 (persistence/recovery): reviewed primary/backup rotation, staged writes, corrupt-primary recovery and mutation serialization.
 - Review pass 3 (compatibility/tests): source and test changes re-read; automated execution is still pending, so this pass is not a test/build sign-off.
 - No CI result is available yet for the new exact head. No merge or release is authorized by this revision.
+
+
+### Revision 67 — streaming pagination for the personal-server folder
+- Added a disk-streamed page API that reads JSONL records incrementally, stores only the requested page in the result, and computes the exact filtered result count across the archive.
+- Added primary-corruption fallback to the last valid backup for paged reads.
+- Rebuilt the personal-folder bottom sheet around 50-row pages, explicit previous/next navigation, archive-wide link/domain/IP search, exact result counts and page-scoped deletion.
+- A row tap now preserves the profile's personal classification and routes the selected profile through its direct personal connection path; smart-connect across the whole folder remains available as a separate action.
+- Added tests for multi-page traversal beyond 100 entries, case-insensitive full-archive search and backup fallback, plus source guards for paged UI/store integration.
+- Review pass 1: reviewed page API boundaries, UX state transitions and preservation of the existing VPN/Proxy modes.
+- Review pass 2: reviewed streamed parsing, exact counts, corrupt-primary fallback, empty results and page navigation after removal.
+- Review pass 3: re-read the changed Dart files and tests; no Dart formatter/analyzer or runtime test has been executed yet.
+- Important limitation: the app's startup loader and personal connection/ping path still materialize/use the complete personalFolderCache. This revision pages the folder screen's disk reads; it does not yet deliver end-to-end memory-bounded personal inventory processing.
+- Exact-head CI, Flutter tests, Dart analysis, Android build and device-level connection/recovery validation remain pending. No merge or release is authorized by this revision.
