@@ -579,6 +579,29 @@ PilotNetworkStrategy corroboratePilotStrategy(
   return pilot;
 }
 
+NetworkEvidence currentPilotNetworkEvidence() =>
+    PilotNetworkProbe.current.withIpv6Evidence(
+      domesticSuccesses: PilotIpv6Probe.current.domesticIpv6Successes,
+      globalSuccesses: PilotIpv6Probe.current.globalIpv6Successes,
+      domesticLatencyMs: PilotIpv6Probe.current.domesticIpv6LatencyMs,
+      globalLatencyMs: PilotIpv6Probe.current.globalIpv6LatencyMs,
+    );
+
+Future<NetworkEvidence> refreshPilotNetworkEvidence({bool force = false}) async {
+  final samples = await Future.wait<Object>(<Future<Object>>[
+    PilotNetworkProbe.refresh(force: force),
+    PilotIpv6Probe.refresh(force: force),
+  ]);
+  final route = samples[0] as NetworkEvidence;
+  final ipv6 = samples[1] as PilotIpv6Evidence;
+  return route.withIpv6Evidence(
+    domesticSuccesses: ipv6.domesticIpv6Successes,
+    globalSuccesses: ipv6.globalIpv6Successes,
+    domesticLatencyMs: ipv6.domesticIpv6LatencyMs,
+    globalLatencyMs: ipv6.globalIpv6LatencyMs,
+  );
+}
+
 String natNetworkClassLabel(NatNetworkClass value) => switch (value) {
       NatNetworkClass.globalReachable => 'دسترسی جهانی برقرار',
       NatNetworkClass.domesticOnlyLikely => 'احتمالاً فقط مسیرهای داخلی فعال‌اند',
