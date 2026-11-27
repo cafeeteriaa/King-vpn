@@ -45,6 +45,18 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn("natGood.add(s.key)", source)
         self.assertIn("natVarNormal[s.key] = v;", source)
 
+    def test_personal_folder_uses_atomic_file_backed_store(self):
+        store = (ROOT / "lib" / "personal_folder_store.dart").read_text(encoding="utf-8")
+        folder = (ROOT / "lib" / "personal_folder.dart").read_text(encoding="utf-8")
+        self.assertIn("servers.jsonl", store)
+        self.assertIn("servers.jsonl.bak", store)
+        self.assertIn("servers.jsonl.tmp", store)
+        self.assertIn("await temp.writeAsString(contents, flush=True)", store)
+        self.assertIn("await temp.rename(target.path)", store)
+        self.assertIn("PersonalFolderStore.readOrMigrate", folder)
+        self.assertIn("PersonalFolderStore.writeSnapshot(personalFolderCache)", folder)
+        self.assertIn("await p.remove(_kPersonalFolderPref)", folder)
+
     def test_auto_scan_sheet_forwards_live_vpn_guards(self):
         source = (ROOT / 'lib' / 'auto_scanners.dart').read_text(encoding='utf-8')
         start = source.index('Future<void> autoScanSheet(')
