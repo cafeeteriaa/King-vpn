@@ -91,6 +91,8 @@ class KingNatScanReport {
     this.domesticLatencyMs, this.globalLatencyMs,
     this.networkConfidence = 0, this.inventoryPassComplete = false,
     this.sliceYielded = false,
+    this.domesticIpv6Successes = 0, this.globalIpv6Successes = 0,
+    this.domesticIpv6LatencyMs, this.globalIpv6LatencyMs,
   });
   final bool completed, timedOut, nationalMode;
   final NatNetworkClass networkClass;
@@ -100,8 +102,10 @@ class KingNatScanReport {
   final int? domesticLatencyMs, globalLatencyMs;
   final double networkConfidence;
   final bool inventoryPassComplete, sliceYielded;
+  final int domesticIpv6Successes, globalIpv6Successes;
+  final int? domesticIpv6LatencyMs, globalIpv6LatencyMs;
   final List<String> warnings;
-  String get summary => 'اسکنر: DNS $dnsResolvers • دامنه/IP $domainEndpoints • IP $ipEndpoints • SNI $sniHandshakes • ALPN $alpnNegotiations • کانفیگ ساختاری $configsValidated';
+  String get summary => 'اسکنر: DNS $dnsResolvers • دامنه/IP $domainEndpoints • IP $ipEndpoints • SNI $sniHandshakes • ALPN $alpnNegotiations • IPv6 داخلی/جهانی $domesticIpv6Successes/$globalIpv6Successes • کانفیگ ساختاری $configsValidated';
   Map<String, Object?> toMap() => <String, Object?>{
     'completed': completed, 'timedOut': timedOut,
     'networkClass': natNetworkClassLabel(networkClass), 'nationalMode': nationalMode,
@@ -116,6 +120,10 @@ class KingNatScanReport {
     'networkConfidence': networkConfidence,
     'inventoryPassComplete': inventoryPassComplete,
     'sliceYielded': sliceYielded,
+    'domesticIpv6Successes': domesticIpv6Successes,
+    'globalIpv6Successes': globalIpv6Successes,
+    'domesticIpv6LatencyMs': domesticIpv6LatencyMs,
+    'globalIpv6LatencyMs': globalIpv6LatencyMs,
     'elapsedMs': elapsedMs, 'warnings': warnings,
   };
 }
@@ -1100,6 +1108,10 @@ class KingNationalScannerEngine {
         domesticLatencyMs: networkEvidence.domesticLatencyMs,
         globalLatencyMs: networkEvidence.globalLatencyMs,
         networkConfidence: networkEvidence.confidence,
+        domesticIpv6Successes: networkEvidence.domesticIpv6Successes,
+        globalIpv6Successes: networkEvidence.globalIpv6Successes,
+        domesticIpv6LatencyMs: networkEvidence.domesticIpv6LatencyMs,
+        globalIpv6LatencyMs: networkEvidence.globalIpv6LatencyMs,
         inventoryPassComplete: natRangeInventoryPassComplete,
         sliceYielded: didYield,
       );
