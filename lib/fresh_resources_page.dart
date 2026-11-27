@@ -104,7 +104,7 @@ class _FreshResourcesPageState extends State<FreshResourcesPage> {
     if (mounted) setState(() => _message = 'کانفیگ‌های همین صفحه کپی شدند.');
   }
 
-  Future<void> _copyAllSmallCache() async {
+  Future<void> _copyAll() async {
     if (_links.isEmpty || _totalCount > FreshResourceStore.defaultPageSize) return;
     await Clipboard.setData(ClipboardData(text: _links.join('\n')));
     if (mounted) setState(() => _message = 'تمام منابع پوشه کپی شدند.');
@@ -209,7 +209,7 @@ class _FreshResourcesPageState extends State<FreshResourcesPage> {
             FilledButton.icon(onPressed: _busy ? null : _importText, icon: const Icon(Icons.save), label: const Text('ذخیره در پوشه منابع تازه')),
             OutlinedButton.icon(onPressed: _busy || _links.isEmpty ? null : _copyPage, icon: const Icon(Icons.copy), label: const Text('کپی صفحه فعلی')),
             if (canCopyAll)
-              OutlinedButton.icon(onPressed: _busy ? null : _copyAllSmallCache, icon: const Icon(Icons.copy_all), label: const Text('کپی همه منابع')),
+              OutlinedButton.icon(onPressed: _busy ? null : _copyAll, icon: const Icon(Icons.copy_all), label: const Text('کپی همه منابع')),
             if (_hasNext)
               OutlinedButton.icon(onPressed: _busy ? null : _nextPage, icon: const Icon(Icons.navigate_next), label: Text('صفحه بعدی ($_pageNumber)')),
             OutlinedButton.icon(onPressed: _busy ? null : _clear, icon: const Icon(Icons.delete_outline), label: const Text('پاک‌کردن فقط منابع تازه')),
