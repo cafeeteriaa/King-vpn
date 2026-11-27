@@ -887,6 +887,14 @@ class KingNationalScannerEngine {
     try {
       final report = await future;
       _lastScanReport = report;
+      if (report.sliceYielded ||
+          report.warnings.contains('ip_inventory_cursor_preserved_for_next_slice')) {
+        try {
+          await KingAiBackgroundSupervisor.scheduleNationalScannerContinuation();
+        } catch (e, st) {
+          logError(e, st);
+        }
+      }
       return report;
     } finally {
       if (identical(_scanFlight, future)) _scanFlight = null;
