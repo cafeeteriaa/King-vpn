@@ -5181,25 +5181,53 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   /// ONLYFOLDER: کلید سرورهای «پوشه‌ی سرورهای شخصی»؛ این سرورها هرگز وارد آنلاین/آفلاین نمی‌شوند
   Set<String>? _pfKeysCache;
   int _pfKeysLen = -1;
-  bool _inPF(Server s) {
-    if (personalFolderCache.isEmpty) return false;
-    if (_pfKeysCache == null || _pfKeysLen != personalFolderCache.length) {
-      _pfKeysLen = personalFolderCache.length;
-      final keys = <String>{};
-      for (final l in personalFolderCache) {
-        keys.add(l.trim());
-        final ps = Server.parse(l);
-        if (ps != null) keys.add(ps.key);
+  bool _pfIndexRebuilding = false;
+
+  /// Compact parsed-key index: only host:port identities are retained, never
+  /// the full configuration payloads. The durable archive remains on disk.
+  Future<void> _rebuildPersonalFolderKeyIndex() async {
+    if (_pfIndexRebuilding) return;
+    _pfIndexRebuilding = true;
+    final next = <String>{};
+    try {
+      await for (final batch in PersonalFolderStore.streamBatches(
+        batchSize: 128,
+        shouldAbort: () => !mounted,
+      )) {
+        for (final link in batch) {
+          final parsed = Server.parse(link);
+          if (parsed != null) next.add(parsed.key);
+        }
       }
-      _pfKeysCache = keys;
+      if (mounted) {
+        _pfKeysCache = next;
+        _pfKeysLen = personalFolderCount;
+      }
+    } catch (e, stk) {
+      logError(e, stk);
+    } finally {
+      _pfIndexRebuilding = false;
     }
-    return _pfKeysCache!.contains(s.link.trim()) || _pfKeysCache!.contains(s.key);
+  }
+
+  bool _inPF(Server s) {
+    if (personalFolderCount == 0) return false;
+    if (_pfKeysCache == null || _pfKeysLen != personalFolderCount) {
+      if (!_pfIndexRebuilding) unawaited(_rebuildPersonalFolderKeyIndex());
+    }
+    if (_pfKeysCache?.contains(s.key) == true) return true;
+    // The visible page is also checked synchronously while a refreshed index
+    // is being rebuilt after an add/remove transaction.
+    return personalFolderCache.any((link) {
+      final parsed = Server.parse(link);
+      return parsed != null && parsed.key == s.key;
+    });
   }
 
   /// سرورهای پوشه‌ی شخصی که قبلاً به‌اشتباه وارد لیست سالم/پوشه‌ی سالم شده بودند پاک می‌شوند
   void _purgePersonalLeaks() {
     try {
-      if (personalFolderCache.isEmpty) return;
+      if (personalFolderCount == 0) return;
       good.removeWhere((g) => !identical(g, current) && _inPF(g));
       pending.removeWhere(_inPF);
       _resMap.removeWhere((k, v) => _inPF(v.s));
@@ -6347,6 +6375,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         total = fetchedAll.length;
       }
       await loadPersonalFolder(); // پوشه‌ی «سرورهای شخصی»
+      await _rebuildPersonalFolderKeyIndex(); // compact identity index for ONLYFOLDER
       await _restoreScreenLists(); // KEEPSCREEN
       for (final l in p.getStringList('favs') ?? <String>[]) {
         final s = Server.parse(l);
@@ -10034,7 +10063,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             ),
             ListTile(
               leading: const Icon(Icons.dns_outlined),
-              title: Text('🗂 سرورهای شخصی: ${personalFolderCache.length} سرور'),
+              title: Text('🗂 سرورهای شخصی: ${personalFolderCount} سرور'),
               subtitle: const Text('سرورهایی که خودت اضافه کردی یا با ساخت خودکار کلودفلر ساختی'),
               onTap: () {
                 Navigator.pop(ctx);
@@ -11345,10 +11374,10 @@ ListTile( // KINGEXTRAS row
       ).hasMatch(command);
 
       if (wantsPersonalFolder) {
-        if (personalFolderCache.isEmpty && personal == null) {
+        if (personalFolderCount == 0 && personal == null) {
           _guideSheet();
           _set('پوشه سرورهای شخصی خالی است؛ ابتدا سرور شخصی بساز یا کانفیگ وارد کن.');
-        } else if (personalFolderCache.isNotEmpty) {
+        } else if (personalFolderCount > 0) {
           await personalFolderConnect();
           _set('اتصال از پوشه سرورهای شخصی آغاز شد؛ این حالت از منابع آنلاین مستقل است.');
         } else {
@@ -12947,7 +12976,7 @@ ListTile( // KINGEXTRAS row
                 ? await _connectLoop(_mineList())
                 // پوشهٔ «سرورهای شخصی»: همهٔ ورودی‌ها، با آخرین سرور موفق در اولویت
                 : (row == 'f:pfolder')
-                    ? await _connectLoop(personalFolderServers())
+                    ? await _connectPersonalFolderForRow()
                 // DSGETTER: از مقدار مؤثر
                 : await _acquire(strictRow: row != null, speed: effAutoSpeed);
         // AUTONET: the tapped mode found nothing -> the app picks the best
@@ -13546,12 +13575,17 @@ ListTile( // KINGEXTRAS row
     });
   }
 
+  Future<bool> _connectPersonalFolderForRow() async {
+    await personalFolderConnect();
+    return connected;
+  }
+
   // ---------- personal Cloudflare server ----------
   /// سرور شخصی بدون پرسش آنلاین/آفلاین وصل می‌شود (اگر سرور شخصی نباشد، راهنما باز می‌شود)
   Future<void> connectPersonalAsk() async {
     if (personal == null) {
       // V5: سرور تکی نیست ولی پوشه‌ی شخصی پر است → همان پوشه (پینگ همه، بعد بهترین)
-      if (personalFolderCache.isNotEmpty) {
+      if (personalFolderCount > 0) {
         await pickEngineThenStart(() => _personalAdThen(personalFolderConnect), askMode: false);
         return;
       }
@@ -16115,7 +16149,7 @@ ListTile( // KINGEXTRAS row
         rows.add(_personalHeader());
         rows.add(rowHeader(
             'f:pfolder',
-            '🗂 سرورهای شخصی • ${personalFolderCache.isEmpty ? 'خالی — سرور اضافه کن یا با ساخت خودکار کلودفلر بساز' : '${personalFolderCache.length} سرور • بزن تا همه بررسی و بهترین سرور سالم انتخاب شود'}'));
+            '🗂 سرورهای شخصی • ${personalFolderCount == 0 ? 'خالی — سرور اضافه کن یا با ساخت خودکار کلودفلر بساز' : '${personalFolderCount} سرور • بزن تا همه بررسی و بهترین سرور سالم انتخاب شود'}'));
         rows.add(tgProxyRow(context));
       } else if (g == 'f:mine') {
         rows.add(rowHeader(
