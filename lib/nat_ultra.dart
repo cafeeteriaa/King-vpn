@@ -2582,6 +2582,49 @@ List<String> _getCfIps({
 }
 
 // Cursor-aware exact endpoint and configured IPv4 range expansion.
+Map<String, dynamic> _genAddrsIso(Map<String, dynamic> args) {
+  final int cfIpsBatch = args['cfIpsBatch'] as int;
+  final List<String> blocks = List<String>.from(args['blocks'] as List);
+  final bool nationalMode = args['nationalMode'] as bool;
+  final List<String> liveRanges = List<String>.from(args['liveRanges'] as List);
+  final Map<String, int> cursors = Map<String, int>.from(args['cursors'] as Map);
+  final addrs = <String>[];
+  // A bounded batch limits transient memory only; durable cursors cover every
+  // address in each explicitly configured range over subsequent invocations.
+  final cap = max(0, (args['outputLimit'] as int?) ?? max(cfIpsBatch * 4, 20000));
+  void addBlocks() {
+    if (blocks.isEmpty || cap <= 0) return;
+    final start = (cursors['__block_cursor'] ?? 0) % blocks.length;
+    var processed = 0;
+    while (processed < blocks.length && addrs.length < cap) {
+      final index = (start + processed) % blocks.length;
+      final range = blocks[index];
+      final key = 'block:$range';
+      final cursor = cursors[key] ?? 0;
+      final generated = _natExpandAnyCursor(
+          range, cursor, min(256, cap - addrs.length).toInt());
+      if (generated.$1.isNotEmpty) {
+        addrs.addAll(generated.$1);
+        cursors[key] = generated.$2;
+      } else {
+        cursors[key] = -1;
+      }
+      processed++;
+    }
+    if (processed > 0) {
+      cursors['__block_cursor'] = (start + processed) % blocks.length;
+    }
+  }
+  if (nationalMode) {
+    addrs.addAll(_getCfIps(batchSize: cfIpsBatch, liveRanges: liveRanges, cursors: cursors));
+    addBlocks();
+  } else {
+    addBlocks();
+    addrs.addAll(_getCfIps(batchSize: cfIpsBatch, liveRanges: liveRanges, cursors: cursors));
+  }
+  return {'addrs': addrs, 'cursors': cursors};
+}
+
 /// The per-call limit bounds transient memory only; each valid configured IPv4
 /// range is traversed completely by its durable offset. No sampling stride or
 /// per-range address ceiling is applied to the runtime inventory.
