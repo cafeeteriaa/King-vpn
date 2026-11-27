@@ -190,7 +190,13 @@ Future<_IpAutoAddressBatch?> _ipAutoNextAddrs(
     for (final entry in (generated['cursors'] as Map).entries)
       entry.key.toString(): int.tryParse(entry.value.toString()) ?? 0,
   };
-  if (addresses.isEmpty) return null;
+  if (addresses.isEmpty) {
+    return _IpAutoAddressBatch(
+      modeSnapshot: modeSnapshot,
+      addresses: const <String>[],
+      nextCursors: Map<String, int>.unmodifiable(cursorSnapshot),
+    );
+  }
   // Do not mutate persistent cursors here. The caller commits this exact
   // cursor snapshot only after every address in the batch has been processed.
   return _IpAutoAddressBatch(
@@ -373,9 +379,14 @@ extension IpAutoExt on _HomePageState {
       shouldAbort: halted,
     );
     if (halted()) return false;
-    if (addressBatch == null || addressBatch.addresses.isEmpty) {
-      say('آدرسی برای اسکن پیدا نشد.');
-      return false;
+    if (addressBatch == null) return false;
+    if (addressBatch.addresses.isEmpty) {
+      if (halted() || addressBatch.modeSnapshot != runNationalMode) return false;
+      // Empty inventory is a completed scan, not a cancellation. Persisting
+      // its cadence prevents waking and rescanning the same empty sources
+      // every 15-minute scheduler tick.
+      say('منبع فعلی آدرس جدیدی برای اسکن ندارد؛ نوبت بعدی طبق cadence ذخیره‌شده است.');
+      return true;
     }
     final addrs = addressBatch.addresses;
     final ports = natAutoPorts(pool).toSet().toList()..sort();
