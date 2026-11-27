@@ -189,6 +189,32 @@ void main() {
       expect(await PersonalFolderStore.hasValidSnapshot(), isTrue);
     });
 
+    test('streamed mutation recovers from corrupt primary without replacing backup', () async {
+      const original = <String>[
+        'vless://backup-a@example.com:443',
+        'trojan://backup-b@example.com:443',
+      ];
+      await PersonalFolderStore.writeSnapshot(original);
+      await PersonalFolderStore.writeSnapshot(<String>[
+        'vless://newer-primary@example.com:443',
+      ]);
+      final primary = File('${tempDirectory.path}/servers.jsonl');
+      await primary.writeAsString('corrupt-json-line\n');
+
+      expect(
+        await PersonalFolderStore.appendAll(<String>[
+          'ss://added-after-recovery@example.com:443',
+        ]),
+        1,
+      );
+      expect(await PersonalFolderStore.count(), 3);
+      expect(await PersonalFolderStore.contains(original.first), isTrue);
+      expect(await PersonalFolderStore.contains(
+        'ss://added-after-recovery@example.com:443',
+      ), isTrue);
+      expect(await PersonalFolderStore.hasValidSnapshot(), isTrue);
+    });
+
     test('checks exact membership without materializing the archive', () async {
       final input = List<String>.generate(
         900,
