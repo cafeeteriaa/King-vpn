@@ -167,8 +167,11 @@ class FreshResourceStore {
       }
 
       final result = <String>[];
+      final emitted = <String>{};
       var visited = 0;
-      while (result.length < limit && visited < shardCount * 8) {
+      var stagnantVisits = 0;
+      while (result.length < limit && visited < shardCount * 8 &&
+          stagnantVisits < shardCount) {
         final shard = shardIndex.toRadixString(16).padLeft(2, '0');
         final file = await _shardFile(dir, shard);
         if (!await file.exists()) {
@@ -182,6 +185,7 @@ class FreshResourceStore {
         if (offset < 0 || offset >= length) offset = 0;
         var consumed = false;
         var readInShard = 0;
+        var addedFromShard = 0;
         await for (final line in file.openRead(offset)
             .transform(utf8.decoder)
             .transform(const LineSplitter())) {
@@ -194,7 +198,10 @@ class FreshResourceStore {
             if (row is Map && row['v'] == 1 &&
                 row['id'] is String && row['link'] is String) {
               final link = normalizeLink(row['link'] as String);
-              if (link != null && _id(link) == row['id']) result.add(link);
+              if (link != null && _id(link) == row['id'] && emitted.add(row['id'] as String)) {
+                result.add(link);
+                addedFromShard++;
+              }
             }
           } catch (_) {}
           readInShard++;
@@ -203,6 +210,7 @@ class FreshResourceStore {
         if (!consumed || (offsets[shard] ?? 0) >= length) {
           offsets[shard] = 0;
         }
+        stagnantVisits = addedFromShard == 0 ? stagnantVisits + 1 : 0;
         shardIndex = (shardIndex + 1) % shardCount;
         visited++;
       }
