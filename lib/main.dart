@@ -9793,6 +9793,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       final configuredSources = userListUrls.length + listUrls.length;
       final successfulSources = srcFetchState.values.where((state) => state == 'ok').length;
       final previousCount = (metadata['count'] as num?)?.toInt() ?? 0;
+      final minimumEntries =
+          FreshResourceStore.minimumSnapshotReplacementCount(previousCount);
       if (!FreshResourceStore.isSufficientSnapshotReplacement(
         previousCount: previousCount,
         incomingCount: downloaded.length,
@@ -9808,6 +9810,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       await FreshResourceStore.replaceSnapshot(
         downloaded.map((server) => server.link),
         source: 'online-public-sources-48h-refresh',
+        minimumEntries: minimumEntries,
       );
       _freshResourceRefreshRetryAfter = null;
     } catch (error, stack) {
