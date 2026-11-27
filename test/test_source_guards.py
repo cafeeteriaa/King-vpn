@@ -1588,7 +1588,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         scan_only_start = main.index('Future<void> _natScanOnly()')
         scan_only_end = main.index('// NATFIRSTFAST:', scan_only_start)
         scan_only = main[scan_only_start:scan_only_end]
-        self.assertIn('stop: () => abort || nationalMode != runNationalMode,', scan_only)
+        self.assertIn('stop: () => abort || nationalMode != runNationalMode)', scan_only)
         self.assertLess(scan_only.index('if (abort || nationalMode != runNationalMode) return;'),
                         scan_only.index('await _natRangeAdd(ips);'))
         escalate_start = main.index('Future<void> _natEscalate(int round)')
