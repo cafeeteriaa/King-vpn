@@ -33,10 +33,12 @@ class KingDynamicSourceDiscovery {
 
   static bool isCandidatePath(String path, {int? size}) {
     final p = path.toLowerCase();
+    final segments = p.split('/');
+    if (segments.any((segment) =>
+        segment.isEmpty || segment == '.' || segment == '..' ||
+        segment.startsWith('.'))) return false;
     if (size != null && (size <= 0 || size > _maxFileBytes)) return false;
-    if (RegExp(r'(^|/)\.').hasMatch(p) || RegExp(r'(^|/)docs(/|$)').hasMatch(p)) {
-      return false;
-    }
+    if (RegExp(r'(^|/)docs(/|$)').hasMatch(p)) return false;
     if (RegExp(r'(^|/)(readme|license|changelog|contributing)(\.|$)').hasMatch(p)) {
       return false;
     }
