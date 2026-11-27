@@ -292,7 +292,7 @@ class NatNetworkDiagnosis {
       final domesticDnsOk = domesticDnsRes.any((x) => x.ok);
       final globalDnsOk = globalDnsRes.any((x) => x.ok);
       final domesticTcpOk = domesticTcp.where((x) => x).length >= 2;
-      final globalTcpOk = globalTcp.where((x) => x).length >= 2;
+      final globalTcpOk = globalTcp.any((x) => x);
       // DNS poisoning / blockpage check: a resolver returned a public A answer,
       // yet none of the answered addresses accepts TCP/443, while domestic hosts
       // do. That is the typical signature of an injected answer, not a live Google.
