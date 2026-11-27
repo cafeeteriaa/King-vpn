@@ -62,6 +62,40 @@ void main() {
       expect(rows['udp_packet_forgery']!.status, KingNatCapabilityStatus.researchOnly);
     });
 
+    test('records baseline variant zero in real-traffic learning', () {
+      final before = KingNationalScannerEngine.diagnostics();
+      KingNationalScannerEngine.recordVariantOutcome(
+        0,
+        true,
+        profile: 'unit-test-baseline-profile',
+        latencyMs: 120,
+      );
+      final after = KingNationalScannerEngine.diagnostics();
+
+      expect(after['attempts'], (before['attempts'] as int) + 1);
+      expect(after['realTrafficSuccesses'],
+          (before['realTrafficSuccesses'] as int) + 1);
+    });
+
+    test('rejects invalid variant outcomes without changing learning counters', () {
+      final before = KingNationalScannerEngine.diagnostics();
+      KingNationalScannerEngine.recordVariantOutcome(
+        -1,
+        true,
+        profile: 'invalid-negative',
+      );
+      KingNationalScannerEngine.recordVariantOutcome(
+        1 << 30,
+        false,
+        profile: 'invalid-large',
+      );
+      final after = KingNationalScannerEngine.diagnostics();
+
+      expect(after['attempts'], before['attempts']);
+      expect(after['realTrafficSuccesses'], before['realTrafficSuccesses']);
+      expect(after['realTrafficFailures'], before['realTrafficFailures']);
+    });
+
     test('diagnostics never expose raw endpoints or credentials', () {
       final report = KingNationalScannerEngine.diagnostics();
       expect(report, contains('variantCatalogSize'));
