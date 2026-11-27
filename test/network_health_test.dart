@@ -241,4 +241,66 @@ void main() {
       expect(choosePilotNetworkStrategy(evidence), PilotNetworkStrategy.offline);
     });
   });
+  group('Net Melli network-change guard', () {
+    test('fingerprint is stable regardless of interface ordering', () {
+      final first = KingNetworkFingerprint.fromInterfaces(
+        const <KingNetworkInterfaceSnapshot>[
+          KingNetworkInterfaceSnapshot(name: 'wlan0', addresses: <String>['192.168.1.10', 'fe80::1']),
+          KingNetworkInterfaceSnapshot(name: 'rmnet_data0', addresses: <String>['10.20.30.40']),
+        ],
+      );
+      final second = KingNetworkFingerprint.fromInterfaces(
+        const <KingNetworkInterfaceSnapshot>[
+          KingNetworkInterfaceSnapshot(name: 'rmnet_data0', addresses: <String>['10.20.30.40']),
+          KingNetworkInterfaceSnapshot(name: 'wlan0', addresses: <String>['fe80::1', '192.168.1.10']),
+        ],
+      );
+      expect(first, second);
+      expect(first, isNotEmpty);
+    });
+
+    test('VPN tunnel interfaces are excluded from the physical fingerprint', () {
+      final physical = KingNetworkFingerprint.fromInterfaces(
+        const <KingNetworkInterfaceSnapshot>[
+          KingNetworkInterfaceSnapshot(name: 'wlan0', addresses: <String>['192.168.1.10']),
+        ],
+      );
+      final withTunnel = KingNetworkFingerprint.fromInterfaces(
+        const <KingNetworkInterfaceSnapshot>[
+          KingNetworkInterfaceSnapshot(name: 'wlan0', addresses: <String>['192.168.1.10']),
+          KingNetworkInterfaceSnapshot(name: 'tun0', addresses: <String>['10.8.0.2']),
+        ],
+      );
+      expect(withTunnel, physical);
+    });
+
+    test('network handover cancels the scan monotonically', () {
+      const initial = 'wlan0|192.168.1.10';
+      final guard = KingNetworkScanGuard(initialFingerprint: initial);
+      expect(guard.shouldCancel, isFalse);
+      guard.observe(vpnInterfaceActive: false, currentFingerprint: initial);
+      expect(guard.shouldCancel, isFalse);
+      guard.observe(
+        vpnInterfaceActive: false,
+        currentFingerprint: 'rmnet_data0|10.20.30.40',
+      );
+      expect(guard.shouldCancel, isTrue);
+      guard.observe(vpnInterfaceActive: false, currentFingerprint: initial);
+      expect(guard.shouldCancel, isTrue);
+    });
+
+    test('VPN start and missing network evidence both fail closed', () {
+      final guard = KingNetworkScanGuard(
+        initialFingerprint: 'wlan0|192.168.1.10',
+      );
+      guard.observe(
+        vpnInterfaceActive: true,
+        currentFingerprint: 'wlan0|192.168.1.10',
+      );
+      expect(guard.shouldCancel, isTrue);
+      final unknown = KingNetworkScanGuard(initialFingerprint: '');
+      expect(unknown.shouldCancel, isTrue);
+    });
+  });
+
 }

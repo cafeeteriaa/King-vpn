@@ -889,8 +889,16 @@ class KingNationalScannerEngine {
     try {
       final report = await future;
       _lastScanReport = report;
-      if (report.sliceYielded ||
-          report.warnings.contains('ip_inventory_cursor_preserved_for_next_slice')) {
+      // Do not enqueue a continuation after a VPN start or network handover.
+      var cancellationRequested = false;
+      try {
+        cancellationRequested = cancelled();
+      } catch (_) {
+        cancellationRequested = true;
+      }
+      if (!cancellationRequested &&
+          (report.sliceYielded ||
+           report.warnings.contains('ip_inventory_cursor_preserved_for_next_slice'))) {
         try {
           await KingAiBackgroundSupervisor.scheduleNationalScannerContinuation();
         } catch (e, st) {

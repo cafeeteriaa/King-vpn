@@ -1,3 +1,5 @@
+import 'dart:io';
+
 /// Independent domestic/global network evidence model for Smart Pilot ∞.
 enum LinkHealth { unknown, healthy, degraded, unreachable }
 enum DetectedNetworkMode { unknown, domesticOnly, globalOnly, dualStack, offline }
@@ -180,4 +182,80 @@ PilotNetworkStrategy choosePilotNetworkStrategy(NetworkEvidence evidence) {
         : PilotNetworkStrategy.offline;
   }
   return PilotNetworkStrategy.preserve;
+}
+
+
+/// A stable, testable snapshot of the non-VPN network interfaces.
+class KingNetworkInterfaceSnapshot {
+  const KingNetworkInterfaceSnapshot({
+    required this.name,
+    required this.addresses,
+  });
+
+  final String name;
+  final List<String> addresses;
+}
+
+/// Fingerprints the active physical network without including the VPN TUN.
+/// The result changes when the active interface or its addresses change.
+class KingNetworkFingerprint {
+  KingNetworkFingerprint._();
+
+  static final RegExp _vpnInterfaceName =
+      RegExp(r'^(tun|tap|ppp|wg|utun|vpn)[0-9]*', caseSensitive: false);
+
+  static String fromInterfaces(
+    Iterable<KingNetworkInterfaceSnapshot> interfaces,
+  ) {
+    final values = <String>{};
+    for (final interface in interfaces) {
+      final name = interface.name.trim().toLowerCase();
+      if (name.isEmpty || _vpnInterfaceName.hasMatch(name)) continue;
+      for (final rawAddress in interface.addresses) {
+        final address = rawAddress.trim();
+        if (address.isEmpty || address == '127.0.0.1' || address == '::1') {
+          continue;
+        }
+        values.add('$name|$address');
+      }
+    }
+    final sorted = values.toList()..sort();
+    return sorted.join(';');
+  }
+
+  static Future<String> capture() async {
+    final interfaces = await NetworkInterface.list(includeLoopback: false);
+    return fromInterfaces(interfaces.map((interface) =>
+        KingNetworkInterfaceSnapshot(
+          name: interface.name,
+          addresses: interface.addresses
+              .where((address) => !address.isLoopback)
+              .map((address) => address.address)
+              .toList(growable: false),
+        )));
+  }
+
+  static bool changed(String before, String after) =>
+      before.trim().isEmpty || after.trim().isEmpty || before != after;
+}
+
+/// Monotonic fail-closed guard for long-running network discovery.
+class KingNetworkScanGuard {
+  KingNetworkScanGuard({required this.initialFingerprint})
+      : _cancelled = initialFingerprint.trim().isEmpty;
+
+  final String initialFingerprint;
+  bool _cancelled;
+
+  bool get shouldCancel => _cancelled;
+
+  void observe({
+    required bool vpnInterfaceActive,
+    required String currentFingerprint,
+  }) {
+    if (vpnInterfaceActive ||
+        KingNetworkFingerprint.changed(initialFingerprint, currentFingerprint)) {
+      _cancelled = true;
+    }
+  }
 }

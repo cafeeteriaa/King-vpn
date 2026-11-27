@@ -160,32 +160,62 @@ Future<bool> _kingHasVpnInterface() async {
     final interfaces = await NetworkInterface.list(includeLoopback: false);
     return interfaces.any((interface) {
       final name = interface.name.toLowerCase();
-      return RegExp(r'^(tun|tap|ppp|wg|utun|vpn)\d*').hasMatch(name);
+      return RegExp(r'^(tun|tap|ppp|wg|utun|vpn)[0-9]*').hasMatch(name);
     });
   } catch (e, st) {
     logError(e, st);
-    return false;
+    // Fail closed if the interface state cannot be inspected.
+    return true;
   }
 }
 
 Future<bool> _runKingNationalScannerBackgroundTask() async {
+  Timer? networkMonitor;
   try {
-    // Avoid running route probes through an active Android VPN interface.
-    final vpnInterfaceActive = await _kingHasVpnInterface();
-    if (vpnInterfaceActive) return false;
+    if (await _kingHasVpnInterface()) return false;
+    final initialFingerprint = await KingNetworkFingerprint.capture();
+    final guard = KingNetworkScanGuard(
+      initialFingerprint: initialFingerprint,
+    );
+    if (guard.shouldCancel) return false;
+
+    var polling = false;
+    networkMonitor = Timer.periodic(const Duration(seconds: 2), (_) async {
+      if (polling || guard.shouldCancel) return;
+      polling = true;
+      try {
+        final vpnActive = await _kingHasVpnInterface();
+        final fingerprint = await KingNetworkFingerprint.capture();
+        guard.observe(
+          vpnInterfaceActive: vpnActive,
+          currentFingerprint: fingerprint,
+        );
+      } catch (e, st) {
+        logError(e, st);
+        guard.observe(
+          vpnInterfaceActive: true,
+          currentFingerprint: '',
+        );
+      } finally {
+        polling = false;
+      }
+    });
+
     await natLoadPersisted();
+    if (guard.shouldCancel) return false;
     final detectedMode = await KingNationalScannerEngine.detectNationalMode();
-    // Preserve unknown/ambiguous networks rather than guessing a route policy.
-    if (detectedMode == null) return true;
+    // Ambiguous evidence is not a completed scan; let WorkManager retry.
+    if (detectedMode == null) return false;
     nationalMode = detectedMode;
     final seeds = await natHotNext(80, fetch: false);
     final report = await KingNationalScannerEngine.runPreflight(
       knownServers: seeds,
       onStatus: (_) {},
       sliceBudget: const Duration(minutes: 8),
-      cancelled: () => vpnInterfaceActive,
+      cancelled: () => guard.shouldCancel,
       addDiscovered: natIpMemMergeHits,
     );
+    if (guard.shouldCancel) return false;
     final needsContinuation = report.sliceYielded ||
         report.warnings.contains('ip_inventory_cursor_preserved_for_next_slice');
     if (needsContinuation) {
@@ -209,8 +239,11 @@ Future<bool> _runKingNationalScannerBackgroundTask() async {
   } catch (e, st) {
     logError(e, st);
     return false;
+  } finally {
+    networkMonitor?.cancel();
   }
 }
+
 
 class KingAiBackgroundSupervisor {
   KingAiBackgroundSupervisor._();
