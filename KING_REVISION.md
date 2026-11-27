@@ -1,7 +1,7 @@
 # KING VPN Revision Ledger
 
-Current revision: 64
-Next revision: 65
+Current revision: 65
+Next revision: 66
 Repository: cafeeteriaa/King-vpn
 Revision branch: fix/personal-folder-uncapped-20261127
 Parent revision branch: fix/healthy-folder-unbounded-retention-20261127
@@ -80,12 +80,26 @@ Consolidated integration PR: https://github.com/cafeeteriaa/King-vpn/pull/66
 - These collections can now grow with discovered/learned endpoints; a disk-backed/indexed design and profiling are required before very-large-scale claims. Other short-lived memoization caches remain bounded for actual memory safety and are not authoritative server inventories.
 - Exact-head CI and runtime validation are pending.
 
+### Revision 65 — migrate personal servers to an atomic file-backed snapshot
+- Added a dedicated app-private JSONL store for personal VPN profiles, separate from the global preferences document and from public/healthy server inventories.
+- Writes use a same-directory temporary file, flush, replacement, and a last-known-good backup; unreadable primary snapshots fall back to the backup.
+- Existing installations migrate the legacy personal-folder list only when no valid file snapshot exists. The legacy key is removed only after the new snapshot has been persisted and flushed.
+- Add/remove operations now write the complete personal-folder snapshot through the dedicated store; the last-good marker remains in preferences.
+- Added source guards for migration, atomic replacement, recovery copy, and separation from legacy preferences.
+- Important: UI/connection consumers still materialize the full folder into personalFolderCache. This is durable file-backed persistence, not yet memory-bounded pagination. A paged repository API and consumer migration remain required.
+- Exact-head CI, migration tests, Android build and device recovery tests are pending.
+
 ## Mandatory three-pass review protocol
 
 Each numbered revision must be a substantial functional change and pass three separate reviews:
 1. Architecture and behavior: feature preservation, global/National Net isolation, complete inventory traversal and no hidden truncation.
 2. Persistence and concurrency: atomic/serialized writes, cursor commit rules, cancellation, partial-result retention and recovery.
 3. Compatibility and verification: source guards, unit tests, static analysis, Android build and final diff review.
+
+### Revision 65 review status
+1. Storage architecture and legacy migration: pending.
+2. Atomicity, crash recovery and concurrent writes: pending runtime tests.
+3. Compatibility, tests, Dart analysis and Android build: pending.
 
 ### Revision 64 review status
 1. Learning retention behavior: pending independent review.
