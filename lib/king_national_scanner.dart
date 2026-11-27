@@ -280,6 +280,17 @@ class KingNationalScannerEngine {
     });
   }
 
+  /// Wait until strategy evidence queued by the current probe is flushed.
+  /// The scanner journal must never advance past an unflushed learning record.
+  static Future<void> flushLearning() async {
+    await load();
+    while (_persistDirty || _persistFlight != null) {
+      if (_persistFlight == null) _schedulePersist();
+      final pending = _persistFlight;
+      if (pending != null) await pending;
+    }
+  }
+
   static Future<File> _strategyStoreFile() async {
     final directory = await getApplicationSupportDirectory();
     return File('${directory.path}/king_nat_strategy_memory_v1.json');
@@ -1101,6 +1112,7 @@ class KingNationalScannerEngine {
                     recordAlpnProbe(profileKey(server), alpn);
                     alpnHits++;
                   }
+                  await flushLearning();
                 }
                 await persistPhase(
                   'sni',
