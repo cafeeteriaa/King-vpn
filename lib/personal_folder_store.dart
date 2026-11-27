@@ -23,8 +23,7 @@ class PersonalFolderPage {
 }
 
 /// Durable app-private storage for personal VPN profiles.
-/// Consumers still materialize the current folder in memory; this class does
-/// not claim to implement paging.
+/// Reads, index construction and mutations can traverse the archive in bounded batches.
 class PersonalFolderStore {
   PersonalFolderStore._();
 
