@@ -5181,6 +5181,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   /// ONLYFOLDER: کلید سرورهای «پوشه‌ی سرورهای شخصی»؛ این سرورها هرگز وارد آنلاین/آفلاین نمی‌شوند
   Set<String>? _pfKeysCache;
   int _pfKeysLen = -1;
+  int _pfIndexRevision = -1;
   bool _pfIndexRebuilding = false;
 
   /// Compact parsed-key index: only host:port identities are retained, never
@@ -5202,6 +5203,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       if (mounted) {
         _pfKeysCache = next;
         _pfKeysLen = personalFolderCount;
+        _pfIndexRevision = personalFolderRevision;
       }
     } catch (e, stk) {
       logError(e, stk);
@@ -5212,7 +5214,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
   bool _inPF(Server s) {
     if (personalFolderCount == 0) return false;
-    if (_pfKeysCache == null || _pfKeysLen != personalFolderCount) {
+    if (_pfKeysCache == null || _pfKeysLen != personalFolderCount ||
+        _pfIndexRevision != personalFolderRevision) {
       if (!_pfIndexRebuilding) unawaited(_rebuildPersonalFolderKeyIndex());
     }
     if (_pfKeysCache?.contains(s.key) == true) return true;
