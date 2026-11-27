@@ -3323,7 +3323,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn("full_u128_span", rust)
         self.assertIn("catch_unwind", rust)
         self.assertIn("output_capacity", rust)
-        self.assertIn("_maxNativeBatch = 8192", bridge)
+        self.assertIn("maxNativeBatchSize = 8192", bridge)
         self.assertIn("addresses.length > limit", bridge)
         self.assertIn("return null;", bridge)
 
