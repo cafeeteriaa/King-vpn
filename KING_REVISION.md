@@ -195,7 +195,8 @@ Increment the revision number by exactly one for each substantial edit set. Reco
 - Pinned every stage to one captured main commit SHA and aborts PR creation if main advances before the final commit, preventing mixed snapshots and stale overwrites.
 - Preserved the narrower background-autonomous audit policy (at most two files, no merge/release); only explicit owner-authenticated feature requests use the larger staged pipeline.
 - Added pipeline unit tests and source guards. The new pipeline and its tests are protected from local-model self-modification.
+- Behavior-preserving CI unblocker: qualified the existing PersonalFolderStore snapshot decoder call so the inherited source guard can verify the public codec is used.
 - Review pass 1: architecture and dependency ordering; verify the single-PR commit model and preservation of owner authentication.
 - Review pass 2: path validation, stale-stage conflict handling, aggregate file/content budgets, secret checks and no-partial-PR behavior.
 - Review pass 3: tests/source guards, compatibility with the existing local model context limits, and exact-head CI/build review.
-- Exact-head CI, Flutter tests, Dart analysis and Android arm64 build are pending. No device-level VPN validation is claimed. No merge or release is authorized by this revision.
+- First exact-head CI run 45973769538 failed in the inherited PersonalFolderStore source guard before Flutter setup; the existing codec call was aligned without changing behavior. A rerun is pending. Flutter tests, Dart analysis, Android arm64 build and device validation are not yet verified. No merge or release is authorized by this revision.
