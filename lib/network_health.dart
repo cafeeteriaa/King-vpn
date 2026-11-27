@@ -229,7 +229,7 @@ class KingNetworkFingerprint {
   }) {
     final routes = <String>{};
     for (final line in ipv4Lines) {
-      final fields = line.trim().split(RegExp(r'\\s+'));
+      final fields = line.trim().split(RegExp(r'\s+'));
       if (fields.length < 8 || fields[1] != '00000000' || fields[7] != '00000000') continue;
       final flags = int.tryParse(fields[3], radix: 16) ?? 0;
       final iface = fields[0].toLowerCase();
@@ -237,7 +237,7 @@ class KingNetworkFingerprint {
       routes.add('v4:$iface:${fields[2]}:${fields[6]}');
     }
     for (final line in ipv6Lines) {
-      final fields = line.trim().split(RegExp(r'\\s+'));
+      final fields = line.trim().split(RegExp(r'\s+'));
       if (fields.length < 10 || fields[0] != List<String>.filled(32, '0').join() ||
           fields[1].toLowerCase() != '00') continue;
       final flags = int.tryParse(fields[8], radix: 16) ?? 0;
