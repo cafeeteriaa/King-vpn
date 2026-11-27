@@ -15,7 +15,7 @@ class FreshResourceStore {
 
   static const int maxEntries = 4000000;
   static const int shardCount = 256;
-  static const int _batchSize = 512;
+  static const int _batchSize = 4096;
   static const int _bloomBytesPerShard = 32768;
   static const int _bloomHashCount = 7;
   static const String directoryName = 'KingVPN/ResourcesFresh';
