@@ -899,8 +899,8 @@ class KingNationalScannerEngine {
       await NationalNetworkIntelligence.load();
       try {
         final samples = await Future.wait<Object>(<Future<Object>>[
-          NatNetworkDiagnosis.refresh(force: true),
-          PilotNetworkProbe.refresh(force: true),
+          NatNetworkDiagnosis.refresh(),
+          PilotNetworkProbe.refresh(),
         ]).timeout(const Duration(seconds: 12));
         networkEvidence = samples[1] as NetworkEvidence;
       } catch (e, st) {
