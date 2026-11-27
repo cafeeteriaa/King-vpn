@@ -10,8 +10,8 @@ void main() {
       final events = <String>[];
       await scheduler.requestCycle(
         canRun: () => true,
-        runDns: () async => events.add('dns'),
-        runIp: () async => events.add('ip'),
+        runDns: () async { events.add('dns'); },
+        runIp: () async { events.add('ip'); },
       );
       expect(events, ['dns', 'ip']);
       expect(scheduler.isRunning, isFalse);
@@ -23,8 +23,8 @@ void main() {
       var ipRuns = 0;
       await scheduler.requestCycle(
         canRun: () => safe,
-        runDns: () async => safe = false,
-        runIp: () async => ipRuns++,
+        runDns: () async { safe = false; },
+        runIp: () async { ipRuns++; },
       );
       expect(ipRuns, 0);
     });
@@ -44,12 +44,12 @@ void main() {
             await release.future;
           }
         },
-        runIp: () async => ipRuns++,
+        runIp: () async { ipRuns++; },
       );
       await entered.future;
       await scheduler.requestCycle(
         canRun: () => true,
-        runDns: () async => dnsRuns++,
+        runDns: () async { dnsRuns++; },
         runIp: () async => ipRuns++,
       );
       release.complete();
