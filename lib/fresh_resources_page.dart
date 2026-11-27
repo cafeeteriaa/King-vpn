@@ -1,5 +1,10 @@
 import 'package:flutter/material.dart';
+import 'dart:io';
+
 import 'package:flutter/services.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:share_plus/share_plus.dart';
+import 'package:cross_file/cross_file.dart';
 
 import 'fresh_resource_store.dart';
 
@@ -78,6 +83,61 @@ class _FreshResourcesPageState extends State<FreshResourcesPage> {
     if (mounted) setState(() => _message = '۱۰۰ کانفیگ اولِ فهرست کپی شد؛ برای جلوگیری از مصرف شدید حافظه، کل بانک چندمیلیونی در کلیپ‌بورد بارگذاری نمی‌شود.');
   }
 
+  Future<void> _exportAll() async {
+    if (_busy || _totalCount == 0) return;
+    setState(() {
+      _busy = true;
+      _message = 'در حال ساخت خروجی جریانی از کل بانک؛ حافظهٔ برنامه با همهٔ کانفیگ‌ها پر نمی‌شود...';
+    });
+    File? output;
+    try {
+      final temporary = await getTemporaryDirectory();
+      final stamp = DateTime.now().toUtc().millisecondsSinceEpoch;
+      output = File('${temporary.path}/kingvpn-offline-resources-$stamp.txt');
+      final sink = output.openWrite();
+      var exported = 0;
+      try {
+        await for (final link in FreshResourceStore.streamLinks()) {
+          sink.writeln(link);
+          exported++;
+        }
+        await sink.flush();
+      } finally {
+        await sink.close();
+      }
+      if (exported == 0) {
+        await output.delete();
+        if (mounted) setState(() => _message = 'بانک منابع خالی است.');
+        return;
+      }
+      final result = await SharePlus.instance.share(
+        ShareParams(
+          title: 'KING VPN offline resources',
+          text: 'خروجی کامل منابع آفلاین KING VPN؛ تعداد: $exported',
+          files: <XFile>[XFile(output.path)],
+        ),
+      );
+      if (!mounted) return;
+      switch (result.status) {
+        case ShareResultStatus.success:
+          setState(() => _message = 'فایل کامل $exported کانفیگ ساخته و برای اشتراک‌گذاری ارسال شد.');
+        case ShareResultStatus.dismissed:
+          setState(() => _message = 'فایل کامل ساخته شد؛ پنجرهٔ اشتراک‌گذاری بسته شد. مسیر فایل: ${output.path}');
+        case ShareResultStatus.unavailable:
+          setState(() => _message = 'فایل کامل ساخته شد اما اشتراک‌گذاری در این دستگاه در دسترس نیست. مسیر فایل: ${output.path}');
+      }
+    } catch (error) {
+      if (output != null) {
+        try {
+          if (await output.exists()) await output.delete();
+        } catch (_) {}
+      }
+      if (mounted) setState(() => _message = 'ساخت یا اشتراک‌گذاری خروجی کامل انجام نشد: $error');
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
   Future<void> _clear() async {
     final accepted = await showDialog<bool>(
       context: context,
@@ -154,6 +214,7 @@ class _FreshResourcesPageState extends State<FreshResourcesPage> {
             const SizedBox(height: 8),
             FilledButton.icon(onPressed: _busy ? null : _importText, icon: const Icon(Icons.save), label: const Text('ذخیره در پوشه منابع تازه')),
             OutlinedButton.icon(onPressed: _links.isEmpty ? null : _copyAll, icon: const Icon(Icons.copy), label: const Text('کپی ۱۰۰ کانفیگ اول')),
+            OutlinedButton.icon(onPressed: _busy || _totalCount == 0 ? null : _exportAll, icon: const Icon(Icons.ios_share), label: const Text('خروجی کامل بانک کانفیگ‌ها')),
             OutlinedButton.icon(onPressed: _busy ? null : _clear, icon: const Icon(Icons.delete_outline), label: const Text('پاک‌کردن فقط منابع تازه')),
             if (_busy) const Padding(padding: EdgeInsets.all(12), child: Center(child: CircularProgressIndicator())),
             if (_message.isNotEmpty) Padding(padding: const EdgeInsets.all(8), child: Text(_message)),
