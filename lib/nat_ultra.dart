@@ -1680,7 +1680,6 @@ Future<void> natLoadPersisted() async {
 
 const String _ipMemKey = 'natIpMem';
 const String _rangeKey = 'natRanges';
-const int _ipMemMax = 200;
 
 final List<Map<String, dynamic>> natIpMem = [];
 final Set<String> natIpDeadRun = {};
@@ -1692,20 +1691,34 @@ bool natRangeInventoryPassComplete = false;
 int natRangeScanBatchSequence = 0;
 DateTime natRangeLast = DateTime.fromMillisecondsSinceEpoch(0);
 
+Future<File> _natMemoryFile(String name) async {
+  final directory = await getApplicationSupportDirectory();
+  return File('${directory.path}/$name');
+}
+
+Future<void> _natWriteMemorySnapshot(
+    String name, List<Map<String, dynamic>> values) async {
+  final file = await _natMemoryFile(name);
+  final temporary = File('${file.path}.tmp');
+  await temporary.writeAsString(jsonEncode(values), flush: true);
+  await temporary.rename(file.path);
+}
+
 Set<String> natIpMemHosts() => {for (final e in natIpMem) '${e['ip']}'};
 
 Future<void> natIpMemLoad() async {
   try {
     final p = await SharedPreferences.getInstance();
-    final s = p.getString(_ipMemKey);
+    final file = await _natMemoryFile('king_nat_ip_inventory.json');
+    final hasDiskStore = await file.exists();
+    final s = hasDiskStore ? await file.readAsString() : p.getString(_ipMemKey);
     if (s != null) {
       natIpMem
         ..clear()
         ..addAll((jsonDecode(s) as List).cast<Map<String, dynamic>>());
-      final cutoff = DateTime.now()
-          .subtract(const Duration(days: 14))
-          .millisecondsSinceEpoch;
-      natIpMem.removeWhere((e) => ((e['t'] as num?)?.toInt() ?? 0) < cutoff);
+      if (!hasDiskStore) {
+        await _natWriteMemorySnapshot('king_nat_ip_inventory.json', natIpMem);
+      }
     }
     natRanges = (p.getString(_rangeKey) ?? '')
         .split(RegExp(r'[\r\n,; ]+'))
@@ -1743,7 +1756,6 @@ Future<void> natIpMemLoad() async {
 }
 
 const String _domMemKey = 'natDomMem';
-const int _domMemMax = 200;
 const int natDelaySecs = 14;
 final List<Map<String, dynamic>> natDomMem = [];
 
@@ -1752,15 +1764,16 @@ Set<String> natDomMemHosts() => {for (final e in natDomMem) '${e['h']}:${e['port
 Future<void> natDomMemLoad() async {
   try {
     final p = await SharedPreferences.getInstance();
-    final s = p.getString(_domMemKey);
+    final file = await _natMemoryFile('king_nat_domain_inventory.json');
+    final hasDiskStore = await file.exists();
+    final s = hasDiskStore ? await file.readAsString() : p.getString(_domMemKey);
     if (s != null) {
       natDomMem
         ..clear()
         ..addAll((jsonDecode(s) as List).cast<Map<String, dynamic>>());
-      final cutoff = DateTime.now()
-          .subtract(const Duration(days: 14))
-          .millisecondsSinceEpoch;
-      natDomMem.removeWhere((e) => ((e['t'] as num?)?.toInt() ?? 0) < cutoff);
+      if (!hasDiskStore) {
+        await _natWriteMemorySnapshot('king_nat_domain_inventory.json', natDomMem);
+      }
     }
   } catch (e, stk) {
     logError(e, stk);
@@ -1770,12 +1783,8 @@ Future<void> natDomMemLoad() async {
 Future<void> natDomMemSave(String host, int port) async {
   natDomMem.removeWhere((e) => e['h'] == host && e['port'] == port);
   natDomMem.insert(0, {'h': host, 'port': port, 't': DateTime.now().millisecondsSinceEpoch});
-  if (natDomMem.length > _domMemMax) {
-    natDomMem.removeRange(_domMemMax, natDomMem.length);
-  }
   try {
-    final p = await SharedPreferences.getInstance();
-    await p.setString(_domMemKey, jsonEncode(natDomMem));
+    await _natWriteMemorySnapshot('king_nat_domain_inventory.json', natDomMem);
   } catch (e, stk) {
     logError(e, stk);
   }
@@ -1784,12 +1793,8 @@ Future<void> natDomMemSave(String host, int port) async {
 Future<void> natIpMemSave(String ip, int port) async {
   natIpMem.removeWhere((e) => e['ip'] == ip && e['port'] == port);
   natIpMem.insert(0, {'ip': ip, 'port': port, 't': DateTime.now().millisecondsSinceEpoch});
-  if (natIpMem.length > _ipMemMax) {
-    natIpMem.removeRange(_ipMemMax, natIpMem.length);
-  }
   try {
-    final p = await SharedPreferences.getInstance();
-    await p.setString(_ipMemKey, jsonEncode(natIpMem));
+    await _natWriteMemorySnapshot('king_nat_ip_inventory.json', natIpMem);
   } catch (e, stk) {
     logError(e, stk);
   }
