@@ -23,6 +23,7 @@ Future<T> _serializePersonalMutation<T>(Future<T> Function() action) {
 /// فقط صفحه‌ی اول برای سازگاری رابط‌های قدیمی؛ آرشیو کامل اینجا نگهداری نمی‌شود.
 List<String> personalFolderCache = <String>[];
 int personalFolderCount = 0;
+int personalFolderRevision = 0;
 
 /// آخرین سروری که با موفقیت وصل شد.
 String personalLastGood = '';
@@ -32,6 +33,7 @@ Future<void> _refreshPersonalFolderView() async {
   final page = await PersonalFolderStore.readPage(limit: 50);
   personalFolderCount = page.totalCount;
   personalFolderCache = List<String>.of(page.items);
+  personalFolderRevision++;
 }
 
 /// مهاجرت legacy فقط یک بار انجام می‌شود؛ پس از آن بارگذاری فقط count و یک صفحه است.
