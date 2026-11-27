@@ -2826,5 +2826,15 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('if (vpnActive() || vpnWanted()) return true;', worker)
         self.assertIn('requiresBatteryNotLow: true', worker)
 
+    def test_foreground_scanner_slice_schedules_resume_without_blocking_vpn_start(self):
+        scanner = (ROOT / 'lib' / 'king_national_scanner.dart').read_text(encoding='utf-8')
+        background = (ROOT / 'lib' / 'king_ai_background.dart').read_text(encoding='utf-8')
+        caller = (ROOT / 'lib' / 'iran_ai_extras.dart').read_text(encoding='utf-8')
+        self.assertIn('scheduleNationalScannerContinuation()', scanner)
+        self.assertIn('static Future<void> scheduleNationalScannerContinuation()', background)
+        self.assertIn('return false;', background[background.index('Future<bool> _runKingNationalScannerBackgroundTask'):background.index('class KingAiBackgroundSupervisor')])
+        self.assertIn('!report.completed && !report.sliceYielded', caller)
+        self.assertIn('ادامهٔ موجودی با حافظهٔ پایدار در پس‌زمینه', caller)
+
 if __name__ == '__main__':
     unittest.main()
