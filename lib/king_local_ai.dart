@@ -1888,7 +1888,6 @@ was tested unless supplied evidence proves it. Keep the answer concise and usefu
     final repoPath = '${Uri.encodeComponent(owner)}/${Uri.encodeComponent(repository)}';
     final baseRef = await _github('GET', '/repos/$repoPath/git/ref/heads/main');
     final baseCommitSha = (baseRef['object'] as Map)['sha'] as String;
-    if (!RegExp(r'^[a-fA-F0-9]{40}
     if (!RegExp(r'^[a-fA-F0-9]{40}$').hasMatch(baseCommitSha)) {
       throw StateError('Could not pin the owner feature request to a valid main commit.');
     }
