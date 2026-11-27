@@ -12472,6 +12472,7 @@ ListTile( // KINGEXTRAS row
                                               onTap: server == null
                                                   ? null
                                                   : () {
+                                                      server.personal = true;
                                                       Navigator.pop(ctx);
                                                       unawaited(pickEngineThenStart(
                                                         () => _personalAdThen(
