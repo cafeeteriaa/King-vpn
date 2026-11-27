@@ -192,6 +192,7 @@ Increment the revision number by exactly one for each substantial edit set. Reco
 - Each model pass retains a bounded context (up to six existing files / 7,500 characters) and may change up to three files; completed outputs are passed forward when later stages touch the same file.
 - Added stale-input conflict detection, source-path validation, per-stage and aggregate budgets, and an atomic bundle capped at 18 changed files / 180,000 content characters.
 - All stages are combined into one Git tree/commit and one Draft PR. If a stage fails or the aggregate is invalid, no partial PR is created.
+- Pinned every stage to one captured main commit SHA and aborts PR creation if main advances before the final commit, preventing mixed snapshots and stale overwrites.
 - Preserved the narrower background-autonomous audit policy (at most two files, no merge/release); only explicit owner-authenticated feature requests use the larger staged pipeline.
 - Added pipeline unit tests and source guards. The new pipeline and its tests are protected from local-model self-modification.
 - Review pass 1: architecture and dependency ordering; verify the single-PR commit model and preservation of owner authentication.
