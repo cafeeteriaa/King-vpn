@@ -19,7 +19,6 @@ class FreshResourceStore {
   static const String _legacyFileName = 'configs.txt';
   static const String _metadataFileName = 'metadata.json';
   static const String _dirtyFileName = '.inventory_dirty';
-  static final Map<String, Future<void>> _queues = <String, Future<void>>{};
   static final Map<String, Future<void>> _mergeQueues = <String, Future<void>>{};
 
   static Future<Directory> directory() async {
@@ -65,12 +64,6 @@ class FreshResourceStore {
   static Future<File> _shardFile(Directory dir, String shard) async =>
       File('${dir.path}/$shard.jsonl');
 
-  static Future<void> _enqueue(String path, Future<void> Function() action) {
-    final previous = _queues[path] ?? Future<void>.value();
-    final task = previous.then((_) => action());
-    _queues[path] = task.then<void>((_) {}, onError: (Object _) {});
-    return task;
-  }
 
   static Future<Map<String, Object?>> _readMetadata(Directory dir) async {
     final file = File('${dir.path}/$_metadataFileName');
@@ -137,6 +130,7 @@ class FreshResourceStore {
   /// Compatibility API. Prefer readPreview/streamLinks for large inventories.
   static Future<List<String>> readLinks({int limit = maxEntries}) async {
     final result = <String>[];
+    if (limit <= 0) return result;
     await for (final link in streamLinks()) {
       result.add(link);
       if (result.length >= limit) break;
@@ -161,8 +155,7 @@ class FreshResourceStore {
     return total;
   }
 
-  static Future<int> _appendBatch(Directory dir, List<String> links,
-      {String source = 'online'}) async {
+  static Future<int> _appendBatch(Directory dir, List<String> links) async {
     final grouped = <String, Map<String, String>>{};
     for (final link in links) {
       final id = _id(link);
@@ -232,8 +225,8 @@ class FreshResourceStore {
       if (remaining <= 0) break;
       if (batch.length > remaining) batch = batch.take(remaining).toList();
       await File('${dir.path}/$_dirtyFileName').writeAsString('1', flush: true);
-      final added = await _appendBatch(dir, batch, source: source);
-      total = (total + added).clamp(0, maxEntries);
+      final added = await _appendBatch(dir, batch);
+      total = (total + added).clamp(0, maxEntries).toInt();
       batch = <String>[];
       await _writeMetadata(dir, total, source: source);
       final dirty = File('${dir.path}/$_dirtyFileName');
