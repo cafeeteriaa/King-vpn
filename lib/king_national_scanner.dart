@@ -841,7 +841,7 @@ class KingNationalScannerEngine {
   }) async {
     final clock = Stopwatch()..start();
     final modeSnapshot = nationalMode;
-    const totalBudget = Duration(seconds: 110);
+    const totalBudget = Duration(minutes: 5);
     bool expired() => clock.elapsed >= totalBudget;
     bool stopped() => cancelled() || nationalMode != modeSnapshot || expired();
     final warnings = <String>[];
@@ -907,7 +907,6 @@ class KingNationalScannerEngine {
         ...knownServers, ...natTemplateSeeds,
       ]) {
         unique.putIfAbsent(server.key, () => server);
-        if (unique.length >= 1200) break;
       }
       var seeds = unique.values.toList(growable: false);
       if (seeds.length < 8 && !stopped()) {
@@ -922,7 +921,7 @@ class KingNationalScannerEngine {
           warnings.add('local_config_cache_unavailable');
         }
       }
-      if (seeds.isNotEmpty) natTemplateSeeds = seeds.take(2).toList();
+      if (seeds.isNotEmpty) natTemplateSeeds = List<Server>.of(seeds);
 
       status(KingNatScanPhase.dns, 'اسکنر: بررسی DNS متناسب با شبکه...');
       if (!stopped()) {
@@ -933,10 +932,10 @@ class KingNationalScannerEngine {
           await dnsxAutoPick(
             force: true,
             coordinatorOwned: true,
-            stop: () => stopped() || dnsClock.elapsed >= const Duration(seconds: 24),
+            stop: stopped,
           );
           dnsCount = dnsxBestCache.length;
-          if (dnsClock.elapsed >= const Duration(seconds: 24)) warnings.add('dns_phase_budget_reached');
+          if (dnsClock.elapsed >= const Duration(seconds: 60)) warnings.add('dns_phase_extended_over_60s');
         }
       }
 
@@ -944,13 +943,13 @@ class KingNationalScannerEngine {
       if (!stopped() && seeds.isNotEmpty && kNatIpScanOn) {
         final phaseClock = Stopwatch()..start();
         final found = await _natDomainFirst(
-          seeds, conc: 2,
-          stop: () => stopped() || phaseClock.elapsed >= const Duration(seconds: 18),
+          seeds, conc: max(2, natAdaptiveWorkers()),
+          stop: () => stopped() || phaseClock.elapsed >= const Duration(seconds: 90),
         );
         if (!stopped() && found.isNotEmpty) {
           domainHits = found.length;
           await addDiscovered(found);
-        } else if (phaseClock.elapsed >= const Duration(seconds: 18)) {
+        } else if (phaseClock.elapsed >= const Duration(seconds: 90)) {
           warnings.add('domain_phase_budget_reached');
         }
       }
@@ -958,9 +957,10 @@ class KingNationalScannerEngine {
       status(KingNatScanPhase.ip, 'اسکنر: بررسی IP و پورت‌های مجاز...');
       if (!stopped() && kNatIpScanOn && !ipAutoBusy && !_natRangeScanBusy) {
         final found = await natRangeScanStep(
-          known: seeds.take(1200).toList(),
-          maxAddrs: 96, conc: min(4, max(1, natAdaptiveWorkers())).toInt(),
-          stop: stopped, budget: const Duration(seconds: 28), coordinatorOwned: true,
+          known: seeds,
+          maxAddrs: max(256, natAdaptiveWorkers() * 512),
+          conc: max(1, natAdaptiveWorkers()),
+          stop: stopped, budget: const Duration(minutes: 2), coordinatorOwned: true,
         );
         if (!stopped() && found.isNotEmpty) {
           ipHits = found.length;
@@ -978,9 +978,8 @@ class KingNationalScannerEngine {
           ...seeds.where((s) => s.cdn && !s.reality && _natIsSecure(s)),
         ];
         final seenTargets = <String>{};
-        var tested = 0;
         for (final server in targets) {
-          if (stopped() || tested >= 2) break;
+          if (stopped()) break;
           if (!seenTargets.add(server.key)) continue;
           String? ip;
           if (server.isIp) {
@@ -997,10 +996,9 @@ class KingNationalScannerEngine {
             }
           }
           if (ip == null) continue;
-          tested++;
           final candidates = natFrontSnis.asMap().entries.where(
             (entry) => InternetAddress.tryParse(entry.value) == null,
-          ).take(3);
+          );
           for (final candidate in candidates) {
             if (stopped()) break;
             final alpn = await _probeSniAlpn(ip, server.port, candidate.value);
@@ -1018,10 +1016,10 @@ class KingNationalScannerEngine {
 
       status(KingNatScanPhase.config, 'اسکنر: اعتبارسنجی ساختار کانفیگ‌ها...');
       if (!stopped()) {
-        for (final server in seeds.take(12)) {
+        for (final server in seeds) {
           if (stopped()) break;
           if (coreUnsupportedReason(server.link) != null) continue;
-          for (final code in planVariants(server, full: false).take(4)) {
+          for (final code in planVariants(server, full: true)) {
             if (stopped()) break;
             try {
               final variant = code % _natCodeBase;
