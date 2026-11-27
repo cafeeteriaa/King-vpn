@@ -198,8 +198,13 @@ class KingNationalScannerEngine {
     _persistDirty = false;
     _loadFlight = null;
     _persistFlight = null;
-    final file = await _strategyStoreFile();
-    if (await file.exists()) await file.delete();
+    // Unit tests may run without a platform path-provider binding. Resetting
+    // in-memory learning must still work in that environment; production disk
+    // persistence remains covered by the normal loader/writer path.
+    try {
+      final file = await _strategyStoreFile();
+      if (await file.exists()) await file.delete();
+    } catch (_) {}
   }
 
   static Future<void> _loadFromPreferences() async {
