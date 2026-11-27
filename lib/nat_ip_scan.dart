@@ -151,13 +151,13 @@ Future<List<NatIpHit>> natScanIps(
   int port = 443,
   int concurrency = 16,
   int? want,
-  Duration? budget = const Duration(seconds: 90),
+  Duration? budget,
   Duration timeout = const Duration(milliseconds: 1500),
   bool Function()? cancelled,
   void Function(int done, int total, int hits)? onProgress,
   bool randomize = false,
 }) async {
-  if (ips.isEmpty || want <= 0) return <NatIpHit>[];
+  if (ips.isEmpty || (want != null && want <= 0)) return <NatIpHit>[];
 
   if ((budget != null && budget <= Duration.zero) ||
       timeout <= Duration.zero || port < 1 || port > 65535) {
