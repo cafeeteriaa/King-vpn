@@ -66,6 +66,13 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn("if (primaryIsValid)", replacement)
         self.assertLess(replacement.index("if (primaryIsValid)"), replacement.index("await target.delete()"))
 
+    def test_personal_folder_store_has_testable_lossless_jsonl_codec(self):
+        store = (ROOT / "lib" / "personal_folder_store.dart").read_text(encoding="utf-8")
+        self.assertIn("static String encodeSnapshot(Iterable<String> links)", store)
+        self.assertIn("static List<String>? decodeSnapshot(String contents)", store)
+        self.assertIn("return null;", store)
+        self.assertIn("PersonalFolderStore.decodeSnapshot", store)
+
     def test_auto_scan_sheet_forwards_live_vpn_guards(self):
         source = (ROOT / 'lib' / 'auto_scanners.dart').read_text(encoding='utf-8')
         start = source.index('Future<void> autoScanSheet(')
