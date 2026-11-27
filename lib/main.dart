@@ -9750,7 +9750,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   Future<void> _refreshFreshResourceSnapshotIfDue() async {
     // Do not race live connection/scanner work or probe through a VPN tunnel.
     if (!mounted || offlineOnly || connected || busy || searching || switching ||
-        upBusy || nationalMode || warm != null || _freshResourceRefreshBusy) return;
+        upBusy || localPilotOn || warm != null || KingNationalScannerEngine.isScanning ||
+        _freshResourceRefreshBusy) return;
     final retryAfter = _freshResourceRefreshRetryAfter;
     if (retryAfter != null && DateTime.now().isBefore(retryAfter)) return;
     _freshResourceRefreshBusy = true;
