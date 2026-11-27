@@ -2,7 +2,9 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:http/http.dart' as http;
-import 'package:shared_preferences/shared_preferences.dart';
+import 'dart:io';
+
+import 'package:path_provider/path_provider.dart';
 
 /// Runtime discovery of additional public Xray/V2Ray subscription feeds.
 ///
@@ -25,7 +27,7 @@ class KingDynamicSourceDiscovery {
   static bool isCandidatePath(String path, {int? size}) {
     final p = path.toLowerCase();
     if (size != null && (size <= 0 || size > _maxFileBytes)) return false;
-    if (p.startsWith('.') || p.contains('/.github/') || p.contains('/docs/')) {
+    if (p.startsWith('.') || RegExp(r'(^|/)(\.github|docs)(/|$)').hasMatch(p)) {
       return false;
     }
     if (RegExp(r'(^|/)(readme|license|changelog|contributing)(\.|$)').hasMatch(p)) {
@@ -53,23 +55,34 @@ class KingDynamicSourceDiscovery {
     return uri.toString();
   }
 
+  static Future<File> _cacheFile() async {
+    final dir = await getApplicationSupportDirectory();
+    if (!await dir.exists()) await dir.create(recursive: true);
+    return File('${dir.path}/king_dynamic_sources_v2.json');
+  }
+
+  static Future<Map<String, dynamic>> _readCache() async {
+    try {
+      final file = await _cacheFile();
+      if (!await file.exists()) return <String, dynamic>{};
+      final decoded = jsonDecode(await file.readAsString());
+      return decoded is Map<String, dynamic> ? decoded : <String, dynamic>{};
+    } catch (_) {
+      return <String, dynamic>{};
+    }
+  }
+
   /// Returns cached feeds immediately; callers can schedule refresh separately.
   static Future<List<String>> cachedFeeds() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final raw = prefs.getString(_cacheKey);
-      if (raw == null) return const <String>[];
-      final decoded = jsonDecode(raw);
-      if (decoded is! List) return const <String>[];
-      return decoded
-          .whereType<String>()
-          .map(normalizeFeedUrl)
-          .whereType<String>()
-          .toSet()
-          .toList(growable: false);
-    } catch (_) {
-      return const <String>[];
-    }
+    final decoded = await _readCache();
+    final feeds = decoded['feeds'];
+    if (feeds is! List) return const <String>[];
+    return feeds
+        .whereType<String>()
+        .map(normalizeFeedUrl)
+        .whereType<String>()
+        .toSet()
+        .toList(growable: false);
   }
 
   static Future<void> refresh({bool Function()? shouldStop}) async {
@@ -77,8 +90,8 @@ class KingDynamicSourceDiscovery {
     _refreshing = true;
     final client = http.Client();
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final last = prefs.getInt(_updatedKey) ?? 0;
+      final oldCache = await _readCache();
+      final last = oldCache['updatedAt'] is num ? (oldCache['updatedAt'] as num).toInt() : 0;
       final now = DateTime.now().millisecondsSinceEpoch;
       if (now - last < _ttl.inMilliseconds) return;
 
@@ -163,9 +176,14 @@ class KingDynamicSourceDiscovery {
       if (found.isNotEmpty) {
         final previous = await cachedFeeds();
         final merged = <String>{...found, ...previous}.take(_maxFiles).toList();
-        await prefs.setString(_cacheKey, jsonEncode(merged));
+        final file = await _cacheFile();
+        final temp = File('${file.path}.tmp');
+        await temp.writeAsString(
+          jsonEncode(<String, dynamic>{'updatedAt': now, 'feeds': merged}),
+          flush: true,
+        );
+        await temp.rename(file.path);
       }
-      await prefs.setInt(_updatedKey, now);
     } catch (_) {
       // Preserve the last known-good source inventory on all discovery errors.
     } finally {
