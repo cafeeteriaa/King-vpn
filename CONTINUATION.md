@@ -125,4 +125,5 @@
 - The autonomous background audit remains limited to at most two changed files and still cannot merge or release.
 - Added test/king_ai_change_pipeline_test.dart and source guards for aggregation, conflict detection, limits and the autonomous safety boundary.
 - Three source review passes are recorded in KING_REVISION.md. Exact-head CI, Flutter tests, Dart analysis, Android build and device validation are still pending until the PR workflow completes.
+- First exact-head workflow 45973769538 stopped in the inherited PersonalFolderStore source guard before Flutter setup. The codec call was made explicit without behavior change; rerun is pending.
 - Limitation: the local model still reads only existing files in lib/, test/ and tools/. It cannot create new files or change Android Native, Gradle, dependencies, CI, signing or security policy through this automated owner path.
