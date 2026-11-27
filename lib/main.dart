@@ -12101,6 +12101,15 @@ ListTile( // KINGEXTRAS row
   final ValueNotifier<List<_PRow>> _personalRows = ValueNotifier<List<_PRow>>(<_PRow>[]);
   int _personalTotalInFolder = 0;
   bool _personalPrepDone = false;
+  // Bounded preferred candidates; all other profiles remain eligible through
+  // the disk-backed sequential real-core fallback.
+  static const int _personalPreferredWindow = 32;
+  StreamIterator<List<String>>? _personalFallbackIterator;
+  List<String> _personalFallbackBatch = <String>[];
+  int _personalFallbackBatchIndex = 0;
+  int _personalFallbackOrdinal = 0;
+  bool _personalFallbackBusy = false;
+  Set<String> _personalPreferredLinks = <String>{};
 
   /// جستجوی پس‌زمینه را هنگام نمایش تبلیغ متوقف می‌کند (اتصال آنلاین/آفلاین را خراب نمی‌کند)
   Future<void> _haltBgForAd() async {
@@ -12173,98 +12182,118 @@ ListTile( // KINGEXTRAS row
     if (busy || searching || _natKeepOn || _natRangeScanBusy) {
       await _haltAll(max: const Duration(seconds: 10));
     }
-    // A single personal profile is part of the same durable archive.
-    if (personal != null && !personalFolderCache.contains(personal!.link.trim())) {
+    await _personalFallbackIterator?.cancel();
+    _personalFallbackIterator = null;
+    _personalFallbackBatch = <String>[];
+    _personalFallbackBatchIndex = 0;
+    _personalFallbackOrdinal = 0;
+    _personalFallbackBusy = false;
+    _personalPreferredLinks = <String>{};
+    _personalHardFail = false;
+
+    if (personal != null &&
+        !personalFolderCache.any((entry) => entry.trim() == personal!.link.trim())) {
       await addToPersonalFolder([personal!.link]);
     }
 
     final folderCount = await PersonalFolderStore.count();
     _personalTotalInFolder = folderCount;
-    final order = <Server>[];
-    _personalShown = order;
-    final okMap = <String, int>{};
-    final seen = <String>{};
+    final firstPage = <Server>[];
+    final preferred = <Server>[];
+    final preferredPing = <String, int>{};
     final rows = <_PRow>[];
     _personalRows.value = <_PRow>[];
+    _personalShown = <Server>[];
     final lastGood = personalLastGood;
-    var rowOffset = 0;
-    var scanned = 0;
+    var parsedCount = 0;
+    var scannedCount = 0;
 
-    // Parse and ping the durable archive in bounded batches. This avoids
-    // building a second full List<Server> and ping-result map before work starts.
+    int comparePreferred(Server x, Server y) {
+      final latency = preferredPing[x.link]!.compareTo(preferredPing[y.link]!);
+      if (latency != 0) return latency;
+      if (x.link == lastGood) return -1;
+      if (y.link == lastGood) return 1;
+      return x.link.compareTo(y.link);
+    }
+
+    // The entire archive is pinged in bounded batches. Only the first UI page
+    // and the best 32 ping candidates are retained in memory.
     await for (final links in PersonalFolderStore.streamBatches(
       batchSize: 64,
       shouldAbort: () => !mounted,
     )) {
       final batch = <Server>[];
       for (final link in links) {
-        if (!seen.add(link.trim().toLowerCase())) continue;
         final server = Server.parse(link);
         if (server == null) continue;
         server.personal = true;
         batch.add(server);
-        order.add(server);
-        rows.add(_PRow(server)..ping = -2);
+        parsedCount++;
+        if (firstPage.length < 50) {
+          firstPage.add(server);
+          rows.add(_PRow(server)..ping = -2);
+        }
       }
+      scannedCount += links.length;
       if (batch.isEmpty) continue;
+
+      _personalShown = List<Server>.of(firstPage);
       _personalRows.value = List<_PRow>.of(rows);
-      final batchOffset = rowOffset;
-      rowOffset += batch.length;
-      scanned += links.length;
-      final batchResults = await _personalPingAll(
+      final batchOffset = parsedCount - batch.length;
+      final results = await _personalPingAll(
         batch,
         rowOffset: batchOffset,
         totalCount: folderCount,
       );
-      okMap.addAll(batchResults);
-      // Publish progress only after the complete batch has returned.
-      dbg('PERSFOLDER batch=$scanned/$folderCount • healthy=${okMap.length}');
+      for (final server in batch) {
+        final latency = results[server.link];
+        if (latency == null) continue;
+        preferred.add(server);
+        preferredPing[server.link] = latency;
+      }
+      preferred.sort(comparePreferred);
+      if (preferred.length > _personalPreferredWindow) {
+        for (final server in preferred.skip(_personalPreferredWindow)) {
+          preferredPing.remove(server.link);
+        }
+        preferred.removeRange(_personalPreferredWindow, preferred.length);
+      }
+      dbg('PERSFOLDER batch=$scannedCount/$folderCount • parsed=$parsedCount • preferred=${preferred.length}');
     }
 
-    if (lastGood.isNotEmpty) {
-      final i = order.indexWhere((server) => server.link == lastGood);
-      if (i > 0) order.insert(0, order.removeAt(i));
-    }
-    final ranked = <Server>[
-      for (final server in order)
-        if (okMap.containsKey(server.link)) server,
-    ];
-    ranked.sort((a, b) {
-      final latency = okMap[a.link]!.compareTo(okMap[b.link]!);
-      if (latency != 0) return latency;
-      return (a.link == lastGood ? 0 : 1)
-          .compareTo(b.link == lastGood ? 0 : 1);
-    });
-    // Preserve the established real-core fallback when all preliminary
-    // pings fail: every stored profile remains eligible for sequential connect.
-    _personalRanked = ranked.isEmpty && order.isNotEmpty ? order : ranked;
-    if (ranked.isEmpty && order.isNotEmpty) {
-      _set('پینگ مستقیم جواب نداد؛ سرورها یکی‌یکی با اتصال واقعی امتحان می‌شوند');
+    _personalRanked = List<Server>.of(preferred);
+    _personalPreferredLinks = preferred.map((server) => server.link).toSet();
+    // A second streaming pass supplies every non-preferred profile to the
+    // real-core fallback; no archive entry is dropped by the bounded window.
+    _personalFallbackIterator = StreamIterator<List<String>>(
+      PersonalFolderStore.streamBatches(
+        batchSize: 64,
+        shouldAbort: () => !mounted,
+      ),
+    );
+    if (_personalRanked.isEmpty && folderCount > 0) {
+      _set('پینگ اولیه سرور سالمی پیدا نکرد؛ تمام آرشیو با هسته واقعی بررسی می‌شود');
     }
     _personalPrepDone = true;
-    dbg('PERSFOLDER archive=$folderCount • parsed=${order.length} • pinged in batches');
+    dbg('PERSFOLDER archive=$folderCount • parsed=$parsedCount • preferred=${_personalRanked.length} • exhaustive fallback ready');
     unawaited(_persistScreenLists());
     if (mounted) setState(() {});
   }
 
   /// سرور شخصی و پوشه: نتیجه‌ی پینگ آماده را می‌گیرد و به بهترینِ آن وصل می‌شود
   Future<void> personalFolderConnect() async {
-    _resetTapCounters(); // تپ کاربر روی پوشه‌ی شخصی (از ماژول تبلیغ هم می‌آید)
+    _resetTapCounters();
     final prep = _personalPrep ?? _personalPrepWork();
-    // PERSLIVE: اول لیست تا ۵۰ سرور روی صفحه می‌آید، بعد پینگ‌ها زنده پر می‌شوند، بعد وصل می‌شود
     _set('اتصال به سرورهای شخصی...');
     await prep;
     _personalPrep = null;
-    // V5: نتیجه‌ی پینگ پیش‌گرم (که هنگام تبلیغ اجرا شده) گاهی خالی است؛ یک بار دوباره پینگ می‌گیریم
-    if (_personalRanked.isEmpty && personalFolderCache.isNotEmpty) {
-      _set('دوباره پینگ سرورهای شخصی...');
-      await _personalPrepWork();
-    }
-    if (_personalRanked.isEmpty) {
-      _set('هیچ سرور شخصی جواب نداد؛ سرور شخصی یا پوشه را بررسی کن');
+    if (_personalTotalInFolder == 0) {
+      _set('پوشه سرورهای شخصی خالی است');
       return;
     }
-    _set('اتصال به سرور شخصی: ${_personalRanked.first.name}...');
+    _set(_personalRanked.isEmpty
+        ? 'بررسی ترتیبی تمام آرشیو با هسته واقعی...'
+        : 'اتصال به سرور شخصی: ${_personalRanked.first.name}...');
     await _personalConnectAt(0);
   }
 
@@ -12360,16 +12389,61 @@ ListTile( // KINGEXTRAS row
   }
 
   Future<void> _personalConnectAt(int i) async {
-    if (i >= _personalRanked.length) {
-      _set('هیچ سرور شخصی وصل نشد');
+    if (i < _personalRanked.length) {
+      _personalIdx = i;
+      final ok = await _connectPersonalFast(_personalRanked[i]);
+      if (ok) {
+        _personalWatchOn();
+      } else if (!_personalHardFail && !abort && wantVpn) {
+        await _personalConnectAt(i + 1);
+      }
       return;
     }
-    _personalIdx = i;
-    final ok = await _connectPersonalFast(_personalRanked[i]);
-    if (ok) {
-      _personalWatchOn();
-    } else if (!_personalHardFail && !abort && wantVpn) {
-      await _personalConnectAt(i + 1);
+    await _personalConnectFallback();
+  }
+
+  /// Exhaustive disk-backed fallback. Profiles outside the bounded preferred
+  /// window are each attempted sequentially with the actual VPN core.
+  Future<void> _personalConnectFallback() async {
+    if (_personalFallbackBusy || _personalHardFail || !mounted) return;
+    _personalFallbackBusy = true;
+    wantVpn = true;
+    abort = false;
+    try {
+      final iterator = _personalFallbackIterator ??= StreamIterator<List<String>>(
+        PersonalFolderStore.streamBatches(
+          batchSize: 64,
+          shouldAbort: () => !mounted,
+        ),
+      );
+      while (mounted && !_personalHardFail && !abort && wantVpn) {
+        if (_personalFallbackBatchIndex >= _personalFallbackBatch.length) {
+          if (!await iterator.moveNext()) break;
+          _personalFallbackBatch = iterator.current;
+          _personalFallbackBatchIndex = 0;
+          continue;
+        }
+        final link = _personalFallbackBatch[_personalFallbackBatchIndex++];
+        if (_personalPreferredLinks.contains(link)) continue;
+        final server = Server.parse(link);
+        if (server == null) continue;
+        server.personal = true;
+        _personalFallbackOrdinal++;
+        _personalIdx = _personalRanked.length + _personalFallbackOrdinal - 1;
+        _set('بررسی سرور شخصی ${_personalFallbackOrdinal} با هسته واقعی...');
+        final ok = await _connectPersonalFast(server);
+        if (ok) {
+          _personalWatchOn();
+          return;
+        }
+      }
+      if (mounted && !_personalHardFail && !abort) {
+        _set('تمام سرورهای شخصی آرشیو با هسته واقعی بررسی شدند؛ سرور سالمی پیدا نشد');
+      }
+      await iterator.cancel();
+      _personalFallbackIterator = null;
+    } finally {
+      _personalFallbackBusy = false;
     }
   }
 
