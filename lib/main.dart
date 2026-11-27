@@ -2603,7 +2603,7 @@ Future<void> _logVpnServiceDiagnostics() async {
         .invokeMapMethod<String, dynamic>('vpnService')
         .timeout(const Duration(seconds: 5));
     final version = info?['protocolVersion'];
-    if (info == null || (version != 1 && version != 2)) {
+    if (info == null || (version != 1 && version != 2 && version != 3)) {
       throw StateError('Native VPN diagnostics protocol mismatch: $version');
     }
     final fields = <String>[
@@ -2615,12 +2615,15 @@ Future<void> _logVpnServiceDiagnostics() async {
     final category = (info['lastErrorCategory'] ?? 'unknown').toString();
     final hasError = info['lastErrorPresent'] == true;
     dbg('NATIVE-VPN-DIAG: protocol=$version $summary lastErrorPresent=$hasError category=$category');
-    if (version == 2) {
+    if (version == 2 || version == 3) {
       const telemetryFields = <String>[
         'serviceUptimeMs', 'watchdogChecks', 'healthyProbes',
         'softProbeFailures', 'hardProbeFailures', 'failoverCount', 'retryCount',
         'currentFailureStreak', 'healthyStreak', 'lastProbeResult',
         'lastProbeMode', 'lastProbeDurationMs', 'lastProbeAgeMs',
+        'physicalNetworkProtocolVersion', 'physicalNetworkChangeCount',
+        'lastPhysicalNetworkChangeAgeMs', 'validatedWifiNetworkCount',
+        'validatedCellularNetworkCount', 'physicalNetworkTransportSummary',
       ];
       final telemetry = telemetryFields
           .map((key) => '$key=${info[key] ?? "unknown"}')

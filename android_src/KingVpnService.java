@@ -8,6 +8,10 @@ import android.app.Service;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.net.VpnService;
+import android.net.ConnectivityManager;
+import android.net.Network;
+import android.net.NetworkCapabilities;
+import android.net.NetworkRequest;
 import android.os.Build;
 import android.os.ParcelFileDescriptor;
 import android.os.SystemClock;
@@ -25,6 +29,7 @@ import java.net.SocketTimeoutException;
 import java.net.URL;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Collections;
 import java.util.Comparator;
@@ -199,6 +204,18 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
     private static final long STOP_CORE_WAIT_MS = 3000L;
     /** Guards the TUN handle only. Never acquire `lock` while holding this. */
     private final Object tunLock = new Object();
+
+    // Validated physical underlays only; never export SSID, carrier or network IDs.
+    private final Object physicalNetworkLock = new Object();
+    private final Map<Network, Integer> validatedPhysicalNetworks = new LinkedHashMap<>();
+    private volatile ConnectivityManager connectivityManager;
+    private volatile ConnectivityManager.NetworkCallback physicalNetworkCallback;
+    private volatile boolean physicalNetworkMonitorClosed = false;
+    private final AtomicLong physicalNetworkChangeCount = new AtomicLong(0);
+    private volatile long lastPhysicalNetworkChangeElapsedMs = 0L;
+    private volatile int validatedWifiNetworkCount = 0;
+    private volatile int validatedCellularNetworkCount = 0;
+    private volatile String physicalNetworkTransportSummary = "unknown";
     /** Single worker: all start/stop/resume work runs here, never on the main thread. */
     private volatile ExecutorService worker = null;
     /** Serializes worker submission with onDestroy() detaching and shutting it down. */
@@ -221,7 +238,7 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
         synchronized (lock) {
         final long now = SystemClock.elapsedRealtime();
         Map<String, Object> snapshot = new HashMap<String, Object>();
-        snapshot.put("protocolVersion", 2);
+        snapshot.put("protocolVersion", 3);
         snapshot.put("serviceRunning", true);
         snapshot.put("active", active);
         snapshot.put("stopping", stopping);
@@ -259,6 +276,12 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
         snapshot.put("lastProbeMode", lastProbeMode);
         snapshot.put("lastProbeDurationMs", lastProbeDurationMs);
         snapshot.put("lastProbeAgeMs", lastProbeElapsedMs > 0L ? Math.max(0L, now - lastProbeElapsedMs) : -1L);
+        snapshot.put("physicalNetworkProtocolVersion", 1);
+        snapshot.put("physicalNetworkChangeCount", physicalNetworkChangeCount.get());
+        snapshot.put("lastPhysicalNetworkChangeAgeMs", lastPhysicalNetworkChangeElapsedMs > 0L ? Math.max(0L, now - lastPhysicalNetworkChangeElapsedMs) : -1L);
+        snapshot.put("validatedWifiNetworkCount", validatedWifiNetworkCount);
+        snapshot.put("validatedCellularNetworkCount", validatedCellularNetworkCount);
+        snapshot.put("physicalNetworkTransportSummary", physicalNetworkTransportSummary);
         return snapshot;
         }
     }
@@ -313,6 +336,7 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
         serviceStartedElapsedMs = SystemClock.elapsedRealtime();
         instance = this; // جدید
         wireCoreOnce(); // جدید: was setUpListener() on every start
+        registerPhysicalNetworkMonitor();
     }
 
     @Override
@@ -492,6 +516,7 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
                 fails = 0;
                 healthyStreak = 0;
                 active = true;
+                applyValidatedUnderlyingNetworks();
                 startForegroundSafe(s.remark);
                 cancelPluginNotification(); // جدید
                 return true;
@@ -1297,7 +1322,131 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
             }
         }
         if (fallbackStop) runFallback(this::stopEverything);
+        unregisterPhysicalNetworkMonitor();
         super.onDestroy();
+    }
+
+    private void registerPhysicalNetworkMonitor() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.LOLLIPOP) return;
+        physicalNetworkMonitorClosed = false;
+        try {
+            ConnectivityManager cm = (ConnectivityManager) getSystemService(CONNECTIVITY_SERVICE);
+            if (cm == null) return;
+            NetworkRequest request = new NetworkRequest.Builder()
+                    .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+                    .addCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
+                    .addTransportType(NetworkCapabilities.TRANSPORT_WIFI)
+                    .addTransportType(NetworkCapabilities.TRANSPORT_CELLULAR)
+                    .build();
+            ConnectivityManager.NetworkCallback callback = new ConnectivityManager.NetworkCallback() {
+                @Override public void onCapabilitiesChanged(Network network, NetworkCapabilities capabilities) {
+                    if (!physicalNetworkMonitorClosed) updatePhysicalNetwork(network, capabilities);
+                }
+                @Override public void onLost(Network network) {
+                    if (!physicalNetworkMonitorClosed) removePhysicalNetwork(network);
+                }
+            };
+            cm.registerNetworkCallback(request, callback);
+            connectivityManager = cm;
+            physicalNetworkCallback = callback;
+        } catch (Throwable t) {
+            Log.w(TAG, "physical network monitor unavailable", t);
+        }
+    }
+
+    private void unregisterPhysicalNetworkMonitor() {
+        physicalNetworkMonitorClosed = true;
+        ConnectivityManager cm = connectivityManager;
+        ConnectivityManager.NetworkCallback callback = physicalNetworkCallback;
+        connectivityManager = null;
+        physicalNetworkCallback = null;
+        if (cm != null && callback != null) {
+            try { cm.unregisterNetworkCallback(callback); } catch (Throwable ignored) { }
+        }
+        synchronized (physicalNetworkLock) {
+            validatedPhysicalNetworks.clear();
+            validatedWifiNetworkCount = 0;
+            validatedCellularNetworkCount = 0;
+            physicalNetworkTransportSummary = "unknown";
+        }
+    }
+
+    private void updatePhysicalNetwork(Network network, NetworkCapabilities capabilities) {
+        if (network == null || capabilities == null) return;
+        int transports = 0;
+        boolean internet = capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET);
+        boolean validated = Build.VERSION.SDK_INT < Build.VERSION_CODES.M
+                || capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED);
+        if (internet && validated) {
+            if (capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) transports |= 1;
+            if (capabilities.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)) transports |= 2;
+        }
+        boolean changed;
+        synchronized (physicalNetworkLock) {
+            Integer previous = validatedPhysicalNetworks.get(network);
+            if (transports == 0) changed = validatedPhysicalNetworks.remove(network) != null;
+            else {
+                changed = previous == null || previous != transports;
+                validatedPhysicalNetworks.put(network, transports);
+            }
+        }
+        if (changed) recordPhysicalNetworkChange();
+    }
+
+    private void removePhysicalNetwork(Network network) {
+        if (network == null) return;
+        boolean changed;
+        synchronized (physicalNetworkLock) {
+            changed = validatedPhysicalNetworks.remove(network) != null;
+        }
+        if (changed) recordPhysicalNetworkChange();
+    }
+
+    private void recordPhysicalNetworkChange() {
+        List<Network> wifiNetworks = new ArrayList<>();
+        List<Network> cellularNetworks = new ArrayList<>();
+        int wifi = 0, cellular = 0;
+        synchronized (physicalNetworkLock) {
+            for (Map.Entry<Network, Integer> entry : validatedPhysicalNetworks.entrySet()) {
+                int transports = entry.getValue();
+                if ((transports & 1) != 0) { wifi++; wifiNetworks.add(entry.getKey()); }
+                if ((transports & 2) != 0) { cellular++; cellularNetworks.add(entry.getKey()); }
+            }
+            validatedWifiNetworkCount = wifi;
+            validatedCellularNetworkCount = cellular;
+            physicalNetworkTransportSummary = wifi > 0 && cellular > 0 ? "wifi_cellular"
+                    : wifi > 0 ? "wifi" : cellular > 0 ? "cellular" : "none";
+        }
+        physicalNetworkChangeCount.incrementAndGet();
+        lastPhysicalNetworkChangeElapsedMs = SystemClock.elapsedRealtime();
+        if (active && Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP_MR1) {
+            applyUnderlyingNetworks(wifiNetworks, cellularNetworks);
+        }
+    }
+
+    private void applyValidatedUnderlyingNetworks() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.LOLLIPOP_MR1) return;
+        List<Network> wifiNetworks = new ArrayList<>(), cellularNetworks = new ArrayList<>();
+        synchronized (physicalNetworkLock) {
+            for (Map.Entry<Network, Integer> entry : validatedPhysicalNetworks.entrySet()) {
+                int transports = entry.getValue();
+                if ((transports & 1) != 0) wifiNetworks.add(entry.getKey());
+                if ((transports & 2) != 0) cellularNetworks.add(entry.getKey());
+            }
+        }
+        applyUnderlyingNetworks(wifiNetworks, cellularNetworks);
+    }
+
+    private void applyUnderlyingNetworks(List<Network> wifiNetworks, List<Network> cellularNetworks) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.LOLLIPOP_MR1 || stopping) return;
+        List<Network> ordered = new ArrayList<>(wifiNetworks.size() + cellularNetworks.size());
+        ordered.addAll(wifiNetworks);
+        ordered.addAll(cellularNetworks);
+        try {
+            setUnderlyingNetworks(ordered.isEmpty() ? null : ordered.toArray(new Network[0]));
+        } catch (Throwable t) {
+            Log.w(TAG, "could not publish VPN underlying networks", t);
+        }
     }
 
     private static String orEmpty(String s) {

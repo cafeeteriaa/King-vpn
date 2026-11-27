@@ -6,7 +6,7 @@
 
 ## نسخه و فیلدها
 
-نسخه فعلی قرارداد: `protocolVersion = 2` (Dart برای سازگاری، نسخهٔ ۱ را نیز می‌پذیرد).
+نسخه فعلی قرارداد: `protocolVersion = 3` (Dart نسخه‌های ۱ و ۲ را نیز برای سازگاری می‌پذیرد).
 
 فیلدهای عملیاتی:
 - وضعیت سرویس: `serviceRunning`, `active`, `stopping`, `retryWaiting`
@@ -43,4 +43,17 @@
 - `failoverCount` فقط پس از موفقیت اتصال به سرور جایگزین افزایش می‌یابد؛ `retryCount` تعداد زمان‌بندی retry پس از شکست فهرست را می‌شمارد. منطق تصمیم‌گیری، آستانه‌ها، ترتیب سرورها و رفتار VPN/Proxy تغییر نمی‌کنند.
 - snapshot در lock وضعیت سرویس جمع‌آوری می‌شود تا فیلدهای lifecycle و streak از یک تصویر سازگار خوانده شوند؛ شمارنده‌های تجمعی atomic هستند.
 
-Dart نسخه‌های ۱ و ۲ را می‌پذیرد. نسخهٔ ۱ فقط اطلاعات پایه را ثبت می‌کند؛ نسخهٔ ۲ علاوه بر آن، telemetry watchdog را به ژورنال تشخیصی اضافه می‌کند.
+Dart نسخه‌های ۱، ۲ و ۳ را می‌پذیرد. نسخهٔ ۱ اطلاعات پایه، نسخهٔ ۲ telemetry مربوط به watchdog و نسخهٔ ۳ اطلاعات مسیرهای فیزیکی زیرین را ثبت می‌کند.
+
+
+## پایش مسیرهای فیزیکی و جابه‌جایی Wi-Fi/Cellular — پروتکل ۳
+
+در نسخهٔ ۳، سرویس Android با `ConnectivityManager.NetworkCallback` فقط شبکه‌هایی را می‌بیند که هم `INTERNET` و هم `NOT_VPN` دارند و از نوع Wi-Fi یا Cellular هستند. این شرط مانع شمردن رابط مجازی VPN به‌عنوان مسیر زیرین می‌شود. در Androidهای دارای قابلیت اعتبارسنجی شبکه، فقط شبکه‌های `VALIDATED` در فهرست مسیرهای زیرین ثبت می‌شوند.
+
+- شبکه‌های Wi-Fi و Cellular معتبر جداگانه شمرده می‌شوند؛ نام اپراتور، SSID، آدرس IP، شناسهٔ Network و مقصدهای ترافیک ثبت یا صادر نمی‌شوند.
+- سرویس فهرست شبکه‌های فیزیکی معتبر را با Wi-Fi و سپس Cellular به `VpnService.setUnderlyingNetworks` معرفی می‌کند تا Android از تغییر مسیر زیرین مطلع بماند. این کار به‌تنهایی تضمین نمی‌کند که اتصال TCP هسته بدون وقفه باقی بماند؛ watchdog و health probe موجود همچنان مرجع سلامت تونل هستند.
+- `physicalNetworkChangeCount`، `lastPhysicalNetworkChangeAgeMs` و شمارنده‌های شبکه فقط telemetry هستند؛ تغییر شبکه به‌تنهایی باعث تعویض سرور یا ریست هسته نمی‌شود.
+- callback هنگام `onDestroy` آزاد می‌شود. خطای ثبت callback یا انتشار underlay نباید مانع راه‌اندازی یا خاموش‌شدن VPN شود.
+- فیلدهای جدید: `physicalNetworkProtocolVersion`, `physicalNetworkChangeCount`, `lastPhysicalNetworkChangeAgeMs`, `validatedWifiNetworkCount`, `validatedCellularNetworkCount`, `physicalNetworkTransportSummary`.
+
+Dart نسخه‌های ۱، ۲ و ۳ را می‌پذیرد. نسخهٔ ۳ فیلدهای underlay را به telemetry تشخیصی اضافه می‌کند؛ قرارداد v2 و v1 همچنان معتبرند.
