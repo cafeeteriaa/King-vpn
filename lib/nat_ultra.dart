@@ -2161,7 +2161,7 @@ List<String> _getCfIps({
     final d = int.tryParse(octets[3]);
     final prefix = int.tryParse(parts[1]);
     if (a == null || b == null || c == null || d == null || prefix == null) continue;
-    if (prefix < 8 || prefix > 32) continue;
+    if (prefix < 0 || prefix > 32) continue;
     final base = (a << 24) | (b << 16) | (c << 8) | d;
     final span = 1 << (32 - prefix);
     var cursor = curMap[cidr] ?? 0;
@@ -2327,6 +2327,16 @@ Future<List<String>> _natRangeScanStepBody({
     for (final server in seeds) if (server.isIp) server.host,
   }.toList(growable: false);
   final blocks = natSeedBlocks(hosts);
+  // A changed endpoint inventory starts a fresh traversal generation. This
+  // prevents a completed old pass from hiding newly discovered endpoints.
+  final inventoryTag = int.parse(
+      sha256.convert(utf8.encode(blocks.join('\\n'))).toString().substring(0, 12),
+      radix: 16);
+  if (_cfRangeCursors['__block_inventory_tag'] != inventoryTag) {
+    _cfRangeCursors.removeWhere((key, value) =>
+        key.startsWith('block:') || key.startsWith('__block_'));
+    _cfRangeCursors['__block_inventory_tag'] = inventoryTag;
+  }
   // Every call is one bounded memory batch. The coordinator repeats batches
   // until both configured ranges and exact known endpoints complete a full pass.
   final configuredBatch = modeSnapshot
