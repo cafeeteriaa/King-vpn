@@ -193,14 +193,14 @@ void main() {
     test('disk inventory survives reopen and ignores torn records', () async {
       final inventory = await KingDiskInventory.open(name: 'resume-test', root: root);
       await inventory.appendBatch([
-        <String, Object?>{'key': '198.51.100.7:8443', 'ip': '198.51.100.7', 'port': 8443},
+        <String, Object?>{'key': 'inventory-key-20', 'ip': '198.51.100.7', 'port': 8443},
       ]);
       final shard = (await root.list(recursive: true).where((e) => e is File).first) as File;
       await shard.writeAsString('{"version":1,"id":', mode: FileMode.append);
       final reopened = await KingDiskInventory.open(name: 'resume-test', root: root);
       expect(await reopened.records().length, 1);
       expect(await reopened.appendBatch([
-        <String, Object?>{'key': '203.0.113.8:443', 'ip': '203.0.113.8', 'port': 443},
+        <String, Object?>{'key': 'inventory-key-23', 'ip': '203.0.113.8', 'port': 443},
       ]), 1);
       expect(await reopened.records().length, 2);
     });
