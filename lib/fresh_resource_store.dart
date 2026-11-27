@@ -193,8 +193,12 @@ class FreshResourceStore {
             final row = jsonDecode(line);
             if (row is! Map || row['v'] != 1 ||
                 row['id'] is! String || row['link'] is! String) continue;
+            final id = row['id'] as String;
+            final shard = file.uri.pathSegments.last.substring(0, 2);
             final link = normalizeLink(row['link'] as String);
-            if (link != null && _id(link) == row['id']) yield link;
+            if (link != null && _id(link) == id && _shard(id) == shard) {
+              yield link;
+            }
           } catch (_) {
             // A damaged record is skipped; subsequent valid records remain readable.
           }
