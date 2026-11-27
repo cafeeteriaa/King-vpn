@@ -2766,7 +2766,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
     def test_dynamic_strategy_growth_has_no_global_variant_ceiling(self):
         source = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
         start = source.index('int natGrow(int n)')
-        end = source.index('bool natIsRetired(', start)
+        end = source.index('List<String>? _natNamesC;', start)
         growth = source[start:end]
         self.assertNotIn('_natSpecs.length > 500000', growth)
         self.assertIn('for (var i = 0; i < n; i++)', growth)
