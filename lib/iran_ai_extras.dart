@@ -1031,8 +1031,9 @@ extension HomeExtras on _HomePageState {
         _set('اسکنر متوقف شد یا امکان ادامه نداشت؛ نتیجه ناقص به‌عنوان تکمیل‌شده ثبت نشد');
         return false;
       }
-      if (report.sliceYielded) {
-        _set('این نوبت اسکن کامل شد؛ ادامهٔ موجودی با حافظهٔ پایدار در پس‌زمینه زمان‌بندی شد. اتصال ادامه می‌یابد.');
+      if (report.sliceYielded ||
+          report.warnings.contains('ip_inventory_cursor_preserved_for_next_slice')) {
+        _set('${report.summary}\nادامهٔ موجودی با حافظهٔ پایدار در پس‌زمینه زمان‌بندی شد؛ اتصال ادامه می‌یابد.');
       } else {
         _set(report.summary);
       }
