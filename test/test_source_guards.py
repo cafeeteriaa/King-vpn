@@ -2469,6 +2469,17 @@ class KingVpnSourceGuardTests(unittest.TestCase):
 
 
 
+    def test_smart_scanner_exhausts_all_durable_range_batches(self):
+        source = (ROOT / 'lib' / 'king_national_scanner.dart').read_text(encoding='utf-8')
+        start = source.index("status(KingNatScanPhase.ip, 'اسکنر: پیمایش پیوسته")
+        end = source.index("} else if (!kNatIpScanOn)", start)
+        body = source[start:end]
+        self.assertIn('await natRangeStartNextPass();', body)
+        self.assertIn('while (!stopped() && !natRangeInventoryPassComplete)', body)
+        self.assertIn('await natRangeScanStep(', body)
+        self.assertIn('ipHits += found.length;', body)
+        self.assertIn('await addDiscovered(found);', body)
+
     def test_strategy_history_has_unbounded_disk_backed_persistence(self):
         source = (ROOT / 'lib' / 'king_national_scanner.dart').read_text(encoding='utf-8')
         self.assertIn('getApplicationSupportDirectory()', source)
