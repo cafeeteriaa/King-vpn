@@ -9755,7 +9755,29 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     final retryAfter = _freshResourceRefreshRetryAfter;
     if (retryAfter != null && DateTime.now().isBefore(retryAfter)) return;
     _freshResourceRefreshBusy = true;
+    File? scannerLease;
+    var ownsScannerLease = false;
     try {
+      // Share the scanner's cross-isolate process lease. A static Dart flag
+      // cannot coordinate the foreground isolate with WorkManager.
+      final supportDirectory = await getApplicationSupportDirectory();
+      scannerLease = File('${supportDirectory.path}/king_national_scanner.lock');
+      if (await scannerLease.exists()) {
+        final age = DateTime.now().difference(await scannerLease.lastModified());
+        if (age < const Duration(minutes: 15)) return;
+        await scannerLease.delete();
+      }
+      try {
+        await scannerLease.create(exclusive: true);
+        ownsScannerLease = true;
+        await scannerLease.writeAsString(
+          DateTime.now().millisecondsSinceEpoch.toString(),
+          flush: true,
+        );
+      } on FileSystemException {
+        // Another isolate won the lease after our existence check.
+        return;
+      }
       final metadata = await FreshResourceStore.metadata();
       final stamp = DateTime.tryParse(
           metadata['onlineSnapshotRefreshedAt']?.toString() ?? '');
@@ -9783,6 +9805,13 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       logError(error, stack);
       _freshResourceRefreshRetryAfter = DateTime.now().add(const Duration(minutes: 30));
     } finally {
+      if (ownsScannerLease && scannerLease != null) {
+        try {
+          if (await scannerLease.exists()) await scannerLease.delete();
+        } catch (e, st) {
+          logError(e, st);
+        }
+      }
       _freshResourceRefreshBusy = false;
     }
   }
