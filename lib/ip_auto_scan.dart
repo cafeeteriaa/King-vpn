@@ -110,7 +110,7 @@ Future<List<String>> _ipAutoBlocks(
   if (modeSnapshot) {
     ips
       ..addAll(natNationalIpMemHosts())
-      ..addAll(natScanHits)
+      ..addAll(natScanHits);
     hostnames
       ..addAll(natNationalDomMemHosts())
       ..addAll(natRelayHosts);
