@@ -115,6 +115,61 @@ void main() {
       expect(await PersonalFolderStore.decodeSnapshot(await backup.readAsString()), second);
     });
 
+    test('reads successive pages without truncating the full inventory', () async {
+      final input = List<String>.generate(
+        137,
+        (i) => 'vless://node$i@example.com:443',
+      );
+      await PersonalFolderStore.writeSnapshot(input);
+
+      final first = await PersonalFolderStore.readPage(limit: 50);
+      final second = await PersonalFolderStore.readPage(offset: 50, limit: 50);
+      final third = await PersonalFolderStore.readPage(offset: 100, limit: 50);
+
+      expect(first.items, input.sublist(0, 50));
+      expect(second.items, input.sublist(50, 100));
+      expect(third.items, input.sublist(100));
+      expect(first.totalCount, 137);
+      expect(second.totalCount, 137);
+      expect(third.totalCount, 137);
+      expect(first.hasNext, isTrue);
+      expect(second.hasPrevious, isTrue);
+      expect(third.hasNext, isFalse);
+    });
+
+    test('searches the complete inventory while returning only one page', () async {
+      final input = <String>[
+        ...List<String>.generate(120, (i) => 'vless://node$i@example.com:443'),
+        'trojan://Special-Edge.example.net:443',
+      ];
+      await PersonalFolderStore.writeSnapshot(input);
+
+      final result = await PersonalFolderStore.readPage(
+        offset: 0,
+        limit: 10,
+        query: 'SPECIAL-EDGE',
+      );
+      expect(result.totalCount, 1);
+      expect(result.items, <String>['trojan://Special-Edge.example.net:443']);
+    });
+
+    test('paged reads recover from a corrupt primary using the backup', () async {
+      const first = <String>[
+        'vless://backup-one@example.com:443',
+        'trojan://backup-two@example.com:443',
+      ];
+      await PersonalFolderStore.writeSnapshot(first);
+      await PersonalFolderStore.writeSnapshot(<String>[
+        'vless://new-primary@example.com:443',
+      ]);
+      final primary = File('${tempDirectory.path}/servers.jsonl');
+      await primary.writeAsString('corrupt-line\n');
+
+      final result = await PersonalFolderStore.readPage(limit: 1);
+      expect(result.items, <String>[first.first]);
+      expect(result.totalCount, 2);
+    });
+
     test('migrates legacy profiles once and then prefers the file snapshot', () async {
       final migrated = await PersonalFolderStore.readOrMigrate(
         () async => <String>['vless://legacy@example.com:443'],
