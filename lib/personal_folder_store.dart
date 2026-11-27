@@ -111,7 +111,7 @@ class PersonalFolderStore {
   static Future<List<String>?> _readFile(File file) async {
     if (!await file.exists()) return null;
     try {
-      return decodeSnapshot(await file.readAsString());
+      return PersonalFolderStore.decodeSnapshot(await file.readAsString());
     } catch (_) {
       return null;
     }
