@@ -352,7 +352,7 @@ extension IpAutoExt on _HomePageState {
     } else {
       say('دریافت سرور نمونه از منابع جهانی...');
       try {
-        pool = await fetchServers(stop: () => halted());
+        pool = await fetchServers(stop: () => halted(), dedupeByLink: true);
       } catch (e, stk) {
         logError(e, stk);
         if (halted()) return false;
