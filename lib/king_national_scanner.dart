@@ -795,7 +795,7 @@ class KingNationalScannerEngine {
     try {
       final results = await Future.wait<Object>(<Future<Object>>[
         NatNetworkDiagnosis.refresh(force: true),
-        PilotNetworkProbe.refresh(force: true),
+        refreshPilotNetworkEvidence(force: true),
       ]);
       final diagnosis = results[0] as NatNetworkClass;
       final tls = results[1] as NetworkEvidence;
@@ -981,11 +981,10 @@ class KingNationalScannerEngine {
       try {
         final samples = await Future.wait<Object>(<Future<Object>>[
           NatNetworkDiagnosis.refresh(),
-          PilotNetworkProbe.refresh(),
-          PilotIpv6Probe.refresh(),
+          refreshPilotNetworkEvidence(),
         ]).timeout(const Duration(seconds: 12));
         networkEvidence = samples[1] as NetworkEvidence;
-        ipv6Evidence = samples[2] as PilotIpv6Evidence;
+        ipv6Evidence = PilotIpv6Probe.current;
       } catch (e, st) {
         logError(e, st);
         warnings.add('network_evidence_incomplete');
