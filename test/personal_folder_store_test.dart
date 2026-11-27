@@ -93,7 +93,7 @@ void main() {
           6000,
           (i) => 'vless://node$i@example.com:443?remark=گره-$i',
         ),
-        '  VLESS://NODE1@example.com:443?remark=duplicate  ',
+        '  VLESS://NODE1@example.com:443?remark=گره-1  ',
         'vmess://unicode@example.com:443?remark=سلام\nجهان',
       ];
       await PersonalFolderStore.writeSnapshot(input);
