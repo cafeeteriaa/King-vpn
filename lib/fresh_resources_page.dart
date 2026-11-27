@@ -118,11 +118,12 @@ class _FreshResourcesPageState extends State<FreshResourcesPage> {
         if (mounted) setState(() => _message = 'بانک منابع خالی است.');
         return;
       }
+      final outputPath = output.path;
       final result = await SharePlus.instance.share(
         ShareParams(
           title: 'KING VPN offline resources',
           text: 'خروجی کامل منابع آفلاین KING VPN؛ تعداد: $exported',
-          files: <XFile>[XFile(output.path)],
+          files: <XFile>[XFile(outputPath)],
         ),
       );
       if (!mounted) return;
@@ -131,7 +132,7 @@ class _FreshResourcesPageState extends State<FreshResourcesPage> {
           setState(() => _message = 'فایل کامل $exported کانفیگ ساخته و به پنجرهٔ اشتراک‌گذاری تحویل شد.');
           break;
         case ShareResultStatus.dismissed:
-          setState(() => _message = 'فایل کامل ساخته شد؛ پنجرهٔ اشتراک‌گذاری بسته شد. مسیر فایل: ${output.path}');
+          setState(() => _message = 'فایل کامل ساخته شد؛ پنجرهٔ اشتراک‌گذاری بسته شد. مسیر فایل: ${outputPath}');
           break;
         case ShareResultStatus.unavailable:
           setState(() => _message = 'فایل کامل ساخته شد اما اشتراک‌گذاری در این دستگاه در دسترس نیست. مسیر فایل: ${output.path}');
