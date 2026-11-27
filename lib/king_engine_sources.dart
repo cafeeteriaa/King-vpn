@@ -425,17 +425,19 @@ class KingHttpSourceFetcher {
       throw HttpException('Source returned HTTP ${response.statusCode}', uri: uri);
     }
     final builder = BytesBuilder(copy: false);
-    await (() async {
-      await for (final chunk in response) {
-        builder.add(chunk);
-        if (builder.length > maxResponseBytes) {
-          throw HttpException(
-            'Source response exceeds the configured per-response byte budget',
-            uri: uri,
-          );
-        }
+    final transferClock = Stopwatch()..start();
+    await for (final chunk in response.timeout(timeout)) {
+      if (transferClock.elapsed > timeout) {
+        throw TimeoutException('Source response exceeded its total time budget', timeout);
       }
-    })().timeout(timeout);
+      builder.add(chunk);
+      if (builder.length > maxResponseBytes) {
+        throw HttpException(
+          'Source response exceeds the configured per-response byte budget',
+          uri: uri,
+        );
+      }
+    }
     return utf8.decode(builder.takeBytes());
   }
 
@@ -519,7 +521,9 @@ class KingServerSourceSync {
           if (!name.toLowerCase().endsWith('.ovpn') ||
               downloadUri == null ||
               downloadUri.scheme.toLowerCase() != 'https' ||
-              downloadUri.host.isEmpty ||
+              !const {'raw.githubusercontent.com', 'api.github.com', 'github.com'}
+                  .contains(downloadUri.host.toLowerCase()) ||
+              downloadUri.port != 443 ||
               downloadUri.userInfo.isNotEmpty ||
               downloadUri.hasFragment) {
             continue;
