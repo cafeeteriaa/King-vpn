@@ -7,6 +7,8 @@ void main() {
       expect(KingDynamicSourceDiscovery.isCandidatePath('sub/all.txt', size: 900), isTrue);
       expect(KingDynamicSourceDiscovery.isCandidatePath('configs/vless.yaml', size: 900), isTrue);
       expect(KingDynamicSourceDiscovery.isCandidatePath('output/proxy_nodes.json', size: 900), isTrue);
+      expect(KingDynamicSourceDiscovery.isCandidatePath('sub', size: 900), isTrue);
+      expect(KingDynamicSourceDiscovery.isCandidatePath('v2ray/all', size: 900), isTrue);
     });
 
     test('rejects documentation, hidden paths, unrelated files and oversized blobs', () {
