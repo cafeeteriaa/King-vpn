@@ -177,26 +177,33 @@ Future<bool> _runKingNationalScannerBackgroundTask() async {
     );
     if (guard.shouldCancel) return false;
 
-    var polling = false;
-    networkMonitor = Timer.periodic(const Duration(seconds: 2), (_) async {
-      if (polling || guard.shouldCancel) return;
-      polling = true;
-      try {
-        final vpnActive = await _kingHasVpnInterface();
-        final fingerprint = await KingNetworkFingerprint.capture();
-        guard.observe(
-          vpnInterfaceActive: vpnActive,
-          currentFingerprint: fingerprint,
-        );
-      } catch (e, st) {
-        logError(e, st);
-        guard.observe(
-          vpnInterfaceActive: true,
-          currentFingerprint: '',
-        );
-      } finally {
-        polling = false;
-      }
+    var observation = Future<void>.value();
+    Future<void> observeNetwork() {
+      // Serialize timer and pre/post-scheduling checks so a slow interface
+      // read cannot arrive out of order and overwrite a newer observation.
+      final next = observation.then((_) async {
+        if (guard.shouldCancel) return;
+        try {
+          final vpnActive = await _kingHasVpnInterface();
+          final fingerprint = await KingNetworkFingerprint.capture();
+          guard.observe(
+            vpnInterfaceActive: vpnActive,
+            currentFingerprint: fingerprint,
+          );
+        } catch (e, st) {
+          logError(e, st);
+          guard.observe(
+            vpnInterfaceActive: true,
+            currentFingerprint: '',
+          );
+        }
+      });
+      observation = next;
+      return next;
+    }
+
+    networkMonitor = Timer.periodic(const Duration(seconds: 2), (_) {
+      if (!guard.shouldCancel) unawaited(observeNetwork());
     });
 
     await natLoadPersisted();
@@ -215,6 +222,7 @@ Future<bool> _runKingNationalScannerBackgroundTask() async {
       // The WorkManager wrapper owns its single continuation decision below.
       scheduleContinuation: false,
     );
+    await observeNetwork();
     if (guard.shouldCancel) return false;
     final needsContinuation = report.sliceYielded ||
         report.warnings.contains('ip_inventory_cursor_preserved_for_next_slice');
@@ -223,8 +231,12 @@ Future<bool> _runKingNationalScannerBackgroundTask() async {
         networkType: NetworkType.connected,
         requiresBatteryNotLow: true,
       );
+      final continuationName =
+          'king-national-scan-resume-${DateTime.now().microsecondsSinceEpoch}';
+      await observeNetwork();
+      if (guard.shouldCancel) return false;
       await Workmanager().registerOneOffTask(
-        'king-national-scan-resume-${DateTime.now().microsecondsSinceEpoch}',
+        continuationName,
         _nationalScannerTaskName,
         initialDelay: const Duration(minutes: 2),
         constraints: constraints,
@@ -233,6 +245,13 @@ Future<bool> _runKingNationalScannerBackgroundTask() async {
         backoffPolicyDelay: const Duration(minutes: 2),
         tag: _nationalScannerTag,
       );
+      // A handover can happen while the native scheduler call is in flight.
+      // Cancel that exact unique work item if the post-registration check sees it.
+      await observeNetwork();
+      if (guard.shouldCancel) {
+        await Workmanager().cancelByUniqueName(continuationName);
+        return false;
+      }
       return true;
     }
     return report.completed;
