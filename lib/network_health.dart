@@ -57,10 +57,10 @@ class NetworkEvidence {
   };
 
   NetworkEvidence withIpv6Evidence({
-    required int domesticSuccesses,
-    required int globalSuccesses,
-    int? domesticLatencyMs,
-    int? globalLatencyMs,
+    required int domesticIpv6Successes,
+    required int globalIpv6Successes,
+    int? domesticIpv6LatencyMs,
+    int? globalIpv6LatencyMs,
   }) => NetworkEvidence(
     domestic: domestic,
     global: global,
@@ -72,10 +72,10 @@ class NetworkEvidence {
     globalLatencyMs: this.globalLatencyMs,
     domesticTlsReachabilityVerified: domesticTlsReachabilityVerified,
     globalTlsReachabilityVerified: globalTlsReachabilityVerified,
-    domesticIpv6Successes: domesticSuccesses,
-    globalIpv6Successes: globalSuccesses,
-    domesticIpv6LatencyMs: domesticLatencyMs,
-    globalIpv6LatencyMs: globalLatencyMs,
+    domesticIpv6Successes: domesticIpv6Successes,
+    globalIpv6Successes: globalIpv6Successes,
+    domesticIpv6LatencyMs: domesticIpv6LatencyMs,
+    globalIpv6LatencyMs: globalIpv6LatencyMs,
   );
 
   DetectedNetworkMode get mode {
