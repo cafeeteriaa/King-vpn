@@ -193,9 +193,9 @@ class PersonalFolderStore {
         );
   }
 
-  /// Streams the complete archive in bounded batches. Unlike repeated readPage
-  /// calls, this scans the JSONL file only once and never materializes the archive.
-  /// A cancelled scan stops before reading or yielding another batch.
+  /// Streams the complete archive in bounded batches without materializing it.
+  /// The primary/backup integrity pass is followed by a bounded streaming pass.
+  /// No archive-wide deduplication set is retained; committed snapshots are normalized.
   static Stream<List<String>> streamBatches({
     int batchSize = 128,
     String query = '',
@@ -257,6 +257,16 @@ class PersonalFolderStore {
       // Existing readPage/readSnapshot APIs retain their explicit recovery path.
       rethrow;
     }
+  }
+
+  /// Exact membership check without loading the archive into memory.
+  static Future<bool> contains(String link) async {
+    final target = link.trim().toLowerCase();
+    if (target.isEmpty) return false;
+    await for (final batch in streamBatches(query: target, batchSize: 64)) {
+      if (batch.any((value) => value.toLowerCase() == target)) return true;
+    }
+    return false;
   }
 
   /// Exact archive count without retaining profile strings in memory.
