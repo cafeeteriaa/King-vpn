@@ -168,6 +168,17 @@ void main() {
       expect(await PersonalFolderStore.count(), input.length);
     });
 
+    test('checks exact membership without materializing the archive', () async {
+      final input = List<String>.generate(
+        900,
+        (i) => 'vless://member$i@example.com:443',
+      );
+      await PersonalFolderStore.writeSnapshot(input);
+      expect(await PersonalFolderStore.contains(input.last), isTrue);
+      expect(await PersonalFolderStore.contains('vless://missing@example.com:443'), isFalse);
+      expect(await PersonalFolderStore.contains('vless://member9@example.com:443-extra'), isFalse);
+    });
+
     test('streams a large archive with a strict batch working set', () async {
       final input = List<String>.generate(
         6000,
