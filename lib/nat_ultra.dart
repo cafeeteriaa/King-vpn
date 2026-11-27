@@ -2271,6 +2271,25 @@ Map<String, dynamic> _genAddrsIso(Map<String, dynamic> args) {
   return {'addrs': addrs, 'cursors': cursors};
 }
 
+// Begin another complete pass only after the previous inventory pass finished.
+// Interrupted passes retain their durable cursors and are never reset here.
+Future<void> natRangeStartNextPass() async {
+  if (!natRangeInventoryPassComplete) return;
+  _natConfiguredRangeCursor = 0;
+  _natConfiguredRangeCursors.clear();
+  _cfRangeCursors.removeWhere((key, value) =>
+      key.startsWith('block:') || key.startsWith('__block_'));
+  natRangeInventoryPassComplete = false;
+  try {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt('natConfiguredRangeCursor', 0);
+    await prefs.setString('natConfiguredRangeCursorsV1', '{}');
+    await prefs.setString('natCfRangeCursorsV1', jsonEncode(_cfRangeCursors));
+  } catch (e, stk) {
+    logError(e, stk);
+  }
+}
+
 // RANGEGUARD: یک اسکن بازه در هر لحظه؛ _natKeep و _natEscalate روی cursors مشترک نمی‌نویسند
 bool _natRangeScanBusy = false;
 
