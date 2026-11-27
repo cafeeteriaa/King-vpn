@@ -86,8 +86,7 @@ Future<void> autoScanRun(void Function(String) say,
     say('برای جلوگیری از اختلال، ابتدا VPN را قطع کنید');
     return;
   }
-  if (_autoScanRunning || dnsxManualBusy || _dnsxAutoBusy ||
-      ipAutoBusy || _natRangeScanBusy) {
+  if (_autoScanRunning || dnsxManualBusy || _dnsxAutoBusy || ipAutoBusy || _natRangeScanBusy) {
     say('اسکن دیگری در حال اجراست');
     return;
   }
