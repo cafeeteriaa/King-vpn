@@ -5787,11 +5787,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     _natHotRefreshTimer?.cancel();
     personalFolderIndexRefresh = null;
     _personalPingT?.cancel();
-    final personalFallback = _personalFallbackIterator;
-    _personalFallbackIterator = null;
-    if (personalFallback != null) {
-      unawaited(personalFallback.cancel().then<void>((_) {}));
-    }
+    _cancelPersonalPrepWork();
     _dbgSaveT?.cancel();
     _dbgProbT?.cancel();
     unawaited(_smartSpeech.cancel());
@@ -12147,6 +12143,7 @@ ListTile( // KINGEXTRAS row
   Timer? _personalPingT;
 
   Future<void>? _personalPrep;
+  final PersonalFolderScanEpoch _personalPrepEpoch = PersonalFolderScanEpoch();
   /// PERSLIVE: ردیف‌های لیست شخصی؛ در مسیر فعلی ping=-2 یعنی عمداً بدون تست مستقیم
   /// PERSPAGE: صفحهٔ اول سرورهای پوشه برای نمایش و بازیابی وضعیت اتصال
   List<Server> _personalShown = <Server>[];
@@ -12163,6 +12160,23 @@ ListTile( // KINGEXTRAS row
   bool _personalFallbackBusy = false;
   Set<String> _personalPreferredLinks = <String>{};
 
+  void _cancelPersonalPrepWork() {
+    _personalPrepEpoch.cancel();
+    _personalPingGen++;
+    _personalPrep = null;
+    final iterator = _personalFallbackIterator;
+    _personalFallbackIterator = null;
+    if (iterator != null) unawaited(iterator.cancel());
+  }
+
+  Future<void> _beginPersonalPrep() {
+    _cancelPersonalPrepWork();
+    final generation = _personalPrepEpoch.begin();
+    final work = _personalPrepWork(generation);
+    _personalPrep = work;
+    return work;
+  }
+
   /// جستجوی پس‌زمینه را هنگام نمایش تبلیغ متوقف می‌کند (اتصال آنلاین/آفلاین را خراب نمی‌کند)
   Future<void> _haltBgForAd() async {
     if (busy || searching || _natKeepOn || _natRangeScanBusy) {
@@ -12172,14 +12186,20 @@ ListTile( // KINGEXTRAS row
 
   /// هنگام نمایش تبلیغ اجرا می‌شود: جستجوی پس‌زمینه را متوقف و سرورهای شخصی را پینگ می‌گیرد
   void _personalPrewarm() {
-    _personalPrep = _personalPrepWork();
+    unawaited(_beginPersonalPrep());
   }
 
   /// PERSPING: پینگ همزمان (۸ تایی) برای سرورهای شخصی؛ نتیجه‌ی هر سرور همان لحظه روی صفحه می‌آید.
   /// خروجی: نقشه‌ی link -> ms فقط برای سرورهای سالم
-  Future<Map<String, int>> _personalPingAll(List<Server> list, {int rowOffset = 0, int totalCount = 0}) async {
+  Future<Map<String, int>> _personalPingAll(
+    List<Server> list, {
+    int rowOffset = 0,
+    int totalCount = 0,
+    bool Function()? shouldAbort,
+  }) async {
     final gen = ++_personalPingGen;
-    bool cancelled() => gen != _personalPingGen;
+    bool cancelled() =>
+        gen != _personalPingGen || (shouldAbort?.call() ?? false);
     final ok = <String, int>{};
     final rows = _personalRows.value;
     var doneCount = 0;
@@ -12201,6 +12221,7 @@ ListTile( // KINGEXTRAS row
           } catch (_) {
             d = null;
           }
+          if (cancelled()) return;
           if (d != null && d >= 0) {
             ok[s.link] = d;
             if (rowOffset + i < rows.length) rows[rowOffset + i].ping = d;
@@ -12217,12 +12238,16 @@ ListTile( // KINGEXTRAS row
       await Future.wait([for (var k = 0; k < nW; k++) worker()]);
     }
     await pass([for (var i = 0; i < list.length; i++) i]);
+    if (cancelled()) return ok;
     final failed = [for (var i = 0; i < list.length; i++) if (!ok.containsKey(list[i].link)) i];
     if (failed.isNotEmpty && failed.length < list.length) {
       await Future<void>.delayed(const Duration(seconds: 2));
+      if (cancelled()) return ok;
       doneCount = list.length - failed.length;
       await pass(failed);
+      if (cancelled()) return ok;
     }
+    if (cancelled()) return ok;
     _set('پینگ سرورهای شخصی تمام شد: ${ok.length} سالم از ${list.length}');
     return ok;
   }
@@ -12230,11 +12255,16 @@ ListTile( // KINGEXTRAS row
   /// PERSNOPING (قدیمی): تست پینگ سرورهای شخصی قبلاً حذف شده بود.
   /// فقط لیست پوشه (تا ۵۰ تای اول) روی صفحه می‌آید و ترتیب اتصال همان ترتیب پوشه است
   /// (آخرین سرور سالم اول). هر سرور با تست واقعی هسته امتحان می‌شود؛ اگر خراب بود، بعدی.
-  Future<void> _personalPrepWork() async {
+  Future<void> _personalPrepWork(int generation) async {
+    bool cancelled() =>
+        !mounted || !_personalPrepEpoch.isCurrent(generation);
+    _personalPrepDone = false;
     if (busy || searching || _natKeepOn || _natRangeScanBusy) {
       await _haltAll(max: const Duration(seconds: 10));
+      if (cancelled()) return;
     }
     await _personalFallbackIterator?.cancel();
+    if (cancelled()) return;
     _personalFallbackIterator = null;
     _personalFallbackBatch = <String>[];
     _personalFallbackBatchIndex = 0;
@@ -12244,11 +12274,22 @@ ListTile( // KINGEXTRAS row
     _personalHardFail = false;
 
     if (personal != null &&
-        !await PersonalFolderStore.contains(personal!.link)) {
+        !await PersonalFolderStore.contains(
+          personal!.link,
+          shouldAbort: cancelled,
+        )) {
+      if (cancelled()) return;
       await addToPersonalFolder([personal!.link]);
+      if (cancelled()) return;
     }
-
-    final folderCount = await PersonalFolderStore.count();
+    if (personalFolderRevision == 0) {
+      await loadPersonalFolder();
+      if (cancelled()) return;
+    }
+    final folderCount = personalFolderRevision > 0
+        ? personalFolderCount
+        : await PersonalFolderStore.count(shouldAbort: cancelled);
+    if (cancelled()) return;
     _personalTotalInFolder = folderCount;
     final firstPage = <Server>[];
     final preferred = <Server>[];
@@ -12272,8 +12313,9 @@ ListTile( // KINGEXTRAS row
     // and the best 32 ping candidates are retained in memory.
     await for (final links in PersonalFolderStore.streamBatches(
       batchSize: 64,
-      shouldAbort: () => !mounted,
+      shouldAbort: cancelled,
     )) {
+      if (cancelled()) return;
       final batch = <Server>[];
       for (final link in links) {
         final server = Server.parse(link);
@@ -12296,7 +12338,9 @@ ListTile( // KINGEXTRAS row
         batch,
         rowOffset: batchOffset,
         totalCount: folderCount,
+        shouldAbort: cancelled,
       );
+      if (cancelled()) return;
       for (final server in batch) {
         final latency = results[server.link];
         if (latency == null) continue;
@@ -12313,6 +12357,8 @@ ListTile( // KINGEXTRAS row
       dbg('PERSFOLDER batch=$scannedCount/$folderCount • parsed=$parsedCount • preferred=${preferred.length}');
     }
 
+    if (cancelled()) return;
+    _personalTotalInFolder = scannedCount;
     _personalRanked = List<Server>.of(preferred);
     _personalPreferredLinks = preferred.map((server) => server.link).toSet();
     // A second streaming pass supplies every non-preferred profile to the
@@ -12320,12 +12366,13 @@ ListTile( // KINGEXTRAS row
     _personalFallbackIterator = StreamIterator<List<String>>(
       PersonalFolderStore.streamBatches(
         batchSize: 64,
-        shouldAbort: () => !mounted,
+        shouldAbort: cancelled,
       ),
     );
     if (_personalRanked.isEmpty && folderCount > 0) {
       _set('پینگ اولیه سرور سالمی پیدا نکرد؛ تمام آرشیو با هسته واقعی بررسی می‌شود');
     }
+    if (cancelled()) return;
     _personalPrepDone = true;
     dbg('PERSFOLDER archive=$folderCount • parsed=$parsedCount • preferred=${_personalRanked.length} • exhaustive fallback ready');
     unawaited(_persistScreenLists());
@@ -12335,10 +12382,12 @@ ListTile( // KINGEXTRAS row
   /// سرور شخصی و پوشه: نتیجه‌ی پینگ آماده را می‌گیرد و به بهترینِ آن وصل می‌شود
   Future<void> personalFolderConnect() async {
     _resetTapCounters();
-    final prep = _personalPrep ?? _personalPrepWork();
+    final prep = _personalPrep ?? _beginPersonalPrep();
+    final generation = _personalPrepEpoch.current;
     _set('اتصال به سرورهای شخصی...');
     await prep;
-    _personalPrep = null;
+    if (!mounted || !_personalPrepEpoch.isCurrent(generation)) return;
+    if (identical(_personalPrep, prep)) _personalPrep = null;
     if (_personalTotalInFolder == 0) {
       _set('پوشه سرورهای شخصی خالی است');
       return;
@@ -12346,7 +12395,7 @@ ListTile( // KINGEXTRAS row
     _set(_personalRanked.isEmpty
         ? 'بررسی ترتیبی تمام آرشیو با هسته واقعی...'
         : 'اتصال به سرور شخصی: ${_personalRanked.first.name}...');
-    await _personalConnectAt(0);
+    await _personalConnectAt(0, generation: generation);
   }
 
   /// لیست زنده‌ی سرورهای پوشه (تا ۵۰ تا) با پینگ؛ تابع برگشتی بستن صفحه را بعد از مدتی انجام می‌دهد
@@ -12440,24 +12489,31 @@ ListTile( // KINGEXTRAS row
     }
   }
 
-  Future<void> _personalConnectAt(int i) async {
+  Future<void> _personalConnectAt(int i, {int? generation}) async {
+    final scanGeneration = generation ?? _personalPrepEpoch.current;
+    bool cancelled() =>
+        !mounted || !_personalPrepEpoch.isCurrent(scanGeneration);
+    if (cancelled()) return;
     if (i < _personalRanked.length) {
       _personalIdx = i;
       final ok = await _connectPersonalFast(_personalRanked[i]);
+      if (cancelled()) return;
       if (ok) {
         _personalWatchOn();
       } else if (!_personalHardFail && !abort && wantVpn) {
-        await _personalConnectAt(i + 1);
+        await _personalConnectAt(i + 1, generation: scanGeneration);
       }
       return;
     }
-    await _personalConnectFallback();
+    await _personalConnectFallback(generation: scanGeneration);
   }
 
   /// Exhaustive disk-backed fallback. Profiles outside the bounded preferred
   /// window are each attempted sequentially with the actual VPN core.
-  Future<void> _personalConnectFallback() async {
-    if (_personalFallbackBusy || _personalHardFail || !mounted) return;
+  Future<void> _personalConnectFallback({required int generation}) async {
+    bool cancelled() =>
+        !mounted || !_personalPrepEpoch.isCurrent(generation);
+    if (_personalFallbackBusy || _personalHardFail || cancelled()) return;
     _personalFallbackBusy = true;
     // Restored sessions may seed _personalRanked from the persisted first
     // page rather than the fresh 32-candidate latency window.
@@ -12468,12 +12524,13 @@ ListTile( // KINGEXTRAS row
       final iterator = _personalFallbackIterator ??= StreamIterator<List<String>>(
         PersonalFolderStore.streamBatches(
           batchSize: 64,
-          shouldAbort: () => !mounted,
+          shouldAbort: cancelled,
         ),
       );
-      while (mounted && !_personalHardFail && !abort && wantVpn) {
+      while (!cancelled() && !_personalHardFail && !abort && wantVpn) {
         if (_personalFallbackBatchIndex >= _personalFallbackBatch.length) {
           if (!await iterator.moveNext()) break;
+          if (cancelled()) return;
           _personalFallbackBatch = iterator.current;
           _personalFallbackBatchIndex = 0;
           continue;
@@ -12487,16 +12544,19 @@ ListTile( // KINGEXTRAS row
         _personalIdx = _personalRanked.length + _personalFallbackOrdinal - 1;
         _set('بررسی سرور شخصی ${_personalFallbackOrdinal} با هسته واقعی...');
         final ok = await _connectPersonalFast(server);
+        if (cancelled()) return;
         if (ok) {
           _personalWatchOn();
           return;
         }
       }
-      if (mounted && !_personalHardFail && !abort) {
+      if (!cancelled() && !_personalHardFail && !abort) {
         _set('تمام سرورهای شخصی آرشیو با هسته واقعی بررسی شدند؛ سرور سالمی پیدا نشد');
       }
       await iterator.cancel();
-      _personalFallbackIterator = null;
+      if (identical(_personalFallbackIterator, iterator)) {
+        _personalFallbackIterator = null;
+      }
     } finally {
       _personalFallbackBusy = false;
     }
@@ -12765,8 +12825,9 @@ ListTile( // KINGEXTRAS row
     } else {
       // آنلاین/آفلاین/نت ملی: جستجوی پس‌زمینه همان لحظه‌ی تبلیغ متوقف می‌شود
       unawaited(_haltBgForAd());
-      // PERSCANCEL: تپ غیرشخصی؛ پینگ‌های شخصی تپ قبلی لغو شوند. تپ شخصی خودش در _personalPingAll نسل تازه می‌گیرد.
-      _personalPingGen++;
+      // A non-personal tap invalidates the whole personal prewarm and its
+      // in-flight ping results; no stale archive pass may continue in background.
+      _cancelPersonalPrepWork();
     }
     final persTap = true; // ADALL: هر تپ اتصال تبلیغ دارد
     if (!await _ensureSession(userTap: persTap)) {

@@ -78,3 +78,39 @@
 - Important remaining boundary: application startup and personal-folder connection preparation still populate/use the complete personalFolderCache and _personalPingAll list. The UI now pages its disk reads, but the whole application is not yet memory-bounded. Next step is migrating connection preparation and other cache consumers to a disk-backed iterator/cursor without breaking personal-only routing or failover.
 - Three review passes for this revision: (1) API/UI architecture and personal-only behavior, (2) streaming/backup/error paths and page navigation, (3) source/test compatibility and diff review. These are source-level reviews only.
 - Exact-head CI, Dart analysis, Flutter tests, Android build and device verification remain pending.
+
+## Revision 68 — disk-backed personal inventory and compact identity index
+- Startup keeps the first display page plus a compact parsed host:port identity index; it no longer materializes the full configuration archive in `personalFolderCache`.
+- Personal-folder append/remove are streamed, transactional disk rewrites. The durable JSONL archive remains the source of truth; the visible page and count refresh after each committed mutation.
+- The compact identity index is revision-aware and waits for in-flight rebuilds across mutations; stale rebuilds are discarded if the archive revision changes during a stream.
+- Full-inventory behavior remains available through disk-backed cursors and exhaustive personal-only core fallback. The 50-row page and 32-entry preferred ranking window are working-set sizes, not inventory limits.
+
+## Current checkpoint — 2026-11-27 09:31 Europe/Rome
+- Repository: `cafeeteriaa/King-vpn`.
+- Development branch: `fix/personal-prep-cancellation-20261127`, based on `fix/personal-folder-uncapped-20261127`.
+- Parent SHA before this change: `e1efc276c6440361b5eb621fa91f1f810490d005`.
+- PR: draft child PR targeting `fix/personal-folder-uncapped-20261127`; no merge to `main`.
+- Active GitHub Actions before commit: none; no run was cancelled.
+
+### Personal archive scan cancellation and redundant I/O
+- Added a monotonic `PersonalFolderScanEpoch` and threaded it through prewarm, exact membership lookup, archive streaming, batch pings, preferred connection and exhaustive core fallback.
+- A newer personal tap, non-personal tap or widget disposal invalidates prior work. Results returning after an awaited probe are discarded before mutating live rows/ranking.
+- Connection preparation reuses the exact `personalFolderCount` refreshed by disk-backed startup/mutations; it falls back to a cancellable count only if the view is not initialized. This removes the routine extra full-file count scan before the actual archive scan.
+- Added Dart tests for epoch invalidation and cancellable membership lookup, plus a Python source guard for runtime wiring.
+- No IP Clean sources, ranges, CIDRs, ports, cursors or scanner capabilities were removed or narrowed. VPN/Proxy modes and personal-only routing remain unchanged.
+
+### Validation
+- Local Flutter/Dart tests and `flutter analyze`: not run; this container has no Flutter/Dart SDK and no outbound GitHub access.
+- Python source guards, Flutter tests, Dart analysis and ARM64 release build: pending exact-head GitHub Actions.
+- Three source review passes: (1) generation invalidation/stale-result handling, (2) JSONL preflight/cancellation and bounded working set, (3) personal-only routing/fallback and test/guard integration. These are source-level reviews, not device verification.
+- CI run URL/status: pending child PR synchronize event.
+
+### Open issues
+- The compact `host:port` identity set remains proportional to archive size; full configuration strings are disk-backed rather than retained as one large list.
+- The complete personal archive is still probed and remains eligible for real-core fallback by design; CPU/battery cost needs measurement on a real Android device.
+- TUN traffic, DNS leak, IPv4/IPv6 handover, Iranian operator coverage, competing VPN behavior and failover still require physical-device validation.
+
+### First next action
+1. Verify the exact-head child PR workflow and inspect all Python guards, Flutter tests, Dart analysis and ARM64 build steps.
+2. Fix any genuine failure without weakening guards or reducing the inventory.
+3. On success, inspect the exact-run APK artifact and hashes, then continue Android DNS/routing and failover device tests.

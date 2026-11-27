@@ -24,7 +24,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn("next.add(parsed.key)", main)
         self.assertIn("PersonalFolderStore.streamBatches(", main)
         self.assertIn("_connectPersonalFolderForRow()", main)
-        self.assertIn("await _personalConnectFallback()", main)
+        self.assertIn("await _personalConnectFallback(generation: scanGeneration)", main)
         self.assertNotIn("personalFolderCache.length", main)
         self.assertIn("personalFolderRevision++", folder)
 
@@ -3217,6 +3217,24 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('shouldAbort: () => stopFlag || !sheetOpen || nationalMode != scanNationalMode,', sheet[global_save:])
         self.assertIn('shouldAbort: () => stopFlag || !sheetOpen || nationalMode != scanNationalMode,', sheet[national_save:])
 
+
+    def test_personal_archive_preparation_is_generation_cancellable(self):
+        main = (ROOT / "lib" / "main.dart").read_text(encoding="utf-8")
+        store = (ROOT / "lib" / "personal_folder_store.dart").read_text(encoding="utf-8")
+        prep_start = main.index("Future<void> _personalPrepWork(int generation)")
+        prep_end = main.index("Future<void> personalFolderConnect()", prep_start)
+        prep = main[prep_start:prep_end]
+        ping_start = main.index("Future<Map<String, int>> _personalPingAll(")
+        ping_end = main.index("Future<void> _personalPrepWork(int generation)", ping_start)
+        ping = main[ping_start:ping_end]
+        self.assertIn("_personalPrepEpoch.isCurrent(generation)", prep)
+        self.assertIn("shouldAbort: cancelled", prep)
+        self.assertIn("personalFolderCount", prep)
+        self.assertIn("PersonalFolderStore.count(shouldAbort: cancelled)", prep)
+        self.assertIn("shouldAbort?.call()", ping)
+        self.assertIn("if (cancelled()) return;", ping)
+        self.assertIn("bool Function()? shouldAbort", store)
+        self.assertIn("shouldAbort: shouldAbort", store)
 
 if __name__ == '__main__':
     unittest.main()

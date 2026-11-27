@@ -4,6 +4,19 @@ import 'package:flutter_test/flutter_test.dart';
 import '../lib/personal_folder_store.dart';
 
 void main() {
+  group('PersonalFolderScanEpoch', () {
+    test('a newer scan and explicit cancellation invalidate stale generations', () {
+      final epoch = PersonalFolderScanEpoch();
+      final first = epoch.begin();
+      expect(epoch.isCurrent(first), isTrue);
+      final second = epoch.begin();
+      expect(epoch.isCurrent(first), isFalse);
+      expect(epoch.isCurrent(second), isTrue);
+      epoch.cancel();
+      expect(epoch.isCurrent(second), isFalse);
+    });
+  });
+
   group('PersonalFolderStore snapshot codec', () {
     test('round-trips Unicode and embedded line breaks without record loss', () {
       final input = <String>[
@@ -224,6 +237,21 @@ void main() {
       expect(await PersonalFolderStore.contains(input.last), isTrue);
       expect(await PersonalFolderStore.contains('vless://missing@example.com:443'), isFalse);
       expect(await PersonalFolderStore.contains('vless://member9@example.com:443-extra'), isFalse);
+    });
+
+    test('cancels exact membership scanning during the integrity preflight', () async {
+      final input = List<String>.generate(
+        900,
+        (i) => 'vless://cancel-member$i@example.com:443',
+      );
+      await PersonalFolderStore.writeSnapshot(input);
+      var checks = 0;
+      final found = await PersonalFolderStore.contains(
+        input.last,
+        shouldAbort: () => ++checks > 8,
+      );
+      expect(found, isFalse);
+      expect(checks, greaterThan(8));
     });
 
     test('streams a large archive with a strict batch working set', () async {
