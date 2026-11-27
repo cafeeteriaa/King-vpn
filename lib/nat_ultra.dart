@@ -1696,11 +1696,19 @@ Future<File> _natMemoryFile(String name) async {
   return File('${directory.path}/$name');
 }
 
-Future<void> _natWriteJsonSnapshot(String name, Object value) async {
-  final file = await _natMemoryFile(name);
-  final temporary = File('${file.path}.tmp');
-  await temporary.writeAsString(jsonEncode(value), flush: true);
-  await temporary.rename(file.path);
+Future<void> _natFileWriteQueue = Future<void>.value();
+
+Future<void> _natWriteJsonSnapshot(String name, Object value) {
+  final next = _natFileWriteQueue.then((_) async {
+    final file = await _natMemoryFile(name);
+    final temporary = File('${file.path}.tmp');
+    await temporary.writeAsString(jsonEncode(value), flush: true);
+    await temporary.rename(file.path);
+  });
+  _natFileWriteQueue = next.catchError((Object error, StackTrace stack) {
+    logError(error, stack);
+  });
+  return next;
 }
 
 Future<void> _natWriteMemorySnapshot(
@@ -1836,6 +1844,23 @@ Future<void> natDomMemSave(String host, int port) async {
     await _natWriteMemorySnapshot('king_nat_domain_inventory.json', natDomMem);
   } catch (e, stk) {
     logError(e, stk);
+  }
+}
+
+Future<void> natIpMemMergeHits(List<String> hits) async {
+  final now = DateTime.now().millisecondsSinceEpoch;
+  for (final item in hits) {
+    final parts = item.split('|');
+    if (parts.length < 2) continue;
+    final ip = parts[0].trim();
+    final port = int.tryParse(parts[1].trim());
+    if (InternetAddress.tryParse(ip) == null ||
+        port == null || port < 1 || port > 65535) continue;
+    natIpMem.removeWhere((entry) => entry['ip'] == ip && entry['port'] == port);
+    natIpMem.insert(0, <String, dynamic>{'ip': ip, 'port': port, 't': now});
+  }
+  if (hits.isNotEmpty) {
+    await _natWriteMemorySnapshot('king_nat_ip_inventory.json', natIpMem);
   }
 }
 
@@ -2476,6 +2501,11 @@ Future<List<String>> _natRangeScanStepBody({
       out.add('${hit.ip}|$port');
     }
   }
+  if (shouldAbort()) return const <String>[];
+  // Persist every responsive IP:port before advancing its range cursor. If the
+  // app is killed before _natRangeAdd builds configs, the endpoint is still in
+  // the durable inventory and can be resumed/retested on the next pass.
+  await natIpMemMergeHits(out);
   if (shouldAbort()) return const <String>[];
 
   _cfRangeCursors
