@@ -12116,7 +12116,7 @@ ListTile( // KINGEXTRAS row
 
   /// PERSPING: پینگ همزمان (۸ تایی) برای سرورهای شخصی؛ نتیجه‌ی هر سرور همان لحظه روی صفحه می‌آید.
   /// خروجی: نقشه‌ی link -> ms فقط برای سرورهای سالم
-  Future<Map<String, int>> _personalPingAll(List<Server> list) async {
+  Future<Map<String, int>> _personalPingAll(List<Server> list, {int rowOffset = 0, int totalCount = 0}) async {
     final gen = ++_personalPingGen;
     bool cancelled() => gen != _personalPingGen;
     final ok = <String, int>{};
@@ -12142,13 +12142,13 @@ ListTile( // KINGEXTRAS row
           }
           if (d != null && d >= 0) {
             ok[s.link] = d;
-            if (i < rows.length) rows[i].ping = d;
-          } else if (i < rows.length) {
-            rows[i].ping = -1;
+            if (rowOffset + i < rows.length) rows[rowOffset + i].ping = d;
+          } else if (rowOffset + i < rows.length) {
+            rows[rowOffset + i].ping = -1;
           }
           doneCount++;
           _personalRows.value = List<_PRow>.of(rows);
-          _set('پینگ سرورهای شخصی: $doneCount/${list.length} • سالم: ${ok.length}');
+          _set('پینگ سرورهای شخصی: ${rowOffset + doneCount}/${totalCount > 0 ? totalCount : list.length} • سالم: ${ok.length}');
         }
       }
       // مشکل ۷: تعداد کارگرها با سقف گیت هماهنگ است
@@ -12173,42 +12173,77 @@ ListTile( // KINGEXTRAS row
     if (busy || searching || _natKeepOn || _natRangeScanBusy) {
       await _haltAll(max: const Duration(seconds: 10));
     }
-    // سرور شخصی تکی هم باید داخل پوشه باشد
+    // A single personal profile is part of the same durable archive.
     if (personal != null && !personalFolderCache.contains(personal!.link.trim())) {
       await addToPersonalFolder([personal!.link]);
     }
-    final folderCount = personalFolderCache.length;
-    final seen = <String>{};
-    final list = <Server>[
-      for (final s in personalFolderServers())
-        if (seen.add(s.link)) s,
-    ];
+
+    final folderCount = await PersonalFolderStore.count();
     _personalTotalInFolder = folderCount;
-    _personalShown = List<Server>.of(list);
-    _personalRows.value = [for (final s in list) _PRow(s)..ping = -2];
-    final order = List<Server>.of(list);
-    final lg = personalLastGood;
-    if (lg.isNotEmpty) {
-      final i = order.indexWhere((x) => x.link == lg);
+    final order = <Server>[];
+    final okMap = <String, int>{};
+    final seen = <String>{};
+    final rows = <_PRow>[];
+    _personalShown = <Server>[];
+    _personalRows.value = <_PRow>[];
+    final lastGood = personalLastGood;
+    var rowOffset = 0;
+    var scanned = 0;
+
+    // Parse and ping the durable archive in bounded batches. This avoids
+    // building a second full List<Server> and ping-result map before work starts.
+    await for (final links in PersonalFolderStore.streamBatches(
+      batchSize: 64,
+      shouldAbort: () => !mounted || !wantVpn && _personalBusy,
+    )) {
+      final batch = <Server>[];
+      for (final link in links) {
+        if (!seen.add(link.trim().toLowerCase())) continue;
+        final server = Server.parse(link);
+        if (server == null) continue;
+        server.personal = true;
+        batch.add(server);
+        order.add(server);
+        rows.add(_PRow(server)..ping = -2);
+      }
+      if (batch.isEmpty) continue;
+      _personalShown.addAll(batch);
+      _personalRows.value = List<_PRow>.of(rows);
+      final batchOffset = rowOffset;
+      rowOffset += batch.length;
+      scanned += links.length;
+      final batchResults = await _personalPingAll(
+        batch,
+        rowOffset: batchOffset,
+        totalCount: folderCount,
+      );
+      okMap.addAll(batchResults);
+      // Publish progress only after the complete batch has returned.
+      dbg('PERSFOLDER batch=$scanned/$folderCount • healthy=${okMap.length}');
+    }
+
+    if (lastGood.isNotEmpty) {
+      final i = order.indexWhere((server) => server.link == lastGood);
       if (i > 0) order.insert(0, order.removeAt(i));
     }
-    // PERSPING: پینگ واقعی همین ۱۰۰ سرور؛ فقط سالم‌ها وارد ترتیب اتصال می‌شوند
-    final okMap = await _personalPingAll(list);
-    final okList = [for (final s in order) if (okMap.containsKey(s.link)) s];
-    // PERSLOWEST: فقط کمترین پینگ تعیین‌کننده است؛ آخرین سرور موفق فقط در برابر پینگ مساوی جلو می‌افتد
-    okList.sort((a, b) {
-      final c = okMap[a.link]!.compareTo(okMap[b.link]!);
-      if (c != 0) return c;
-      return (a.link == lg ? 0 : 1).compareTo(b.link == lg ? 0 : 1);
+    final ranked = <Server>[
+      for (final server in order)
+        if (okMap.containsKey(server.link)) server,
+    ];
+    ranked.sort((a, b) {
+      final latency = okMap[a.link]!.compareTo(okMap[b.link]!);
+      if (latency != 0) return latency;
+      return (a.link == lastGood ? 0 : 1)
+          .compareTo(b.link == lastGood ? 0 : 1);
     });
-    // V6: اگر پینگ همه‌ی سرورها شکست خورد (مسیر مستقیم DNS در نت ملی)، به‌جای خطا،
-    // همان ترتیب پوشه امتحان می‌شود؛ هر سرور با اتصال واقعی و تست ترافیک بررسی می‌شود.
-    _personalRanked = okList.isEmpty && order.isNotEmpty ? List<Server>.of(order) : okList;
-    if (okList.isEmpty && order.isNotEmpty) {
+    // Preserve the established real-core fallback when all preliminary
+    // pings fail: every stored profile remains eligible for sequential connect.
+    _personalRanked = ranked.isEmpty && order.isNotEmpty ? order : ranked;
+    if (ranked.isEmpty && order.isNotEmpty) {
       _set('پینگ مستقیم جواب نداد؛ سرورها یکی‌یکی با اتصال واقعی امتحان می‌شوند');
     }
     _personalPrepDone = true;
-    dbg('PERSFOLDER پوشه=$folderCount • روی صفحه=${list.length} • پینگ گرفته شد');
+    dbg('PERSFOLDER archive=$folderCount • parsed=${order.length} • pinged in batches');
     unawaited(_persistScreenLists());
     if (mounted) setState(() {});
   }
