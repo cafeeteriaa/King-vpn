@@ -1553,7 +1553,9 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn('pending.length < 3000', keep)
         self.assertNotIn('budget:', keep)
         self.assertIn('conc: min(2, natAdaptiveWorkers())', keep)
-        self.assertIn('budget: const Duration(seconds: 90)', keep)
+        self.assertNotIn('budget:', keep)
+        self.assertNotIn('Duration(hours: 8)', keep)
+        self.assertNotIn('pending.length < 3000', keep)
         for condition in ('!mounted', '!connected', '!wantVpn', '!nationalMode',
                           '!localPilotOn', 'appGone', 'abort'):
             self.assertIn(condition, keep)
