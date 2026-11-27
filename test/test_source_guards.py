@@ -2763,5 +2763,14 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         cursor_end = source.index('Duration natBudget(', cursor_start)
         self.assertIn('natSaveSoon();', source[cursor_start:cursor_end])
 
+    def test_dynamic_strategy_growth_has_no_global_variant_ceiling(self):
+        source = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
+        start = source.index('int natGrow(int n)')
+        end = source.index('bool natIsRetired(', start)
+        growth = source[start:end]
+        self.assertNotIn('_natSpecs.length > 500000', growth)
+        self.assertIn('for (var i = 0; i < n; i++)', growth)
+        self.assertIn('_natSpecs.add(_natMk(', growth)
+
 if __name__ == '__main__':
     unittest.main()
