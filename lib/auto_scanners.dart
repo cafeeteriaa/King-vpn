@@ -249,6 +249,7 @@ Future<void> autoScanRun(
 
     // SNI candidates: each domain is tested against all known IP/port pairs.
     final sniHits = <String>[];
+    final sniHitPorts = <String, int>{};
     var sniIndex = 0;
     sniLoop:
     for (final domain in sniDomains) {
@@ -257,18 +258,21 @@ Future<void> autoScanRun(
         await natManualYield(shouldAbort: () => cancelled());
         if (cancelled()) break sniLoop;
       }
-      var success = false;
+      var successPort = 0;
       for (final port in ports) {
         for (final ip in ips) {
           if (cancelled()) break sniLoop;
           if (await _autoSniOk(ip, port, domain) != null) {
-            success = true;
+            successPort = port;
             break;
           }
         }
-        if (success) break;
+        if (successPort != 0) break;
       }
-      if (success) sniHits.add(domain);
+      if (successPort != 0) {
+        sniHits.add(domain);
+        sniHitPorts[domain] = successPort;
+      }
       say('SNI $sniIndex/${sniDomains.length} • TLS handshake: ${sniHits.length}');
     }
     if (cancelled()) {
@@ -335,7 +339,7 @@ Future<void> autoScanRun(
       };
       natScanHits.addAll(nationalIps);
       for (final domain in nationalDomains) {
-        await natNationalDomMemSave(domain, 443);
+        await natNationalDomMemSave(domain, sniHitPorts[domain] ?? 443);
       }
       _natAutoScanCandidates['sni'] = <String>{
         ..._natAutoScanCandidates['sni']!,
