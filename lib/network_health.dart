@@ -17,6 +17,10 @@ class NetworkEvidence {
     this.globalLatencyMs,
     this.domesticTlsReachabilityVerified = false,
     this.globalTlsReachabilityVerified = false,
+    this.domesticIpv6Successes = 0,
+    this.globalIpv6Successes = 0,
+    this.domesticIpv6LatencyMs,
+    this.globalIpv6LatencyMs,
   });
 
   final LinkHealth domestic;
@@ -29,6 +33,28 @@ class NetworkEvidence {
   final int? globalLatencyMs;
   final bool domesticTlsReachabilityVerified;
   final bool globalTlsReachabilityVerified;
+  /// IPv6 path reachability is tracked separately from authenticated TLS.
+  final int domesticIpv6Successes;
+  final int globalIpv6Successes;
+  final int? domesticIpv6LatencyMs;
+  final int? globalIpv6LatencyMs;
+
+  Map<String, Object?> toMap() => <String, Object?>{
+    'domestic': domestic.name,
+    'global': global.name,
+    'domesticSamples': domesticSamples,
+    'globalSamples': globalSamples,
+    'domesticSuccesses': domesticSuccesses,
+    'globalSuccesses': globalSuccesses,
+    'domesticLatencyMs': domesticLatencyMs,
+    'globalLatencyMs': globalLatencyMs,
+    'domesticIpv6Successes': domesticIpv6Successes,
+    'globalIpv6Successes': globalIpv6Successes,
+    'domesticIpv6LatencyMs': domesticIpv6LatencyMs,
+    'globalIpv6LatencyMs': globalIpv6LatencyMs,
+    'confidence': confidence,
+    'mode': mode.name,
+  };
 
   DetectedNetworkMode get mode {
     if (domestic == LinkHealth.unknown && global == LinkHealth.unknown) {
