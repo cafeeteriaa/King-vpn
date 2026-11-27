@@ -121,7 +121,7 @@ Future<List<String>> _ipAutoBlocks(
       ..addAll(natIpMemHosts())
       ..addAll(_goldIps.keys);
     for (final entry in natDomMem) {
-      final host = (entry['h'] ?? '').toString().split(':').first.trim();
+      final host = (entry['h'] ?? '').toString().trim();
       if (host.isNotEmpty) hostnames.add(host);
     }
   }
