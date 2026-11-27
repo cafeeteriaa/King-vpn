@@ -22,6 +22,9 @@ class NativeVpnDiagnosticsContractTests(unittest.TestCase):
             "hardProbeFailures", "failoverCount", "retryCount",
             "currentFailureStreak", "healthyStreak", "lastProbeResult",
             "lastProbeMode", "lastProbeDurationMs", "lastProbeAgeMs",
+            "physicalNetworkProtocolVersion", "physicalNetworkChangeCount",
+            "lastPhysicalNetworkChangeAgeMs", "validatedWifiNetworkCount",
+            "validatedCellularNetworkCount", "physicalNetworkTransportSummary",
         ):
             self.assertIn(f'snapshot.put("{key}"', self.java)
 
@@ -45,13 +48,21 @@ class NativeVpnDiagnosticsContractTests(unittest.TestCase):
         self.assertIn("failoverCount.incrementAndGet()", self.java)
         self.assertIn("retryCount.incrementAndGet()", self.java)
         self.assertIn("SystemClock.elapsedRealtime()", self.java)
+        self.assertIn("registerNetworkCallback(request, callback)", self.java)
+        self.assertIn("unregisterNetworkCallback(callback)", self.java)
+        self.assertIn("NET_CAPABILITY_NOT_VPN", self.java)
+        self.assertIn("NET_CAPABILITY_VALIDATED", self.java)
+        self.assertIn("setUnderlyingNetworks(", self.java)
+        self.assertIn("physicalNetworkChangeCount.incrementAndGet()", self.java)
         self.assertIn("synchronized (lock)", self.java[self.java.index("public Map<String, Object> diagnosticSnapshot()"):])
         self.assertNotIn('snapshot.put("url"', self.java)
         self.assertNotIn('snapshot.put("config"', self.java)
 
     def test_dart_consumes_the_same_channel_and_protocol(self):
         self.assertIn("invokeMapMethod<String, dynamic>('vpnService')", self.dart)
-        self.assertIn("version != 1 && version != 2", self.dart)
+        self.assertIn("version != 1 && version != 2 && version != 3", self.dart)
+        self.assertIn("version == 2 || version == 3", self.dart)
+        self.assertIn("physicalNetworkTransportSummary", self.dart)
         self.assertIn("version == 2", self.dart)
         self.assertIn("VPN-WATCHDOG-TELEMETRY:", self.dart)
         self.assertIn("await _logVpnServiceDiagnostics();", self.dart)
