@@ -35,17 +35,33 @@ class PersonalFolderStore {
     return result;
   }
 
+  /// Encode one profile per JSON line without losing Unicode/newline content.
+  static String encodeSnapshot(Iterable<String> links) {
+    final values = _normalize(links);
+    return values.map(jsonEncode).join('\\n') +
+        (values.isEmpty ? '' : '\\n');
+  }
+
+  /// null signals corruption; an empty valid snapshot decodes to [].
+  static List<String>? decodeSnapshot(String contents) {
+    try {
+      final values = <String>[];
+      for (final line in const LineSplitter().convert(contents)) {
+        if (line.isEmpty) continue;
+        final decoded = jsonDecode(line);
+        if (decoded is! String) return null;
+        values.add(decoded);
+      }
+      return _normalize(values);
+    } catch (_) {
+      return null;
+    }
+  }
+
   static Future<List<String>?> _readFile(File file) async {
     if (!await file.exists()) return null;
     try {
-      final lines = await file.readAsLines();
-      final values = <String>[];
-      for (final line in lines) {
-        if (line.isEmpty) continue;
-        final decoded = jsonDecode(line);
-        if (decoded is String) values.add(decoded);
-      }
-      return _normalize(values);
+      return decodeSnapshot(await file.readAsString());
     } catch (_) {
       return null;
     }
@@ -63,8 +79,7 @@ class PersonalFolderStore {
     final target = await _file(fileName);
     final backup = await _file(backupName);
     final temp = await _file(tempName);
-    final contents = values.map(jsonEncode).join('\n') +
-        (values.isEmpty ? '' : '\n');
+    final contents = encodeSnapshot(values);
 
     await temp.writeAsString(contents, flush: true);
     if (await target.exists()) {
