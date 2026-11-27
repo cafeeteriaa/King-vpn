@@ -2228,8 +2228,9 @@ Future<List<String>> natRangeScanStep({
   int conc = 4,
   bool Function()? stop,
   Duration budget = const Duration(minutes: 2),
+  bool coordinatorOwned = false,
 }) async {
-  if (_natRangeScanBusy) return const <String>[];
+  if ((dnsxManualBusy && !coordinatorOwned) || _natRangeScanBusy) return const <String>[];
   _natRangeScanBusy = true;
   try {
     return await _natRangeScanStepBody(

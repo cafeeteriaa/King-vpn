@@ -792,7 +792,7 @@ class KingNationalScannerEngine {
         final found = await natRangeScanStep(
           known: seeds.take(1200).toList(),
           maxAddrs: 96, conc: min(4, max(1, natAdaptiveWorkers())).toInt(),
-          stop: stopped, budget: const Duration(seconds: 28),
+          stop: stopped, budget: const Duration(seconds: 28), coordinatorOwned: true,
         );
         if (!stopped() && found.isNotEmpty) {
           ipHits = found.length;
