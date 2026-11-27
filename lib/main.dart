@@ -5182,13 +5182,21 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   Set<String>? _pfKeysCache;
   int _pfKeysLen = -1;
   int _pfIndexRevision = -1;
-  bool _pfIndexRebuilding = false;
+  Future<void>? _pfIndexFuture;
 
   /// Compact parsed-key index: only host:port identities are retained, never
   /// the full configuration payloads. The durable archive remains on disk.
-  Future<void> _rebuildPersonalFolderKeyIndex() async {
-    if (_pfIndexRebuilding) return;
-    _pfIndexRebuilding = true;
+  Future<void> _rebuildPersonalFolderKeyIndex() {
+    final running = _pfIndexFuture;
+    if (running != null) return running;
+    final future = _rebuildPersonalFolderKeyIndexImpl();
+    _pfIndexFuture = future;
+    return future.whenComplete(() {
+      if (identical(_pfIndexFuture, future)) _pfIndexFuture = null;
+    });
+  }
+
+  Future<void> _rebuildPersonalFolderKeyIndexImpl() async {
     try {
       // If a durable add/remove commits while the index is being streamed,
       // discard the stale pass and rebuild against the new revision.
@@ -5213,8 +5221,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       }
     } catch (e, stk) {
       logError(e, stk);
-    } finally {
-      _pfIndexRebuilding = false;
     }
   }
 
@@ -5222,7 +5228,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     if (personalFolderCount == 0) return false;
     if (_pfKeysCache == null || _pfKeysLen != personalFolderCount ||
         _pfIndexRevision != personalFolderRevision) {
-      if (!_pfIndexRebuilding) unawaited(_rebuildPersonalFolderKeyIndex());
+      if (_pfIndexFuture == null) unawaited(_rebuildPersonalFolderKeyIndex());
     }
     if (_pfKeysCache?.contains(s.key) == true) return true;
     // The visible page is also checked synchronously while a refreshed index
