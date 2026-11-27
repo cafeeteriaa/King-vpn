@@ -1,3 +1,5 @@
+#![deny(unsafe_op_in_unsafe_fn)]
+
 use std::ffi::CStr;
 
 const MAX_FFI_BATCH: u32 = 8192;
@@ -5,8 +7,6 @@ use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::os::raw::c_char;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::str::FromStr;
-
-#![deny(unsafe_op_in_unsafe_fn)]
 
 fn address_value(ip: IpAddr) -> (u128, u8) {
     match ip {
