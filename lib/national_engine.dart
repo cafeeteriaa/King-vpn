@@ -26,12 +26,17 @@ class NationalNetworkIntelligence {
 
   static Future<void> _loadImpl() async {
     try {
-      final file = await _evidenceFile();
+      File? file;
       String? raw;
-      if (await file.exists()) {
-        raw = await file.readAsString();
-      } else {
-        // One-time migration from the old SharedPreferences snapshot.
+      try {
+        file = await _evidenceFile();
+        if (await file.exists()) raw = await file.readAsString();
+      } catch (e, st) {
+        // Preserve the legacy preferences fallback if path-provider is
+        // temporarily unavailable (e.g. during early Android startup).
+        logError(e, st);
+      }
+      if (raw == null || raw.isEmpty) {
         final prefs = await SharedPreferences.getInstance();
         raw = prefs.getString(_prefsKey);
       }
@@ -44,7 +49,7 @@ class NationalNetworkIntelligence {
               _memory[e.key as String] = NatEndpointMemory.fromJson(e.value);
             }
           }
-          if (!await file.exists()) await _save();
+          if (file != null && !await file.exists()) await _save();
         }
       }
     } catch (e, st) {
