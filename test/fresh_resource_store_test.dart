@@ -88,7 +88,8 @@ void main() {
 
 
     test('optional four-million profile disk soak', () async {
-      if (Platform.environment['KING_RUN_4M_SOAK'] != '1') return;
+      const runSoak = bool.fromEnvironment('KING_RUN_4M_SOAK', defaultValue: false);
+      if (!runSoak) return;
       final root = await Directory.systemTemp.createTemp('king-offline-4m-soak-');
       final watch = Stopwatch()..start();
       try {
