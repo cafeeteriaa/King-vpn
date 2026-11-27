@@ -158,9 +158,18 @@ class KingNationalScannerEngine {
   static Future<void> _loadFromPreferences() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      final storeFile = await _strategyStoreFile();
-      final hasDiskStore = await storeFile.exists();
-      final raw = hasDiskStore ? await storeFile.readAsString() : prefs.getString(_prefsKey);
+      var hasDiskStore = false;
+      String? raw;
+      try {
+        final storeFile = await _strategyStoreFile();
+        hasDiskStore = await storeFile.exists();
+        if (hasDiskStore) raw = await storeFile.readAsString();
+      } catch (_) {
+        // Path-provider may be unavailable in headless tests or during a
+        // transient platform-channel failure; preferences remain a valid
+        // compatibility fallback and must still be loaded.
+      }
+      raw ??= prefs.getString(_prefsKey);
       if (raw == null || raw.isEmpty) return;
       final decoded = jsonDecode(raw);
       if (decoded is! Map || (decoded['version'] != 1 && decoded['version'] != 2 && decoded['version'] != 3 && decoded['version'] != 4)) return;
