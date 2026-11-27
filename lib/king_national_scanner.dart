@@ -93,13 +93,15 @@ class KingNatScanReport {
   final int dnsResolvers, domainEndpoints, ipEndpoints;
   final int sniHandshakes, alpnNegotiations, configsValidated, elapsedMs;
   final List<String> warnings;
-  String get summary => 'اسکنر: DNS $dnsResolvers • دامنه/IP $domainEndpoints • IP $ipEndpoints • SNI $sniHandshakes • ALPN $alpnNegotiations • کانفیگ معتبر $configsValidated';
+  String get summary => 'اسکنر: DNS $dnsResolvers • دامنه/IP $domainEndpoints • IP $ipEndpoints • SNI $sniHandshakes • ALPN $alpnNegotiations • کانفیگ ساختاری $configsValidated';
   Map<String, Object?> toMap() => <String, Object?>{
     'completed': completed, 'timedOut': timedOut,
     'networkClass': natNetworkClassLabel(networkClass), 'nationalMode': nationalMode,
     'dnsResolvers': dnsResolvers, 'domainEndpoints': domainEndpoints, 'ipEndpoints': ipEndpoints,
     'sniHandshakes': sniHandshakes, 'alpnNegotiations': alpnNegotiations,
-    'configsValidated': configsValidated, 'elapsedMs': elapsedMs, 'warnings': warnings,
+    'configsValidated': configsValidated,
+    'configsStructurallyValidated': configsValidated,
+    'elapsedMs': elapsedMs, 'warnings': warnings,
   };
 }
 
@@ -458,10 +460,13 @@ class KingNationalScannerEngine {
         final stat = entry.value;
         records += stat.attempts;
         if (stat.successes <= 0) continue;
-        for (final id in _featuresFor(_natSpecs[entry.key])) {
-          _featureEvidence[id] =
-              min(1000000000, (_featureEvidence[id] ?? 0) + stat.successes).toInt();
-        }
+        final features = _featuresFor(_natSpecs[entry.key]);
+        // A combined variant cannot independently prove each of its features.
+        // Only single-feature variants contribute to per-capability verification.
+        if (features.length != 1) continue;
+        final id = features.single;
+        _featureEvidence[id] =
+            min(1000000000, (_featureEvidence[id] ?? 0) + stat.successes).toInt();
       }
     }
     _recordCount = records.clamp(0, 1000000000).toInt();
