@@ -23,6 +23,8 @@ import java.net.Proxy;
 import java.net.SocketTimeoutException;
 import java.net.URL;
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
@@ -198,6 +200,29 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
 
     /** Diagnostic accessor for the last failure message. */
     public String getLastError() { return lastError; }
+
+    /**
+     * Privacy-safe snapshot for cross-language diagnostics.
+     * Never includes server config, credentials, addresses, or backup payloads.
+     */
+    public Map<String, Object> diagnosticSnapshot() {
+        Map<String, Object> snapshot = new HashMap<String, Object>();
+        snapshot.put("protocolVersion", 1);
+        snapshot.put("serviceRunning", true);
+        snapshot.put("active", active);
+        snapshot.put("stopping", stopping);
+        snapshot.put("retryWaiting", retryWaiting);
+        snapshot.put("nativeBusy", nativeBusy);
+        snapshot.put("recovering", recovering.get());
+        snapshot.put("userStopped", userStopped);
+        snapshot.put("nationalMode", nationalMode);
+        snapshot.put("activeAttempt", activeAttemptId);
+        snapshot.put("attemptSequence", attemptSeq.get());
+        snapshot.put("inFlightOperations", inFlight.get());
+        String error = lastError == null ? "" : lastError;
+        snapshot.put("lastError", error.length() > 240 ? error.substring(0, 240) : error);
+        return snapshot;
+    }
 
     /** جدید: receives start/stop outcomes; MainActivity forwards them to Dart. */
     public interface StatusSink {
