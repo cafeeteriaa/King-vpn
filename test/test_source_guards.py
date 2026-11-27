@@ -3355,7 +3355,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         nat = (ROOT / "lib" / "nat_ultra.dart").read_text(encoding="utf-8")
         ip = (ROOT / "lib" / "ip_auto_scan.dart").read_text(encoding="utf-8")
         generator_start = nat.index("Map<String, dynamic> _genAddrsIso(")
-        generator_end = nat.index("\\n// RANGEGUARD:", generator_start)
+        generator_end = nat.index("\n// RANGEGUARD:", generator_start)
         generator = nat[generator_start:generator_end]
         self.assertIn("natPrepareNativeAcceleration();", nat)
         self.assertIn("'nativeAcceleration': KingNativeAccel.useNative", nat)
