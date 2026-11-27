@@ -57,6 +57,15 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn("PersonalFolderStore.writeSnapshot(personalFolderCache)", folder)
         self.assertIn("await p.remove(_kPersonalFolderPref)", folder)
 
+    def test_personal_folder_store_never_overwrites_good_backup_with_corrupt_primary(self):
+        store = (ROOT / "lib" / "personal_folder_store.dart").read_text(encoding="utf-8")
+        start = store.index("if (await target.exists())")
+        end = store.index("try {", start)
+        replacement = store[start:end]
+        self.assertIn("final primaryIsValid = await _readFile(target) != null;", replacement)
+        self.assertIn("if (primaryIsValid)", replacement)
+        self.assertLess(replacement.index("if (primaryIsValid)"), replacement.index("await target.delete()"))
+
     def test_auto_scan_sheet_forwards_live_vpn_guards(self):
         source = (ROOT / 'lib' / 'auto_scanners.dart').read_text(encoding='utf-8')
         start = source.index('Future<void> autoScanSheet(')
