@@ -3464,7 +3464,7 @@ bool _isPrivateIpv4(String h) {
 String? coreUnsupportedReason(String link) {
   final raw = link.trim();
   if (!raw.toLowerCase().startsWith('vless://')) return null;
-  final uri = Uri.tryParse(raw);
+  final uri = parseConfigUri(raw);
   if (uri == null) return null;
   final q = uri.queryParameters;
   final security = (q['security'] ?? '').toLowerCase();
@@ -3488,8 +3488,9 @@ String? coreUnsupportedReason(String link) {
 
 String? vlessRealityOwnCfg(String link) {
   try {
-    final u = Uri.parse(link.trim());
-    if (u.scheme != 'vless' || u.host.isEmpty || !_validHost(u.host) || !u.hasPort) return null;
+    final u = parseConfigUri(link.trim());
+    if (u == null || u.scheme != 'vless' || u.host.isEmpty ||
+        !_validHost(u.host) || !u.hasPort) return null;
     final q = u.queryParameters;
     if ((q['security'] ?? '') != 'reality') return null;
     if ((q['type'] ?? 'tcp').toLowerCase() != 'tcp') return null;
