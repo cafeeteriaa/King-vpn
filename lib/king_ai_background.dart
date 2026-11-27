@@ -299,14 +299,27 @@ class KingAiBackgroundSupervisor {
 
   /// Called when a foreground scan yields at its safe time slice. The durable
   /// cursor remains authoritative; this only asks Android to resume later.
-  static Future<void> scheduleNationalScannerContinuation() async {
+  static Future<void> scheduleNationalScannerContinuation({
+    bool Function()? cancelled,
+  }) async {
     if (!_kingBackgroundWorkmanagerInitialized) return;
+    bool isCancelled() {
+      try {
+        return cancelled?.call() ?? false;
+      } catch (_) {
+        return true;
+      }
+    }
+    if (isCancelled()) return;
     final constraints = Constraints(
       networkType: NetworkType.connected,
       requiresBatteryNotLow: true,
     );
+    final uniqueName =
+        'king-national-scan-resume-${DateTime.now().microsecondsSinceEpoch}';
+    if (isCancelled()) return;
     await Workmanager().registerOneOffTask(
-      'king-national-scan-resume-${DateTime.now().microsecondsSinceEpoch}',
+      uniqueName,
       _nationalScannerTaskName,
       initialDelay: const Duration(minutes: 2),
       constraints: constraints,
@@ -315,6 +328,11 @@ class KingAiBackgroundSupervisor {
       backoffPolicyDelay: const Duration(minutes: 2),
       tag: _nationalScannerTag,
     );
+    // Foreground scans can also hand over networks while the native schedule
+    // request is in flight. Cancel the exact continuation if that raced.
+    if (isCancelled()) {
+      await Workmanager().cancelByUniqueName(uniqueName);
+    }
   }
 
   /// Daily, network-constrained scanner maintenance. WorkManager is
