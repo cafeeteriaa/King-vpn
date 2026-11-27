@@ -38,21 +38,26 @@ class KingDynamicSourceDiscovery {
   }
 
   static String? normalizeFeedUrl(String value) {
-    final uri = Uri.tryParse(value);
-    if (uri == null ||
-        uri.scheme != 'https' ||
-        uri.host != 'raw.githubusercontent.com' ||
-        uri.userInfo.isNotEmpty ||
-        uri.hasQuery ||
-        uri.hasFragment ||
-        uri.pathSegments.length < 4) {
+    const prefix = 'https://raw.githubusercontent.com/';
+    if (!value.startsWith(prefix)) return null;
+    final rawPath = value.substring(prefix.length).split(RegExp(r'[?#]')).first;
+    try {
+      final segments = rawPath.split('/').map(Uri.decodeComponent).toList();
+      if (segments.length < 4 || segments.any((s) =>
+          s.isEmpty || s == '.' || s == '..' || s.contains(String.fromCharCode(92)))) {
+        return null;
+      }
+    } catch (_) {
       return null;
     }
-    final segments = uri.pathSegments;
-    if (segments.any((s) => s == '.' || s == '..' || s.isEmpty)) return null;
+    final uri = Uri.tryParse(value);
+    if (uri == null || uri.scheme != 'https' ||
+        uri.host != 'raw.githubusercontent.com' || uri.userInfo.isNotEmpty ||
+        uri.hasQuery || uri.hasFragment || uri.pathSegments.length < 4) {
+      return null;
+    }
     return uri.toString();
   }
-
   static Future<File> _cacheFile() async {
     final dir = await getApplicationSupportDirectory();
     if (!await dir.exists()) await dir.create(recursive: true);
@@ -171,17 +176,15 @@ class KingDynamicSourceDiscovery {
 
       await Future.wait(List.generate(4, (_) => worker()));
       if (shouldStop?.call() ?? false) return;
-      if (found.isNotEmpty) {
-        final previous = await cachedFeeds();
-        final merged = <String>{...found, ...previous}.take(_maxFiles).toList();
-        final file = await _cacheFile();
-        final temp = File('${file.path}.tmp');
-        await temp.writeAsString(
-          jsonEncode(<String, dynamic>{'updatedAt': now, 'feeds': merged}),
-          flush: true,
-        );
-        await temp.rename(file.path);
-      }
+      final previous = await cachedFeeds();
+      final merged = <String>{...found, ...previous}.take(_maxFiles).toList();
+      final file = await _cacheFile();
+      final temp = File(file.path + '.tmp');
+      await temp.writeAsString(
+        jsonEncode(<String, dynamic>{'updatedAt': now, 'feeds': merged}),
+        flush: true,
+      );
+      await temp.rename(file.path);
     } catch (_) {
       // Preserve the last known-good source inventory on all discovery errors.
     } finally {
