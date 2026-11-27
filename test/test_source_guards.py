@@ -3236,5 +3236,49 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn("bool Function()? shouldAbort", store)
         self.assertIn("shouldAbort: shouldAbort", store)
 
+
+    def test_owner_feature_engineering_is_staged_and_committed_as_one_atomic_pr(self):
+        ai = (ROOT / 'lib' / 'king_local_ai.dart').read_text(encoding='utf-8')
+        pipeline = (ROOT / 'lib' / 'king_ai_change_pipeline.dart').read_text(encoding='utf-8')
+        tests = (ROOT / 'test' / 'king_ai_change_pipeline_test.dart').read_text(encoding='utf-8')
+        feature_start = ai.index('Future<Map<String, Object?>> createOwnerFeatureProposal({')
+        feature_end = ai.index('Future<void> dispose()', feature_start)
+        feature = ai[feature_start:feature_end]
+        create_start = ai.index('Future<String> _createRepairPullRequest({')
+        create_end = ai.index('Future<KingAiWorkPlan> _planOwnerFeature(', create_start)
+        create = ai[create_start:create_end]
+        self.assertIn("import 'king_ai_change_pipeline.dart';", ai)
+        self.assertIn('KingAiWorkPlan.parse(raw)', ai)
+        self.assertIn('for (var index = 0; index < plan.stages.length; index++)', feature)
+        self.assertIn('bundle.addStage(', feature)
+        self.assertIn('changes: bundle.changes,', feature)
+        self.assertIn("'draft': true", create)
+        self.assertIn('KingAiPatchBundle.maxChangedFiles', create)
+        self.assertIn('KingAiPatchBundle.maxTotalContentChars', create)
+        self.assertIn('maxStages = 6', pipeline)
+        self.assertIn('maxFilesPerStage = 3', pipeline)
+        self.assertIn('maxChangedFiles = maxStages * maxFilesPerStage', pipeline)
+        self.assertIn('later stage did not use the prior output', pipeline)
+        self.assertIn('rejects a stale or conflicting follow-up stage', tests)
+        self.assertIn('aggregates separate three-file passes', tests)
+
+    def test_autonomous_background_ai_remains_narrow_and_never_merges(self):
+        ai = (ROOT / 'lib' / 'king_local_ai.dart').read_text(encoding='utf-8')
+        start = ai.index('Future<Map<String, Object?>> createAutonomousMaintenanceProposal({')
+        end = ai.index('static const Set<String> _researchHosts', start)
+        audit = ai[start:end]
+        self.assertIn('changes.length <= 2', audit)
+        self.assertIn('Make at most one minimal, reversible change', audit)
+        self.assertIn("'draft': true", ai)
+        self.assertNotIn('mergePullRequest', audit)
+
+    def test_ai_change_pipeline_cannot_modify_itself(self):
+        ai = (ROOT / 'lib' / 'king_local_ai.dart').read_text(encoding='utf-8')
+        start = ai.index('bool _isProtectedGeneratedPath(String path)')
+        end = ai.index('void _validatePath(String path)', start)
+        protected = ai[start:end]
+        self.assertIn('lib/king_ai_change_pipeline.dart', protected)
+        self.assertIn('test/king_ai_change_pipeline_test.dart', protected)
+
 if __name__ == '__main__':
     unittest.main()
