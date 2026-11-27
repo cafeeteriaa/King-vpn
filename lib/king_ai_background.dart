@@ -155,11 +155,24 @@ void kingAiBackgroundDispatcher() {
   });
 }
 
+Future<bool> _kingHasVpnInterface() async {
+  try {
+    final interfaces = await NetworkInterface.list(includeLoopback: false);
+    return interfaces.any((interface) {
+      final name = interface.name.toLowerCase();
+      return RegExp(r'^(tun|tap|ppp|wg|utun|vpn)\\d*').hasMatch(name);
+    });
+  } catch (e, st) {
+    logError(e, st);
+    return false;
+  }
+}
+
 Future<bool> _runKingNationalScannerBackgroundTask() async {
   try {
-    // Never compete with a live VPN tunnel. WorkManager will retry on its
-    // next periodic window; the foreground scanner remains available.
-    if (vpnActive() || vpnWanted()) return false;
+    // Avoid running route probes through an active Android VPN interface.
+    final vpnInterfaceActive = await _kingHasVpnInterface();
+    if (vpnInterfaceActive) return false;
     await natLoadPersisted();
     final detectedMode = await KingNationalScannerEngine.detectNationalMode();
     // Preserve unknown/ambiguous networks rather than guessing a route policy.
@@ -170,7 +183,7 @@ Future<bool> _runKingNationalScannerBackgroundTask() async {
       knownServers: seeds,
       onStatus: (_) {},
       sliceBudget: const Duration(minutes: 8),
-      cancelled: () => vpnActive() || vpnWanted(),
+      cancelled: () => vpnInterfaceActive,
       addDiscovered: natIpMemMergeHits,
     );
     final needsContinuation = report.sliceYielded ||
