@@ -473,8 +473,13 @@ class FreshResourceStore {
         _mergeQueues[targetPath] ?? Future<void>.value(),
         _readQueues[targetPath] ?? Future<void>.value(),
       ]);
+      // Recover a prior interrupted swap before preparing another snapshot.
+      if (!await target.exists() && await backup.exists()) {
+        await backup.rename(target.path);
+      } else if (await target.exists() && await backup.exists()) {
+        await backup.delete(recursive: true);
+      }
       if (await stageRoot.exists()) await stageRoot.delete(recursive: true);
-      if (await backup.exists()) await backup.delete(recursive: true);
       final total = await merge(links, source: source, root: stageRoot);
       if (total <= 0 || total > maxEntries) {
         throw StateError('Fresh resource refresh produced no valid profiles; previous inventory preserved.');
