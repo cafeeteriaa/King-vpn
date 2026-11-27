@@ -131,7 +131,7 @@ Future<({List<String> addresses, Map<String, int> cursors, int nextPosition})>
   };
   final gen = await compute(_genAddrsIso, args);
   if (nationalMode != modeSnapshot || (shouldAbort?.call() ?? false)) {
-    return (addresses: const <String>[], cursors: cursorSnapshot, nextPosition: startPosSnapshot);
+    return (addresses: const <String>[], cursors: cursorSnapshot, nextPosition: 0);
   }
   final all = (gen['addrs'] as List).cast<String>();
   final generatedCursors = Map<String, int>.from(gen['cursors'] as Map);
