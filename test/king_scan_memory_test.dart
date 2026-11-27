@@ -41,6 +41,10 @@ void main() {
       final offsets = (reopened.latestCheckpoint?['cursor'] as Map)['rangeOffsets'] as Map;
       expect(offsets.keys.single, hasLength(64));
       expect(offsets.keys.single, isNot('10.0.0.0/24'));
+      expect(
+        (reopened.latestCheckpoint?['counters'] as Map)['discovered'],
+        14,
+      );
     });
 
     test('serializes concurrent checkpoint commits in sequence order', () async {
