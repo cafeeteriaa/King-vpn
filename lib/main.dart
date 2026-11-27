@@ -4249,13 +4249,23 @@ Future<int?> pingAny(
   // use domestic endpoints when nationalMode is active.
   final urls = networkAware && nationalMode ? _tunnelTestUrlsNational : _pingUrls;
   final n = tries.clamp(1, urls.length);
-  for (final u in urls.take(n)) {
+  final watch = Stopwatch()..start();
+  for (var index = 0; index < n; index++) {
     if (cancelled?.call() ?? false) return null;
+    final remaining = total - watch.elapsed;
+    if (remaining <= Duration.zero) break;
+    // The total timeout is a whole-chain budget, not a fresh timeout per host.
+    // Divide remaining time among untried endpoints so domestic fallback can
+    // test all three hosts without multiplying the connection delay.
+    final slots = n - index;
+    final perEndpoint = Duration(
+      microseconds: max(1, remaining.inMicroseconds ~/ slots),
+    );
     final p = await pingProxy(
-      total: total,
+      total: perEndpoint,
       direct: direct,
       viaCore: viaCore,
-      url: u,
+      url: urls[index],
       cancelled: cancelled,
     );
     if (cancelled?.call() ?? false) return null;
