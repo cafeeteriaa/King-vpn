@@ -87,6 +87,25 @@ void main() {
       }
     });
 
+
+    test('small offline inventories never repeat records inside one batch', () async {
+      final root = await Directory.systemTemp.createTemp('king-offline-small-');
+      try {
+        await FreshResourceStore.merge(
+          <String>[
+            'vless://small-one@example.test:443',
+            'vless://small-two@example.test:443',
+          ],
+          root: root,
+        );
+        final batch = await FreshResourceStore.readBatch(limit: 300, root: root);
+        expect(batch, hasLength(2));
+        expect(batch.toSet(), hasLength(2));
+      } finally {
+        await root.delete(recursive: true);
+      }
+    });
+
     test('migrates the legacy flat file and repairs interrupted count metadata', () async {
       final root = await Directory.systemTemp.createTemp('king-offline-migrate-');
       try {
