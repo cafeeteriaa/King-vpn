@@ -1,6 +1,8 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:king_vpn/main.dart';
 import 'package:king_vpn/nnie_core.dart';
+import 'dart:convert';
+import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
   group('KING National Scanner Engine capability registry', () {
@@ -60,6 +62,31 @@ void main() {
       expect(rows['padding_noise']!.status, KingNatCapabilityStatus.incompatible);
       expect(rows['fake_tcp_packet']!.status, KingNatCapabilityStatus.researchOnly);
       expect(rows['udp_packet_forgery']!.status, KingNatCapabilityStatus.researchOnly);
+    });
+
+    test('restores baseline variant zero and bounds corrupted evidence', () async {
+      SharedPreferences.setMockInitialValues(<String, Object>{
+        'king_nat_strategy_memory_v1': jsonEncode(<String, Object?>{
+          'version': 3,
+          'profiles': <String, Object?>{
+            'persisted-baseline-profile': <String, Object?>{
+              '0': <String, Object?>{'a': 4, 's': 2, 'f': 2, 'l': 95, 't': 1760000000000},
+              '1': <String, Object?>{'a': 2, 's': 99, 'f': 99, 'l': 80, 't': 1760000000001},
+            },
+          },
+          'sni': <String, Object?>{},
+          'alpn': <String, Object?>{},
+          'sniEvidence': 7,
+          'alpnEvidence': 9,
+        }),
+      });
+      await KingNationalScannerEngine.load();
+      final report = KingNationalScannerEngine.diagnostics();
+      expect(report['attempts'], 6);
+      expect(report['realTrafficSuccesses'], 3);
+      expect(report['realTrafficFailures'], 3);
+      expect(report['sniProbeEvidence'], 7);
+      expect(report['alpnProbeEvidence'], 9);
     });
 
     test('records baseline variant zero in real-traffic learning', () {
