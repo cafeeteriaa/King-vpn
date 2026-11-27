@@ -42,6 +42,11 @@
 - Added a pure JSONL codec and Flutter tests covering Unicode/newline preservation, deduplication, corruption detection and 6,000-entry retention.
 - Tests are committed but still need a fresh GitHub Actions run.
 
+## Revision 65.3 concurrency hardening
+- Added a store-level serialized mutation queue for snapshot writes and legacy migration.
+- Copies each pending snapshot before queued execution.
+- Added a source guard for the queue.
+
 ## Remaining work and validation
 - SharedPreferences string-list storage and the in-memory personalFolderCache remain. This is not yet a file-backed, memory-bounded inventory; design and migrate transactionally before claiming very-large-folder readiness.
 - Exact-head CI, Flutter tests, Dart analysis, Android build, and device tests are pending.
