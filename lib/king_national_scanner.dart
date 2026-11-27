@@ -105,7 +105,7 @@ class KingNatScanReport {
   final int domesticIpv6Successes, globalIpv6Successes;
   final int? domesticIpv6LatencyMs, globalIpv6LatencyMs;
   final List<String> warnings;
-  String get summary => 'اسکنر: DNS $dnsResolvers • دامنه/IP $domainEndpoints • IP $ipEndpoints • SNI $sniHandshakes • ALPN $alpnNegotiations • IPv6 داخلی/جهانی $domesticIpv6Successes/$globalIpv6Successes • کانفیگ ساختاری $configsValidated';
+  String get summary => 'اسکن این نوبت: DNS $dnsResolvers • دامنه/IP $domainEndpoints • IP $ipEndpoints • SNI $sniHandshakes • ALPN $alpnNegotiations • IPv6 داخلی/جهانی $domesticIpv6Successes/$globalIpv6Successes • کانفیگ ساختاری $configsValidated • موجودی IP: ${inventoryPassComplete ? 'کامل' : 'ادامه از Cursor ذخیره‌شده'}';
   Map<String, Object?> toMap() => <String, Object?>{
     'completed': completed, 'timedOut': timedOut,
     'networkClass': natNetworkClassLabel(networkClass), 'nationalMode': nationalMode,
