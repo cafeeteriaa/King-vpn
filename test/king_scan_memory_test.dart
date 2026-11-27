@@ -175,4 +175,46 @@ void main() {
       expect(content, isNot(contains('user:password')));
     });
   });
+
+    test('disk inventory appends unique records and streams without full hydration', () async {
+      final inventory = await KingDiskInventory.open(name: 'ip-test', root: root);
+      final added = await inventory.appendBatch([
+        <String, Object?>{'key': '192.0.2.10:443', 'ip': '192.0.2.10', 'port': 443},
+        <String, Object?>{'key': '192.0.2.11:443', 'ip': '192.0.2.11', 'port': 443},
+        <String, Object?>{'key': '192.0.2.10:443', 'ip': '192.0.2.10', 'port': 443},
+      ]);
+      expect(added, 2);
+      expect(await inventory.records().length, 2);
+      expect(await inventory.appendBatch([
+        <String, Object?>{'key': '192.0.2.10:443', 'ip': '192.0.2.10', 'port': 443},
+      ]), 0);
+    });
+
+    test('disk inventory survives reopen and ignores torn records', () async {
+      final inventory = await KingDiskInventory.open(name: 'resume-test', root: root);
+      await inventory.appendBatch([
+        <String, Object?>{'key': '198.51.100.7:8443', 'ip': '198.51.100.7', 'port': 8443},
+      ]);
+      final shard = (await root.list(recursive: true).where((e) => e is File).first) as File;
+      await shard.writeAsString('{"version":1,"id":', mode: FileMode.append);
+      final reopened = await KingDiskInventory.open(name: 'resume-test', root: root);
+      expect(await reopened.records().length, 1);
+      expect(await reopened.appendBatch([
+        <String, Object?>{'key': '203.0.113.8:443', 'ip': '203.0.113.8', 'port': 443},
+      ]), 1);
+      expect(await reopened.records().length, 2);
+    });
+
+    test('disk inventory rejects missing and oversized identities', () async {
+      final inventory = await KingDiskInventory.open(name: 'validate-test', root: root);
+      await expectLater(
+        inventory.appendBatch([<String, Object?>{'ip': '192.0.2.1'}]),
+        throwsArgumentError,
+      );
+      await expectLater(
+        inventory.appendBatch([<String, Object?>{'key': List<String>.filled(4097, 'x').join()}]),
+        throwsArgumentError,
+      );
+    });
+  }
 }
