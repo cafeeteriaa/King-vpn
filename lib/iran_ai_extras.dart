@@ -2534,12 +2534,8 @@ extension HomeExtras on _HomePageState {
     if (connected) return NatNetworkClass.unknown;
     try {
       final previousMode = nationalMode;
-      final evidence = await PilotNetworkProbe.refresh()
-          .timeout(const Duration(seconds: 9), onTimeout: () =>
-              const NetworkEvidence(
-                domestic: LinkHealth.unknown,
-                global: LinkHealth.unknown,
-              ));
+      final evidence = await refreshPilotNetworkEvidence()
+          .timeout(const Duration(seconds: 9), onTimeout: currentPilotNetworkEvidence);
       final strategy = choosePilotNetworkStrategy(evidence);
       if (!_pilotNetworkModePinned) {
         if (strategy == PilotNetworkStrategy.domestic) {
