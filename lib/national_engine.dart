@@ -4,10 +4,10 @@ part of 'main.dart';
 // This module is deliberately additive: it records evidence and ranks candidates;
 // it does not rewrite a V2Ray URI or claim that a probe proves tunnel reachability.
 
-/// Bounded, privacy-preserving history. Only a SHA-256 key is persisted, never
+/// Complete, privacy-preserving history. Only a SHA-256 key is persisted, never
 /// the raw V2Ray link, UUID, password, server name, or full endpoint string.
 class NationalNetworkIntelligence {
-  static const String _prefsKey = 'nnie_profiles_v2'; // v2: key includes transport + TLS
+  static const String _prefsKey = 'nnie_profiles_v2'; // Legacy migration source; new writes use the disk snapshot.
   static Future<void> _saveTail = Future<void>.value();
   static Map<String, NatEndpointMemory> _memory = <String, NatEndpointMemory>{};
   static bool _loaded = false;
