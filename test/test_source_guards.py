@@ -2359,9 +2359,9 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         tls_start = source.index('final tlsHits = <String>[];')
         tls_end = source.index("await goldAddScans(", tls_start)
         tls = source[tls_start:tls_end]
-        ip_loop = tls.index('for (final ip in ips) {')
+        ip_loop = tls.index('for (final ip in validIps) {')
         stop_check = tls.index('if (cancelled()) break;', ip_loop)
-        probe = tls.index('final sel = await _autoAlpnOk', ip_loop)
+        probe = tls.index('final selected = await _autoAlpnOk', ip_loop)
         self.assertLess(ip_loop, stop_check)
         self.assertLess(stop_check, probe)
 
