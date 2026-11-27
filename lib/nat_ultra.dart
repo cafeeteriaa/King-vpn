@@ -2180,8 +2180,8 @@ Future<List<String>> natDeviceHosts() async {
 }
 
 List<String> natSeedBlocks(List<String> hosts) {
-  // A discovered DNS/server/device IP is not permission to scan its /24.
-  // Keep the candidate set to the exact observed address (/32).
+  // Known host endpoints become exact-host blocks. Broader CIDR inventories
+  // are expanded independently by the persistent configured-range cursor.
   final out = <String>[];
   final seen = <String>{};
   for (final host in hosts) {
@@ -2417,9 +2417,8 @@ Future<List<String>> _natRangeScanStepBody({
   }
   if (shouldAbort()) return const <String>[];
 
-  // Only previously successful server IPs and exact IP endpoints from the
-  // current config pool are eligible. Device addresses and public DNS servers
-  // are not scan authorization and are deliberately excluded.
+  // Build endpoint inventory from saved scan hits and IP-literal config hosts.
+  // Configured CIDR and dash ranges are expanded by the independent range cursor.
   final hosts = <String>{
     ...natIpMemHosts(),
     for (final server in seeds) if (server.isIp) server.host,
