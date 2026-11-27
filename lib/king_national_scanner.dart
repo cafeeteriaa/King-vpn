@@ -256,11 +256,7 @@ class KingNationalScannerEngine {
         }
       }
       _trimHistory();
-      _recordCount = _history.values.fold<int>(
-        0,
-        (sum, variants) =>
-            sum + variants.values.fold<int>(0, (n, stat) => n + stat.attempts),
-      );
+      _rebuildLearningTotals();
     } catch (e, st) {
       logError(e, st);
     } finally {
@@ -451,6 +447,24 @@ class KingNationalScannerEngine {
       }
     }
     _trimHistory();
+    _rebuildLearningTotals();
+  }
+
+  static void _rebuildLearningTotals() {
+    _featureEvidence.clear();
+    var records = 0;
+    for (final variants in _history.values) {
+      for (final entry in variants.entries) {
+        final stat = entry.value;
+        records += stat.attempts;
+        if (stat.successes <= 0) continue;
+        for (final id in _featuresFor(_natSpecs[entry.key])) {
+          _featureEvidence[id] =
+              min(1000000000, (_featureEvidence[id] ?? 0) + stat.successes).toInt();
+        }
+      }
+    }
+    _recordCount = records.clamp(0, 1000000000).toInt();
   }
 
   static void _trimHistory() {
