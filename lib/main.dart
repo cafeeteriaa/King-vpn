@@ -12065,7 +12065,8 @@ ListTile( // KINGEXTRAS row
   }
 
   /// PERSSTREAM: parse and probe the durable archive in bounded batches.
-  /// Only successful links and the visible UI page are retained in memory.
+  /// Server objects stay transient; scores and failed retry links are retained
+  /// as strings (O(N) worst case), alongside the visible UI page.
   Future<void> _personalPrepWork() async {
     final generation = ++_personalPingGen;
     bool cancelled() => generation != _personalPingGen;
