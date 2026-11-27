@@ -109,8 +109,6 @@ class KingNationalScannerEngine {
   KingNationalScannerEngine._();
 
   static const String _prefsKey = 'king_nat_strategy_memory_v1';
-  static const int _maxProfiles = 5000;
-  static const int _maxVariantsPerProfile = 1024;
   static final Map<String, Map<int, _KingNatVariantStats>> _history =
       <String, Map<int, _KingNatVariantStats>>{};
   static final Map<String, int> _featureEvidence = <String, int>{};
@@ -159,7 +157,9 @@ class KingNationalScannerEngine {
   static Future<void> _loadFromPreferences() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      final raw = prefs.getString(_prefsKey);
+      final storeFile = await _strategyStoreFile();
+      final hasDiskStore = await storeFile.exists();
+      final raw = hasDiskStore ? await storeFile.readAsString() : prefs.getString(_prefsKey);
       if (raw == null || raw.isEmpty) return;
       final decoded = jsonDecode(raw);
       if (decoded is! Map || (decoded['version'] != 1 && decoded['version'] != 2 && decoded['version'] != 3)) return;
@@ -167,7 +167,7 @@ class KingNationalScannerEngine {
       if (profiles is! Map) return;
       final rawSni = decoded['sni'];
       if (rawSni is Map) {
-        for (final entry in rawSni.entries.take(_maxProfiles)) {
+        for (final entry in rawSni.entries) {
           final key = entry.key.toString();
           final index = entry.value;
           if (key.isNotEmpty && key.length <= 256 && index is num &&
@@ -179,11 +179,11 @@ class KingNationalScannerEngine {
       }
       final rawSniEvidence = decoded['sniEvidence'];
       if (rawSniEvidence is num && rawSniEvidence >= 0) {
-        _sniProbeEvidence = rawSniEvidence.toInt().clamp(0, 1000000000).toInt();
+        _sniProbeEvidence = rawSniEvidence.toInt();
       }
       final rawAlpn = decoded['alpn'];
       if (rawAlpn is Map) {
-        for (final entry in rawAlpn.entries.take(_maxProfiles)) {
+        for (final entry in rawAlpn.entries) {
           final key = entry.key.toString();
           final value = entry.value?.toString() ?? '';
           if (key.isNotEmpty && key.length <= 256 &&
@@ -194,16 +194,16 @@ class KingNationalScannerEngine {
       }
       final rawAlpnEvidence = decoded['alpnEvidence'];
       if (rawAlpnEvidence is num && rawAlpnEvidence >= 0) {
-        _alpnProbeEvidence = rawAlpnEvidence.toInt().clamp(0, 1000000000).toInt();
+        _alpnProbeEvidence = rawAlpnEvidence.toInt();
       }
-      final orderedProfiles = profiles.entries.take(_maxProfiles * 4).where((entry) =>
+      final orderedProfiles = profiles.entries.where((entry) =>
           entry.key.toString().isNotEmpty && entry.key.toString().length <= 256 &&
           entry.value is Map).toList()
         ..sort((a, b) {
           DateTime newest(Object? raw) {
             var result = DateTime.fromMillisecondsSinceEpoch(0);
             if (raw is Map) {
-              for (final value in raw.values.take(_maxVariantsPerProfile)) {
+              for (final value in raw.values) {
                 if (value is Map && value['t'] is num) {
                   final stamp = (value['t'] as num).toInt();
                   if (stamp > result.millisecondsSinceEpoch) {
@@ -216,12 +216,12 @@ class KingNationalScannerEngine {
           }
           return newest(b.value).compareTo(newest(a.value));
         });
-      for (final profileEntry in orderedProfiles.take(_maxProfiles)) {
+      for (final profileEntry in orderedProfiles) {
         final rawVariants = profileEntry.value;
         if (rawVariants is! Map) continue;
         final variants = <int, _KingNatVariantStats>{};
         for (final variantEntry
-            in rawVariants.entries.take(_maxVariantsPerProfile)) {
+            in rawVariants.entries) {
           final variant = int.tryParse(variantEntry.key.toString());
           final values = variantEntry.value;
           if (variant == null ||
@@ -232,7 +232,7 @@ class KingNationalScannerEngine {
           final successes = values['s'];
           final failures = values['f'];
           if (attempts is! num || successes is! num || failures is! num) continue;
-          final safeAttempts = attempts.toInt().clamp(0, 1000000).toInt();
+          final safeAttempts = attempts.toInt().clamp(0, 0x7fffffffffffffff).toInt();
           final safeSuccesses = successes.toInt().clamp(0, safeAttempts).toInt();
           final safeFailures = failures.toInt()
               .clamp(0, safeAttempts - safeSuccesses).toInt();
@@ -257,8 +257,10 @@ class KingNationalScannerEngine {
           _history[profileEntry.key.toString()] = variants;
         }
       }
-      _trimHistory();
       _rebuildLearningTotals();
+      if (!hasDiskStore && raw != null && raw.isNotEmpty) {
+        _persistDirty = true;
+      }
     } catch (e, st) {
       logError(e, st);
     } finally {
@@ -277,11 +279,15 @@ class KingNationalScannerEngine {
     });
   }
 
+  static Future<File> _strategyStoreFile() async {
+    final directory = await getApplicationSupportDirectory();
+    return File('${directory.path}/king_nat_strategy_memory_v1.json');
+  }
+
   static Future<void> _persistLoop() async {
     while (_persistDirty) {
       _persistDirty = false;
       try {
-        final prefs = await SharedPreferences.getInstance();
         final profiles = <String, Object?>{};
         for (final profileEntry in _history.entries) {
           final variants = <String, Object?>{};
@@ -297,17 +303,21 @@ class KingNationalScannerEngine {
           }
           profiles[profileEntry.key] = variants;
         }
-        await prefs.setString(
-          _prefsKey,
+        final file = await _strategyStoreFile();
+        final temporary = File('${file.path}.tmp');
+        await temporary.writeAsString(
           jsonEncode(<String, Object?>{
-            'version': 3,
+            'version': 4,
             'profiles': profiles,
             'sni': _sniPreferences,
             'alpn': _alpnPreferences,
             'sniEvidence': _sniProbeEvidence,
             'alpnEvidence': _alpnProbeEvidence,
           }),
+          flush: true,
         );
+        if (await file.exists()) await file.delete();
+        await temporary.rename(file.path);
       } catch (e, st) {
         logError(e, st);
       }
@@ -419,36 +429,23 @@ class KingNationalScannerEngine {
     final profiles =
         _history.putIfAbsent(key, () => <int, _KingNatVariantStats>{});
     final stats = profiles.putIfAbsent(variant, _KingNatVariantStats.new);
-    stats.attempts = min(1000000, stats.attempts + 1).toInt();
+    stats.attempts++;
     if (success) {
-      stats.successes = min(stats.attempts, stats.successes + 1).toInt();
+      stats.successes++;
       for (final id in _featuresFor(_natSpecs[variant])) {
-        _featureEvidence[id] = min(1000000, (_featureEvidence[id] ?? 0) + 1).toInt();
+        _featureEvidence[id] = (_featureEvidence[id] ?? 0) + 1;
       }
     } else {
-      stats.failures = min(1000000, stats.failures + 1).toInt();
+      stats.failures++;
     }
     if (latencyMs != null && latencyMs > 0) {
       final oldLatency = stats.latencyEwmaMs;
       stats.latencyEwmaMs = oldLatency == null ? latencyMs.toDouble() : oldLatency * 0.75 + latencyMs * 0.25;
     }
     stats.lastAt = DateTime.now();
-    _recordCount = min(1000000000, _recordCount + 1).toInt();
+    _recordCount++;
     _schedulePersist();
 
-    if (profiles.length > _maxVariantsPerProfile) {
-      final oldest = profiles.entries.toList()
-        ..sort((a, b) {
-          final at = a.value.lastAt ?? DateTime.fromMillisecondsSinceEpoch(0);
-          final bt = b.value.lastAt ?? DateTime.fromMillisecondsSinceEpoch(0);
-          return at.compareTo(bt);
-        });
-      for (final entry
-          in oldest.take(profiles.length - _maxVariantsPerProfile)) {
-        profiles.remove(entry.key);
-      }
-    }
-    _trimHistory();
     _rebuildLearningTotals();
   }
 
@@ -466,29 +463,10 @@ class KingNationalScannerEngine {
         if (features.length != 1) continue;
         final id = features.single;
         _featureEvidence[id] =
-            min(1000000000, (_featureEvidence[id] ?? 0) + stat.successes).toInt();
+            (_featureEvidence[id] ?? 0) + stat.successes;
       }
     }
-    _recordCount = records.clamp(0, 1000000000).toInt();
-  }
-
-  static void _trimHistory() {
-    if (_history.length <= _maxProfiles) return;
-    final oldest = _history.entries.toList()
-      ..sort((a, b) {
-        DateTime newest(Map<int, _KingNatVariantStats> variants) {
-          var result = DateTime.fromMillisecondsSinceEpoch(0);
-          for (final stat in variants.values) {
-            final at = stat.lastAt ?? DateTime.fromMillisecondsSinceEpoch(0);
-            if (at.isAfter(result)) result = at;
-          }
-          return result;
-        }
-        return newest(a.value).compareTo(newest(b.value));
-      });
-    for (final entry in oldest.take(_history.length - _maxProfiles)) {
-      _history.remove(entry.key);
-    }
+    _recordCount = records;
   }
 
   static Set<String> _featuresFor(_NatSpec x) {
@@ -780,16 +758,14 @@ class KingNationalScannerEngine {
     if (profile.isEmpty || index < 0 || index >= natFrontSnis.length ||
         InternetAddress.tryParse(natFrontSnis[index]) != null) return;
     _sniPreferences[profile] = index;
-    _sniProbeEvidence = min(1000000000, _sniProbeEvidence + 1).toInt();
-    if (_sniPreferences.length > _maxProfiles) _sniPreferences.remove(_sniPreferences.keys.first);
+    _sniProbeEvidence++;
     _schedulePersist();
   }
 
   static void recordAlpnProbe(String profile, String alpn) {
     if (profile.isEmpty || (alpn != 'h2' && alpn != 'http/1.1')) return;
     _alpnPreferences[profile] = alpn;
-    _alpnProbeEvidence = min(1000000000, _alpnProbeEvidence + 1).toInt();
-    if (_alpnPreferences.length > _maxProfiles) _alpnPreferences.remove(_alpnPreferences.keys.first);
+    _alpnProbeEvidence++;
     _schedulePersist();
   }
 
