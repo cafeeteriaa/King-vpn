@@ -2480,6 +2480,16 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('ipHits += found.length;', body)
         self.assertIn('await addDiscovered(found);', body)
 
+    def test_nat_inventory_and_range_cursors_are_disk_backed_without_retention_caps(self):
+        source = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
+        self.assertIn('king_nat_ip_inventory.json', source)
+        self.assertIn('king_nat_domain_inventory.json', source)
+        self.assertIn('king_nat_configured_ranges.json', source)
+        self.assertIn('king_nat_range_state.json', source)
+        self.assertNotIn('_ipMemMax', source)
+        self.assertNotIn('_domMemMax', source)
+        self.assertNotIn('Duration(days: 14)', source)
+
     def test_strategy_history_has_unbounded_disk_backed_persistence(self):
         source = (ROOT / 'lib' / 'king_national_scanner.dart').read_text(encoding='utf-8')
         self.assertIn('getApplicationSupportDirectory()', source)
