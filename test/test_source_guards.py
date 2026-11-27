@@ -586,7 +586,8 @@ class KingVpnSourceGuardTests(unittest.TestCase):
             self.assertIn("info['" + field + "']", contract)
         for field in ('"protocolVersion" to 1', '"channel" to "vpn/bg"',
                       '"packageName" to packageName', '"engineAttached" to engineAttached',
-                      '"vpnSettings" to true', '"back" to true', '"alive" to true',
+                      '"vpnSettings" to true', '"back" to true',
+                      '"alive" to (engineAttached && !isFinishing && !isDestroyed)',
                       '"androidSdk" to Build.VERSION.SDK_INT'):
             self.assertIn(field, native)
 
