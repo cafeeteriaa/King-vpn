@@ -23,6 +23,7 @@ void main() {
       expect(KingDynamicSourceDiscovery.normalizeFeedUrl('http://raw.githubusercontent.com/owner/repo/main/sub.txt'), isNull);
       expect(KingDynamicSourceDiscovery.normalizeFeedUrl('https://evil.example/owner/repo/main/sub.txt'), isNull);
       expect(KingDynamicSourceDiscovery.normalizeFeedUrl('https://raw.githubusercontent.com/owner/repo/main/../secret'), isNull);
+      expect(KingDynamicSourceDiscovery.normalizeFeedUrl('https://raw.githubusercontent.com/owner/repo/main/%2e%2e%2fsecret'), isNull);
       expect(KingDynamicSourceDiscovery.normalizeFeedUrl('https://raw.githubusercontent.com/owner/repo/main/sub.txt?token=x'), isNull);
     });
   });
