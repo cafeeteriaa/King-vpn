@@ -6845,7 +6845,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     // still work. Consume the next bounded on-device archive page alongside
     // domestic/public discovery; never load the four-million inventory into RAM.
     // The dedicated offlineOnly branch above remains strict and never downloads.
-    if (nationalMode && !offlineOnly) {
+    final onlineSourceHealthy =
+        srcFetchState.values.any((state) => state == 'ok');
+    if (!offlineOnly &&
+        (nationalMode || (srcFetchState.isNotEmpty && !onlineSourceHealthy))) {
       try {
         final diskBatch = await FreshResourceStore.readBatch(limit: 300);
         final known = <String>{for (final item in fetchedAll) item.key};
