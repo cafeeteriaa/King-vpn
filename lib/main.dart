@@ -9724,7 +9724,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   /// Download and validate into a separate staging directory; only a complete,
   /// non-empty snapshot is swapped into place. Network failures preserve old data.
   Future<void> _refreshFreshResourceSnapshotIfDue() async {
-    if (!mounted || offlineOnly || _freshResourceRefreshBusy) return;
+    // Do not race live connection/scanner work or probe through a VPN tunnel.
+    if (!mounted || offlineOnly || connected || busy || searching || switching ||
+        upBusy || nationalMode || _freshResourceRefreshBusy) return;
     final retryAfter = _freshResourceRefreshRetryAfter;
     if (retryAfter != null && DateTime.now().isBefore(retryAfter)) return;
     _freshResourceRefreshBusy = true;
