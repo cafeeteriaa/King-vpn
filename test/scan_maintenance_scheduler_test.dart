@@ -51,7 +51,7 @@ void main() {
       var ipCalls = 0;
       final scheduler = KingScanMaintenanceScheduler(
         shouldRun: () => eligible,
-        runDns: () async => eligible = false,
+        runDns: () async { eligible = false; },
         runIp: () async { ipCalls++; },
       );
 
