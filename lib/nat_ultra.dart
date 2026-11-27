@@ -1955,7 +1955,7 @@ Future<List<String>> _natDomainFirst(List<Server> known,
   // Bound endpoint collection, DNS resolution, and TCP probes together.
   // Starting the monotonic clock only after DNS resolution allowed a slow
   // resolver to keep this background phase alive far beyond its advertised cap.
-  const scanBudget = Duration(seconds: 45);
+  const scanBudget = Duration(minutes: 2);
   final scanClock = Stopwatch()..start();
   bool expired() => scanClock.elapsed >= scanBudget;
   bool cancelled() => (stop != null && stop()) || expired();
@@ -1964,7 +1964,7 @@ Future<List<String>> _natDomainFirst(List<Server> known,
     // server configurations. Do not scan unrelated public domains or all
     // 65,535 ports on third-party hosts.
     final endpoints = <String, Set<int>>{};
-    for (final server in known.take(1200)) {
+    for (final server in known) {
       if (cancelled()) return const <String>[];
       final host = server.host.trim();
       final port = server.port;
@@ -2000,7 +2000,7 @@ Future<List<String>> _natDomainFirst(List<Server> known,
         entry.value,
         port: entry.key,
         concurrency: conc.clamp(1, 32).toInt(),
-        want: 50,
+        want: entry.value.length,
         budget: const Duration(seconds: 5),
         timeout: const Duration(milliseconds: 1200),
         cancelled: cancelled,
