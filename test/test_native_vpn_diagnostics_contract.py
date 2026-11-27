@@ -10,6 +10,7 @@ class NativeVpnDiagnosticsContractTests(unittest.TestCase):
         cls.java = (ROOT / "android_src" / "KingVpnService.java").read_text(encoding="utf-8")
         cls.kotlin = (ROOT / "android_src" / "MainActivity.kt").read_text(encoding="utf-8")
         cls.dart = (ROOT / "lib" / "main.dart").read_text(encoding="utf-8")
+        cls.prepare = (ROOT / "prepare_android.py").read_text(encoding="utf-8")
 
     def test_java_service_exports_versioned_operational_snapshot(self):
         self.assertIn('snapshot.put("protocolVersion", 3)', self.java)
@@ -55,6 +56,7 @@ class NativeVpnDiagnosticsContractTests(unittest.TestCase):
         self.assertIn("NET_CAPABILITY_VALIDATED", self.java)
         self.assertIn("setUnderlyingNetworks(", self.java)
         self.assertIn("physicalNetworkChangeCount.incrementAndGet()", self.java)
+        self.assertIn("android.permission.ACCESS_NETWORK_STATE", self.prepare)
         self.assertIn("synchronized (lock)", self.java[self.java.index("public Map<String, Object> diagnosticSnapshot()"):])
         self.assertNotIn('snapshot.put("url"', self.java)
         self.assertNotIn('snapshot.put("config"', self.java)
