@@ -160,7 +160,9 @@ class KingScanJournal {
     }
     final safeCursor = _sanitizeCursor(cursor);
     final safeCounters = _sanitizeCounters(counters);
-    final task = _writeTail.then((_) async {
+    final path = _directory.path;
+    final previous = _writeQueues[path] ?? Future<void>.value();
+    final task = previous.then((_) async {
       final nextSequence = _sequence + 1;
       final record = <String, Object?>{
         'version': 1,
@@ -247,7 +249,10 @@ class KingDiskInventory {
 
   final Directory _directory;
   final String name;
-  Future<void> _writeTail = Future<void>.value();
+  static final Map<String, Future<void>> _writeQueues = <String, Future<void>>{};
+
+  Future<void> get _writeTail =>
+      _writeQueues[_directory.path] ?? Future<void>.value();
 
   static Future<KingDiskInventory> open({
     required String name,
@@ -333,7 +338,7 @@ class KingDiskInventory {
       }
       return added;
     });
-    _writeTail = task.then<void>((_) {}, onError: (Object error, StackTrace stack) {
+    _writeQueues[path] = task.then<void>((_) {}, onError: (Object error, StackTrace stack) {
       logError(error, stack);
     });
     return task;
