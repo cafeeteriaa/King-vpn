@@ -5,6 +5,7 @@
 
 // از همان لایه‌ی ذخیره‌ی برنامه استفاده می‌کند (پکیج shared_preferences در پروژه نیست)
 import 'prefs_store.dart';
+import 'personal_folder_store.dart';
 import 'errjournal.dart';
 
 const String _kPersonalFolderPref = 'personal_folder_v1';
@@ -34,8 +35,15 @@ Future<void> loadPersonalFolder() {
   return _serializePersonalMutation(() async {
     try {
       final p = await SharedPreferences.getInstance();
-      personalFolderCache =
-          List<String>.of(p.getStringList(_kPersonalFolderPref) ?? const <String>[]);
+      final hasLegacy = p.containsKey(_kPersonalFolderPref);
+      personalFolderCache = await PersonalFolderStore.readOrMigrate(() async {
+        return p.getStringList(_kPersonalFolderPref) ?? const <String>[];
+      });
+      if (hasLegacy) {
+        // Remove the legacy copy only after the new durable snapshot exists.
+        await p.remove(_kPersonalFolderPref);
+        await p.flush();
+      }
       final lg = p.getStringList(_kPersonalLastGoodPref) ?? const <String>[];
       personalLastGood = lg.isEmpty ? '' : lg.first;
     } catch (e, stk) {
@@ -63,7 +71,7 @@ Future<void> removeFromPersonalFolder(String link) {
     personalFolderCache.remove(link.trim());
     try {
       final p = await SharedPreferences.getInstance();
-      await p.setStringList(_kPersonalFolderPref, personalFolderCache);
+      await PersonalFolderStore.writeSnapshot(personalFolderCache);
     } catch (e, stk) {
       errJournalAdd(e, kind: 'PERSONAL-FOLDER', st: stk);
     }
@@ -87,7 +95,7 @@ Future<int> addToPersonalFolder(Iterable<String> links) {
     if (added == 0) return 0;
     try {
       final p = await SharedPreferences.getInstance();
-      await p.setStringList(_kPersonalFolderPref, personalFolderCache);
+      await PersonalFolderStore.writeSnapshot(personalFolderCache);
     } catch (e, stk) {
       errJournalAdd(e, kind: 'PERSONAL-FOLDER', st: stk);
     }
