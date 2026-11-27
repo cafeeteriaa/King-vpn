@@ -199,6 +199,69 @@ void main() {
       expect(bundle.completedStages, 1);
     });
 
+
+    test('supports the full 18-file aggregate across six ordered stages', () {
+      final bundle = KingAiPatchBundle();
+      for (var stage = 0; stage < KingAiPatchBundle.maxStages; stage++) {
+        final source = <String, String>{
+          for (var file = 0; file < 3; file++)
+            'lib/stage_${stage}_file_${file}.dart': 'old',
+        };
+        final changes = <String, String>{
+          for (final path in source.keys) path: 'new',
+        };
+        bundle.addStage(
+          stageIndex: stage,
+          sourceFiles: source,
+          changes: changes,
+        );
+      }
+      expect(bundle.completedStages, 6);
+      expect(bundle.changedFileCount, 18);
+      expect(
+        () => bundle.addStage(
+          stageIndex: 6,
+          sourceFiles: const {'lib/extra.dart': 'old'},
+          changes: const {},
+        ),
+        throwsStateError,
+      );
+    });
+
+    test('rejects aggregate content overflow without committing the failing stage', () {
+      final bundle = KingAiPatchBundle();
+      for (var stage = 0; stage < 5; stage++) {
+        final source = <String, String>{
+          for (var file = 0; file < 3; file++)
+            'lib/large_${stage}_${file}.dart': 'old',
+        };
+        final changes = <String, String>{
+          for (final path in source.keys) path: 'x' * 10001,
+        };
+        bundle.addStage(
+          stageIndex: stage,
+          sourceFiles: source,
+          changes: changes,
+        );
+      }
+      final source = <String, String>{
+        for (var file = 0; file < 3; file++) 'lib/final_${file}.dart': 'old',
+      };
+      final changes = <String, String>{
+        for (final path in source.keys) path: 'x' * 10001,
+      };
+      expect(
+        () => bundle.addStage(
+          stageIndex: 5,
+          sourceFiles: source,
+          changes: changes,
+        ),
+        throwsStateError,
+      );
+      expect(bundle.completedStages, 5);
+      expect(bundle.changedFileCount, 15);
+    });
+
     test('ignores no-op outputs and counts completed empty stages', () {
       final bundle = KingAiPatchBundle();
       bundle.addStage(
