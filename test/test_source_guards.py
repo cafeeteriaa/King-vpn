@@ -2366,7 +2366,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         load_start = source.index('Future<void> ipAutoLoad() async {')
         save_start = source.index('Future<void> _ipAutoSave() async {', load_start)
         load = source[load_start:save_start]
-        save_end = source.index('/// خودکار فقط IPهای دقیق', save_start)
+        save_end = source.index('/// Build an exact endpoint inventory', save_start)
         save = source[save_start:save_end]
         self.assertLess(load.index('final loadNationalMode = nationalMode;'),
                         load.index('await SharedPreferences.getInstance();'))
@@ -2407,9 +2407,14 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         start = source.index('Future<_IpAutoAddressBatch?> _ipAutoNextAddrs(')
         end = source.index('extension IpAutoExt', start)
         body = source[start:end]
+        abort_before = body.index('if (nationalMode != modeSnapshot || (shouldAbort?.call() ?? false))')
         compute = body.index('await compute(_genAddrsIso, <String, dynamic>{')
-        abort = body.index('if (nationalMode != modeSnapshot || (shouldAbort?.call() ?? false))')
-        self.assertLess(compute, abort)
+        abort_after = body.index(
+            'if (nationalMode != modeSnapshot || (shouldAbort?.call() ?? false))',
+            compute,
+        )
+        self.assertLess(abort_before, compute)
+        self.assertLess(compute, abort_after)
         self.assertNotIn('ipAutoCursors', body)
         self.assertIn('nextCursors', body)
         run_start = source.index('Future<bool> _ipAutoRunOnce(')
@@ -3025,11 +3030,16 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         body = source[start:end]
         mode = body.index('final modeSnapshot = nationalMode;')
         cursors = body.index('final cursorSnapshot = Map<String, int>.of(ipAutoCursors);')
+        guard_before = body.index('if (nationalMode != modeSnapshot || (shouldAbort?.call() ?? false))')
         compute = body.index('await compute(_genAddrsIso, <String, dynamic>{')
-        guard = body.index('if (nationalMode != modeSnapshot || (shouldAbort?.call() ?? false))')
+        guard_after = body.index(
+            'if (nationalMode != modeSnapshot || (shouldAbort?.call() ?? false))',
+            compute,
+        )
         self.assertLess(mode, compute)
         self.assertLess(cursors, compute)
-        self.assertLess(compute, guard)
+        self.assertLess(guard_before, compute)
+        self.assertLess(compute, guard_after)
         self.assertIn("'nationalMode': modeSnapshot", body)
         self.assertIn('nextCursors', body)
         self.assertNotIn('ipAutoCursors', body)
