@@ -205,12 +205,26 @@ class PersonalFolderStore {
     final needle = query.trim().toLowerCase();
     final primary = await _file(fileName);
     final backup = await _file(backupName);
-    Future<bool> valid(File file) async => (await _readFile(file)) != null;
-    // Validate the selected snapshot before streaming it. A corrupt primary
-    // falls back to the last committed backup, matching readPage semantics.
-    final source = await valid(primary)
+    Future<bool> validStreaming(File file) async {
+      if (!await file.exists()) return false;
+      try {
+        await for (final line in file
+            .openRead()
+            .transform(utf8.decoder)
+            .transform(const LineSplitter())) {
+          if (line.isEmpty) continue;
+          if (jsonDecode(line) is! String) return false;
+        }
+        return true;
+      } catch (_) {
+        return false;
+      }
+    }
+    // Validate without materializing the archive, then stream the chosen
+    // snapshot in a second bounded pass. Corrupt primary falls back to backup.
+    final source = await validStreaming(primary)
         ? primary
-        : (await valid(backup) ? backup : null);
+        : (await validStreaming(backup) ? backup : null);
     if (source == null) return;
     var batch = <String>[];
     final seen = <String>{};
