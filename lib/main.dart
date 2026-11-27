@@ -11465,8 +11465,7 @@ ListTile( // KINGEXTRAS row
           known: [...pending, ...natRestPending],
           maxAddrs: 30000, // SCANCAP: قبلاً ۱۰۰ هزار با بودجه ۱۲ دقیقه
           conc: natAdaptiveWorkers(),
-          stop: () => abort || nationalMode != runNationalMode,
-          budget: const Duration(minutes: 3));
+          stop: () => abort || nationalMode != runNationalMode);
       if (abort || nationalMode != runNationalMode) return;
       await _natRangeAdd(ips);
     } catch (e, stk) {
@@ -11536,8 +11535,7 @@ ListTile( // KINGEXTRAS row
             known: [...pending, ...natRestPending],
             maxAddrs: 100000, // هر دور تا ۱۰۰ هزار آدرس
             conc: natAdaptiveWorkers(),
-            stop: () => abort || modeChanged(),
-            budget: const Duration(minutes: 3));
+            stop: () => abort || modeChanged());
         if (abort || modeChanged()) return;
         await _natRangeAdd(ips);
       }
