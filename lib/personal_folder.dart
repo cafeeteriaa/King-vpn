@@ -2,7 +2,6 @@
 // آرشیو کامل روی دیسک نگهداری می‌شود؛ این کش فقط پنجره‌ی نمایشی اول است.
 // عملیات افزودن/حذف به‌صورت جریانی و تراکنشی انجام می‌شوند.
 
-import 'package:shared_preferences/shared_preferences.dart';
 import 'prefs_store.dart';
 import 'personal_folder_store.dart';
 import 'errjournal.dart';
