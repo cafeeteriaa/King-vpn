@@ -3,9 +3,11 @@ import 'dart:async';
 /// Streaming ranking for personal VPN profiles.
 ///
 /// The coordinator never materializes Server objects for the whole archive.
-/// It consumes storage batches, probes with bounded concurrency, retains only
-/// successful link/latency pairs, and rereads the archive only when every
-/// probe fails so the real-core connection fallback remains available.
+/// It consumes storage batches and probes with bounded concurrency. It retains
+/// successful link/latency pairs plus failed link strings until the single
+/// global retry pass; failed-link memory is O(failures), not O(Server objects).
+/// It rereads the archive only when every probe fails so the real-core fallback
+/// remains available.
 class PersonalFolderProbeResult {
   const PersonalFolderProbeResult({
     required this.links,
