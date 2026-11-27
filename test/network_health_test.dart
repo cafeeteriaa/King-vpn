@@ -308,6 +308,23 @@ void main() {
       expect(withTunnel, physical);
     });
 
+    test('Android IPsec and XFRM VPN interfaces are excluded from physical fingerprint', () {
+      final physical = KingNetworkFingerprint.fromInterfaces(
+        const <KingNetworkInterfaceSnapshot>[
+          KingNetworkInterfaceSnapshot(name: 'rmnet_data0', addresses: <String>['10.20.30.40']),
+        ],
+      );
+      final withVpn = KingNetworkFingerprint.fromInterfaces(
+        const <KingNetworkInterfaceSnapshot>[
+          KingNetworkInterfaceSnapshot(name: 'rmnet_data0', addresses: <String>['10.20.30.40']),
+          KingNetworkInterfaceSnapshot(name: 'ipsec0', addresses: <String>['10.0.0.2']),
+          KingNetworkInterfaceSnapshot(name: 'xfrm0', addresses: <String>['10.0.0.3']),
+          KingNetworkInterfaceSnapshot(name: 'tailscale0', addresses: <String>['100.64.0.1']),
+        ],
+      );
+      expect(withVpn, physical);
+    });
+
     test('default route changes are detected even when both interfaces stay up', () {
       const interfaces = 'rmnet_data0|10.20.30.40;wlan0|192.168.1.10';
       final wifiRoute = KingNetworkFingerprint.withDefaultRoutes(
