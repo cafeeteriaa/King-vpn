@@ -2732,7 +2732,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
     def test_manual_range_scan_has_no_fixed_result_or_time_ceiling(self):
         source = (ROOT / 'lib' / 'npv_am_extras.dart').read_text(encoding='utf-8')
         start = source.index('Future<void> manualRangeScan(')
-        end = source.index('\\n}', start)
+        end = source.index('\n}', start)
         body = source[start:end]
         self.assertIn('want: null,', body)
         self.assertIn('budget: null,', body)
