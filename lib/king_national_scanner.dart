@@ -1289,6 +1289,7 @@ class KingNationalScannerEngine {
         }
         if (!stopped() && !shouldYield()) await completePhase('sni');
       }
+      }
 
       if (shouldRunPhase('config') && !stopped() && !shouldYield() && !phaseDeferred) {
         await beginPhase('config');
@@ -1349,6 +1350,7 @@ class KingNationalScannerEngine {
           }
         }
         if (!stopped() && !shouldYield()) await completePhase('config');
+      }
       }
 
       final didCancel = cancelled() || nationalMode != modeSnapshot;
