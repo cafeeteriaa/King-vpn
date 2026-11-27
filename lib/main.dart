@@ -2,7 +2,7 @@ import 'dart:async';
 import 'network_health.dart';
 import 'king_local_ai.dart';
 part 'king_ai_console.dart';
-import 'king_chat_page.dart';
+part 'king_chat_page.dart';
 import 'king_ai_autonomy_policy.dart';
 import 'package:workmanager/workmanager.dart';
 import 'king_ai_owner_auth.dart';
