@@ -57,12 +57,19 @@ class KingAutoSwitchCoordinator {
     KingNetworkEngineCatalog? catalog,
   }) {
     final registry = catalog ?? KingNetworkEngineCatalog();
-    final eligible = adapters.where((adapter) {
-      final role = registry[adapter.id]?.role;
-      // Local DPI/proxy modules are composed inside a tunnel; they must never
-      // be treated as independent Android VPN owners.
-      return role == KingEngineRole.fullDeviceVpn;
-    }).toList(growable: false);
+    final ids = adapters.map((adapter) => adapter.id).toList(growable: false);
+    if (ids.toSet().length != ids.length) {
+      throw ArgumentError('Each engine must have exactly one adapter');
+    }
+    for (final id in ids) {
+      if (registry[id] == null) {
+        throw ArgumentError('Adapter has no engine catalog entry: $id');
+      }
+    }
+    // A parser, source feed or verified SDK path is not a runtime engine.
+    // Only fully integrated full-device adapters may compete for Android TUN.
+    final eligible = adapters.where((adapter) => registry.canExecute(adapter.id))
+        .toList(growable: false);
     final indexed = eligible.asMap().entries.toList()
       ..sort((a, b) {
         final byPriority = registry.priorityOf(a.value.id)
@@ -70,10 +77,6 @@ class KingAutoSwitchCoordinator {
         return byPriority != 0 ? byPriority : a.key.compareTo(b.key);
       });
     final sorted = indexed.map((entry) => entry.value).toList(growable: false);
-    final ids = sorted.map((adapter) => adapter.id).toList();
-    if (ids.toSet().length != ids.length) {
-      throw ArgumentError('Each engine must have exactly one adapter');
-    }
     return KingAutoSwitchCoordinator._(sorted, registry);
   }
 
