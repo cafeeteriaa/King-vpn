@@ -824,6 +824,50 @@ class KingNationalScannerEngine {
     bool stopped() => cancelled() || nationalMode != modeSnapshot;
     final warnings = <String>[];
     var ownsScannerLease = false;
+    KingScanJournal? journal;
+    String resumePhase = '';
+    Map<String, Object?> resumeCursor = <String, Object?>{};
+    const phaseOrder = <String>['dns', 'domain', 'ip', 'sni', 'config', 'complete'];
+    int phaseRank(String phase) => phaseOrder.indexOf(phase);
+    bool shouldRunPhase(String phase) =>
+        resumePhase.isEmpty || phaseRank(phase) >= phaseRank(resumePhase);
+    Future<void> persistPhase(
+      String phase, {
+      required bool completed,
+      Map<String, Object?> cursor = const <String, Object?>{},
+    }) async {
+      final store = journal;
+      if (store == null) return;
+      try {
+        await store.commit(
+          phase: phase,
+          phaseCompleted: completed,
+          cursor: cursor,
+          counters: <String, int>{
+            'dnsResolvers': dnsCount,
+            'domainEndpoints': domainHits,
+            'ipEndpoints': ipHits,
+            'sniHandshakes': sniHits,
+            'alpnNegotiations': alpnHits,
+            'configsValidated': configsValidated,
+          },
+        );
+      } catch (e, st) {
+        logError(e, st);
+        warnings.add('scan_journal_write_failed');
+        journal = null;
+      }
+    }
+    Future<void> beginPhase(String phase) async {
+      await persistPhase(
+        phase,
+        completed: false,
+        cursor: resumePhase == phase ? resumeCursor : const <String, Object?>{},
+      );
+    }
+    Future<void> completePhase(String phase) async {
+      await persistPhase(phase, completed: true);
+    }
     var domainHits = 0, ipHits = 0, sniHits = 0, alpnHits = 0;
     var configsValidated = 0, dnsCount = 0;
     void status(KingNatScanPhase phase, String message) {
@@ -832,6 +876,35 @@ class KingNationalScannerEngine {
     }
 
     try {
+      try {
+        final networkClass = natNetworkClassLabel(NatNetworkDiagnosis.current)
+            .replaceAll(RegExp(r'[^a-zA-Z0-9_-]'), '_');
+        journal = await KingScanJournal.open(
+          jobId: 'scanner-${modeSnapshot ? 'national' : 'global'}-$networkClass',
+        );
+        final previous = journal!.latestCheckpoint;
+        if (previous != null) {
+          final previousPhase = previous['phase']?.toString() ?? '';
+          final previousRank = phaseRank(previousPhase);
+          final wasCompleted = previous['phaseCompleted'] == true;
+          final nextRank = previousRank < 0
+              ? 0
+              : previousRank + (wasCompleted ? 1 : 0);
+          resumePhase = nextRank >= 0 && nextRank < phaseOrder.length
+              ? phaseOrder[nextRank]
+              : '';
+          if (!wasCompleted && previous['cursor'] is Map) {
+            resumeCursor = Map<String, Object?>.from(previous['cursor'] as Map);
+          }
+          if (resumePhase.isNotEmpty) {
+            warnings.add('resuming_from_$resumePhase');
+          }
+        }
+      } catch (e, st) {
+        logError(e, st);
+        warnings.add('scan_journal_unavailable');
+        journal = null;
+      }
       await load();
       await NationalNetworkIntelligence.load();
       // One shared lease serializes Scanner mode with DNS, IP-auto and the
@@ -899,127 +972,218 @@ class KingNationalScannerEngine {
       }
       if (seeds.isNotEmpty) natTemplateSeeds = List<Server>.of(seeds);
 
-      status(KingNatScanPhase.dns, 'اسکنر: بررسی DNS متناسب با شبکه...');
-      if (!stopped()) {
-        if (_dnsxAutoBusy) {
-          warnings.add('dns_scan_busy_skipped');
-        } else {
-          final dnsClock = Stopwatch()..start();
-          await dnsxAutoPick(
-            force: true,
-            coordinatorOwned: true,
-            stop: stopped,
-          );
-          dnsCount = dnsxBestCache.length;
-          if (dnsClock.elapsed >= const Duration(seconds: 60)) warnings.add('dns_phase_extended_over_60s');
-        }
-      }
-
-      status(KingNatScanPhase.domain, 'اسکنر: کشف دامنه و endpointهای کانفیگ...');
-      if (!stopped() && seeds.isNotEmpty && kNatIpScanOn) {
-        final found = await _natDomainFirst(
-          seeds, conc: max(2, natAdaptiveWorkers()).toInt(),
-          stop: stopped,
-        );
-        if (!stopped() && found.isNotEmpty) {
-          domainHits = found.length;
-          await addDiscovered(found);
-        }
-      }
-
-      status(KingNatScanPhase.ip, 'اسکنر: پیمایش پیوستهٔ تمام بازه‌ها و endpointها...');
-      if (!stopped() && kNatIpScanOn && !ipAutoBusy && !_natRangeScanBusy) {
-        // If the previous complete pass finished, begin a new pass. An
-        // interrupted pass keeps its persisted cursor and resumes in place.
-        await natRangeStartNextPass();
-        var batch = 0;
-        while (!stopped() && !natRangeInventoryPassComplete) {
-          batch++;
-          final found = await natRangeScanStep(
-            known: seeds,
-            maxAddrs: max(256, natAdaptiveWorkers() * 512).toInt(),
-            conc: max(1, natAdaptiveWorkers()).toInt(),
-            stop: stopped,
-            coordinatorOwned: true,
-          );
-          if (stopped()) break;
-          ipHits += found.length;
-          if (found.isNotEmpty) await addDiscovered(found);
-          if (batch % 16 == 0) {
-            status(KingNatScanPhase.ip,
-                'اسکنر: ادامهٔ پیمایش بازه‌ها؛ دستهٔ $batch، تعداد کشفیات $ipHits');
-            await Future<void>.delayed(Duration.zero);
-          }
-        }
-      } else if (!kNatIpScanOn) {
-        warnings.add('ip_scan_disabled_by_policy');
-      } else if (ipAutoBusy || _natRangeScanBusy) {
-        warnings.add('ip_scan_busy_skipped');
-      }
-
-      status(KingNatScanPhase.sniAlpn, 'اسکنر: بررسی سازگاری SNI و ALPN...');
-      if (!stopped()) {
-        final targets = <Server>[
-          ...seeds.where((s) => s.cdn && !s.reality && _natIsSecure(s)),
-        ];
-        final seenTargets = <String>{};
-        for (final server in targets) {
-          if (stopped()) break;
-          if (!seenTargets.add(server.key)) continue;
-          String? ip;
-          if (server.isIp) {
-            ip = server.host;
+      if (shouldRunPhase('dns')) {
+        await beginPhase('dns');
+        status(KingNatScanPhase.dns, 'اسکنر: بررسی DNS متناسب با شبکه...');
+        if (!stopped()) {
+          if (_dnsxAutoBusy) {
+            warnings.add('dns_scan_busy_skipped');
           } else {
-            try {
-              final addresses = await InternetAddress.lookup(server.host)
-                  .timeout(const Duration(seconds: 3));
-              for (final address in addresses) {
-                if (address.type == InternetAddressType.IPv4) { ip = address.address; break; }
-              }
-            } catch (_) {
-              ip = null;
-            }
+            final dnsClock = Stopwatch()..start();
+            await dnsxAutoPick(
+              force: true,
+              coordinatorOwned: true,
+              stop: stopped,
+            );
+            dnsCount = dnsxBestCache.length;
+            if (dnsClock.elapsed >= const Duration(seconds: 60)) warnings.add('dns_phase_extended_over_60s');
           }
-          if (ip == null) continue;
-          final candidates = natFrontSnis.asMap().entries.where(
-            (entry) => InternetAddress.tryParse(entry.value) == null,
+        }
+        if (!stopped()) await completePhase('dns');
+      }
+
+      if (shouldRunPhase('domain')) {
+        await beginPhase('domain');
+        status(KingNatScanPhase.domain, 'اسکنر: کشف دامنه و endpointهای کانفیگ...');
+        if (!stopped() && seeds.isNotEmpty && kNatIpScanOn) {
+          final found = await _natDomainFirst(
+            seeds, conc: max(2, natAdaptiveWorkers()).toInt(),
+            stop: stopped,
           );
-          for (final candidate in candidates) {
+          if (!stopped() && found.isNotEmpty) {
+            domainHits = found.length;
+            await addDiscovered(found);
+          }
+        }
+        if (!stopped()) await completePhase('domain');
+      }
+
+      if (shouldRunPhase('ip')) {
+        await beginPhase('ip');
+        status(KingNatScanPhase.ip, 'اسکنر: پیمایش پیوستهٔ تمام بازه‌ها و endpointها...');
+        if (!stopped() && kNatIpScanOn && !ipAutoBusy && !_natRangeScanBusy) {
+          // The range subsystem owns the per-range offsets. The journal mirrors
+          // their durable checkpoint so a restarted preflight can resume this phase.
+          await natRangeStartNextPass();
+          var batch = 0;
+          while (!stopped() && !natRangeInventoryPassComplete) {
+            batch++;
+            final found = await natRangeScanStep(
+              known: seeds,
+              maxAddrs: max(256, natAdaptiveWorkers() * 512).toInt(),
+              conc: max(1, natAdaptiveWorkers()).toInt(),
+              stop: stopped,
+              coordinatorOwned: true,
+            );
             if (stopped()) break;
-            final alpn = await _probeSniAlpn(ip, server.port, candidate.value);
-            if (alpn == null) continue;
-            recordSniProbe(profileKey(server), candidate.key);
-            sniHits++;
-            if (alpn.isNotEmpty) {
-              recordAlpnProbe(profileKey(server), alpn);
-              alpnHits++;
+            ipHits += found.length;
+            if (found.isNotEmpty) await addDiscovered(found);
+            await persistPhase(
+              'ip',
+              completed: false,
+              cursor: <String, Object?>{
+                'rangeIndex': _natConfiguredRangeCursor,
+                'rangeOffsets': Map<String, int>.of(_natConfiguredRangeCursors),
+                'batch': batch,
+              },
+            );
+            if (batch % 16 == 0) {
+              status(KingNatScanPhase.ip,
+                  'اسکنر: ادامهٔ پیمایش بازه‌ها؛ دستهٔ $batch، تعداد کشفیات $ipHits');
+              await Future<void>.delayed(Duration.zero);
             }
           }
+          if (!stopped() && natRangeInventoryPassComplete) {
+            await completePhase('ip');
+          }
+        } else if (!kNatIpScanOn) {
+          warnings.add('ip_scan_disabled_by_policy');
+          if (!stopped()) await completePhase('ip');
+        } else if (ipAutoBusy || _natRangeScanBusy) {
+          warnings.add('ip_scan_busy_skipped');
         }
       }
 
-      status(KingNatScanPhase.config, 'اسکنر: اعتبارسنجی ساختار کانفیگ‌ها...');
-      if (!stopped()) {
-        for (final server in seeds) {
-          if (stopped()) break;
-          if (coreUnsupportedReason(server.link) != null) continue;
-          for (final code in planVariants(server, full: true)) {
+      if (shouldRunPhase('sni')) {
+        await beginPhase('sni');
+        status(KingNatScanPhase.sniAlpn, 'اسکنر: بررسی سازگاری SNI و ALPN...');
+        if (!stopped()) {
+          final targets = <Server>[
+            ...seeds.where((s) => s.cdn && !s.reality && _natIsSecure(s)),
+          ];
+          final seenTargets = <String>{};
+          final resumeServer = resumePhase == 'sni'
+              ? (resumeCursor['serverIndex'] as num?)?.toInt() ?? 0 : 0;
+          final resumeCandidate = resumePhase == 'sni'
+              ? (resumeCursor['candidateIndex'] as num?)?.toInt() ?? -1 : -1;
+          for (var serverIndex = 0; serverIndex < targets.length; serverIndex++) {
             if (stopped()) break;
-            try {
-              final variant = code % _natCodeBase;
-              if (server.reality && _natChangesAddr(variant)) continue;
-              final decoded = jsonDecode(natCfg(server, variant));
-              if (decoded is Map && decoded['outbounds'] is List &&
-                  (decoded['outbounds'] as List).isNotEmpty) configsValidated++;
-            } catch (e, st) {
-              logError(e, st);
+            final server = targets[serverIndex];
+            if (serverIndex < resumeServer || !seenTargets.add(server.key)) continue;
+            String? ip;
+            if (server.isIp) {
+              ip = server.host;
+            } else {
+              try {
+                final addresses = await InternetAddress.lookup(server.host)
+                    .timeout(const Duration(seconds: 3));
+                for (final address in addresses) {
+                  if (address.type == InternetAddressType.IPv4) { ip = address.address; break; }
+                }
+              } catch (_) {
+                ip = null;
+              }
+            }
+            final candidates = natFrontSnis.asMap().entries.where(
+              (entry) => InternetAddress.tryParse(entry.value) == null,
+            ).toList(growable: false);
+            if (ip != null) {
+              for (var candidateIndex = 0; candidateIndex < candidates.length; candidateIndex++) {
+                if (stopped()) break;
+                if (serverIndex == resumeServer && candidateIndex <= resumeCandidate) continue;
+                final candidate = candidates[candidateIndex];
+                final alpn = await _probeSniAlpn(ip, server.port, candidate.value);
+                if (stopped()) break;
+                if (alpn != null) {
+                  recordSniProbe(profileKey(server), candidate.key);
+                  sniHits++;
+                  if (alpn.isNotEmpty) {
+                    recordAlpnProbe(profileKey(server), alpn);
+                    alpnHits++;
+                  }
+                }
+                await persistPhase(
+                  'sni',
+                  completed: false,
+                  cursor: <String, Object?>{
+                    'serverIndex': serverIndex,
+                    'candidateIndex': candidateIndex,
+                  },
+                );
+              }
+            }
+            if (!stopped()) {
+              await persistPhase(
+                'sni',
+                completed: false,
+                cursor: <String, Object?>{
+                  'serverIndex': serverIndex,
+                  'candidateIndex': candidates.length - 1,
+                },
+              );
             }
           }
         }
+        if (!stopped()) await completePhase('sni');
+      }
+
+      if (shouldRunPhase('config')) {
+        await beginPhase('config');
+        status(KingNatScanPhase.config, 'اسکنر: اعتبارسنجی ساختار کانفیگ‌ها...');
+        if (!stopped()) {
+          final resumeServer = resumePhase == 'config'
+              ? (resumeCursor['serverIndex'] as num?)?.toInt() ?? 0 : 0;
+          final resumeVariant = resumePhase == 'config'
+              ? (resumeCursor['variantIndex'] as num?)?.toInt() ?? -1 : -1;
+          for (var serverIndex = 0; serverIndex < seeds.length; serverIndex++) {
+            if (stopped()) break;
+            final server = seeds[serverIndex];
+            if (serverIndex < resumeServer || coreUnsupportedReason(server.link) != null) continue;
+            final variants = planVariants(server, full: true);
+            for (var variantIndex = 0; variantIndex < variants.length; variantIndex++) {
+              if (stopped()) break;
+              if (serverIndex == resumeServer && variantIndex <= resumeVariant) continue;
+              final code = variants[variantIndex];
+              try {
+                final variant = code % _natCodeBase;
+                if (!(server.reality && _natChangesAddr(variant))) {
+                  final decoded = jsonDecode(natCfg(server, variant));
+                  if (decoded is Map && decoded['outbounds'] is List &&
+                      (decoded['outbounds'] as List).isNotEmpty) configsValidated++;
+                }
+              } catch (e, st) {
+                logError(e, st);
+              }
+              await persistPhase(
+                'config',
+                completed: false,
+                cursor: <String, Object?>{
+                  'serverIndex': serverIndex,
+                  'variantIndex': variantIndex,
+                },
+              );
+            }
+            if (!stopped()) {
+              await persistPhase(
+                'config',
+                completed: false,
+                cursor: <String, Object?>{
+                  'serverIndex': serverIndex,
+                  'variantIndex': variants.length - 1,
+                },
+              );
+            }
+          }
+        }
+        if (!stopped()) await completePhase('config');
       }
 
       final didCancel = cancelled() || nationalMode != modeSnapshot;
       final didTimeout = expired();
+      if (!didCancel) {
+        await beginPhase('complete');
+        await completePhase('complete');
+      }
       _scanPhase = didCancel ? KingNatScanPhase.cancelled : KingNatScanPhase.complete;
       if (didTimeout) warnings.add('total_scan_budget_reached');
       final report = KingNatScanReport(
