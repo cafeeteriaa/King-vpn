@@ -147,10 +147,28 @@ class NationalNetworkIntelligence {
 /// disables the VPN, never changes user settings and never blocks a connect.
 /// Caller must run it while the tunnel is down, otherwise probes go through it.
 class NatNetworkDiagnosis {
-  static const Duration _ttl = Duration(minutes: 10);
-  static const List<String> _domesticHosts = <String>['www.aparat.com', 'www.digikala.com'];
-  static const List<String> _globalHosts = <String>['www.google.com', 'www.cloudflare.com'];
-  static const List<String> _globalResolvers = <String>['8.8.8.8', '1.1.1.1'];
+  // Re-evaluate more frequently so a mobile carrier route change is not
+  // hidden behind a long-lived classification cache.
+  static const Duration _ttl = Duration(minutes: 2);
+  static const List<String> _domesticHosts = <String>[
+    'www.aparat.com',
+    'www.digikala.com',
+    'divar.ir',
+    'www.snapp.ir',
+    'www.tsetmc.com',
+  ];
+  static const List<String> _globalHosts = <String>[
+    'www.google.com',
+    'www.cloudflare.com',
+    'github.com',
+    'www.wikipedia.org',
+    'www.microsoft.com',
+  ];
+  static const List<String> _globalResolvers = <String>[
+    '8.8.8.8',
+    '1.1.1.1',
+    '9.9.9.9',
+  ];
   // Dedicated domestic DNS probes belong to this engine; they do not reuse
   // the general-purpose DNS scanner, its ranges, or its cached IP inventory.
   static const List<String> _domesticResolvers = <String>[
@@ -181,13 +199,39 @@ class NatNetworkDiagnosis {
     }
   }
 
-  static Future<bool> _tcpOk(String host) async {
+  /// A TCP SYN/ACK is not enough to call a route reachable. Complete a
+  /// certificate-validated TLS handshake against the intended hostname.
+  static Future<bool> _tlsOk(String host) async {
+    SecureSocket? socket;
     try {
-      final s = await Socket.connect(host, 443, timeout: const Duration(seconds: 3));
-      s.destroy();
+      socket = await SecureSocket.connect(
+        host,
+        443,
+        timeout: const Duration(seconds: 4),
+      );
+      return socket.peerCertificate != null;
+    } catch (_) {
+      return false;
+    } finally {
+      socket?.destroy();
+    }
+  }
+
+  /// Used only as a secondary DNS-answer diagnostic. It is deliberately not
+  /// treated as proof that the hostname's HTTPS service is healthy.
+  static Future<bool> _tcpOpen(String host) async {
+    Socket? socket;
+    try {
+      socket = await Socket.connect(
+        host,
+        443,
+        timeout: const Duration(seconds: 3),
+      );
       return true;
     } catch (_) {
       return false;
+    } finally {
+      socket?.destroy();
     }
   }
 
@@ -216,8 +260,8 @@ class NatNetworkDiagnosis {
       // All probes start together. Awaiting the groups one after another made
       // the total time the SUM of their timeouts (a black-holed TCP connect
       // waits the full timeout), so the caller's deadline usually expired first.
-      final domesticF = Future.wait(_domesticHosts.map(_tcpOk));
-      final globalF = Future.wait(_globalHosts.map(_tcpOk));
+      final domesticF = Future.wait(_domesticHosts.map(_tlsOk));
+      final globalF = Future.wait(_globalHosts.map(_tlsOk));
       final globalDnsF = Future.wait(
           _globalResolvers.map((r) => NatDnsWireProbe.probe(r, 'google.com')));
       final domesticDnsF = Future.wait([
@@ -231,8 +275,8 @@ class NatNetworkDiagnosis {
       final domesticDnsRes = await domesticDnsF;
       final domesticDnsOk = domesticDnsRes.any((x) => x.ok);
       final globalDnsOk = globalDnsRes.any((x) => x.ok);
-      final domesticTcpOk = domesticTcp.any((x) => x);
-      final globalTcpOk = globalTcp.any((x) => x);
+      final domesticTcpOk = domesticTcp.where((x) => x).length >= 2;
+      final globalTcpOk = globalTcp.where((x) => x).length >= 2;
       // DNS poisoning / blockpage check: a resolver returned a public A answer,
       // yet none of the answered addresses accepts TCP/443, while domestic hosts
       // do. That is the typical signature of an injected answer, not a live Google.
@@ -241,7 +285,7 @@ class NatNetworkDiagnosis {
         final answered = [
           for (final r in globalDnsRes) if (r.ok) ...r.addresses,
         ].toSet().take(2).toList();
-        final reach = await Future.wait(answered.map(_tcpOk));
+        final reach = await Future.wait(answered.map(_tcpOpen));
         poison = reach.isNotEmpty && !reach.any((x) => x);
       }
       final ev = NatProbeEvidence(
@@ -257,8 +301,9 @@ class NatNetworkDiagnosis {
       _checkedAt = DateTime.now();
       _identityAtCheck = id;
       dbg('NNIE-DIAG: ${natNetworkClassLabel(current)} '
-          '(domesticTcp=${ev.domesticTcpOk} domesticDns=$domesticDnsOk '
-          'globalTcp=${ev.globalTcpOk} globalDns=${ev.globalDnsOk} poison=$poison)');
+          '(domesticTls=${domesticTcp.where((x) => x).length}/${domesticTcp.length} '
+          'domesticDns=$domesticDnsOk globalTls=${globalTcp.where((x) => x).length}/${globalTcp.length} '
+          'globalDns=${ev.globalDnsOk} poison=$poison)');
     } catch (e, st) {
       logError(e, st);
       current = NatNetworkClass.unknown;
