@@ -253,6 +253,39 @@ class MainActivity : FlutterActivity() {
             .setMethodCallHandler { call, result ->
                 try {
                     when (call.method) {
+                        "vpnService" -> {
+                            Thread {
+                                val snapshot: Map<String, Any> = try {
+                                    val service = KingVpnService.instance
+                                    service?.diagnosticSnapshot() ?: mapOf(
+                                        "protocolVersion" to 1,
+                                        "serviceRunning" to false,
+                                        "active" to false,
+                                        "stopping" to false,
+                                        "retryWaiting" to false,
+                                        "nativeBusy" to false,
+                                        "recovering" to false,
+                                        "userStopped" to false,
+                                        "nationalMode" to false,
+                                        "activeAttempt" to 0,
+                                        "attemptSequence" to 0,
+                                        "inFlightOperations" to 0,
+                                        "lastError" to ""
+                                    )
+                                } catch (_: Throwable) {
+                                    mapOf(
+                                        "protocolVersion" to 1,
+                                        "serviceRunning" to false,
+                                        "diagnosticError" to "snapshot_unavailable"
+                                    )
+                                }
+                                try {
+                                    runOnUiThread { result.success(snapshot) }
+                                } catch (_: Throwable) {
+                                    // Activity detached while the snapshot was being collected.
+                                }
+                            }.start()
+                        }
                         "lastCrash", "lastExit" -> {
                             val wantCrash = call.method == "lastCrash"
                             Thread {
