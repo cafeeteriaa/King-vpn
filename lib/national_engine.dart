@@ -210,11 +210,10 @@ class NatNetworkDiagnosis {
   /// cache can tell "same network" from "network changed" without storing IPs.
   static Future<String> _identityHash() async {
     try {
-      final ifs = await NetworkInterface.list(includeLoopback: false);
-      final parts = <String>[
-        for (final i in ifs) for (final a in i.addresses) '${i.name}=${a.address}',
-      ]..sort();
-      return sha256.convert(utf8.encode(parts.join(';'))).toString();
+      // Include active IPv4/IPv6 default routes. Interface addresses alone
+      // miss Wi-Fi↔cellular egress changes when both links remain connected.
+      final fingerprint = await KingNetworkFingerprint.capture();
+      return sha256.convert(utf8.encode(fingerprint)).toString();
     } catch (_) {
       return '';
     }
@@ -437,13 +436,11 @@ class PilotNetworkProbe {
 
   static Future<String> _networkIdentity() async {
     try {
-      final interfaces = await NetworkInterface.list(includeLoopback: false);
-      final values = <String>[
-        for (final item in interfaces)
-          for (final address in item.addresses)
-            '${item.name}=${address.address}',
-      ]..sort();
-      return sha256.convert(utf8.encode(values.join(';'))).toString();
+      // Share the route-aware physical fingerprint with the scan guard so
+      // cached TLS/IPv6 evidence expires immediately after default-egress
+      // changes even when Wi-Fi and cellular interfaces are both still up.
+      final fingerprint = await KingNetworkFingerprint.capture();
+      return sha256.convert(utf8.encode(fingerprint)).toString();
     } catch (_) {
       return '';
     }
