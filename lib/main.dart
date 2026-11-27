@@ -1,8 +1,6 @@
 import 'dart:async';
 import 'network_health.dart';
 import 'king_local_ai.dart';
-part 'king_ai_console.dart';
-part 'king_chat_page.dart';
 import 'king_ai_autonomy_policy.dart';
 import 'package:workmanager/workmanager.dart';
 import 'king_ai_owner_auth.dart';
@@ -43,6 +41,8 @@ import 'help_page.dart';
 import 'conn_specs.dart';
 import 'personal_folder.dart'; // پوشه‌ی «سرورهای شخصی»
 import 'king_extras2.dart'; // KINGEXTRAS: share sheet / UUID / check-host.net
+part 'king_ai_console.dart';
+part 'king_chat_page.dart';
 part 'king_ai_background.dart';
 part 'iran_ai_extras.dart';
 part 'npv_am_extras.dart';
