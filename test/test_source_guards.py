@@ -1946,7 +1946,8 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('scannerLease.create(exclusive: true)', method)
         self.assertIn('ownsScannerLease', method)
         self.assertNotIn('upBusy || nationalMode ||', method)
-        self.assertIn('successfulSources < requiredSources', method)
+        self.assertIn('FreshResourceStore.isSufficientSnapshotReplacement(', method)
+        self.assertIn('previousCount: previousCount', method)
         self.assertIn('FreshResourceStore.replaceSnapshot(', method)
 
     def test_net_melli_uses_bounded_on_device_archive_when_domestic_only(self):
