@@ -46,6 +46,7 @@ part 'iran_ai_extras.dart';
 part 'npv_am_extras.dart';
 part 'nat_ultra.dart';
 part 'king_national_scanner.dart'; // KNS: unified national scanner/strategy registry
+part 'king_scan_memory.dart'; // KSM: durable append-only scanner checkpoints and recovery
 part 'net_diag.dart';
 part 'extras_plus.dart';
 part 'nip_scan.dart';
