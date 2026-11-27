@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'king_native_accel.dart'; // Optional Rust CIDR/range accelerator with Dart fallback
+import 'native_bridge_contract.dart'; // Validate the complete Android vpn/bg handshake
 import 'king_scan_scheduler.dart'; // Serialized, idle-only scanner orchestration
 import 'king_dynamic_source_discovery.dart';
 import 'network_health.dart';
@@ -131,9 +132,11 @@ Future<void> _probeBgBridge({bool force = false}) async {
         .invokeMapMethod<String, dynamic>('bridgeInfo')
         .timeout(const Duration(seconds: 5));
     if (info == null ||
-        info['protocolVersion'] != _bgBridgeProtocolVersion ||
-        info['channel'] != 'vpn/bg' ||
-        info['vpnSettings'] != true) {
+        !bgBridgeInfoMatches(
+          info,
+          expectedProtocolVersion: _bgBridgeProtocolVersion,
+          expectedPackageName: ownPkg,
+        )) {
       throw StateError('Native bridge protocol/capability mismatch: $info');
     }
     _bgBridgeVerified = true;
