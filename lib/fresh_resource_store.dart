@@ -512,7 +512,7 @@ class FreshResourceStore {
       pendingWrite,
       pendingRead,
     ]).then((_) async {
-      await File('\${dir.path}/.migration_v2_done').writeAsString('v2', flush: true);
+      await File('${dir.path}/.migration_v2_done').writeAsString('v2', flush: true);
       await for (final entity in dir.list(followLinks: false)) {
         if (entity is File &&
             (RegExp(r'^[0-9a-f]{2}\.jsonl$').hasMatch(entity.uri.pathSegments.last) ||
@@ -524,9 +524,9 @@ class FreshResourceStore {
           await entity.delete();
         }
       }
-      _shardBlooms.removeWhere((key, _) => key.startsWith('\${dir.path}/'));
+      _shardBlooms.removeWhere((key, _) => key.startsWith('${dir.path}/'));
       await _writeMetadata(dir, 0, source: 'cleared');
-      await File('\${dir.path}/.migration_v2_done').writeAsString('v2', flush: true);
+      await File('${dir.path}/.migration_v2_done').writeAsString('v2', flush: true);
     });
     final queued = operation.then<void>((_) {}, onError: (Object _) {});
     _mergeQueues[path] = queued;
