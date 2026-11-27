@@ -1696,13 +1696,71 @@ Future<File> _natMemoryFile(String name) async {
   return File('${directory.path}/$name');
 }
 
-Future<void> _natWriteMemorySnapshot(
-    String name, List<Map<String, dynamic>> values) async {
+Future<void> _natWriteJsonSnapshot(String name, Object value) async {
   final file = await _natMemoryFile(name);
   final temporary = File('${file.path}.tmp');
-  await temporary.writeAsString(jsonEncode(values), flush: true);
+  await temporary.writeAsString(jsonEncode(value), flush: true);
   await temporary.rename(file.path);
 }
+
+Future<void> _natWriteMemorySnapshot(
+    String name, List<Map<String, dynamic>> values) =>
+    _natWriteJsonSnapshot(name, values);
+
+Future<void> _natRangeStateLoad(SharedPreferences prefs) async {
+  const name = 'king_nat_range_state.json';
+  final file = await _natMemoryFile(name);
+  Map<dynamic, dynamic>? state;
+  if (await file.exists()) {
+    final decoded = jsonDecode(await file.readAsString());
+    if (decoded is Map) state = decoded;
+  } else {
+    final configuredRaw = prefs.getString('natConfiguredRangeCursorsV1');
+    final endpointRaw = prefs.getString('natCfRangeCursorsV1');
+    Object? configured = <String, int>{};
+    Object? endpoints = <String, int>{};
+    try {
+      if (configuredRaw != null && configuredRaw.isNotEmpty) {
+        configured = jsonDecode(configuredRaw);
+      }
+      if (endpointRaw != null && endpointRaw.isNotEmpty) {
+        endpoints = jsonDecode(endpointRaw);
+      }
+    } catch (e, stk) {
+      logError(e, stk);
+    }
+    state = <String, Object?>{
+      'configuredCursor': prefs.getInt('natConfiguredRangeCursor') ?? 0,
+      'configuredCursors': configured,
+      'endpointCursors': endpoints,
+    };
+    await _natWriteJsonSnapshot(name, state);
+  }
+  final configuredCursor = state['configuredCursor'];
+  _natConfiguredRangeCursor =
+      configuredCursor is num ? configuredCursor.toInt() : 0;
+  _natConfiguredRangeCursors
+    ..clear()
+    ..addAll((state['configuredCursors'] is Map)
+        ? (state['configuredCursors'] as Map).map(
+            (key, value) => MapEntry('$key', (value as num).toInt()))
+        : <String, int>{});
+  _cfRangeCursors
+    ..clear()
+    ..addAll((state['endpointCursors'] is Map)
+        ? (state['endpointCursors'] as Map).map(
+            (key, value) => MapEntry('$key', (value as num).toInt()))
+        : <String, int>{});
+}
+
+Future<void> _natRangeStateSave() => _natWriteJsonSnapshot(
+  'king_nat_range_state.json',
+  <String, Object?>{
+    'configuredCursor': _natConfiguredRangeCursor,
+    'configuredCursors': _natConfiguredRangeCursors,
+    'endpointCursors': _cfRangeCursors,
+  },
+);
 
 Set<String> natIpMemHosts() => {for (final e in natIpMem) '${e['ip']}'};
 
@@ -1720,36 +1778,21 @@ Future<void> natIpMemLoad() async {
         await _natWriteMemorySnapshot('king_nat_ip_inventory.json', natIpMem);
       }
     }
-    natRanges = (p.getString(_rangeKey) ?? '')
-        .split(RegExp(r'[\r\n,; ]+'))
-        .where((x) => x.contains('/') || x.contains('-'))
-        .toList();
-    _natConfiguredRangeCursor = (p.getInt('natConfiguredRangeCursor') ?? 0).clamp(0, 1 << 31).toInt();
-    _natConfiguredRangeCursors.clear();
-    final configuredCursorRaw = p.getString('natConfiguredRangeCursorsV1');
-    if (configuredCursorRaw != null && configuredCursorRaw.isNotEmpty) {
-      final decoded = jsonDecode(configuredCursorRaw);
-      if (decoded is Map) {
-        for (final entry in decoded.entries) {
-          if (entry.value is num) {
-            _natConfiguredRangeCursors[entry.key.toString()] =
-                (entry.value as num).toInt();
-          }
-        }
-      }
+    final rangesFile = await _natMemoryFile('king_nat_configured_ranges.json');
+    final hasRangeFile = await rangesFile.exists();
+    final savedRanges = hasRangeFile
+        ? jsonDecode(await rangesFile.readAsString())
+        : (p.getString(_rangeKey) ?? '')
+            .split(RegExp(r'[\r\n,; ]+'))
+            .where((x) => x.contains('/') || x.contains('-'))
+            .toList();
+    natRanges = savedRanges is List
+        ? savedRanges.map((value) => value.toString()).toList()
+        : <String>[];
+    if (!hasRangeFile && natRanges.isNotEmpty) {
+      await _natWriteJsonSnapshot('king_nat_configured_ranges.json', natRanges);
     }
-    _cfRangeCursors.clear();
-    final endpointCursorRaw = p.getString('natCfRangeCursorsV1');
-    if (endpointCursorRaw != null && endpointCursorRaw.isNotEmpty) {
-      final decoded = jsonDecode(endpointCursorRaw);
-      if (decoded is Map) {
-        for (final entry in decoded.entries) {
-          if (entry.value is num) {
-            _cfRangeCursors[entry.key.toString()] = (entry.value as num).toInt();
-          }
-        }
-      }
-    }
+    await _natRangeStateLoad(p);
   } catch (e, stk) {
     logError(e, stk);
   }
@@ -1855,9 +1898,8 @@ Future<void> natRangesSave(String text) async {
   natRangeInventoryPassComplete = false;
   try {
     final p = await SharedPreferences.getInstance();
-    await p.setString(_rangeKey, natRanges.join('\n'));
-    await p.setInt('natConfiguredRangeCursor', 0);
-    await p.setString('natConfiguredRangeCursorsV1', '{}');
+    await _natWriteJsonSnapshot('king_nat_configured_ranges.json', natRanges);
+    await _natRangeStateSave();
   } catch (e, stk) {
     logError(e, stk);
   }
@@ -2290,10 +2332,7 @@ Future<void> natRangeStartNextPass() async {
       key.startsWith('block:') || key.startsWith('__block_'));
   natRangeInventoryPassComplete = false;
   try {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setInt('natConfiguredRangeCursor', 0);
-    await prefs.setString('natConfiguredRangeCursorsV1', '{}');
-    await prefs.setString('natCfRangeCursorsV1', jsonEncode(_cfRangeCursors));
+    await _natRangeStateSave();
   } catch (e, stk) {
     logError(e, stk);
   }
@@ -2445,14 +2484,9 @@ Future<List<String>> _natRangeScanStepBody({
   }
   natRangeInventoryPassComplete =
       configuredBatch.passCompleted && endpointPassComplete;
-  final prefs = await SharedPreferences.getInstance();
   if (shouldAbort()) return const <String>[];
-  await prefs.setString('natCfRangeCursorsV1', jsonEncode(_cfRangeCursors));
-  if (modeSnapshot) {
-    await prefs.setInt('natConfiguredRangeCursor', _natConfiguredRangeCursor);
-    await prefs.setString(
-        'natConfiguredRangeCursorsV1', jsonEncode(_natConfiguredRangeCursors));
-  }
+  await _natRangeStateSave();
+  if (shouldAbort()) return const <String>[];
   natTemplateSeeds = List<Server>.of(seeds);
   natRandomLast = 0;
   natIpScanned += slice.length;
