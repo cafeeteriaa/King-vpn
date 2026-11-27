@@ -174,7 +174,6 @@ void main() {
       expect(content, isNot(contains('example.invalid')));
       expect(content, isNot(contains('user:password')));
     });
-  });
 
     test('disk inventory appends unique records and streams without full hydration', () async {
       final inventory = await KingDiskInventory.open(name: 'ip-test', root: root);
