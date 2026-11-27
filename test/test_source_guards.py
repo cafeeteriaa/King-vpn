@@ -2808,7 +2808,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn("const phaseOrder = <String>['dns', 'domain', 'ip', 'sni', 'config', 'complete'];", source)
         self.assertIn("resumeCursor['serverKeyHash']", source)
         self.assertIn('await flushLearning();', source)
-        self.assertIn("await persistPhase(\n                'ip',", source)
+        self.assertIn("await persistPhase(\n              'ip',", source)
         self.assertIn('king_national_scanner.lock', source)
         self.assertIn('const sliceBudget = Duration(seconds: 35);', source)
         self.assertIn('if (!didCancel && !didYield && !phaseDeferred)', source)
