@@ -420,6 +420,7 @@ class FreshResourceStore {
 
   static Future<void> _migrateLegacy(Directory dir) async {
     final marker = File('${dir.path}/.migration_v2_done');
+    if (await marker.exists()) return;
     final existing = _migrationFutures[dir.path];
     if (existing != null) {
       await existing;
