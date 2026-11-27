@@ -83,6 +83,9 @@ void main() {
         globalTlsSuccesses: 0,
         domesticLatencyMs: 110,
         networkConfidence: 0.55,
+        domesticIpv6Successes: 2,
+        globalIpv6Successes: 0,
+        domesticIpv6LatencyMs: 90,
         inventoryPassComplete: false,
         sliceYielded: true,
       );
@@ -91,6 +94,9 @@ void main() {
       expect(map['globalTlsSuccesses'], 0);
       expect(map['inventoryPassComplete'], isFalse);
       expect(map['sliceYielded'], isTrue);
+      expect(map['domesticIpv6Successes'], 2);
+      expect(map['globalIpv6Successes'], 0);
+      expect(map['domesticIpv6LatencyMs'], 90);
       expect(map['configsValidated'], 8);
     });
 
