@@ -1,35 +1,18 @@
 #![deny(unsafe_op_in_unsafe_fn)]
 
 use std::ffi::CStr;
-
-const MAX_FFI_BATCH: u32 = 8192;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::os::raw::c_char;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::str::FromStr;
 
+const MAX_FFI_BATCH: u32 = 8192;
+
 fn address_value(ip: IpAddr) -> (u128, u8) {
     match ip {
-        IpAddr::V4(v) => (u32::from(v) as u128, 32),
-        IpAddr::V6(v) => (u128::from(v), 128),
+        IpAddr::V4(value) => (u32::from(value) as u128, 32),
+        IpAddr::V6(value) => (u128::from(value), 128),
     }
-    #[test]
-    fn ffi_rejects_oversized_batches_before_allocating() {
-        let input = CString::new("192.0.2.0/24").unwrap();
-        let cursor = CString::new("0").unwrap();
-        let mut output = [0u8; 128];
-        let result = unsafe {
-            king_expand_range_batch(
-                input.as_ptr(),
-                cursor.as_ptr(),
-                8193,
-                output.as_mut_ptr(),
-                output.len(),
-            )
-        };
-        assert_eq!(result, -1);
-    }
-
 }
 
 fn format_address(value: u128, width: u8) -> String {
@@ -64,12 +47,12 @@ fn parse_span(input: &str) -> Option<(u128, u128, u8)> {
         return Some((low, low | mask, width));
     }
     if let Some((first, last)) = value.split_once('-') {
-        let (a, width) = address_value(IpAddr::from_str(first.trim()).ok()?);
-        let (b, last_width) = address_value(IpAddr::from_str(last.trim()).ok()?);
+        let (first, width) = address_value(IpAddr::from_str(first.trim()).ok()?);
+        let (last, last_width) = address_value(IpAddr::from_str(last.trim()).ok()?);
         if width != last_width {
             return None;
         }
-        return Some((a.min(b), a.max(b), width));
+        return Some((first.min(last), first.max(last), width));
     }
     let (address, width) = address_value(IpAddr::from_str(value).ok()?);
     Some((address, address, width))
@@ -83,6 +66,7 @@ fn expand_range_batch(
     let (low, high, width) = parse_span(input)?;
     let cursor = cursor_text.trim().parse::<u128>().unwrap_or(0);
     let full_u128_span = low == 0 && high == u128::MAX;
+
     let (offset, count, next, wraps) = if full_u128_span {
         // 2^128 cannot be represented by u128; handle the full IPv6 /0 explicitly.
         let available = if cursor == 0 {
@@ -91,7 +75,12 @@ fn expand_range_batch(
             u128::MAX - cursor + 1
         };
         let count = limit.min(available.min(usize::MAX as u128) as usize);
-        (cursor, count, match cursor.checked_add(count as u128) { Some(value) => value, None => 0 }, false)
+        (
+            cursor,
+            count,
+            cursor.checked_add(count as u128).unwrap_or_default(),
+            false,
+        )
     } else {
         let span = high.checked_sub(low)?.checked_add(1)?;
         let offset = cursor % span;
@@ -100,12 +89,18 @@ fn expand_range_batch(
             let count = limit.min(span.min(usize::MAX as u128) as usize);
             (offset, count, (offset + count as u128) % span, true)
         } else {
+            // IPv6 pages stop at the end of the span and resume from cursor zero.
             let remaining = span - offset;
             let count = limit.min(remaining.min(usize::MAX as u128) as usize);
             (offset, count, (offset + count as u128) % span, false)
         }
     };
-    let span = if full_u128_span { None } else { Some(high - low + 1) };
+
+    let span = if full_u128_span {
+        None
+    } else {
+        Some(high - low + 1)
+    };
     let mut addresses = Vec::with_capacity(count);
     for index in 0..count {
         let relative = if wraps {
@@ -118,7 +113,7 @@ fn expand_range_batch(
     Some((addresses, next.to_string()))
 }
 
-/// Returns bytes written; -1 invalid pointer/input; -2 output buffer too small.
+/// Returns bytes written; -1 invalid pointer/input/limit; -2 output buffer too small.
 /// Output is UTF-8: decimal next cursor, newline, then one IP per line.
 ///
 /// # Safety
@@ -149,7 +144,9 @@ pub unsafe extern "C" fn king_expand_range_batch(
         if encoded.len() > output_capacity {
             return None;
         }
-        unsafe { std::ptr::copy_nonoverlapping(encoded.as_ptr(), output, encoded.len()) };
+        unsafe {
+            std::ptr::copy_nonoverlapping(encoded.as_ptr(), output, encoded.len());
+        }
         Some(encoded.len() as isize)
     }));
     match result {
@@ -171,65 +168,81 @@ mod tests {
 
     #[test]
     fn ipv4_cidr_batches_preserve_cursor_order() {
-        let (a, c) = expand_range_batch("192.0.2.0/30", "0", 3).unwrap();
-        assert_eq!(a, vec!["192.0.2.0", "192.0.2.1", "192.0.2.2"]);
-        assert_eq!(c, "3");
-        let (a, c) = expand_range_batch("192.0.2.0/30", &c, 3).unwrap();
-        assert_eq!(a, vec!["192.0.2.3", "192.0.2.0", "192.0.2.1"]);
-        assert_eq!(c, "2");
+        let (addresses, cursor) = expand_range_batch("192.0.2.0/30", "0", 3).unwrap();
+        assert_eq!(
+            addresses,
+            vec!["192.0.2.0", "192.0.2.1", "192.0.2.2"]
+        );
+        assert_eq!(cursor, "3");
+        let (addresses, cursor) =
+            expand_range_batch("192.0.2.0/30", &cursor, 3).unwrap();
+        assert_eq!(
+            addresses,
+            vec!["192.0.2.3", "192.0.2.0", "192.0.2.1"]
+        );
+        assert_eq!(cursor, "2");
     }
 
     #[test]
     fn ipv4_window_wraps_like_dart() {
-        let (a, c) = expand_range_batch("192.0.2.0/30", "3", 2).unwrap();
-        assert_eq!(a, vec!["192.0.2.3", "192.0.2.0"]);
-        assert_eq!(c, "1");
+        let (addresses, cursor) = expand_range_batch("192.0.2.0/30", "3", 2).unwrap();
+        assert_eq!(addresses, vec!["192.0.2.3", "192.0.2.0"]);
+        assert_eq!(cursor, "1");
     }
 
     #[test]
     fn ipv6_cidr_batches_match_dart() {
-        let (a, c) = expand_range_batch("2001:db8::/126", "0", 2).unwrap();
-        assert_eq!(a, vec!["2001:db8::", "2001:db8::1"]);
-        assert_eq!(c, "2");
-        let (a, c) = expand_range_batch("2001:db8::/126", &c, 2).unwrap();
-        assert_eq!(a, vec!["2001:db8::2", "2001:db8::3"]);
-        assert_eq!(c, "0");
+        let (addresses, cursor) = expand_range_batch("2001:db8::/126", "0", 2).unwrap();
+        assert_eq!(addresses, vec!["2001:db8::", "2001:db8::1"]);
+        assert_eq!(cursor, "2");
+        let (addresses, cursor) =
+            expand_range_batch("2001:db8::/126", &cursor, 2).unwrap();
+        assert_eq!(addresses, vec!["2001:db8::2", "2001:db8::3"]);
+        assert_eq!(cursor, "0");
     }
 
     #[test]
     fn ipv6_large_cursor_is_lossless() {
-        let (a, c) = expand_range_batch("2001:db8::/64", "18446744073709551617", 2).unwrap();
-        assert_eq!(a.len(), 2);
-        assert_eq!(c, "3");
+        let (addresses, cursor) =
+            expand_range_batch("2001:db8::/64", "18446744073709551617", 2).unwrap();
+        assert_eq!(addresses.len(), 2);
+        assert_eq!(cursor, "3");
     }
 
     #[test]
     fn descending_ranges_are_normalized() {
-        let (a, c) = expand_range_batch("192.0.2.3-192.0.2.1", "0", 8).unwrap();
-        assert_eq!(a, vec!["192.0.2.1", "192.0.2.2", "192.0.2.3"]);
-        assert_eq!(c, "0");
+        let (addresses, cursor) =
+            expand_range_batch("192.0.2.3-192.0.2.1", "0", 8).unwrap();
+        assert_eq!(
+            addresses,
+            vec!["192.0.2.1", "192.0.2.2", "192.0.2.3"]
+        );
+        assert_eq!(cursor, "0");
     }
 
     #[test]
     fn single_address_emits_once() {
-        let (a, c) = expand_range_batch("2001:db8::5", "0", 4).unwrap();
-        assert_eq!(a, vec!["2001:db8::5"]);
-        assert_eq!(c, "0");
+        let (addresses, cursor) = expand_range_batch("2001:db8::5", "0", 4).unwrap();
+        assert_eq!(addresses, vec!["2001:db8::5"]);
+        assert_eq!(cursor, "0");
     }
 
     #[test]
     fn full_ipv6_span_does_not_overflow() {
-        let (a, c) = expand_range_batch("::/0", "0", 2).unwrap();
-        assert_eq!(a, vec!["::", "::1"]);
-        assert_eq!(c, "2");
-        let (a, c) = expand_range_batch(
+        let (addresses, cursor) = expand_range_batch("::/0", "0", 2).unwrap();
+        assert_eq!(addresses, vec!["::", "::1"]);
+        assert_eq!(cursor, "2");
+        let (addresses, cursor) = expand_range_batch(
             "::/0",
             "340282366920938463463374607431768211455",
             2,
         )
         .unwrap();
-        assert_eq!(a, vec!["ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff"]);
-        assert_eq!(c, "0");
+        assert_eq!(
+            addresses,
+            vec!["ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff"]
+        );
+        assert_eq!(cursor, "0");
     }
 
     #[test]
@@ -237,5 +250,60 @@ mod tests {
         assert!(expand_range_batch("192.0.2.1/33", "0", 2).is_none());
         assert!(expand_range_batch("192.0.2.1-2001:db8::1", "0", 2).is_none());
         assert!(expand_range_batch("not-an-ip", "0", 2).is_none());
+    }
+
+    #[test]
+    fn ffi_rejects_oversized_batches_before_allocating() {
+        let input = CString::new("192.0.2.0/24").unwrap();
+        let cursor = CString::new("0").unwrap();
+        let mut output = [0u8; 128];
+        let result = unsafe {
+            king_expand_range_batch(
+                input.as_ptr(),
+                cursor.as_ptr(),
+                8193,
+                output.as_mut_ptr(),
+                output.len(),
+            )
+        };
+        assert_eq!(result, -1);
+    }
+
+    #[test]
+    fn ffi_writes_a_bounded_batch_using_the_documented_wire_format() {
+        let input = CString::new("192.0.2.0/30").unwrap();
+        let cursor = CString::new("0").unwrap();
+        let mut output = [0u8; 128];
+        let written = unsafe {
+            king_expand_range_batch(
+                input.as_ptr(),
+                cursor.as_ptr(),
+                2,
+                output.as_mut_ptr(),
+                output.len(),
+            )
+        };
+        assert!(written > 0);
+        assert_eq!(
+            std::str::from_utf8(&output[..written as usize]).unwrap(),
+            "2\n192.0.2.0\n192.0.2.1\n"
+        );
+    }
+
+    #[test]
+    fn ffi_reports_short_output_buffers_without_writing_past_them() {
+        let input = CString::new("192.0.2.0/30").unwrap();
+        let cursor = CString::new("0").unwrap();
+        let mut output = [0u8; 1];
+        let written = unsafe {
+            king_expand_range_batch(
+                input.as_ptr(),
+                cursor.as_ptr(),
+                2,
+                output.as_mut_ptr(),
+                output.len(),
+            )
+        };
+        assert_eq!(written, -2);
     }
 }
