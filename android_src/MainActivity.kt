@@ -123,7 +123,7 @@ class MainActivity : FlutterActivity() {
                     when (call.method) {
                         "bridgeInfo" -> result.success(
                             mapOf(
-                                "protocolVersion" to 2,
+                                "protocolVersion" to 1,
                                 "channel" to "vpn/bg",
                                 "activity" to javaClass.simpleName,
                                 "packageName" to packageName,
