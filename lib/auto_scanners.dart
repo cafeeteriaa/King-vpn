@@ -426,6 +426,7 @@ Future<void> autoScanSheet(
   List<String> frontSnis = const <String>[],
 }) async {
   await _natAutoScanLoad();
+  if (nationalMode) await natNationalIpMemLoad();
   var status = _autoScanRunning ? 'در حال اجرا...' : 'آماده';
   var open = true;
   StateSetter? setS;
