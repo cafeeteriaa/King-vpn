@@ -12,7 +12,7 @@ class NativeVpnDiagnosticsContractTests(unittest.TestCase):
         cls.dart = (ROOT / "lib" / "main.dart").read_text(encoding="utf-8")
 
     def test_java_service_exports_versioned_operational_snapshot(self):
-        self.assertIn('snapshot.put("protocolVersion", 2)', self.java)
+        self.assertIn('snapshot.put("protocolVersion", 3)', self.java)
         for key in (
             "serviceRunning", "active", "stopping", "retryWaiting",
             "nativeBusy", "recovering", "userStopped", "nationalMode",
@@ -41,7 +41,7 @@ class NativeVpnDiagnosticsContractTests(unittest.TestCase):
         self.assertIn('"vpnService" -> {', self.kotlin)
         self.assertIn("service?.diagnosticSnapshot()", self.kotlin)
         self.assertIn('"serviceRunning" to false', self.kotlin)
-        self.assertIn('"protocolVersion" to 2', self.kotlin)
+        self.assertIn('"protocolVersion" to 3', self.kotlin)
 
     def test_watchdog_metrics_use_monotonic_time_and_no_server_payload(self):
         self.assertIn("watchdogChecks.incrementAndGet()", self.java)
