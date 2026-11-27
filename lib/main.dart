@@ -5189,21 +5189,27 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   Future<void> _rebuildPersonalFolderKeyIndex() async {
     if (_pfIndexRebuilding) return;
     _pfIndexRebuilding = true;
-    final next = <String>{};
     try {
-      await for (final batch in PersonalFolderStore.streamBatches(
-        batchSize: 128,
-        shouldAbort: () => !mounted,
-      )) {
-        for (final link in batch) {
-          final parsed = Server.parse(link);
-          if (parsed != null) next.add(parsed.key);
+      // If a durable add/remove commits while the index is being streamed,
+      // discard the stale pass and rebuild against the new revision.
+      while (mounted) {
+        final revision = personalFolderRevision;
+        final next = <String>{};
+        await for (final batch in PersonalFolderStore.streamBatches(
+          batchSize: 128,
+          shouldAbort: () => !mounted,
+        )) {
+          for (final link in batch) {
+            final parsed = Server.parse(link);
+            if (parsed != null) next.add(parsed.key);
+          }
         }
-      }
-      if (mounted) {
+        if (!mounted) break;
+        if (revision != personalFolderRevision) continue;
         _pfKeysCache = next;
         _pfKeysLen = personalFolderCount;
-        _pfIndexRevision = personalFolderRevision;
+        _pfIndexRevision = revision;
+        break;
       }
     } catch (e, stk) {
       logError(e, stk);
