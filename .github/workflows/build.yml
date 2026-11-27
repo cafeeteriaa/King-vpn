@@ -101,6 +101,14 @@ jobs:
           set -o pipefail
           flutter test 2>&1 | tee test.log
 
+      - name: Run four-million offline resource soak
+        if: github.event_name == 'pull_request' && github.event.pull_request.number == 88
+        timeout-minutes: 60
+        working-directory: build_app
+        run: |
+          set -o pipefail
+          flutter test test/fresh_resource_store_test.dart --dart-define=KING_RUN_4M_SOAK=true --reporter expanded 2>&1 | tee offline-4m-soak.log
+
       - name: Normalize plugin compile SDK
         shell: bash
         run: |
