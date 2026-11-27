@@ -328,14 +328,16 @@ class FreshResourceStore {
     return bits;
   }
 
-  static Future<int> _appendBatch(Directory dir, List<String> links) async {
+  static Future<int> _appendBatch(Directory dir, List<String> links,
+      {int maxAdds = maxEntries}) async {
+    if (maxAdds <= 0) return 0;
     final grouped = <String, Map<String, String>>{};
     for (final link in links) {
       final id = _id(link);
       grouped.putIfAbsent(_shard(id), () => <String, String>{})[id] = link;
     }
     var added = 0;
-    for (final group in grouped.entries) {
+    groupLoop: for (final group in grouped.entries) {
       final file = await _shardFile(dir, group.key);
       final bloom = await _loadShardBloom(dir, group.key);
       final wanted = <String>{
@@ -369,8 +371,8 @@ class FreshResourceStore {
       try {
         if (needsSeparator) sink.write('\n');
         for (final entry in group.value.entries) {
+          if (added >= maxAdds) break groupLoop;
           if (!existing.add(entry.key)) continue;
-          existing.add(entry.key);
           sink.writeln(jsonEncode(<String, Object?>{
             'v': 1, 'id': entry.key, 'link': entry.value,
           }));
@@ -403,9 +405,8 @@ class FreshResourceStore {
       if (batch.length < _batchSize) continue;
       final remaining = maxEntries - total;
       if (remaining <= 0) break;
-      if (batch.length > remaining) batch = batch.take(remaining).toList();
       await File('${dir.path}/$_dirtyFileName').writeAsString('1', flush: true);
-      final added = await _appendBatch(dir, batch);
+      final added = await _appendBatch(dir, batch, maxAdds: remaining);
       total = (total + added).clamp(0, maxEntries).toInt();
       batch = <String>[];
       await _writeMetadata(dir, total, source: source);
@@ -415,9 +416,8 @@ class FreshResourceStore {
     }
     if (batch.isNotEmpty && total < maxEntries) {
       final remaining = maxEntries - total;
-      if (batch.length > remaining) batch = batch.take(remaining).toList();
       await File('${dir.path}/$_dirtyFileName').writeAsString('1', flush: true);
-      final added = await _appendBatch(dir, batch);
+      final added = await _appendBatch(dir, batch, maxAdds: remaining);
       total = (total + added).clamp(0, maxEntries).toInt();
       await _writeMetadata(dir, total, source: source);
       final dirty = File('${dir.path}/$_dirtyFileName');
@@ -474,15 +474,13 @@ class FreshResourceStore {
         if (batch.length >= _batchSize) {
           final remaining = maxEntries - migrated;
           if (remaining <= 0) break;
-          if (batch.length > remaining) batch = batch.take(remaining).toList();
-          migrated += await _appendBatch(dir, batch);
+          migrated += await _appendBatch(dir, batch, maxAdds: remaining);
           batch = <String>[];
         }
       }
       if (batch.isNotEmpty && migrated < maxEntries) {
         final remaining = maxEntries - migrated;
-        if (batch.length > remaining) batch = batch.take(remaining).toList();
-        await _appendBatch(dir, batch);
+        await _appendBatch(dir, batch, maxAdds: remaining);
       }
       await legacy.rename('${legacy.path}.migrated');
     }
