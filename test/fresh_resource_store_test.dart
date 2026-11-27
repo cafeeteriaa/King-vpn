@@ -167,6 +167,7 @@ void main() {
         );
         expect(total, FreshResourceStore.maxEntries);
         expect(await FreshResourceStore.count(root: root), FreshResourceStore.maxEntries);
+        expect(await FreshResourceStore.verifyCount(root: root), FreshResourceStore.maxEntries);
         final first = await FreshResourceStore.readBatch(limit: 300, root: root);
         final second = await FreshResourceStore.readBatch(limit: 300, root: root);
         expect(first, hasLength(300));
