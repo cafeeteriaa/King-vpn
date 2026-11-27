@@ -227,7 +227,6 @@ class PersonalFolderStore {
         : (await validStreaming(backup) ? backup : null);
     if (source == null) return;
     var batch = <String>[];
-    final seen = <String>{};
     try {
       await for (final line in source
           .openRead()
@@ -238,7 +237,9 @@ class PersonalFolderStore {
         final decoded = jsonDecode(line);
         if (decoded is! String) return;
         final value = decoded.trim();
-        if (value.isEmpty || !seen.add(value.toLowerCase())) continue;
+        if (value.isEmpty) continue;
+        // Committed snapshots are normalized on write. An archive-wide Set
+        // here would grow with every profile and defeat bounded streaming.
         if (needle.isNotEmpty && !value.toLowerCase().contains(needle)) {
           continue;
         }
