@@ -2503,10 +2503,17 @@ Map<String, dynamic> _genAddrsIso(Map<String, dynamic> args) {
       final cursor = cursors[key] ?? '0';
       final remaining = cap - addrs.length;
       if (remaining <= 0) break;
-      final generated = _natExpandAnyCursor(range, cursor, min(256, remaining));
-      if (generated.$1.isNotEmpty) {
-        addrs.addAll(generated.$1);
-        cursors[key] = generated.$2;
+      // Route the production NAT range scanner through the shared optional
+      // Rust/Dart batch API. Dart remains the authoritative fallback whenever
+      // the Android accelerator is absent, slower, or fails validation.
+      final generated = natExpandAddressRangeBatch(
+        range,
+        cursor: cursor,
+        limit: min(256, remaining),
+      );
+      if (generated.addresses.isNotEmpty) {
+        addrs.addAll(generated.addresses);
+        cursors[key] = generated.nextCursor;
       }
       processed++;
     }

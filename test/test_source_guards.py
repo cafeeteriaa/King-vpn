@@ -3317,6 +3317,18 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn("cargo ndk -t arm64-v8a", workflow)
         self.assertIn("ffi:^2.1.3", workflow)
 
+
+    def test_nat_ultra_production_range_scan_uses_shared_rust_dart_batch_api(self):
+        source = (ROOT / "lib" / "nat_ultra.dart").read_text(encoding="utf-8")
+        start = source.index("void addBlocks() {")
+        end = source.index("\n  if (nationalMode)", start)
+        block = source[start:end]
+        self.assertIn("natExpandAddressRangeBatch(", block)
+        self.assertIn("generated.addresses", block)
+        self.assertIn("generated.nextCursor", block)
+        self.assertNotIn("_natExpandAnyCursor(", block)
+        self.assertIn("limit: min(256, remaining)", block)
+
     def test_rust_range_core_covers_full_ipv6_space_and_keeps_ffi_bounds(self):
         rust = (ROOT / "native" / "king_native_core" / "src" / "lib.rs").read_text(encoding="utf-8")
         bridge = (ROOT / "lib" / "king_native_accel.dart").read_text(encoding="utf-8")
