@@ -169,15 +169,17 @@ Future<bool> _kingHasVpnInterface() async {
 
 Future<bool> _runKingNationalScannerBackgroundTask() async {
   Timer? networkMonitor;
+  KingNetworkScanGuard? networkGuard;
+  String? scheduledContinuationName;
+  var observation = Future<void>.value();
   try {
     if (await _kingHasVpnInterface()) return false;
     final initialFingerprint = await KingNetworkFingerprint.capture();
     final guard = KingNetworkScanGuard(
       initialFingerprint: initialFingerprint,
     );
+    networkGuard = guard;
     if (guard.shouldCancel) return false;
-
-    var observation = Future<void>.value();
     Future<void> observeNetwork() {
       // Serialize timer and pre/post-scheduling checks so a slow interface
       // read cannot arrive out of order and overwrite a newer observation.
@@ -233,6 +235,7 @@ Future<bool> _runKingNationalScannerBackgroundTask() async {
       );
       final continuationName =
           'king-national-scan-resume-${DateTime.now().microsecondsSinceEpoch}';
+      scheduledContinuationName = continuationName;
       await observeNetwork();
       if (guard.shouldCancel) return false;
       await Workmanager().registerOneOffTask(
@@ -260,6 +263,20 @@ Future<bool> _runKingNationalScannerBackgroundTask() async {
     return false;
   } finally {
     networkMonitor?.cancel();
+    try {
+      // Drain any poll already queued before shutting down the monitor.
+      await observation;
+    } catch (e, st) {
+      logError(e, st);
+    }
+    if (networkGuard?.shouldCancel == true &&
+        scheduledContinuationName != null) {
+      try {
+        await Workmanager().cancelByUniqueName(scheduledContinuationName!);
+      } catch (e, st) {
+        logError(e, st);
+      }
+    }
   }
 }
 
