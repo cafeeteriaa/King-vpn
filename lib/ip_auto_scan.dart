@@ -121,8 +121,10 @@ Future<({List<String> addresses, Map<String, int> cursors, int nextPosition})>
   // only after every TCP/core phase finishes; cancellation must retry this batch.
   final modeSnapshot = nationalMode;
   final cursorSnapshot = Map<String, int>.of(ipAutoCursors);
+  natPrepareNativeAcceleration();
   final args = <String, dynamic>{
-    'cfIpsBatch': 0, // exact known endpoints only; no broad public CIDR scan
+    'cfIpsBatch': 0,
+    'nativeAcceleration': KingNativeAccel.useNative, // exact known endpoints only; no broad public CIDR scan
     'addressBatchSize': _ipAutoBatch, // cursor advances only for the addresses this run will probe
     'blocks': _ipAutoBlocks(knownServers),
     'nationalMode': modeSnapshot,
@@ -130,6 +132,7 @@ Future<({List<String> addresses, Map<String, int> cursors, int nextPosition})>
     'cursors': cursorSnapshot,
   };
   final gen = await compute(_genAddrsIso, args);
+  if (gen['nativeRejected'] == true) KingNativeAccel.disableNative();
   if (nationalMode != modeSnapshot || (shouldAbort?.call() ?? false)) {
     return (addresses: const <String>[], cursors: cursorSnapshot, nextPosition: 0);
   }
