@@ -2388,7 +2388,9 @@ String _natBigIntToIPv6(BigInt value) {
 
   // Small pages stay in Dart to avoid FFI overhead. After calibration, use
   // Rust only when it won the real-device benchmark and the response validates.
-  if (limit >= 64 && KingNativeAccel.useNative) {
+  if (limit >= KingNativeAccel.minNativeBatchSize &&
+      limit <= KingNativeAccel.maxNativeBatchSize &&
+      KingNativeAccel.useNative) {
     final accelerated = KingNativeAccel.tryExpandAddressRangeBatch(
       range, cursor: cursor, limit: limit,
     );

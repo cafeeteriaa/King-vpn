@@ -10,7 +10,7 @@ typedef _ExpandDart = int Function(Pointer<Utf8>, Pointer<Utf8>, int, Pointer<Ui
 class KingNativeAccel {
   KingNativeAccel._();
   static const int maxNativeBatchSize = 8192;
-  static const int _minNativeBatchSize = 64;
+  static const int minNativeBatchSize = 64;
   static bool _benchmarkComplete = false;
   static bool _preferNative = false;
   static final BigInt _maxNativeCursor = BigInt.parse('340282366920938463463374607431768211455');
