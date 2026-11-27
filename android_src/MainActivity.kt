@@ -130,7 +130,7 @@ class MainActivity : FlutterActivity() {
                                 "engineAttached" to engineAttached,
                                 "vpnSettings" to true,
                                 "back" to true,
-                                "alive" to true,
+                                "alive" to (engineAttached && !isFinishing && !isDestroyed),
                                 "androidSdk" to Build.VERSION.SDK_INT
                             )
                         )
