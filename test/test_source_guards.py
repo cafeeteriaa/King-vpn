@@ -574,6 +574,22 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn('_bgAliveUnsupported', main)
         self.assertIn("shutil.copy('android_src/MainActivity.kt', os.path.join(ka, 'MainActivity.kt'))", prepare)
 
+    def test_android_bridge_contract_validator_is_used_and_matches_native_fields(self):
+        main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        contract = (ROOT / 'lib' / 'native_bridge_contract.dart').read_text(encoding='utf-8')
+        native = (ROOT / 'android_src' / 'MainActivity.kt').read_text(encoding='utf-8')
+        self.assertIn("import 'native_bridge_contract.dart';", main)
+        self.assertIn('bgBridgeInfoMatches(', main)
+        self.assertIn('expectedPackageName: ownPkg', main)
+        for field in ('protocolVersion', 'channel', 'packageName', 'engineAttached',
+                      'vpnSettings', 'back', 'alive', 'androidSdk'):
+            self.assertIn("info['" + field + "']", contract)
+        for field in ('"protocolVersion" to 1', '"channel" to "vpn/bg"',
+                      '"packageName" to packageName', '"engineAttached" to engineAttached',
+                      '"vpnSettings" to true', '"back" to true', '"alive" to true',
+                      '"androidSdk" to Build.VERSION.SDK_INT'):
+            self.assertIn(field, native)
+
     def test_background_supervisor_is_initialized_with_its_own_dispatcher(self):
         main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
         self.assertIn("import 'king_ai_background.dart';", main)
