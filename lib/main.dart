@@ -3726,13 +3726,8 @@ class Server {
         if (!sv.tls && sv.net == 'tcp') sv.score -= 4;
         return sv;
       }
-      Uri? u0;
-      try {
-        u0 = Uri.parse(link);
-      } on FormatException {
-        return null; // QUIETPATCH: broken link, skipped quietly
-      }
-      final u = u0;
+      final u = parseConfigUri(link);
+      if (u == null) return null; // malformed URI, skipped without dropping a valid endpoint for stray '%'
       if (u.host.isEmpty || !_validHost(u.host)) return null;
       final sv = Server(
           link,
