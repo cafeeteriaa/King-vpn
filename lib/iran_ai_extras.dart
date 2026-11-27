@@ -1027,11 +1027,15 @@ extension HomeExtras on _HomePageState {
         cancelled: () => !mounted || connected || appGone || !scannerMode,
         addDiscovered: (items) => _natRangeAdd(items),
       );
-      if (!report.completed) {
-        _set('اسکنر پیش از اتصال متوقف شد؛ هیچ نتیجه ناقصی ثبت نشد');
+      if (!report.completed && !report.sliceYielded) {
+        _set('اسکنر متوقف شد یا امکان ادامه نداشت؛ نتیجه ناقص به‌عنوان تکمیل‌شده ثبت نشد');
         return false;
       }
-      _set(report.summary);
+      if (report.sliceYielded) {
+        _set('این نوبت اسکن کامل شد؛ ادامهٔ موجودی با حافظهٔ پایدار در پس‌زمینه زمان‌بندی شد. اتصال ادامه می‌یابد.');
+      } else {
+        _set(report.summary);
+      }
     }
     await start();
     return true;
