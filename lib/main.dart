@@ -12344,6 +12344,11 @@ ListTile( // KINGEXTRAS row
                         subtitle: const Text(
                           'فهرست صفحه‌بندی‌شده؛ جست‌وجو روی کل آرشیو انجام می‌شود',
                         ),
+                        trailing: IconButton(
+                          tooltip: 'تازه‌سازی فهرست',
+                          onPressed: () => reload(),
+                          icon: const Icon(Icons.refresh),
+                        ),
                       ),
                       Padding(
                         padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
@@ -12484,6 +12489,10 @@ ListTile( // KINGEXTRAS row
                                               onLongPress: () async {
                                                 await removeFromPersonalFolder(link);
                                                 if (ctx.mounted) {
+                                                  if (pageIndex > 0 &&
+                                                      pageIndex * pageSize >= page.totalCount - 1) {
+                                                    pageIndex--;
+                                                  }
                                                   reload();
                                                 }
                                               },
