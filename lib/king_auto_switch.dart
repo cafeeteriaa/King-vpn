@@ -50,6 +50,7 @@ class KingAutoSwitchCoordinator {
   Future<void> _teardownBarrier = Future<void>.value();
   Future<KingAutoSwitchResult>? _connectFlight;
   int _flightGeneration = -1;
+  bool _teardownFailed = false;
 
   List<KingConnectionAdapter> get _orderedAdapters {
     final rank = <String, int>{
@@ -69,6 +70,10 @@ class KingAutoSwitchCoordinator {
   }
 
   Future<KingAutoSwitchResult> connect() async {
+    final active = _active;
+    if (active != null) {
+      return KingAutoSwitchResult(connected: true, engine: active.id, detail: 'already active');
+    }
     final existing = _connectFlight;
     if (existing != null && _flightGeneration == _generation) return existing;
     if (existing != null) {
@@ -89,7 +94,17 @@ class KingAutoSwitchCoordinator {
   }
 
   Future<KingAutoSwitchResult> _connectInternal(int token) async {
-    try { await _teardownBarrier; } catch (_) {}
+    try {
+      await _teardownBarrier;
+    } catch (error) {
+      _teardownFailed = true;
+      return KingAutoSwitchResult(connected: false, engine: null,
+          detail: 'teardown failed; failover halted: $error');
+    }
+    if (_teardownFailed) {
+      return const KingAutoSwitchResult(connected: false, engine: null,
+          detail: 'teardown failed; failover halted');
+    }
     if (token != _generation) {
       return const KingAutoSwitchResult(connected: false, engine: null, detail: 'cancelled');
     }
@@ -155,7 +170,13 @@ class KingAutoSwitchCoordinator {
     if (target == null) return;
     final teardown = target.disconnect();
     _teardownBarrier = teardown;
-    await teardown;
+    try {
+      await teardown;
+      _teardownFailed = false;
+    } catch (_) {
+      _teardownFailed = true;
+      rethrow;
+    }
   }
 
   Future<KingAutoSwitchResult> recoverFromTrafficFailure() async {
@@ -167,6 +188,7 @@ class KingAutoSwitchCoordinator {
         final teardown = target.disconnect();
         _teardownBarrier = teardown;
         await teardown;
+        _teardownFailed = false;
       } catch (error) {
         return KingAutoSwitchResult(connected: false, engine: null,
             detail: 'recovery halted: teardown failed: $error');
