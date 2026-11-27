@@ -32,6 +32,9 @@ void main() {
 
 
     test('48-hour refresh quality gate preserves a large inventory on partial source responses', () {
+      expect(FreshResourceStore.minimumSnapshotReplacementCount(4000000), 1000000);
+      expect(FreshResourceStore.minimumSnapshotReplacementCount(20), 20);
+      expect(FreshResourceStore.minimumSnapshotReplacementCount(0), 1);
       expect(
         FreshResourceStore.isSufficientSnapshotReplacement(
           previousCount: 4000000,
@@ -369,6 +372,31 @@ void main() {
         await root.delete(recursive: true);
         final stage = Directory('${root.path}/.kingvpn-resource-stage');
         if (await stage.exists()) await stage.delete(recursive: true);
+      }
+    });
+
+    test('undersized staged replacement never deletes the previous inventory', () async {
+      final root = await Directory.systemTemp.createTemp('king-offline-replace-small-');
+      try {
+        const oldLinks = <String>[
+          'vless://old-one@example.test:443',
+          'vless://old-two@example.test:443',
+        ];
+        await FreshResourceStore.merge(oldLinks, root: root);
+        await expectLater(
+          FreshResourceStore.replaceSnapshot(
+            <String>['vless://only-one@example.test:443'],
+            minimumEntries: 2,
+            root: root,
+          ),
+          throwsA(isA<StateError>()),
+        );
+        expect(
+          (await FreshResourceStore.streamLinks(root: root).toList()).toSet(),
+          oldLinks.toSet(),
+        );
+      } finally {
+        await root.delete(recursive: true);
       }
     });
 
