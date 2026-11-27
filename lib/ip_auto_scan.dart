@@ -33,8 +33,6 @@ class _IpAutoAddressBatch {
   final Map<String, int> nextCursors;
 }
 
-String _ipAutoKeyNow() => nationalMode ? _ipAutoKeyNat : _ipAutoKeyGlob;
-String _ipAutoCursorKeyNow() => '${_ipAutoCursorKey}_${nationalMode ? 'nat' : 'glob'}';
 String _ipAutoAtKeyForMode(bool national) =>
     '${_ipAutoAtKey}_${national ? 'nat' : 'glob'}';
 // حالتی که فهرست IP در حافظه متعلق به آن است (null = هنوز بارگذاری نشده)
