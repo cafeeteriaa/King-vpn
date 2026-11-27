@@ -698,6 +698,8 @@ was tested unless supplied evidence proves it. Keep the answer concise and usefu
       'lib/king_ai_background.dart',
       'lib/king_ai_ci_policy.dart',
       'lib/king_ai_research_policy.dart',
+      'lib/king_ai_change_pipeline.dart',
+      'test/king_ai_change_pipeline_test.dart',
       'lib/main.dart',
       'lib/king_command_safety.dart',
       'lib/auto_scanners.dart',
