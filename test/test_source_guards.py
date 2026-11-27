@@ -51,7 +51,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn("servers.jsonl", store)
         self.assertIn("servers.jsonl.bak", store)
         self.assertIn("servers.jsonl.tmp", store)
-        self.assertIn("await temp.writeAsString(contents, flush=True)", store)
+        self.assertIn("await temp.writeAsString(contents, flush: true);", store)
         self.assertIn("await _replaceByRename(temp, target)", store)
         self.assertIn("PersonalFolderStore.readOrMigrate", folder)
         self.assertIn("await PersonalFolderStore.writeSnapshot(next)", folder)
@@ -84,7 +84,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn("static String encodeSnapshot(Iterable<String> links)", store)
         self.assertIn("static List<String>? decodeSnapshot(String contents)", store)
         self.assertIn("return null;", store)
-        self.assertIn("PersonalFolderStore.decodeSnapshot", store)
+        self.assertIn("decodeSnapshot(await file.readAsString())", store)
 
     def test_personal_folder_store_supports_streaming_paged_reads(self):
         store = (ROOT / "lib" / "personal_folder_store.dart").read_text(encoding="utf-8")

@@ -192,3 +192,8 @@ Increment the revision number by exactly one for each substantial edit set. Reco
 - Review pass 2: verified an invalid/detached response falls through the existing retry/backoff path; no VPN start/stop behavior or TUN routing was changed.
 - Review pass 3: checked pure unit-test cases and source-guard integration; exact-head CI and device validation remain pending.
 - No IP Clean resources, ranges, CIDRs, ports, cursors or scan behavior were modified.
+
+### Revision 68 CI repair note
+- First exact-head run `45962305708` stopped at Python source guards: 244 ran, two inherited assertions failed because they used `flush=True` instead of Dart's `flush: true`, and expected an unnecessary class qualifier for a static method call inside its own class.
+- Corrected the assertions to verify the real Dart syntax and actual call site. No production behavior or test coverage was relaxed.
+- Exact-head rerun is required before Flutter tests, Dart analysis or Android build can be claimed.

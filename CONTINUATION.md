@@ -1,3 +1,21 @@
+## CI failure analysis — run 45962305708
+
+- Exact implementation commit: `8ba22e9d2f40342800ea24b97d35e859651ab889`.
+- Run: https://github.com/cafeeteriaa/King-vpn/actions/runs/45962305708 — `failure`.
+- The workflow stopped in the Python source-guard step before Flutter tests, Dart analysis or Android build.
+- 244 Python guards ran; two failed because inherited assertions were stale, not because of the bridge implementation:
+  1. The guard expected Python-style `flush=True`; the Dart source correctly uses `flush: true`.
+  2. The guard expected `PersonalFolderStore.decodeSnapshot` inside the class implementation, but the static method is called as `decodeSnapshot(...)` from within that class.
+- Corrected both assertions to match and verify the actual Dart implementation. No production source or test expectation was weakened.
+- Guard-repair commit SHA: resolved from this branch after the commit; exact-head rerun pending.
+- Active Actions after run 45962305708: none. No run was cancelled.
+
+## First next action
+
+Run the exact-head workflow after this source-guard repair. If source guards pass, proceed through Flutter tests, Dart analysis and ARM64 build; inspect the exact-run artifact only if the full workflow succeeds.
+
+---
+
 ## Current checkpoint — 2026-11-27 08:53 Europe/Rome
 
 - Repository: `cafeeteriaa/King-vpn`.
