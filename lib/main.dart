@@ -9731,7 +9731,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     try {
       final metadata = await FreshResourceStore.metadata();
       final stamp = DateTime.tryParse(
-          (metadata['onlineRefreshedAt'] ?? metadata['updatedAt'])?.toString() ?? '');
+          metadata['onlineSnapshotRefreshedAt']?.toString() ?? '');
       if (stamp != null &&
           DateTime.now().difference(stamp.toLocal()) < const Duration(hours: 48)) {
         return;
