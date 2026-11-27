@@ -1806,7 +1806,8 @@ Future<void> natIpMemSave(String ip, int port) async {
       nextRangeCursors: staged, passCompleted: true);
   }
   if (natRanges.every((range) => (staged[range] ?? 0) < 0)) {
-    staged.clear();
+    return (addresses: const <String>[], nextCursor: _natConfiguredRangeCursor,
+      nextRangeCursors: staged, passCompleted: true);
   }
   final out = <String>[];
   var index = _natConfiguredRangeCursor % natRanges.length;
@@ -2335,10 +2336,12 @@ Future<List<String>> _natRangeScanStepBody({
   final configuredNatRanges = configuredBatch.addresses;
   final blockStart = (_cfRangeCursors['__block_cursor'] ?? 0);
   final blockPassStart = (_cfRangeCursors['__block_pass_start'] ?? blockStart);
+  final blockPassDone = _cfRangeCursors['__block_pass_done'] == 1;
   final outputLimit = max(0, maxAddrs - configuredNatRanges.length).toInt();
+  final batchBlocks = blockPassDone ? const <String>[] : blocks;
   final args = <String, dynamic>{
     'cfIpsBatch': 0,
-    'blocks': blocks,
+    'blocks': batchBlocks,
     'nationalMode': modeSnapshot,
     'liveRanges': <String>[],
     'outputLimit': outputLimit,
@@ -2349,10 +2352,13 @@ Future<List<String>> _natRangeScanStepBody({
 
   final generatedCursors = Map<String, int>.from(gen['cursors'] as Map);
   final nextBlockCursor = (generatedCursors['__block_cursor'] ?? blockStart);
-  final endpointPassComplete = blocks.isEmpty ||
+  final endpointPassComplete = batchBlocks.isEmpty ||
       (outputLimit > 0 && nextBlockCursor == blockPassStart);
   generatedCursors['__block_pass_start'] =
       endpointPassComplete ? nextBlockCursor : blockPassStart;
+  if (endpointPassComplete) {
+    generatedCursors['__block_pass_done'] = 1;
+  }
   final addrs = <String>{
     ...configuredNatRanges,
     ...(gen['addrs'] as List).cast<String>(),
