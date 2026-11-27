@@ -2401,6 +2401,80 @@ String _natBigIntToIPv6(BigInt value) {
   return (addresses: result.$1, nextCursor: result.$2);
 }
 
+
+/// Calibrate Rust once in the long-lived UI isolate before spawning a worker.
+/// The worker isolate re-opens the library and verifies parity once per batch,
+/// then reuses the validated native path for the remaining ranges in that batch.
+void natPrepareNativeAcceleration() {
+  if (!KingNativeAccel.shouldBenchmark) return;
+  natExpandAddressRangeBatch(
+    '192.0.2.0/24',
+    cursor: '0',
+    limit: 128,
+  );
+}
+
+({List<String> addresses, String nextCursor, bool nativeRejected, bool nativeReady})
+    natExpandAddressRangeBatchForWorker(
+  String range, {
+  String cursor = '0',
+  int limit = 256,
+  required bool nativeEnabled,
+  bool verifyNative = false,
+}) {
+  final dartResult = _natExpandAnyCursor(range, cursor, limit);
+  if (!nativeEnabled) {
+    return (
+      addresses: dartResult.$1,
+      nextCursor: dartResult.$2,
+      nativeRejected: false,
+      nativeReady: false,
+    );
+  }
+
+  final accelerated = KingNativeAccel.tryExpandAddressRangeBatch(
+    range,
+    cursor: cursor,
+    limit: limit,
+  );
+  if (accelerated == null) {
+    return (
+      addresses: dartResult.$1,
+      nextCursor: dartResult.$2,
+      nativeRejected: true,
+      nativeReady: false,
+    );
+  }
+
+  if (verifyNative) {
+    var equivalent = accelerated.nextCursor == dartResult.$2 &&
+        accelerated.addresses.length == dartResult.$1.length;
+    if (equivalent) {
+      for (var index = 0; index < dartResult.$1.length; index++) {
+        if (accelerated.addresses[index] != dartResult.$1[index]) {
+          equivalent = false;
+          break;
+        }
+      }
+    }
+    if (!equivalent) {
+      return (
+        addresses: dartResult.$1,
+        nextCursor: dartResult.$2,
+        nativeRejected: true,
+        nativeReady: false,
+      );
+    }
+  }
+
+  return (
+    addresses: accelerated.addresses,
+    nextCursor: accelerated.nextCursor,
+    nativeRejected: false,
+    nativeReady: true,
+  );
+}
+
 // Cursor-aware expansion for IPv4 and IPv6 CIDRs/ranges. BigInt-backed IPv6
 // cursors allow explicit /64 and larger address spaces to progress without overflow.
 (List<String>, String) _natExpandAnyCursor(
@@ -2489,6 +2563,10 @@ Map<String, dynamic> _genAddrsIso(Map<String, dynamic> args) {
   final cap = requestedBatch == null
       ? max(cfIpsBatch * 4, 20000)
       : max(0, requestedBatch);
+  final nativeAcceleration = args['nativeAcceleration'] == true;
+  var nativeWorkerChecked = false;
+  var nativeWorkerReady = false;
+  var nativeRejected = false;
   void addBlocks() {
     if (blocks.isEmpty) return;
     // Rotate across the entire CIDR/range catalog so every configured
@@ -2503,11 +2581,19 @@ Map<String, dynamic> _genAddrsIso(Map<String, dynamic> args) {
       final cursor = cursors[key] ?? '0';
       final remaining = cap - addrs.length;
       if (remaining <= 0) break;
-      final generated = natExpandAddressRangeBatch(
+      final generated = natExpandAddressRangeBatchForWorker(
         range,
         cursor: cursor,
         limit: min(256, remaining),
+        nativeEnabled: nativeAcceleration && (!nativeWorkerChecked || nativeWorkerReady),
+        verifyNative: !nativeWorkerChecked,
       );
+      nativeWorkerChecked = true;
+      if (generated.nativeReady) nativeWorkerReady = true;
+      if (generated.nativeRejected) {
+        nativeRejected = true;
+        nativeWorkerReady = false;
+      }
       if (generated.addresses.isNotEmpty) {
         addrs.addAll(generated.addresses);
         cursors[key] = generated.nextCursor;
@@ -2523,7 +2609,7 @@ Map<String, dynamic> _genAddrsIso(Map<String, dynamic> args) {
     addBlocks();
     addrs.addAll(_getCfIps(batchSize: cfIpsBatch, liveRanges: liveRanges, cursors: <String, int>{}));
   }
-  return {'addrs': addrs, 'cursors': cursors};
+  return {'addrs': addrs, 'cursors': cursors, 'nativeRejected': nativeRejected};
 }
 
 // RANGEGUARD: یک اسکن بازه در هر لحظه؛ _natKeep و _natEscalate روی cursors مشترک نمی‌نویسند
@@ -2596,15 +2682,18 @@ Future<List<String>> _natRangeScanStepBody({
   }.toList(growable: false);
   final cursorStore =
       modeSnapshot ? _natNationalRangeCursors : _cfRangeCursors;
+  natPrepareNativeAcceleration();
   final args = <String, dynamic>{
     'cfIpsBatch': 0,
     'addressBatchSize': maxAddrs,
+    'nativeAcceleration': KingNativeAccel.useNative,
     'blocks': blocks,
     'nationalMode': modeSnapshot,
     'liveRanges': <String>[],
     'cursors': Map<String, String>.of(cursorStore),
   };
   final generated = await compute(_genAddrsIso, args);
+  if (generated['nativeRejected'] == true) KingNativeAccel.disableNative();
   if (shouldAbort()) return const <String>[];
   final generatedCursors = <String, String>{for (final entry in (generated['cursors'] as Map).entries) entry.key.toString(): entry.value.toString()};
   // The isolate now emits exactly maxAddrs entries; no generated tail is
