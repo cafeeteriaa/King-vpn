@@ -156,10 +156,13 @@ class KingScanJournal {
         'counters': _sanitizeCounters(counters),
       };
       final sink = _file.openWrite(mode: FileMode.append);
-      if (_needsSeparator) sink.write('\n');
-      sink.writeln(jsonEncode(record));
-      await sink.flush();
-      await sink.close();
+      try {
+        if (_needsSeparator) sink.write('\\n');
+        sink.writeln(jsonEncode(record));
+        await sink.flush();
+      } finally {
+        await sink.close();
+      }
       _needsSeparator = false;
       _sequence = nextSequence;
       _latest = record;
