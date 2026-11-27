@@ -9,11 +9,32 @@ typedef _ExpandDart = int Function(Pointer<Utf8>, Pointer<Utf8>, int, Pointer<Ui
 /// Optional Android FFI bridge. Failures preserve the established Dart path.
 class KingNativeAccel {
   KingNativeAccel._();
-  static const int _maxNativeBatch = 8192;
+  static const int maxNativeBatchSize = 8192;
+  static const int _minNativeBatchSize = 64;
+  static bool _benchmarkComplete = false;
+  static bool _preferNative = false;
   static final BigInt _maxNativeCursor = BigInt.parse('340282366920938463463374607431768211455');
   static bool _loadAttempted = false;
   static DynamicLibrary? _library;
   static _ExpandDart? _expand;
+
+  static bool get shouldBenchmark => !_benchmarkComplete && isAvailable;
+
+  static bool get useNative =>
+      _benchmarkComplete && _preferNative && isAvailable;
+
+  static void completeBenchmark({
+    required bool equivalent,
+    required bool nativeFaster,
+  }) {
+    _benchmarkComplete = true;
+    _preferNative = equivalent && nativeFaster;
+  }
+
+  static void disableNative() {
+    _benchmarkComplete = true;
+    _preferNative = false;
+  }
 
   static bool get isAvailable {
     _ensureLoaded();
@@ -38,7 +59,7 @@ class KingNativeAccel {
     String range, {required String cursor, required int limit}
   ) {
     final parsedCursor = BigInt.tryParse(cursor);
-    if (!Platform.isAndroid || limit <= 0 || limit > _maxNativeBatch ||
+    if (!Platform.isAndroid || limit <= 0 || limit > maxNativeBatchSize ||
         (parsedCursor != null && (parsedCursor.isNegative || parsedCursor > _maxNativeCursor))) {
       return null;
     }

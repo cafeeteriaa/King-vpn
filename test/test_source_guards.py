@@ -3327,5 +3327,15 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn("addresses.length > limit", bridge)
         self.assertIn("return null;", bridge)
 
+    def test_rust_acceleration_is_runtime_benchmarked_before_selection(self):
+        nat = (ROOT / "lib" / "nat_ultra.dart").read_text(encoding="utf-8")
+        bridge = (ROOT / "lib" / "king_native_accel.dart").read_text(encoding="utf-8")
+        self.assertIn("KingNativeAccel.shouldBenchmark", nat)
+        self.assertIn("accelerated.nextCursor == dartResult.$2", nat)
+        self.assertIn("nativeWatch.elapsedMicroseconds * 100", nat)
+        self.assertIn("dartWatch.elapsedMicroseconds * 90", nat)
+        self.assertIn("completeBenchmark(", bridge)
+        self.assertIn("disableNative()", bridge)
+
 if __name__ == '__main__':
     unittest.main()
