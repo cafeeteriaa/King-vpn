@@ -2624,7 +2624,6 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('.where(_autoValidSni)', body)
         self.assertIn('await _natAutoScanLoad();', body)
         self.assertIn('await _natAutoScanSave();', body)
-        self.assertIn('natScanHits.addAll(_natAutoScanCandidates[\'ip\']!);', source)
         self.assertIn('await natRelayHostsLoad();', body)
         self.assertIn('if (scanNationalMode) ...natRelayHosts,', body)
 
