@@ -1604,7 +1604,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         scan = source[start:end]
         self.assertIn('if (halted()) return false;', scan)
         self.assertIn('return true;', scan)
-        bg_start = source.index('Future<void> ipAutoBackground()')
+        bg_start = source.index('Future<void> ipAutoBackground({bool Function()? stop})')
         bg_end = source.index('/// دلیل رد شدن شروع اسکن', bg_start)
         background = source[bg_start:bg_end]
         completed = background.index('final completed = await _ipAutoRunOnce(')
