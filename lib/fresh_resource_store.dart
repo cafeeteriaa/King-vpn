@@ -503,7 +503,27 @@ class FreshResourceStore {
     ]).then((_) async {
       await for (final entity in dir.list(followLinks: false)) {
         if (entity is File &&
-            (RegExp(r'^[0-9a-f]{2}\\.jsonl$').hasMatch(entity.uri.pathSegments.last) ||
+            (RegExp(r'^[0-9a-f]{2}\.jsonl.hasMatch(entity.uri.pathSegments.last) ||
+             entity.uri.pathSegments.last == _metadataFileName ||
+             entity.uri.pathSegments.last == _dirtyFileName ||
+             entity.uri.pathSegments.last == _cursorFileName ||
+             entity.uri.pathSegments.last == '.migration_v2_done' ||
+             entity.uri.pathSegments.last == _legacyFileName ||
+             entity.uri.pathSegments.last == '$_legacyFileName.migrated')) {
+          await entity.delete();
+        }
+      }
+      _shardBlooms.removeWhere((key, _) => key.startsWith('${dir.path}/'));
+      await _writeMetadata(dir, 0, source: 'cleared');
+      await File('${dir.path}/.migration_v2_done').writeAsString('v2', flush: true);
+    });
+    final queued = operation.then<void>((_) {}, onError: (Object _) {});
+    _mergeQueues[path] = queued;
+    _readQueues[path] = queued;
+    await operation;
+  }
+}
+).hasMatch(entity.uri.pathSegments.last) ||
              entity.uri.pathSegments.last == _metadataFileName ||
              entity.uri.pathSegments.last == _dirtyFileName ||
              entity.uri.pathSegments.last == _cursorFileName ||
