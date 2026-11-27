@@ -13,6 +13,7 @@ class PersonalFolderStore {
   static const String fileName = 'servers.jsonl';
   static const String backupName = 'servers.jsonl.bak';
   static const String tempName = 'servers.jsonl.tmp';
+  static const String backupTempName = 'servers.jsonl.bak.tmp';
 
   /// Injectable only for filesystem tests; production leaves this unset.
   static Future<Directory> Function()? directoryProviderForTesting;
@@ -94,31 +95,34 @@ class PersonalFolderStore {
     return _readFile(await _file(backupName));
   }
 
+  /// Replaces a destination using a same-directory rename. Android/Linux
+  /// rename atomically replaces an existing destination; no delete-before-
+  /// rename window is introduced.
+  static Future<void> _replaceByRename(File source, File destination) async {
+    await source.rename(destination.path);
+  }
+
   static Future<void> _writeSnapshotUnlocked(Iterable<String> links) async {
     final values = _normalize(links);
     final target = await _file(fileName);
     final backup = await _file(backupName);
     final temp = await _file(tempName);
+    final backupTemp = await _file(backupTempName);
     final contents = encodeSnapshot(values);
 
+    // Stage and flush the new primary before touching either committed file.
     await temp.writeAsString(contents, flush: true);
-    if (await target.exists()) {
-      // Never replace a known-good backup with a corrupt primary snapshot.
-      final primaryIsValid = await _readFile(target) != null;
-      if (primaryIsValid) {
-        if (await backup.exists()) await backup.delete();
-        await target.copy(backup.path);
-      }
-      await target.delete();
+
+    // Rotate only a validated primary. Stage the backup separately and rename
+    // it over the old backup, so interruption cannot destroy the last good copy.
+    if (await target.exists() && await _readFile(target) != null) {
+      await backupTemp.writeAsBytes(await target.readAsBytes(), flush: true);
+      await _replaceByRename(backupTemp, backup);
     }
-    try {
-      await temp.rename(target.path);
-    } catch (_) {
-      if (!await target.exists() && await backup.exists()) {
-        await backup.copy(target.path);
-      }
-      rethrow;
-    }
+
+    // On Android/Linux this is a single filesystem rename/replace operation.
+    // If it fails, the previous primary remains in place and backup is intact.
+    await _replaceByRename(temp, target);
   }
 
   static Future<void> writeSnapshot(Iterable<String> links) {
