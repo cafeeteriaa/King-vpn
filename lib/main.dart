@@ -45,6 +45,7 @@ import 'personal_folder.dart'; // پوشه‌ی «سرورهای شخصی»
 import 'personal_folder_store.dart'; // صفحه‌بندی فایل‌محور پوشه شخصی
 import 'personal_folder_probe.dart'; // پینگ جریانی با همزمانی محدود
 import 'king_extras2.dart'; // KINGEXTRAS: share sheet / UUID / check-host.net
+import 'scan_maintenance_scheduler.dart'; // serialized DNS/IP maintenance
 part 'iran_ai_extras.dart';
 part 'npv_am_extras.dart';
 part 'nat_ultra.dart';
@@ -5019,6 +5020,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   DateTime lastFetchTry = DateTime.fromMillisecondsSinceEpoch(0);
   Timer? watch, tick, dropTimer, saveT;
   Timer? _natHotInitialTimer, _natHotRefreshTimer;
+  KingScanMaintenanceScheduler? _scanMaintenance;
   // DROPDEFER: قطع هسته وسط تعویض را گم نمی‌کنیم؛ بعد از آزاد شدن busy/switching بررسی می‌شود
   bool _dropDeferred = false;
   // DROPFIX: هنگام توقف خودِ اپ (تست سرور، جستجو) رویداد DISCONNECTED طبیعی است
@@ -5559,7 +5561,12 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       appGone = false;
       abort = false;
     }
-    if (inForeground && mounted) setState(() {});
+    if (inForeground && mounted) {
+      setState(() {});
+      // Resume a deferred maintenance cycle only after foreground/network
+      // eligibility has been re-evaluated by the shared scheduler.
+      unawaited(_scanMaintenance?.runOnce() ?? Future<void>.value());
+    }
     if (inForeground && pendingFailover) {
       pendingFailover = false;
       if (wantVpn && !busy) {
@@ -5645,6 +5652,26 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     }
   }
 
+  bool _scanMaintenanceShouldStop() =>
+      !mounted ||
+      !inForeground ||
+      connected ||
+      wantVpn ||
+      busy ||
+      searching ||
+      switching ||
+      appGone;
+
+  void _startScanMaintenance() {
+    _scanMaintenance ??= KingScanMaintenanceScheduler(
+      shouldRun: () => !_scanMaintenanceShouldStop(),
+      runDns: () => dnsxAutoPick(stop: _scanMaintenanceShouldStop),
+      runIp: () => ipAutoBackground(stop: _scanMaintenanceShouldStop),
+      onError: (error, stackTrace) => logError(error, stackTrace),
+    );
+    _scanMaintenance!.start();
+  }
+
   Future<void> _init() async {
     await adFreeLoad();
     unawaited(adsRemoteLoad());
@@ -5672,6 +5699,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         }
       });
     }
+    // DNS and IP scanners share one serialized maintenance lane. Their own
+    // persisted cadence decides whether a scan is due; the timer is only a
+    // wake-up mechanism while the app process is alive.
+    _startScanMaintenance();
   }
 
   @override
@@ -5692,6 +5723,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     _natHotInitialTimer?.cancel();
     _natHotRefreshTimer?.cancel();
     _personalPingT?.cancel();
+    _scanMaintenance?.dispose();
     _dbgSaveT?.cancel();
     _dbgProbT?.cancel();
     unawaited(_smartSpeech.cancel());
