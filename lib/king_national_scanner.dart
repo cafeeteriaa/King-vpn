@@ -927,17 +927,29 @@ class KingNationalScannerEngine {
         }
       }
 
-      status(KingNatScanPhase.ip, 'اسکنر: بررسی IP و پورت‌های مجاز...');
+      status(KingNatScanPhase.ip, 'اسکنر: پیمایش پیوستهٔ تمام بازه‌ها و endpointها...');
       if (!stopped() && kNatIpScanOn && !ipAutoBusy && !_natRangeScanBusy) {
-        final found = await natRangeScanStep(
-          known: seeds,
-          maxAddrs: max(256, natAdaptiveWorkers() * 512).toInt(),
-          conc: max(1, natAdaptiveWorkers()).toInt(),
-          stop: stopped, coordinatorOwned: true,
-        );
-        if (!stopped() && found.isNotEmpty) {
-          ipHits = found.length;
-          await addDiscovered(found);
+        // If the previous complete pass finished, begin a new pass. An
+        // interrupted pass keeps its persisted cursor and resumes in place.
+        await natRangeStartNextPass();
+        var batch = 0;
+        while (!stopped() && !natRangeInventoryPassComplete) {
+          batch++;
+          final found = await natRangeScanStep(
+            known: seeds,
+            maxAddrs: max(256, natAdaptiveWorkers() * 512).toInt(),
+            conc: max(1, natAdaptiveWorkers()).toInt(),
+            stop: stopped,
+            coordinatorOwned: true,
+          );
+          if (stopped()) break;
+          ipHits += found.length;
+          if (found.isNotEmpty) await addDiscovered(found);
+          if (batch % 16 == 0) {
+            status(KingNatScanPhase.ip,
+                'اسکنر: ادامهٔ پیمایش بازه‌ها؛ دستهٔ $batch، تعداد کشفیات $ipHits');
+            await Future<void>.delayed(Duration.zero);
+          }
         }
       } else if (!kNatIpScanOn) {
         warnings.add('ip_scan_disabled_by_policy');
