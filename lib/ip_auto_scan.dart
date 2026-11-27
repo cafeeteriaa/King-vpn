@@ -11,43 +11,38 @@ part of 'main.dart';
 const String _ipAutoKeyNat = 'ipauto_nat_v1';
 const String _ipAutoKeyGlob = 'ipauto_glob_v1';
 const String _ipAutoCursorKey = 'ipauto_cursor_v1';
-const String _ipAutoPosKey = 'ipauto_pos_v1'; // جای فعلی در فهرست آدرس‌ها
-const int _ipAutoBatch = 6000; // آدرس در هر اجرا
-const String _ipAutoAtKey = 'ipauto_at_v1'; // زمان آخرین اسکن خودکار نت ملی
-const int _ipAutoConc = 48; // اتصال TCP همزمان
+const int _ipAutoBatch = 6000; // per-run work batch; per-block cursors cover the full inventory
+const String _ipAutoAtKey = 'ipauto_at_v1'; // legacy National Net timestamp
+const int _ipAutoConc = 48; // TCP fan-out ceiling
 
 bool ipAutoBusy = false;
 bool ipAutoStopFlag = false;
 String ipAutoStatus = '';
 final List<String> ipAutoHits = []; // به شکل «ip|port»
 final Map<String, int> ipAutoCursors = {};
-int ipAutoPos = 0;
 
 String _ipAutoKeyNow() => nationalMode ? _ipAutoKeyNat : _ipAutoKeyGlob;
-// IPAUTO-MODE: کرسر و جای فعلی هم برای هر حالت جدا هستند (فهرست بلوک‌ها در دو حالت فرق دارد)
-String _ipAutoPosKeyNow() => '${_ipAutoPosKey}_${nationalMode ? 'nat' : 'glob'}';
 String _ipAutoCursorKeyNow() => '${_ipAutoCursorKey}_${nationalMode ? 'nat' : 'glob'}';
+String _ipAutoAtKeyForMode(bool national) =>
+    '${_ipAutoAtKey}_${national ? 'nat' : 'glob'}';
 // حالتی که فهرست IP در حافظه متعلق به آن است (null = هنوز بارگذاری نشده)
 bool? _ipAutoLoadedNat;
 String _ipAutoModeName() => nationalMode ? 'نت ملی' : 'جهانی';
 
 Future<void> ipAutoLoad() async {
-  // Capture the mode and its storage keys before the first await. A mode
-  // switch during preference I/O must never mix the two independent datasets.
+  // Capture the mode and its storage keys before the first await.
   final loadNationalMode = nationalMode;
   final hitsKey = loadNationalMode ? _ipAutoKeyNat : _ipAutoKeyGlob;
-  final posKey = '${_ipAutoPosKey}_${loadNationalMode ? 'nat' : 'glob'}';
   final cursorKey = '${_ipAutoCursorKey}_${loadNationalMode ? 'nat' : 'glob'}';
   try {
     final p = await SharedPreferences.getInstance();
     if (nationalMode != loadNationalMode) return;
     final savedHits = p.getString(hitsKey) ?? '';
-    final savedPos = int.tryParse(p.getString(posKey) ?? '') ?? 0;
     final loadedCursors = <String, int>{};
-    final c = p.getString(cursorKey);
-    if (c != null && c.isNotEmpty) {
+    final encoded = p.getString(cursorKey);
+    if (encoded != null && encoded.isNotEmpty) {
       try {
-        final decoded = jsonDecode(c);
+        final decoded = jsonDecode(encoded);
         if (decoded is Map) {
           for (final entry in decoded.entries) {
             if (entry.value is num) {
@@ -55,34 +50,30 @@ Future<void> ipAutoLoad() async {
             }
           }
         }
-      } catch (e, stk) {
-        logError(e, stk);
+      } catch (error, stackTrace) {
+        logError(error, stackTrace);
       }
     }
     if (nationalMode != loadNationalMode) return;
     ipAutoHits
       ..clear()
-      ..addAll(savedHits.split('\n').where((x) => x.contains('|')));
+      ..addAll(savedHits.split('\n').where((value) => value.contains('|')));
     ipAutoCursors
       ..clear()
       ..addAll(loadedCursors);
-    ipAutoPos = savedPos;
     _ipAutoLoadedNat = loadNationalMode;
-  } catch (e, stk) {
-    logError(e, stk);
+  } catch (error, stackTrace) {
+    logError(error, stackTrace);
   }
 }
 
 Future<void> _ipAutoSave() async {
-  // Persist an immutable snapshot under the keys belonging to its captured mode.
   final saveNationalMode = nationalMode;
   if (_ipAutoLoadedNat != null && _ipAutoLoadedNat != saveNationalMode) return;
   final hits = List<String>.of(ipAutoHits);
   final cursors = Map<String, int>.of(ipAutoCursors);
-  final position = ipAutoPos;
   final hitsKey = saveNationalMode ? _ipAutoKeyNat : _ipAutoKeyGlob;
   final cursorKey = '${_ipAutoCursorKey}_${saveNationalMode ? 'nat' : 'glob'}';
-  final posKey = '${_ipAutoPosKey}_${saveNationalMode ? 'nat' : 'glob'}';
   try {
     final p = await SharedPreferences.getInstance();
     if (nationalMode != saveNationalMode ||
@@ -91,58 +82,87 @@ Future<void> _ipAutoSave() async {
     }
     await p.setString(hitsKey, hits.join('\n'));
     await p.setString(cursorKey, jsonEncode(cursors));
-    await p.setString(posKey, position.toString());
-  } catch (e, stk) {
-    logError(e, stk);
+  } catch (error, stackTrace) {
+    logError(error, stackTrace);
   }
 }
 
-/// خودکار فقط IPهای دقیقِ کانفیگ‌های موجود و سرورهای قبلاً موفق را بررسی می‌کند.
-/// پیمایش گسترده‌ی CIDRهای ISP/CDN برای اجرای خودکار مجاز نیست؛ اسکن دستی جداست.
-List<String> _ipAutoBlocks(Iterable<Server> knownServers) {
-  // Hard isolation: National Net IPs come only from the National Net scanner's
-  // verified memory/hits. Global IPs come only from the active global pool.
+/// Build an exact endpoint inventory from saved candidates and the freshly
+/// fetched independent source templates. Hostnames resolve only to their
+/// returned A/AAAA addresses; no neighboring subnet is synthesized.
+Future<List<String>> _ipAutoBlocks(
+  Iterable<Server> sourceServers, {
+  required bool modeSnapshot,
+  bool Function()? shouldAbort,
+}) async {
   final ips = <String>{};
-  if (nationalMode) {
+  if (modeSnapshot) {
     ips
       ..addAll(natNationalIpMemHosts())
-      ..addAll(natScanHits);
+      ..addAll(natScanHits)
+      ..addAll(natRelayHosts);
   } else {
-    for (final server in knownServers) {
-      if (server.isIp) ips.add(server.host);
+    ips
+      ..addAll(natIpMemHosts())
+      ..addAll(_goldIps.keys);
+  }
+
+  for (final server in sourceServers) {
+    if (shouldAbort?.call() ?? false) break;
+    final host = server.host.trim();
+    if (host.isEmpty) continue;
+    final literal = InternetAddress.tryParse(host);
+    if (literal != null) {
+      ips.add(literal.address);
+      continue;
+    }
+    try {
+      ips.addAll(await nipResolveAll(host));
+    } catch (error, stackTrace) {
+      logError(error, stackTrace);
     }
   }
-  return ips.map((ip) => '$ip/32').toList(growable: false);
+  return natSeedBlocks(ips.toList(growable: false));
 }
 
-Future<List<String>> _ipAutoNextAddrs(Iterable<Server> knownServers, {bool Function()? shouldAbort}) async {
-  // A mode switch while compute() is running must not apply stale cursors
-  // or a stale batch position to the newly selected network mode.
+Future<List<String>> _ipAutoNextAddrs(
+  Iterable<Server> sourceServers, {
+  bool Function()? shouldAbort,
+}) async {
+  // Cursors belong to each exact /32 or /128 block. Generate exactly the
+  // returned work batch; never advance cursors past discarded addresses.
   final modeSnapshot = nationalMode;
-  final startPosSnapshot = ipAutoPos;
   final cursorSnapshot = Map<String, int>.of(ipAutoCursors);
-  final args = <String, dynamic>{
-    'cfIpsBatch': 0, // exact known endpoints only; no broad public CIDR scan
-    'blocks': _ipAutoBlocks(knownServers),
-    'nationalMode': modeSnapshot,
-    'liveRanges': <String>[],
-    'cursors': cursorSnapshot,
-  };
-  final gen = await compute(_genAddrsIso, args);
+  final blocks = await _ipAutoBlocks(
+    sourceServers,
+    modeSnapshot: modeSnapshot,
+    shouldAbort: shouldAbort,
+  );
   if (nationalMode != modeSnapshot || (shouldAbort?.call() ?? false)) {
     return const <String>[];
   }
-  final all = (gen['addrs'] as List).cast<String>();
-  final generatedCursors = Map<String, int>.from(gen['cursors'] as Map);
-  ipAutoCursors
-    ..clear()
-    ..addAll(generatedCursors);
-  if (all.isEmpty) return const <String>[];
-  // فقط یک تکه‌ی _ipAutoBatch تایی در هر اجرا؛ جای فعلی ذخیره می‌شود تا اجرای بعدی ادامه دهد
-  final start = startPosSnapshot % all.length;
-  final slice = all.skip(start).take(_ipAutoBatch).toList();
-  ipAutoPos = start + slice.length;
-  return slice;
+  final generated = await compute(_genAddrsIso, <String, dynamic>{
+    'cfIpsBatch': 0,
+    'addressBatchSize': _ipAutoBatch,
+    'blocks': blocks,
+    'nationalMode': modeSnapshot,
+    'liveRanges': <String>[],
+    'cursors': cursorSnapshot,
+  });
+  if (nationalMode != modeSnapshot || (shouldAbort?.call() ?? false)) {
+    return const <String>[];
+  }
+  final addresses = (generated['addrs'] as List).cast<String>();
+  final nextCursors = <String, int>{
+    for (final entry in (generated['cursors'] as Map).entries)
+      entry.key.toString(): int.tryParse(entry.value.toString()) ?? 0,
+  };
+  if (addresses.isNotEmpty) {
+    ipAutoCursors
+      ..clear()
+      ..addAll(nextCursors);
+  }
+  return List<String>.unmodifiable(addresses);
 }
 
 extension IpAutoExt on _HomePageState {
@@ -153,9 +173,11 @@ extension IpAutoExt on _HomePageState {
 
   /// نت ملی: اسکن IP خودکار بدون دکمه (هر ۲۴ ساعت، یا ۶ ساعت اگر نتیجه نداشت)، فقط وقتی VPN قطع است.
   /// نتایج در فهرست نت ملی ذخیره می‌شوند و هیچ صف یا بازه‌ی دیگری را تغییر نمی‌دهد.
-  Future<void> ipAutoBackground() async {
+  Future<void> ipAutoBackground({bool Function()? stop}) async {
     final runNationalMode = nationalMode;
-    if (!kNatIpScanOn || !runNationalMode) return;
+    if (!kNatIpScanOn) return;
+    bool externallyStopped() => !mounted || (stop?.call() ?? false);
+    if (externallyStopped()) return;
     if (ipAutoBusy || dnsxManualBusy || _natRangeScanBusy || _dnsxAutoBusy) return;
     if (connected || busy) return;
 
@@ -171,16 +193,28 @@ extension IpAutoExt on _HomePageState {
       final p = await SharedPreferences.getInstance();
       if (_ipAutoHalt(modeSnapshot: runNationalMode)) return;
 
-      final last = int.tryParse(p.getString(_ipAutoAtKey) ?? '') ?? 0;
+      final atKey = _ipAutoAtKeyForMode(runNationalMode);
+      var last = int.tryParse(p.getString(atKey) ?? '') ?? 0;
+      // Migrate the old shared timestamp to National Net only. Global scanning
+      // receives an independent cadence and cannot inherit that old delay.
+      if (runNationalMode && last == 0) {
+        last = int.tryParse(p.getString(_ipAutoAtKey) ?? '') ?? 0;
+        if (last > 0) await p.setString(atKey, last.toString());
+      }
       final now = DateTime.now().millisecondsSinceEpoch;
       // اگر هنوز IP سالمی پیدا نشده، زودتر دوباره امتحان می‌شود (۶ ساعت)؛ وگرنه هر ۲۴ ساعت
       final gapMs = ipAutoHits.isEmpty ? 6 * 3600 * 1000 : 24 * 3600 * 1000;
       if (now - last < gapMs) return;
 
-      final completed = await _ipAutoRunOnce((s) => ipAutoStatus = s);
+      final completed = await _ipAutoRunOnce(
+        (s) => ipAutoStatus = s,
+        shouldAbort: externallyStopped,
+      );
       // Failed, cancelled, or mode-switched scans must not consume the retry interval.
-      if (completed && !_ipAutoHalt(modeSnapshot: runNationalMode)) {
-        await p.setString(_ipAutoAtKey, now.toString());
+      if (completed &&
+          !_ipAutoHalt(modeSnapshot: runNationalMode) &&
+          !externallyStopped()) {
+        await p.setString(atKey, now.toString());
       }
     } catch (e, stk) {
       logError(e, stk);
@@ -224,14 +258,22 @@ extension IpAutoExt on _HomePageState {
     }
   }
 
-  Future<bool> _ipAutoRunOnce(void Function(String) say, {bool manual = false}) async {
+  Future<bool> _ipAutoRunOnce(
+    void Function(String) say, {
+    bool manual = false,
+    bool Function()? shouldAbort,
+  }) async {
     final runNationalMode = nationalMode;
-    bool halted() => _ipAutoHalt(modeSnapshot: runNationalMode);
+    bool halted() =>
+        _ipAutoHalt(modeSnapshot: runNationalMode) ||
+        (shouldAbort?.call() ?? false);
     if (halted()) return false;
     if (runNationalMode) {
       await natNationalIpMemLoad();
+      await natRelayHostsLoad();
     } else {
       await natIpMemLoad();
+      await goldLoad();
     }
     if (halted()) return false;
 
@@ -277,11 +319,13 @@ extension IpAutoExt on _HomePageState {
     final tpl = <Server>[];
     final templateKeys = <String>{};
     for (final server in pool) {
-      if (templateKeys.add(server.key)) tpl.add(server);
+      // Same host:port with different credentials/protocols is not a duplicate
+      // template; every distinct config must get a chance to validate the IP.
+      if (templateKeys.add(server.link.trim())) tpl.add(server);
     }
     say('ساخت آدرس‌ها...');
     final addrs = await _ipAutoNextAddrs(
-      runNationalMode ? const <Server>[] : [...good, ...pending, ...fetchedAll],
+      tpl,
       shouldAbort: halted,
     );
     if (halted()) return false;
