@@ -306,8 +306,17 @@ class KingDiskInventory {
             }
           }
         }
+        var needsSeparator = false;
+        if (await file.exists()) {
+          final length = await file.length();
+          if (length > 0) {
+            final tail = await file.openRead(length - 1, length).first;
+            needsSeparator = tail.isNotEmpty && tail.last != 10;
+          }
+        }
         final sink = file.openWrite(mode: FileMode.append);
         try {
+          if (needsSeparator) sink.write('\\n');
           for (final item in entry.value) {
             if (!existing.add(item.key)) continue;
             sink.writeln(jsonEncode(<String, Object?>{
