@@ -10181,25 +10181,22 @@ ListTile( // KINGEXTRAS row
           nationalMode &&
           localPilotOn &&
           !appGone &&
-          !abort &&
-          DateTime.now().difference(startedAt) < const Duration(hours: 8)) {
+          !abort &&) {
         await Future.delayed(const Duration(seconds: 2));
         if (connected) {
           seen = true;
           idle = 0;
           autoUpgrade = true;
           autoCycle = true;
-          // NATRANGE: پس‌زمینه، هر ۵ دقیقه، بخشی کم از بازه‌های IP با سرعت کم
-          // NATPENDCAP: اگر pending از سقف گذشته، اسکن بازه‌ی جدید اضافه نکن
-          if (localPilotOn && cpuHot == 0 &&
+          // NATRANGE: پس‌زمینه، هر ۵ دقیقه، بخشی کم از بازه‌های IP با سرعت کم          if (localPilotOn && cpuHot == 0 &&
               DateTime.now().difference(natRangeLast) >
-                  const Duration(minutes: 5) &&
-              pending.length < 3000) {
+                  const Duration(minutes: 5)) {
             natRangeLast = DateTime.now();
             unawaited(() async {
+              await natRangeStartNextPass();
               final ips = await natRangeScanStep(
                   known: [...pending, ...natRestPending],
-                  maxAddrs: 2048, // NATBG-BUDGET: اسکن پس‌زمینه‌ی متصل سبک و مرحله‌ای است
+                  maxAddrs: 8192,
                   conc: min(2, natAdaptiveWorkers()),
                   stop: () => !mounted ||
                       !connected ||
@@ -10207,8 +10204,7 @@ ListTile( // KINGEXTRAS row
                       !nationalMode ||
                       !localPilotOn ||
                       appGone ||
-                      abort,
-                  budget: const Duration(seconds: 90));
+                      abort );
               // Do not publish stale discoveries after the tunnel/pilot stops.
               if (mounted &&
                   connected &&
