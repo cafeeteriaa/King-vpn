@@ -2840,6 +2840,8 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn('final vpnInterfaceActive = await _kingHasVpnInterface();', worker)
         self.assertIn('requiresBatteryNotLow: true', worker)
         self.assertIn('cancellationRequested = cancelled();', scanner)
+        self.assertIn('scheduleContinuation: false', worker)
+        self.assertIn('if (scheduleContinuation && !cancellationRequested &&', scanner)
 
     def test_foreground_scanner_slice_schedules_resume_without_blocking_vpn_start(self):
         scanner = (ROOT / 'lib' / 'king_national_scanner.dart').read_text(encoding='utf-8')
