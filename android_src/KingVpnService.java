@@ -237,7 +237,7 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
         synchronized (lock) {
         final long now = SystemClock.elapsedRealtime();
         Map<String, Object> snapshot = new HashMap<String, Object>();
-        snapshot.put("protocolVersion", 2);
+        snapshot.put("protocolVersion", 3);
         snapshot.put("serviceRunning", true);
         snapshot.put("active", active);
         snapshot.put("stopping", stopping);
