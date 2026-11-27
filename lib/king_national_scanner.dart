@@ -877,6 +877,7 @@ class KingNationalScannerEngine {
     required bool Function() cancelled,
     required Future<void> Function(List<String>) addDiscovered,
     Duration sliceBudget = const Duration(seconds: 60),
+    bool scheduleContinuation = true,
   }) async {
     final active = _scanFlight;
     if (active != null) return active;
@@ -896,7 +897,7 @@ class KingNationalScannerEngine {
       } catch (_) {
         cancellationRequested = true;
       }
-      if (!cancellationRequested &&
+      if (scheduleContinuation && !cancellationRequested &&
           (report.sliceYielded ||
            report.warnings.contains('ip_inventory_cursor_preserved_for_next_slice'))) {
         try {
