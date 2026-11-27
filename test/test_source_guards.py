@@ -2591,9 +2591,12 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('if (scanNationalMode) ...natNationalIpMemHosts() else ..._goldIps.keys', body)
         self.assertIn('for (final server in <Server>[...configuredServers, ...sourceTemplates])', body)
         self.assertIn('await fetchServers(', body)
-        self.assertIn('await natHotAll(fetch: false)', body)
+        self.assertIn('await natHotAll(fetch: true)', body)
         self.assertIn('offset += 16', body)
         self.assertIn('.where(_autoValidSni)', body)
+        self.assertIn('await _natAutoScanLoad();', body)
+        self.assertIn('await _natAutoScanSave();', body)
+        self.assertIn('natScanHits.addAll(_natAutoScanCandidates[\'ip\']!);', source)
         self.assertIn('await natRelayHostsLoad();', body)
         self.assertIn('if (scanNationalMode) ...natRelayHosts,', body)
 
