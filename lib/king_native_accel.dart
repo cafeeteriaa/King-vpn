@@ -5,23 +5,30 @@ import 'package:ffi/ffi.dart';
 
 typedef _ExpandNative = IntPtr Function(Pointer<Utf8>, Pointer<Utf8>, Uint32, Pointer<Uint8>, IntPtr);
 typedef _ExpandDart = int Function(Pointer<Utf8>, Pointer<Utf8>, int, Pointer<Uint8>, int);
+typedef _AbiVersionNative = Uint32 Function();
+typedef _AbiVersionDart = int Function();
 
 /// Optional Android FFI bridge. Failures preserve the established Dart path.
 class KingNativeAccel {
   KingNativeAccel._();
   static const int maxNativeBatchSize = 8192;
   static const int minNativeBatchSize = 64;
+  static const int expectedNativeAbiVersion = 1;
   static bool _benchmarkComplete = false;
   static bool _preferNative = false;
   static final BigInt _maxNativeCursor = BigInt.parse('340282366920938463463374607431768211455');
   static bool _loadAttempted = false;
   static DynamicLibrary? _library;
   static _ExpandDart? _expand;
+  static int? _loadedNativeAbiVersion;
 
   static bool get shouldBenchmark => !_benchmarkComplete && isAvailable;
 
   static bool get useNative =>
       _benchmarkComplete && _preferNative && isAvailable;
+
+  /// The verified native ABI version, or null when the library is unavailable.
+  static int? get loadedNativeAbiVersion => _loadedNativeAbiVersion;
 
   static void completeBenchmark({
     required bool equivalent,
@@ -38,7 +45,9 @@ class KingNativeAccel {
 
   static bool get isAvailable {
     _ensureLoaded();
-    return _library != null && _expand != null;
+    return _library != null &&
+        _expand != null &&
+        _loadedNativeAbiVersion == expectedNativeAbiVersion;
   }
 
   static void _ensureLoaded() {
@@ -47,9 +56,27 @@ class KingNativeAccel {
     if (!Platform.isAndroid) return;
     try {
       final library = DynamicLibrary.open('libking_native_core.so');
-      _expand = library.lookupFunction<_ExpandNative, _ExpandDart>('king_expand_range_batch');
+
+      // Verify compatibility before resolving or invoking the data-plane ABI.
+      // An absent or newer/older ABI must safely fall back to the Dart engine.
+      final abiVersion = library.lookupFunction<_AbiVersionNative, _AbiVersionDart>(
+        'king_native_core_abi_version',
+      )();
+      if (abiVersion != expectedNativeAbiVersion) {
+        throw StateError(
+          'Unsupported KING native ABI: $abiVersion '
+          '(expected $expectedNativeAbiVersion)',
+        );
+      }
+
+      final expand = library.lookupFunction<_ExpandNative, _ExpandDart>(
+        'king_expand_range_batch',
+      );
+      _loadedNativeAbiVersion = abiVersion;
+      _expand = expand;
       _library = library;
     } catch (_) {
+      _loadedNativeAbiVersion = null;
       _library = null;
       _expand = null;
     }
@@ -65,7 +92,9 @@ class KingNativeAccel {
     }
     _ensureLoaded();
     final expand = _expand;
-    if (expand == null) return null;
+    if (expand == null || _loadedNativeAbiVersion != expectedNativeAbiVersion) {
+      return null;
+    }
     Pointer<Utf8>? nativeRange;
     Pointer<Utf8>? nativeCursor;
     Pointer<Uint8>? output;
