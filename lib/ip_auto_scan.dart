@@ -119,6 +119,7 @@ Future<List<String>> _ipAutoBlocks(
       ..addAll(_goldIps.keys);
   }
 
+  final hostnames = <String>{};
   for (final server in sourceServers) {
     if (shouldAbort?.call() ?? false) break;
     final host = server.host.trim();
@@ -126,14 +127,31 @@ Future<List<String>> _ipAutoBlocks(
     final literal = InternetAddress.tryParse(host);
     if (literal != null) {
       ips.add(literal.address);
-      continue;
-    }
-    try {
-      ips.addAll(await nipResolveAll(host));
-    } catch (error, stackTrace) {
-      logError(error, stackTrace);
+    } else {
+      hostnames.add(host);
     }
   }
+
+  // Resolve the complete deduplicated source-host inventory in bounded
+  // batches. The batch size controls concurrency, never the number of hosts.
+  final hosts = hostnames.toList(growable: false);
+  for (var offset = 0; offset < hosts.length; offset += 16) {
+    if (shouldAbort?.call() ?? false) break;
+    final batch = hosts.skip(offset).take(16).toList(growable: false);
+    final resolved = await Future.wait<List<String>>(batch.map((host) async {
+      try {
+        return await nipResolveAll(host)
+            .timeout(const Duration(seconds: 4));
+      } catch (error, stackTrace) {
+        logError(error, stackTrace);
+        return const <String>[];
+      }
+    }));
+    for (final addresses in resolved) {
+      ips.addAll(addresses);
+    }
+  }
+  if (shouldAbort?.call() ?? false) return const <String>[];
   return natSeedBlocks(ips.toList(growable: false));
 }
 
