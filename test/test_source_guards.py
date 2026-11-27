@@ -2344,19 +2344,20 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('cancelled: stop,', dns)
         self.assertIn('if (stop != null && stop()) return null;', dns)
 
-    def test_nat_domain_first_discards_partial_results_after_cancel_or_deadline(self):
+    def test_nat_domain_first_traverses_full_config_inventory_and_discards_on_cancel(self):
         source = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
         start = source.index('Future<List<String>> _natDomainFirst(')
         end = source.index('Future<List<String>> natDeviceHosts()', start)
         body = source[start:end]
-        self.assertIn('final scanClock = Stopwatch()..start();', body)
-        self.assertIn('const scanBudget = Duration(seconds: 45);', body)
-        self.assertLess(body.index('final scanClock'), body.index('for (final entry in endpoints.entries)'))
+        # No wall-clock ceiling may silently truncate the configured endpoint inventory.
+        self.assertNotIn('scanBudget', body)
+        self.assertNotIn('scanClock', body)
+        self.assertIn('for (final server in known)', body)
         lookup = body.index('await safeLookup(entry.key)')
         lookup_guard = body.index('if (cancelled()) return const <String>[];', lookup)
         self.assertLess(lookup, lookup_guard)
-        self.assertIn('bool expired() => scanClock.elapsed >= scanBudget;', body)
         scan = body.index('final hits = await natScanIps(')
+        self.assertIn('want: entry.value.length,', body[scan:scan + 500])
         self.assertIn('cancelled: cancelled,', body)
         discard = body.index('if (cancelled())', scan)
         append = body.index('out.add(', discard)
