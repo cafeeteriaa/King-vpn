@@ -29,8 +29,8 @@ String personalLastGood = '';
 const String _kPersonalLastGoodPref = 'personal_last_good_v1';
 
 Future<void> _refreshPersonalFolderView() async {
-  personalFolderCount = await PersonalFolderStore.count();
   final page = await PersonalFolderStore.readPage(limit: 50);
+  personalFolderCount = page.totalCount;
   personalFolderCache = List<String>.of(page.items);
 }
 
