@@ -1775,7 +1775,7 @@ Future<void> natIpMemSave(String ip, int port) async {
     return (addresses: const <String>[], nextCursor: _natConfiguredRangeCursor);
   }
   final candidates = <String>{};
-  for (final range in natRanges.take(128)) {
+  for (final range in natRanges) {
     final remaining = limit * 4 - candidates.length;
     if (remaining <= 0) break;
     candidates.addAll(natExpandAny(range, maxPerBlock: remaining));
@@ -1815,7 +1815,7 @@ const List<int> natCommonPorts = [
 
 List<int> natAutoPorts(List<Server> known) {
   final cnt = <int, int>{};
-  for (final s in known.take(100)) { // فیکس ۱۸: قبلاً کل known (تا ۳۰۰۰ سرور)
+  for (final s in known) {
     if (s.port > 0 && s.port < 65536) cnt[s.port] = (cnt[s.port] ?? 0) + 1;
   }
   for (final e in natIpMem) {
@@ -1824,7 +1824,7 @@ List<int> natAutoPorts(List<Server> known) {
   }
   final ports = natStableSorted<int>(
       cnt.keys, (x, y) => cnt[y]! - cnt[x]!);
-  final out = <int>[...ports.take(10)];
+  final out = <int>[...ports];
   for (final p in natCommonPorts) {
     if (!out.contains(p)) out.add(p);
   }
@@ -1955,10 +1955,7 @@ Future<List<String>> _natDomainFirst(List<Server> known,
   // Bound endpoint collection, DNS resolution, and TCP probes together.
   // Starting the monotonic clock only after DNS resolution allowed a slow
   // resolver to keep this background phase alive far beyond its advertised cap.
-  const scanBudget = Duration(minutes: 2);
-  final scanClock = Stopwatch()..start();
-  bool expired() => scanClock.elapsed >= scanBudget;
-  bool cancelled() => (stop != null && stop()) || expired();
+  bool cancelled() => stop != null && stop();
   try {
     // Only inspect hosts and ports explicitly present in the user's/current
     // server configurations. Do not scan unrelated public domains or all
@@ -2322,7 +2319,7 @@ Future<List<String>> _natRangeScanStepBody({
       slice,
       port: port,
       concurrency: conc,
-      want: 50,
+      want: slice.length,
       budget: portBudget,
       timeout: const Duration(milliseconds: 1500),
       cancelled: shouldAbort,
@@ -2351,7 +2348,7 @@ Future<List<String>> _natRangeScanStepBody({
       }
     }());
   }
-  natTemplateSeeds = seeds.take(2).toList();
+  natTemplateSeeds = List<Server>.of(seeds);
   natRandomLast = 0;
   natIpScanned += slice.length;
   return out;
