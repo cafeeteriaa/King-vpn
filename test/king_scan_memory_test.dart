@@ -130,12 +130,12 @@ void main() {
         phaseCompleted: false,
         cursor: <String, Object?>{
           'serverIndex': 2,
-          'serverKeyHash': List<String>.filled(64, 'a').join(),
+          'serverKeyHash': '0e7492b2aec83281693d7625c966037073becf9b86dc4d0c8277bb4394b7d474',
           'candidateIndex': 9,
         },
       );
       expect(journal.latestCheckpoint?['cursor'], containsPair(
-        'serverKeyHash', List<String>.filled(64, 'a').join(),
+        'serverKeyHash', '0e7492b2aec83281693d7625c966037073becf9b86dc4d0c8277bb4394b7d474',
       ));
       await expectLater(
         Future<void>.sync(() => journal.commit(
