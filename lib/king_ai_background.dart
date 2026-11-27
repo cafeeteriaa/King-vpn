@@ -169,6 +169,7 @@ Future<bool> _runKingNationalScannerBackgroundTask() async {
     final report = await KingNationalScannerEngine.runPreflight(
       knownServers: seeds,
       onStatus: (_) {},
+      sliceBudget: const Duration(minutes: 8),
       cancelled: () => vpnActive() || vpnWanted(),
       addDiscovered: natIpMemMergeHits,
     );
