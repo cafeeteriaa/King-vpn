@@ -579,7 +579,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         detect_start = pilot.index('Future<NatNetworkClass> _pilotDetectNetworkMode()')
         detect_end = pilot.index('void ensureLocalPilotRunning()', detect_start)
         detect = pilot[detect_start:detect_end]
-        self.assertIn('PilotNetworkProbe.refresh()', detect)
+        self.assertIn('refreshPilotNetworkEvidence()', detect)
         self.assertNotIn('PilotNetworkProbe.refresh(force: true)', detect)
         self.assertNotIn('NatNetworkDiagnosis.refresh', detect)
         self.assertNotIn('autoTuneNow()', tick)
@@ -637,7 +637,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         detect_start = pilot.index('Future<NatNetworkClass> _pilotDetectNetworkMode()')
         detect_end = pilot.index('void ensureLocalPilotRunning()', detect_start)
         self.assertNotIn('NatNetworkDiagnosis', pilot[detect_start:detect_end])
-        self.assertIn('PilotNetworkProbe.refresh()', pilot[detect_start:detect_end])
+        self.assertIn('refreshPilotNetworkEvidence()', pilot[detect_start:detect_end])
         self.assertNotIn('PilotNetworkProbe.refresh(force: true)', pilot[detect_start:detect_end])
         self.assertIn('checks.where((ok) => ok).length >= 2', pilot)
         self.assertIn('_pilotPendingPositiveSamples >= 2', pilot)
@@ -655,14 +655,14 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         nat_detect_start = main.index('Future<void> _natDetect()')
         nat_detect_end = main.index('DateTime? _checkSavedAt', nat_detect_start)
         nat_detect = main[nat_detect_start:nat_detect_end]
-        self.assertIn('PilotNetworkProbe.refresh()', nat_detect)
+        self.assertIn('refreshPilotNetworkEvidence()', nat_detect)
         self.assertNotIn('dnsxAutoPick(', nat_detect)
         self.assertNotIn('ipAutoBackground(', nat_detect)
         connect_start = main.index('Future<void> _doConnect(')
         connect_end = main.index('void _cancelNow()', connect_start)
         connect = main[connect_start:connect_end]
         self.assertIn('if (localPilotOn)', connect)
-        self.assertIn('PilotNetworkProbe.refresh()', connect)
+        self.assertIn('refreshPilotNetworkEvidence()', connect)
         self.assertLess(connect.index('if (localPilotOn)'), connect.index('NatNetworkDiagnosis.refresh()'))
 
     def test_local_ai_research_updates_pilot_brain_and_repairs_are_review_gated(self):
@@ -2532,7 +2532,8 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         cursor_end = source.index('Map<String, dynamic> _genAddrsIso', cursor_start)
         cursor = source[cursor_start:cursor_end]
         self.assertIn('prefix < 0 || prefix > 32', cursor)
-        self.assertIn('InternetAddress.tryParse(x)?.type == InternetAddressType.IPv4', source)
+        self.assertIn('ip.type == InternetAddressType.IPv6', source)
+        self.assertIn('a.type != InternetAddressType.IPv4', source)
         self.assertNotIn('natVarNormal.length > 3000', source)
         self.assertNotIn('_ipMemMax', source)
         self.assertNotIn('_domMemMax', source)
