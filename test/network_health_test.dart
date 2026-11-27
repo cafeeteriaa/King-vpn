@@ -233,6 +233,30 @@ void main() {
       );
     });
 
+    test('DNS or transport degradation does not veto corroborated local-source fallback', () {
+      for (final diagnosis in <NatNetworkClass>[
+        NatNetworkClass.dnsDegraded,
+        NatNetworkClass.transportRestricted,
+      ]) {
+        expect(
+          corroboratePilotStrategy(PilotNetworkStrategy.offline, diagnosis),
+          PilotNetworkStrategy.offline,
+        );
+      }
+    });
+
+    test('positive domestic or global diagnosis vetoes contradictory offline inference', () {
+      for (final diagnosis in <NatNetworkClass>[
+        NatNetworkClass.globalReachable,
+        NatNetworkClass.domesticOnlyLikely,
+      ]) {
+        expect(
+          corroboratePilotStrategy(PilotNetworkStrategy.offline, diagnosis),
+          PilotNetworkStrategy.preserve,
+        );
+      }
+    });
+
     test('does not infer offline from missing evidence', () {
       const evidence = NetworkEvidence(
         domestic: LinkHealth.unknown,
