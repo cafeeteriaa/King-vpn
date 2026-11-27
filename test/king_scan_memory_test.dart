@@ -194,7 +194,8 @@ void main() {
       await inventory.appendBatch([
         <String, Object?>{'key': 'inventory-key-20', 'ip': '198.51.100.7', 'port': 8443},
       ]);
-      final shard = (await root.list(recursive: true).where((e) => e is File).first) as File;
+      final shardDirectory = Directory('${root.path}/king_inventory_resume-test');
+      final shard = (await shardDirectory.list().where((e) => e is File).first) as File;
       await shard.writeAsString('{"version":1,"id":', mode: FileMode.append);
       final reopened = await KingDiskInventory.open(name: 'resume-test', root: root);
       expect(await reopened.records().length, 1);
@@ -217,6 +218,22 @@ void main() {
       ]);
       final reopened = await KingDiskInventory.open(name: 'shared-writer', root: root);
       expect(await reopened.records().length, 2);
+    });
+
+    test('disk inventory upsert replaces one identity and preserves other records', () async {
+      final inventory = await KingDiskInventory.open(name: 'upsert-test', root: root);
+      await inventory.upsertBatch([
+        <String, Object?>{'key': 'endpoint-a', 'value': 'old'},
+        <String, Object?>{'key': 'endpoint-b', 'value': 'keep'},
+      ]);
+      await inventory.upsertBatch([
+        <String, Object?>{'key': 'endpoint-a', 'value': 'new'},
+      ]);
+      final records = await inventory.records().toList();
+      expect(records.length, 2);
+      expect(records.where((record) => record['value'] == 'new').length, 1);
+      expect(records.where((record) => record['value'] == 'old'), isEmpty);
+      expect(records.where((record) => record['value'] == 'keep').length, 1);
     });
 
     test('disk inventory rejects missing and oversized identities', () async {
