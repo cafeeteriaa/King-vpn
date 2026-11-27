@@ -20,6 +20,14 @@ void main() {
       expect(KingDynamicSourceDiscovery.isCandidatePath('sub/all.txt', size: 1500001), isFalse);
     });
 
+    test('accepts safe slash-separated Git refs and rejects traversal refs', () {
+      expect(KingDynamicSourceDiscovery.isSafeGitRef('main'), isTrue);
+      expect(KingDynamicSourceDiscovery.isSafeGitRef('release/stable'), isTrue);
+      expect(KingDynamicSourceDiscovery.isSafeGitRef('../main'), isFalse);
+      expect(KingDynamicSourceDiscovery.isSafeGitRef('main//stable'), isFalse);
+      expect(KingDynamicSourceDiscovery.isSafeGitRef('main/../secret'), isFalse);
+    });
+
     test('only canonical HTTPS raw GitHub file URLs are accepted', () {
       const valid = 'https://raw.githubusercontent.com/owner/repo/main/sub/all.txt';
       expect(KingDynamicSourceDiscovery.normalizeFeedUrl(valid), valid);
