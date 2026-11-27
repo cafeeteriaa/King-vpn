@@ -114,6 +114,34 @@ void main() {
       }
     });
 
+
+    test('fills the final capacity slot even when earlier batch entries are duplicates', () async {
+      final root = await Directory.systemTemp.createTemp('king-offline-capacity-edge-');
+      try {
+        const existing = 'vless://already-stored@example.test:443';
+        await FreshResourceStore.merge(<String>[existing], root: root);
+        final folder = Directory(root.path + '/' + FreshResourceStore.directoryName);
+        await File(folder.path + '/metadata.json').writeAsString(
+          '{"schema":2,"count":3999999,"capacity":4000000}',
+          flush: true,
+        );
+        Iterable<String> incoming() sync* {
+          yield existing;
+          for (var i = 0; i < 4095; i++) {
+            yield 'vless://new-$i@example.test:443';
+          }
+        }
+
+        expect(await FreshResourceStore.merge(incoming(), root: root), 4000000);
+        final stored = await FreshResourceStore.readLinks(limit: 10, root: root);
+        expect(stored, hasLength(2));
+        expect(stored, contains(existing));
+        expect(stored.any((link) => link.contains('new-')), isTrue);
+      } finally {
+        await root.delete(recursive: true);
+      }
+    });
+
     test('small offline inventories never repeat records inside one batch', () async {
       final root = await Directory.systemTemp.createTemp('king-offline-small-');
       try {
