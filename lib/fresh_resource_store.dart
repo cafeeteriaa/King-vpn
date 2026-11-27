@@ -526,7 +526,6 @@ class FreshResourceStore {
         if (entity is File &&
             (RegExp(r'^[0-9a-f]{2}\.jsonl$').hasMatch(entity.uri.pathSegments.last) ||
              entity.uri.pathSegments.last == _metadataFileName ||
-             entity.uri.pathSegments.last == _dirtyFileName ||
              entity.uri.pathSegments.last == _cursorFileName ||
              entity.uri.pathSegments.last == _legacyFileName ||
              entity.uri.pathSegments.last == '${_legacyFileName}.migrated')) {
