@@ -876,12 +876,14 @@ class KingNationalScannerEngine {
     required void Function(String) onStatus,
     required bool Function() cancelled,
     required Future<void> Function(List<String>) addDiscovered,
+    Duration sliceBudget = const Duration(seconds: 45),
   }) async {
     final active = _scanFlight;
     if (active != null) return active;
     final future = _runPreflight(
       knownServers: knownServers, onStatus: onStatus,
       cancelled: cancelled, addDiscovered: addDiscovered,
+      sliceBudget: sliceBudget,
     );
     _scanFlight = future;
     try {
@@ -907,11 +909,11 @@ class KingNationalScannerEngine {
     required void Function(String) onStatus,
     required bool Function() cancelled,
     required Future<void> Function(List<String>) addDiscovered,
+    required Duration sliceBudget,
   }) async {
     final clock = Stopwatch()..start();
     final modeSnapshot = nationalMode;
     // Each call is a resumable slice; the total inventory has no pass ceiling.
-    const sliceBudget = Duration(seconds: 35);
     bool expired() => clock.elapsed >= sliceBudget;
     bool stopped() => cancelled() || nationalMode != modeSnapshot;
     bool shouldYield() => expired() && !stopped();
@@ -1169,12 +1171,18 @@ class KingNationalScannerEngine {
           // remains uncapped and resumes after the process/app returns.
           await natRangeStartNextPass();
           final workers = max(1, natAdaptiveWorkers()).toInt();
+          final portCount = max(1, natAutoPorts(seeds).length).toInt();
+          final batchWaves = max(
+            1,
+            (sliceBudget.inMilliseconds * 0.70 / (portCount * 1500)).floor(),
+          ).toInt();
+          final batchAddressBudget = (workers * batchWaves).clamp(1, 768).toInt();
           var batch = 0;
           while (!stopped() && !shouldYield() && !natRangeInventoryPassComplete) {
             batch++;
             final found = await natRangeScanStep(
               known: seeds,
-              maxAddrs: (workers * 24).clamp(96, 768).toInt(),
+              maxAddrs: batchAddressBudget,
               conc: workers,
               stop: () => stopped() || shouldYield(),
               coordinatorOwned: true,
