@@ -19,6 +19,7 @@ const String _nationalScannerTaskName = 'kingNationalNetworkScan';
 const String _nationalScannerUniqueName = 'king-national-network-scan-daily';
 const String _nationalScannerInitialName = 'king-national-network-scan-initial';
 const String _nationalScannerTag = 'king-national-network-scan';
+bool _kingBackgroundWorkmanagerInitialized = false;
 const String _researchQuery =
     'Iran mobile internet domestic routing national network DNS IPv4 IPv6 '
     'Android VPNService network changes DoH TLS SNI Xray V2Ray sing-box '
@@ -158,7 +159,7 @@ Future<bool> _runKingNationalScannerBackgroundTask() async {
   try {
     // Never compete with a live VPN tunnel. WorkManager will retry on its
     // next periodic window; the foreground scanner remains available.
-    if (vpnActive() || vpnWanted()) return true;
+    if (vpnActive() || vpnWanted()) return false;
     await natLoadPersisted();
     final detectedMode = await KingNationalScannerEngine.detectNationalMode();
     // Preserve unknown/ambiguous networks rather than guessing a route policy.
@@ -208,8 +209,29 @@ class KingAiBackgroundSupervisor {
 
   static Future<void> initialize() async {
     await Workmanager().initialize(kingAiBackgroundDispatcher);
+    _kingBackgroundWorkmanagerInitialized = true;
     await _scheduleOfficialResearch();
     await _scheduleNationalScanner();
+  }
+
+  /// Called when a foreground scan yields at its safe time slice. The durable
+  /// cursor remains authoritative; this only asks Android to resume later.
+  static Future<void> scheduleNationalScannerContinuation() async {
+    if (!_kingBackgroundWorkmanagerInitialized) return;
+    final constraints = Constraints(
+      networkType: NetworkType.connected,
+      requiresBatteryNotLow: true,
+    );
+    await Workmanager().registerOneOffTask(
+      'king-national-scan-resume-${DateTime.now().microsecondsSinceEpoch}',
+      _nationalScannerTaskName,
+      initialDelay: const Duration(minutes: 2),
+      constraints: constraints,
+      existingWorkPolicy: ExistingWorkPolicy.keep,
+      backoffPolicy: BackoffPolicy.exponential,
+      backoffPolicyDelay: const Duration(minutes: 2),
+      tag: _nationalScannerTag,
+    );
   }
 
   /// Daily, network-constrained scanner maintenance. WorkManager is
