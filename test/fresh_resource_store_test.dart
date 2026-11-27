@@ -52,6 +52,27 @@ void main() {
       );
     });
 
+
+    test('stores distinct case-sensitive credentials as separate offline profiles', () async {
+      final root = await Directory.systemTemp.createTemp('king-offline-case-');
+      try {
+        final total = await FreshResourceStore.merge(
+          <String>[
+            'trojan://Secret@node.example:443',
+            'trojan://secret@node.example:443',
+            'TROJAN://Secret@node.example:443',
+          ],
+          root: root,
+        );
+        expect(total, 2);
+        final stored = await FreshResourceStore.readLinks(limit: 10, root: root);
+        expect(stored, hasLength(2));
+        expect(stored.toSet(), hasLength(2));
+      } finally {
+        await root.delete(recursive: true);
+      }
+    });
+
     test('deduplicates case-insensitively and rejects oversized links', () {
       final values = FreshResourceStore.normalizeLinks([
         'vless://id@example.com:443',
