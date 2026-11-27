@@ -229,7 +229,9 @@ extension IpAutoExt on _HomePageState {
             conc: min(8, natAdaptiveWorkers()),
             stop: stopEndpointScan,
           );
-          if (!externallyStopped() && nationalMode == runNationalMode) {
+          if (nationalMode == runNationalMode && hits.isNotEmpty) {
+            // Every returned hit is independently TCP-verified. Keep that evidence
+            // even if the caller cancels; incomplete range cursors are not committed.
             await _natRangeAdd(hits);
           }
         },
@@ -244,7 +246,9 @@ extension IpAutoExt on _HomePageState {
             conc: min(8, natAdaptiveWorkers()),
             stop: stopRangeScan,
           );
-          if (!externallyStopped() && nationalMode == runNationalMode) {
+          if (nationalMode == runNationalMode && hits.isNotEmpty) {
+            // Every returned hit is independently TCP-verified. Keep that evidence
+            // even if the caller cancels; incomplete range cursors are not committed.
             await _natRangeAdd(hits);
           }
         },
