@@ -439,7 +439,12 @@ Future<void> autoScanRun(
     // remain separate.
     if (scanNationalMode) {
       final nationalDomains = <String>{...sniHits};
-      await natNationalIpMemSaveMany(nationalPortEndpoints);
+      final ipInventorySaved =
+          await natNationalIpMemSaveMany(nationalPortEndpoints);
+      if (!ipInventorySaved) {
+        say('ذخیرهٔ inventory IPهای candidate ناموفق بود؛ نتیجه به‌عنوان ذخیره‌شده گزارش نمی‌شود');
+        return;
+      }
       natScanHits.addAll(
         nationalPortEndpoints.map((endpoint) => endpoint.substring(0, endpoint.lastIndexOf('|'))),
       );
