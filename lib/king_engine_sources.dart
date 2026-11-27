@@ -81,7 +81,7 @@ class KingEngineServerSourceCatalog {
   KingEngineServerSourceCatalog._();
 
   static const String _gh = 'https://raw.githubusercontent.com/';
-  static const List<String> _xrayPaths = <String>[
+  static final List<String> _xrayPaths = <String>[
     for (var i = 1; i <= 10; i++) 'V2RAYCONFIGSPOOL/V2RAY_SUB/main/v2ray_configs_no$i.txt',
     'iboxz/free-v2ray-collector/main/main/mix.txt',
     'iboxz/free-v2ray-collector/main/main/vless.txt',
@@ -350,7 +350,7 @@ class KingServerPayloadParser {
     ];
   }
 
-  List<KingServerProfile> _parseWireGuard(String text) {
+  List<KingServerProfile>? _parseWireGuard(String text) {
     final sections = <String, Map<String, String>>{};
     String? current;
     for (final raw in text.split(RegExp(r'[\r\n]+'))) {
