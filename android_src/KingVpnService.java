@@ -23,6 +23,8 @@ import java.net.Proxy;
 import java.net.SocketTimeoutException;
 import java.net.URL;
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
@@ -198,6 +200,40 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
 
     /** Diagnostic accessor for the last failure message. */
     public String getLastError() { return lastError; }
+
+    /**
+     * Privacy-safe snapshot for cross-language diagnostics.
+     * Never includes server config, credentials, addresses, or backup payloads.
+     */
+    public Map<String, Object> diagnosticSnapshot() {
+        Map<String, Object> snapshot = new HashMap<String, Object>();
+        snapshot.put("protocolVersion", 1);
+        snapshot.put("serviceRunning", true);
+        snapshot.put("active", active);
+        snapshot.put("stopping", stopping);
+        snapshot.put("retryWaiting", retryWaiting);
+        snapshot.put("nativeBusy", nativeBusy);
+        snapshot.put("recovering", recovering.get());
+        snapshot.put("userStopped", userStopped);
+        snapshot.put("nationalMode", nationalMode);
+        snapshot.put("activeAttempt", activeAttemptId);
+        snapshot.put("attemptSequence", attemptSeq.get());
+        snapshot.put("inFlightOperations", inFlight.get());
+        String error = lastError == null ? "" : lastError.toLowerCase(java.util.Locale.ROOT);
+        snapshot.put("lastErrorPresent", !error.isEmpty());
+        String category = "none";
+        if (!error.isEmpty()) {
+            if (error.contains("permission")) category = "permission";
+            else if (error.contains("timeout") || error.contains("timed out")) category = "timeout";
+            else if (error.contains("empty config")) category = "invalid_config";
+            else if (error.contains("establish")) category = "tun_setup";
+            else if (error.contains("core")) category = "core";
+            else if (error.contains("stopped")) category = "stopped";
+            else category = "service";
+        }
+        snapshot.put("lastErrorCategory", category);
+        return snapshot;
+    }
 
     /** جدید: receives start/stop outcomes; MainActivity forwards them to Dart. */
     public interface StatusSink {

@@ -2595,6 +2595,33 @@ void _crashGuardInit() {
   }
 }
 
+// Snapshot of native VPN service state. Only operational flags/counters are
+// returned; server configs, credentials, addresses and backup payloads stay native.
+Future<void> _logVpnServiceDiagnostics() async {
+  try {
+    final info = await _diagChannel
+        .invokeMapMethod<String, dynamic>('vpnService')
+        .timeout(const Duration(seconds: 5));
+    if (info == null || info['protocolVersion'] != 1) {
+      throw StateError('Native VPN diagnostics protocol mismatch: $info');
+    }
+    final fields = <String>[
+      'serviceRunning', 'active', 'stopping', 'retryWaiting', 'nativeBusy',
+      'recovering', 'userStopped', 'nationalMode', 'activeAttempt',
+      'attemptSequence', 'inFlightOperations'
+    ];
+    final summary = fields.map((key) => '$key=${info[key]}').join(' ');
+    final category = (info['lastErrorCategory'] ?? 'unknown').toString();
+    final hasError = info['lastErrorPresent'] == true;
+    dbg('NATIVE-VPN-DIAG: $summary lastErrorPresent=$hasError category=$category');
+  } on MissingPluginException {
+    dbg('NATIVE-VPN-DIAG: unavailable (older native bridge)');
+  } catch (e, st) {
+    errJournalAdd(e, kind: 'DIAG-vpnService');
+    logError(e, st);
+  }
+}
+
 // علت مرگ پردازه‌ی قبلی را از اندروید می‌گیرد و در گزارش می‌نویسد
 Future<void> _logLastExit() async {
   for (final m in const ['lastCrash', 'lastExit']) {
@@ -2613,6 +2640,7 @@ Future<void> _logLastExit() async {
       errJournalAdd(e, kind: 'DIAG-$m');
     }
   }
+  await _logVpnServiceDiagnostics();
 }
 
 void dbg(String m) {
