@@ -10,6 +10,7 @@ import android.content.SharedPreferences;
 import android.net.VpnService;
 import android.os.Build;
 import android.os.ParcelFileDescriptor;
+import android.os.SystemClock;
 import android.util.Log;
 
 import org.json.JSONArray;
@@ -149,6 +150,17 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
     private int fails = 0;
     private int listExhaustedStreak = 0;
     private int healthyStreak = 0;
+    private final AtomicLong watchdogChecks = new AtomicLong(0);
+    private final AtomicLong healthyProbes = new AtomicLong(0);
+    private final AtomicLong softProbeFailures = new AtomicLong(0);
+    private final AtomicLong hardProbeFailures = new AtomicLong(0);
+    private final AtomicLong failoverCount = new AtomicLong(0);
+    private final AtomicLong retryCount = new AtomicLong(0);
+    private volatile long serviceStartedElapsedMs = 0L;
+    private volatile long lastProbeElapsedMs = 0L;
+    private volatile long lastProbeDurationMs = 0L;
+    private volatile String lastProbeResult = "never";
+    private volatile String lastProbeMode = "unknown";
     private volatile boolean active = false;
     private volatile boolean stopping = false;
     private volatile boolean retryWaiting = false;
@@ -206,8 +218,10 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
      * Never includes server config, credentials, addresses, or backup payloads.
      */
     public Map<String, Object> diagnosticSnapshot() {
+        synchronized (lock) {
+        final long now = SystemClock.elapsedRealtime();
         Map<String, Object> snapshot = new HashMap<String, Object>();
-        snapshot.put("protocolVersion", 1);
+        snapshot.put("protocolVersion", 2);
         snapshot.put("serviceRunning", true);
         snapshot.put("active", active);
         snapshot.put("stopping", stopping);
@@ -232,7 +246,21 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
             else category = "service";
         }
         snapshot.put("lastErrorCategory", category);
+        snapshot.put("serviceUptimeMs", serviceStartedElapsedMs > 0L ? Math.max(0L, now - serviceStartedElapsedMs) : 0L);
+        snapshot.put("watchdogChecks", watchdogChecks.get());
+        snapshot.put("healthyProbes", healthyProbes.get());
+        snapshot.put("softProbeFailures", softProbeFailures.get());
+        snapshot.put("hardProbeFailures", hardProbeFailures.get());
+        snapshot.put("failoverCount", failoverCount.get());
+        snapshot.put("retryCount", retryCount.get());
+        snapshot.put("currentFailureStreak", fails);
+        snapshot.put("healthyStreak", healthyStreak);
+        snapshot.put("lastProbeResult", lastProbeResult);
+        snapshot.put("lastProbeMode", lastProbeMode);
+        snapshot.put("lastProbeDurationMs", lastProbeDurationMs);
+        snapshot.put("lastProbeAgeMs", lastProbeElapsedMs > 0L ? Math.max(0L, now - lastProbeElapsedMs) : -1L);
         return snapshot;
+        }
     }
 
     /** جدید: receives start/stop outcomes; MainActivity forwards them to Dart. */
@@ -282,6 +310,7 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
     public void onCreate() {
         super.onCreate();
         worker = Executors.newSingleThreadExecutor();
+        serviceStartedElapsedMs = SystemClock.elapsedRealtime();
         instance = this; // جدید
         wireCoreOnce(); // جدید: was setUpListener() on every start
     }
@@ -815,6 +844,8 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
      * the actual probe.
      */
     private void checkOnce() {
+        final long probeStartedElapsedMs = SystemClock.elapsedRealtime();
+        watchdogChecks.incrementAndGet();
         synchronized (lock) {
             if (!active || stopping) return;
             if (isStarting()) {
@@ -832,6 +863,7 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
         } catch (Throwable stateError) {
             // A transient JNI/state-query failure must not kill the scheduled watchdog.
             // Keep the current TUN and retry on the next tick; never fail over on unknown state.
+            recordWatchdogProbe("core_state_unknown", probeStartedElapsedMs);
             Log.e(TAG, "watchdog could not read core state; retaining current tunnel", stateError);
             synchronized (lock) {
                 if (active && !stopping) rescheduleNormal();
@@ -839,6 +871,10 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
             return;
         }
         ProbeResult pr = coreUp ? probeResult() : ProbeResult.HARD_FAIL;
+        final String outcome = !coreUp ? "core_down" :
+                (pr == ProbeResult.OK ? "healthy" :
+                (pr == ProbeResult.SOFT_FAIL ? "soft_failure" : "hard_failure"));
+        recordWatchdogProbe(outcome, probeStartedElapsedMs);
 
         synchronized (lock) {
             if (!active || stopping) return;
@@ -883,6 +919,7 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
             Log.w(TAG, "switching to next server");
             int next = (currentIdx + 1) % servers.size();
             if (connectFrom(next)) {
+                failoverCount.incrementAndGet();
                 saveState();
                 rescheduleNormal();
             } else {
@@ -899,6 +936,7 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
 
     private void retryWholeListLater() {
         if (stopping) return;
+        retryCount.incrementAndGet();
         int streakIdx = Math.min(listExhaustedStreak, BACKOFF_SEC.length - 1);
         int base = BACKOFF_SEC[streakIdx];
         // ±10% jitter so many devices do not retry at the same moment
@@ -931,6 +969,17 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
      * international probe is skipped: it always fails there, which used to make the
      * watchdog punish good national servers and switch between them forever.
      */
+    private void recordWatchdogProbe(String result, long startedAtElapsedMs) {
+        final long now = SystemClock.elapsedRealtime();
+        lastProbeElapsedMs = now;
+        lastProbeDurationMs = Math.max(0L, now - startedAtElapsedMs);
+        lastProbeResult = result;
+        lastProbeMode = nationalMode ? "national" : "global";
+        if ("healthy".equals(result)) healthyProbes.incrementAndGet();
+        else if ("soft_failure".equals(result)) softProbeFailures.incrementAndGet();
+        else if ("hard_failure".equals(result) || "core_down".equals(result)) hardProbeFailures.incrementAndGet();
+    }
+
     private ProbeResult probeResult() {
         ProbeResult worst = ProbeResult.HARD_FAIL;
         String[] urls = nationalMode ? DOMESTIC_PROBE_URLS : INTERNATIONAL_PROBE_URLS;
