@@ -1671,6 +1671,11 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         inventory = ip[start:end]
         self.assertIn('natNationalIpMemHosts()', inventory)
         self.assertIn('await natNationalIpMemLoad();', ip[ip.index('Future<bool> _ipAutoRunOnce('):])
+        self.assertIn('..addAll(natScanHits);', inventory)
+        save_start = nat.index('Future<bool> natNationalIpMemSaveMany(')
+        save_end = nat.index('Future<void> natNationalDomMemSave(', save_start)
+        save = nat[save_start:save_end]
+        self.assertLess(save.index('await _natAppendInventoryRecords('), save.index('natNationalIpMem.removeWhere'))
 
     def test_dns_and_ip_maintenance_runs_through_one_serialized_scheduler(self):
         scheduler = (ROOT / 'lib' / 'scan_maintenance_scheduler.dart').read_text(encoding='utf-8')
