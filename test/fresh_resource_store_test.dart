@@ -24,10 +24,8 @@ void main() {
           'vmess://eyJ2IjoiMiJ9',
           'trojan://secret@example.com:443',
           'ss://YWVzLTI1Ni1nY206cGFzcw@example.com:8388',
-          'hysteria2://secret@example.com:443',
-          'tuic://id:password@example.com:443',
         ]),
-        hasLength(6),
+        hasLength(4),
       );
     });
 
@@ -99,6 +97,12 @@ void main() {
         'TROJAN://Secret@node.example:443',
       ]);
       expect(values, hasLength(2));
+    });
+
+    test('does not count protocols without an active native engine as usable offline configs', () {
+      expect(FreshResourceStore.normalizeLink('hysteria2://secret@example.com:443'), isNull);
+      expect(FreshResourceStore.normalizeLink('hy2://secret@example.com:443'), isNull);
+      expect(FreshResourceStore.normalizeLink('tuic://id:password@example.com:443'), isNull);
     });
 
     test('rejects arbitrary text and unsafe schemes', () {
