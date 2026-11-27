@@ -1,4 +1,6 @@
 use std::ffi::CStr;
+
+const MAX_FFI_BATCH: u32 = 8192;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::os::raw::c_char;
 use std::panic::{catch_unwind, AssertUnwindSafe};
@@ -9,6 +11,23 @@ fn address_value(ip: IpAddr) -> (u128, u8) {
         IpAddr::V4(v) => (u32::from(v) as u128, 32),
         IpAddr::V6(v) => (u128::from(v), 128),
     }
+    #[test]
+    fn ffi_rejects_oversized_batches_before_allocating() {
+        let input = CString::new("192.0.2.0/24").unwrap();
+        let cursor = CString::new("0").unwrap();
+        let mut output = [0u8; 128];
+        let result = unsafe {
+            king_expand_range_batch(
+                input.as_ptr(),
+                cursor.as_ptr(),
+                8193,
+                output.as_mut_ptr(),
+                output.len(),
+            )
+        };
+        assert_eq!(result, -1);
+    }
+
 }
 
 fn format_address(value: u128, width: u8) -> String {
@@ -111,7 +130,7 @@ pub unsafe extern "C" fn king_expand_range_batch(
     output: *mut u8,
     output_capacity: usize,
 ) -> isize {
-    if input.is_null() || cursor.is_null() || output.is_null() {
+    if input.is_null() || cursor.is_null() || output.is_null() || limit > MAX_FFI_BATCH {
         return -1;
     }
     let result = catch_unwind(AssertUnwindSafe(|| {
@@ -145,7 +164,8 @@ pub extern "C" fn king_native_core_abi_version() -> u32 {
 
 #[cfg(test)]
 mod tests {
-    use super::expand_range_batch;
+    use super::{expand_range_batch, king_expand_range_batch};
+    use std::ffi::CString;
 
     #[test]
     fn ipv4_cidr_batches_preserve_cursor_order() {
