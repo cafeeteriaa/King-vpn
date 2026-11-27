@@ -2746,5 +2746,22 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn('natMaxVariants', nat)
         self.assertIn('KingNationalScannerEngine.planVariants(s, full: fullMatrix).where((v) => v != 0)', main)
 
+    def test_nat_learning_maps_and_variant_cursors_are_not_retention_capped(self):
+        source = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
+        self.assertNotIn('natDimWins.length > 6000', source)
+        self.assertNotIn('natVar.length > 4000', source)
+        self.assertNotIn('_natCursor.length > 4000', source)
+        save_start = source.index('Future<void> natSavePersisted()')
+        save_end = source.index('// NATLOADED-ONCE:', save_start)
+        save = source[save_start:save_end]
+        self.assertIn("'c': _natCursor", save)
+        load_start = source.index('Future<void> natLoadPersisted()')
+        load_end = source.index('const String _ipMemKey', load_start)
+        load = source[load_start:load_end]
+        self.assertIn("j['c']", load)
+        cursor_start = source.index('void natCursorAdvance(')
+        cursor_end = source.index('Duration natBudget(', cursor_start)
+        self.assertIn('natSaveSoon();', source[cursor_start:cursor_end])
+
 if __name__ == '__main__':
     unittest.main()

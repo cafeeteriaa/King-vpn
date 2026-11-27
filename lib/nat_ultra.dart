@@ -758,8 +758,8 @@ String _natCk(Server s) => '$natOpKey#${s.key}';
 void natCursorAdvance(Server s, int n) {
   if (n <= 0) return;
   final k = _natCk(s);
-  if (_natCursor.length > 4000) _natCursor.remove(_natCursor.keys.first);
   _natCursor[k] = (_natCursor[k] ?? 0) + n;
+  natSaveSoon();
 }
 
 Duration natBudget({bool full = false}) {
@@ -1586,10 +1586,6 @@ void natVarSet(Server s, int v) {
     _natLearnVer++;
   }
   _natCursor.remove(_natCk(s));
-  if (natDimWins.length > 6000) natDimWins.remove(natDimWins.keys.first);
-  while (natVar.length > 4000) {
-    natVar.remove(natVar.keys.first);
-  }
   _natSaveT ??= Timer(const Duration(seconds: 5), () {
     _natSaveT = null;
     natSavePersisted();
@@ -1612,6 +1608,7 @@ Future<void> natSavePersisted() async {
       'd': natDimWins,
       'g': _natGenVer,
       'n': natVarNormal,
+      'c': _natCursor,
     });
   } catch (e, stk) {
     logError(e, stk);
@@ -1639,6 +1636,15 @@ Future<void> natLoadPersisted() async {
     (j['v'] as Map).forEach((k, v) => natVar['$k'] = (v as num).toInt());
     (j['w'] as Map).forEach((k, v) => natWins['$k'] = (v as num).toInt());
     _natWinsVer++; // TOPWIN
+    final cursorMap = j['c'];
+    if (cursorMap is Map) {
+      _natCursor
+        ..clear()
+        ..addAll({
+          for (final entry in cursorMap.entries)
+            if (entry.value is num) '${entry.key}': (entry.value as num).toInt(),
+        });
+    }
     final d = j['d'];
     if (d is Map) {
       d.forEach((k, v) => natDimWins['$k'] = (v as num).toInt());
