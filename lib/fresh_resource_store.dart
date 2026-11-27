@@ -353,7 +353,8 @@ class FreshResourceStore {
           try {
             final row = jsonDecode(line);
             if (row is Map && row['id'] is String &&
-                wanted.contains(row['id'])) {
+                row['link'] is String && wanted.contains(row['id']) &&
+                _id(row['link'] as String) == row['id']) {
               existing.add(row['id'] as String);
             }
           } catch (_) {}
