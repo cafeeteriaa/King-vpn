@@ -442,6 +442,113 @@ class PilotNetworkProbe {
   }
 }
 
+/// IPv6 reachability is deliberately independent from the TLS route quorum.
+/// A successful IPv6 TCP connect is path evidence only, not proof of HTTPS or
+/// successful VPN tunnel traffic.
+class PilotIpv6Evidence {
+  const PilotIpv6Evidence({
+    this.domesticIpv6Successes = 0,
+    this.globalIpv6Successes = 0,
+    this.domesticIpv6LatencyMs,
+    this.globalIpv6LatencyMs,
+  });
+
+  final int domesticIpv6Successes;
+  final int globalIpv6Successes;
+  final int? domesticIpv6LatencyMs;
+  final int? globalIpv6LatencyMs;
+
+  Map<String, Object?> toMap() => <String, Object?>{
+    'domesticIpv6Successes': domesticIpv6Successes,
+    'globalIpv6Successes': globalIpv6Successes,
+    'domesticIpv6LatencyMs': domesticIpv6LatencyMs,
+    'globalIpv6LatencyMs': globalIpv6LatencyMs,
+  };
+}
+
+class PilotIpv6Probe {
+  static const Duration _timeout = Duration(milliseconds: 2600);
+  static DateTime? _lastAt;
+  static String? _lastIdentity;
+  static PilotIpv6Evidence _last = const PilotIpv6Evidence();
+  static Future<PilotIpv6Evidence>? _flight;
+
+  static PilotIpv6Evidence get current => _last;
+
+  static Future<PilotIpv6Evidence> refresh({bool force = false}) async {
+    final active = _flight;
+    if (active != null) return active;
+    final future = _refresh(force: force);
+    _flight = future;
+    try {
+      return await future;
+    } finally {
+      if (identical(_flight, future)) _flight = null;
+    }
+  }
+
+  static Future<PilotIpv6Evidence> _refresh({required bool force}) async {
+    final identity = await PilotNetworkProbe._networkIdentity();
+    final lastAt = _lastAt;
+    if (!force && lastAt != null && identity == _lastIdentity &&
+        DateTime.now().difference(lastAt) < const Duration(minutes: 2)) {
+      return _last;
+    }
+    final domesticFuture = Future.wait(
+      PilotNetworkProbe.domesticTargets.map(_probeIpv6),
+    );
+    final globalFuture = Future.wait(
+      PilotNetworkProbe.globalTargets.map(_probeIpv6),
+    );
+    final domestic = await domesticFuture;
+    final global = await globalFuture;
+    _last = PilotIpv6Evidence(
+      domesticIpv6Successes: domestic.whereType<int>().length,
+      globalIpv6Successes: global.whereType<int>().length,
+      domesticIpv6LatencyMs: _median(domestic),
+      globalIpv6LatencyMs: _median(global),
+    );
+    _lastAt = DateTime.now();
+    _lastIdentity = identity;
+    dbg('PILOT-IPV6-PROBE: domestic=${_last.domesticIpv6Successes}/${domestic.length} '
+        'global=${_last.globalIpv6Successes}/${global.length} '
+        'latencyDomestic=${_last.domesticIpv6LatencyMs}ms '
+        'latencyGlobal=${_last.globalIpv6LatencyMs}ms');
+    return _last;
+  }
+
+  static Future<int?> _probeIpv6(String host) async {
+    final watch = Stopwatch()..start();
+    try {
+      final addresses = await InternetAddress.lookup(
+        host,
+        type: InternetAddressType.IPv6,
+      ).timeout(_timeout);
+      for (final address in addresses) {
+        if (address.type != InternetAddressType.IPv6) continue;
+        Socket? socket;
+        try {
+          socket = await Socket.connect(address, 443, timeout: _timeout);
+          watch.stop();
+          return watch.elapsedMilliseconds;
+        } catch (_) {
+          // Try another AAAA address for the same endpoint.
+        } finally {
+          socket?.destroy();
+        }
+      }
+      return null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  static int? _median(List<int?> values) {
+    final sorted = values.whereType<int>().toList()..sort();
+    return sorted.isEmpty ? null : sorted[sorted.length ~/ 2];
+  }
+}
+
 String natNetworkClassLabel(NatNetworkClass value) => switch (value) {
       NatNetworkClass.globalReachable => 'دسترسی جهانی برقرار',
       NatNetworkClass.domesticOnlyLikely => 'احتمالاً فقط مسیرهای داخلی فعال‌اند',
