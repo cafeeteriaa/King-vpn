@@ -1685,8 +1685,11 @@ const int _ipMemMax = 200;
 final List<Map<String, dynamic>> natIpMem = [];
 final Set<String> natIpDeadRun = {};
 List<String> natRanges = [];
-int natRangeCursor = 0; // generic range cursor
-int _natConfiguredRangeCursor = 0; // isolated National Net user-range cursor
+int natRangeCursor = 0; // legacy generic range cursor
+int _natConfiguredRangeCursor = 0; // next configured-range entry
+final Map<String, int> _natConfiguredRangeCursors = <String, int>{};
+bool natRangeInventoryPassComplete = false;
+int natRangeScanBatchSequence = 0;
 DateTime natRangeLast = DateTime.fromMillisecondsSinceEpoch(0);
 
 Set<String> natIpMemHosts() => {for (final e in natIpMem) '${e['ip']}'};
@@ -1709,6 +1712,31 @@ Future<void> natIpMemLoad() async {
         .where((x) => x.contains('/') || x.contains('-'))
         .toList();
     _natConfiguredRangeCursor = (p.getInt('natConfiguredRangeCursor') ?? 0).clamp(0, 1 << 31).toInt();
+    _natConfiguredRangeCursors.clear();
+    final configuredCursorRaw = p.getString('natConfiguredRangeCursorsV1');
+    if (configuredCursorRaw != null && configuredCursorRaw.isNotEmpty) {
+      final decoded = jsonDecode(configuredCursorRaw);
+      if (decoded is Map) {
+        for (final entry in decoded.entries) {
+          if (entry.value is num) {
+            _natConfiguredRangeCursors[entry.key.toString()] =
+                (entry.value as num).toInt();
+          }
+        }
+      }
+    }
+    _cfRangeCursors.clear();
+    final endpointCursorRaw = p.getString('natCfRangeCursorsV1');
+    if (endpointCursorRaw != null && endpointCursorRaw.isNotEmpty) {
+      final decoded = jsonDecode(endpointCursorRaw);
+      if (decoded is Map) {
+        for (final entry in decoded.entries) {
+          if (entry.value is num) {
+            _cfRangeCursors[entry.key.toString()] = (entry.value as num).toInt();
+          }
+        }
+      }
+    }
   } catch (e, stk) {
     logError(e, stk);
   }
@@ -1768,41 +1796,62 @@ Future<void> natIpMemSave(String ip, int port) async {
 }
 
 
-/// Next bounded sample from the National Net engine's own user-configured
-/// ranges. This cursor and range inventory are not shared with generic scanners.
-({List<String> addresses, int nextCursor}) _natConfiguredRangeBatch(int limit) {
+/// Stream every configured address in bounded batches. Each range has its own
+/// durable offset; -1 marks that range complete for the current full pass.
+({List<String> addresses, int nextCursor, Map<String, int> nextRangeCursors, bool passCompleted})
+    _natConfiguredRangeBatch(int limit) {
+  final staged = Map<String, int>.of(_natConfiguredRangeCursors);
   if (limit <= 0 || natRanges.isEmpty) {
-    return (addresses: const <String>[], nextCursor: _natConfiguredRangeCursor);
+    return (addresses: const <String>[], nextCursor: _natConfiguredRangeCursor,
+      nextRangeCursors: staged, passCompleted: true);
   }
-  final candidates = <String>{};
-  for (final range in natRanges) {
-    final remaining = limit * 4 - candidates.length;
-    if (remaining <= 0) break;
-    candidates.addAll(natExpandAny(range, maxPerBlock: remaining));
+  if (natRanges.every((range) => (staged[range] ?? 0) < 0)) {
+    staged.clear();
   }
-  if (candidates.isEmpty) {
-    return (addresses: const <String>[], nextCursor: _natConfiguredRangeCursor);
+  final out = <String>[];
+  var index = _natConfiguredRangeCursor % natRanges.length;
+  var visited = 0;
+  while (out.length < limit && visited < natRanges.length) {
+    final range = natRanges[index];
+    final cursor = staged[range] ?? 0;
+    if (cursor < 0) {
+      index = (index + 1) % natRanges.length;
+      visited++;
+      continue;
+    }
+    final generated = _natExpandAnyCursor(range, cursor, limit - out.length);
+    out.addAll(generated.$1);
+    if (generated.$1.isEmpty || generated.$2 <= cursor) {
+      staged[range] = -1;
+      index = (index + 1) % natRanges.length;
+      visited++;
+    } else {
+      staged[range] = generated.$2;
+      break;
+    }
   }
-  final values = candidates.toList(growable: false);
-  final start = _natConfiguredRangeCursor % values.length;
-  final count = min(limit, values.length).toInt();
-  final out = <String>[
-    for (var i = 0; i < count; i++) values[(start + i) % values.length],
-  ];
-  // The caller commits this cursor only after the corresponding scan completes.
-  return (addresses: out, nextCursor: (start + count) % values.length);
+  final complete = natRanges.every((range) => (staged[range] ?? 0) < 0);
+  return (
+    addresses: out,
+    nextCursor: complete ? 0 : index,
+    nextRangeCursors: staged,
+    passCompleted: complete,
+  );
 }
 
 Future<void> natRangesSave(String text) async {
-  natRanges = text
-      .split(RegExp(r'[\r\n,; ]+'))
-      .where((x) => x.contains('/') || x.contains('-'))
-      .toList();
+  natRanges = <String>{
+    ...text.split(RegExp(r'[\r\n,; ]+'))
+        .where((x) => x.contains('/') || x.contains('-')),
+  }.toList(growable: false);
   _natConfiguredRangeCursor = 0;
+  _natConfiguredRangeCursors.clear();
+  natRangeInventoryPassComplete = false;
   try {
     final p = await SharedPreferences.getInstance();
     await p.setString(_rangeKey, natRanges.join('\n'));
     await p.setInt('natConfiguredRangeCursor', 0);
+    await p.setString('natConfiguredRangeCursorsV1', '{}');
   } catch (e, stk) {
     logError(e, stk);
   }
@@ -1998,7 +2047,7 @@ Future<List<String>> _natDomainFirst(List<Server> known,
         port: entry.key,
         concurrency: conc.clamp(1, 32).toInt(),
         want: entry.value.length,
-        budget: const Duration(seconds: 5),
+        budget: null,
         timeout: const Duration(milliseconds: 1200),
         cancelled: cancelled,
       );
@@ -2161,13 +2210,14 @@ List<String> _getCfIps({
   }
   if (span <= 0) return (<String>[], 0);
   final base = _ipToInt(startIp);
-  final offset = cursor % span;
-  final count = min(maxPerBlock, span);
+  final offset = cursor.clamp(0, span).toInt();
+  if (offset >= span) return (<String>[], 0);
+  final count = min(maxPerBlock, span - offset).toInt();
   final out = <String>[];
   for (var i = 0; i < count; i++) {
-    out.add(_intToIp(base + ((offset + i) % span)));
+    out.add(_intToIp(base + offset + i));
   }
-  return (out, (offset + count) % span);
+  return (out, offset + count >= span ? 0 : offset + count);
 }
 
 // فیکس ۳: ساخت رشته‌های IP (صدها هزار تا چند میلیون) از ترد UI به isolate منتقل شد.
@@ -2184,27 +2234,27 @@ Map<String, dynamic> _genAddrsIso(Map<String, dynamic> args) {
   final addrs = <String>[];
   // NATMEM: هر بلوک حداکثر ۲۵۶ آدرس پراکنده و کل فهرست سقف دارد. قبلاً هر بلوک تا ۶۵۵۳۶ آدرس
   // و فهرست ISP حدود ۲۸۰۰ بلوک داشت، یعنی ده‌ها میلیون رشته در isolate و فقط ۶۰۰۰ تای آن استفاده می‌شد.
-  final cap = max(cfIpsBatch * 4, 20000);
+  final cap = max(0, (args['outputLimit'] as int?) ?? max(cfIpsBatch * 4, 20000));
   void addBlocks() {
-    if (blocks.isEmpty) return;
-    // Rotate across the entire CIDR/range catalog; otherwise a capped list
-    // repeatedly expands only its first ~N blocks and starves the rest.
+    if (blocks.isEmpty || cap <= 0) return;
     final start = (cursors['__block_cursor'] ?? 0) % blocks.length;
     var processed = 0;
-    for (var offset = 0; offset < blocks.length; offset++) {
-      if (addrs.length >= cap) break;
-      final index = (start + offset) % blocks.length;
+    while (processed < blocks.length && addrs.length < cap) {
+      final index = (start + processed) % blocks.length;
       final range = blocks[index];
       final key = 'block:$range';
       final cursor = cursors[key] ?? 0;
-      final generated = _natExpandAnyCursor(range, cursor, 256);
+      final generated = _natExpandAnyCursor(
+          range, cursor, min(256, cap - addrs.length).toInt());
       if (generated.$1.isNotEmpty) {
         addrs.addAll(generated.$1);
         cursors[key] = generated.$2;
       }
       processed++;
     }
-    cursors['__block_cursor'] = ((start + max(1, processed)) % blocks.length).toInt();
+    if (processed > 0) {
+      cursors['__block_cursor'] = (start + processed) % blocks.length;
+    }
   }
   if (nationalMode) {
     addrs.addAll(_getCfIps(batchSize: cfIpsBatch, liveRanges: liveRanges, cursors: cursors));
