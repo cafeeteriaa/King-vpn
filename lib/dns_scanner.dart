@@ -286,8 +286,8 @@ bool dnsxManualBusy = false;
 
 /// اسکن خودکار: فقط در نت ملی و وقتی VPN قطع است. هر ۲۴ ساعت (یا ۶ ساعت اگر DNS سالمی نبود)، با همه‌ی دامنه‌های پروژه.
 /// اگر وسط کار اتصال برقرار شود (stop=true)، اسکن نیمه‌کاره ذخیره نمی‌شود.
-Future<void> dnsxAutoPick({bool Function()? stop, bool force = false}) async {
-  if (_dnsxAutoBusy || dnsxManualBusy) return;
+Future<void> dnsxAutoPick({bool Function()? stop, bool force = false, bool coordinatorOwned = false}) async {
+  if (_dnsxAutoBusy || (dnsxManualBusy && !coordinatorOwned)) return;
   _dnsxAutoBusy = true;
   // Snapshot the mode before the first await; never mix national/global scan state.
   final scanNationalMode = nationalMode;

@@ -1022,7 +1022,7 @@ extension HomeExtras on _HomePageState {
     if (pn != null) await _applyNetPick(pn, po);
     if (scannerMode) {
       final report = await KingNationalScannerEngine.runPreflight(
-        knownServers: <Server>[...pending, ...good, ...natRestPending],
+        knownServers: <Server>[...pending, ...good, ...natRestPending, for (final entry in _resMap.values) entry.s],
         onStatus: (message) => _set(message),
         cancelled: () => !mounted || connected || appGone || !scannerMode,
         addDiscovered: (items) => _natRangeAdd(items),
