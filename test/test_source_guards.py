@@ -3337,5 +3337,16 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn("completeBenchmark(", bridge)
         self.assertIn("disableNative()", bridge)
 
+    def test_dynamic_source_discovery_has_one_complete_incremental_engine(self):
+        source = (ROOT / "lib" / "king_dynamic_source_discovery.dart").read_text(encoding="utf-8")
+        self.assertEqual(source.count("class KingDynamicSourceDiscovery"), 1)
+        self.assertEqual(source.count("static Future<void> refresh("), 1)
+        self.assertIn("_cycleBudget = Duration(minutes: 2)", source)
+        self.assertIn("_workerCount = 4", source)
+        self.assertIn("'nextPage': page", source)
+        self.assertIn("'nextQuery': queryIndex", source)
+        self.assertIn("_writeCacheAtomically", source)
+        self.assertIn("if (treeJson is! Map || treeJson['truncated'] == true)", source)
+
 if __name__ == '__main__':
     unittest.main()

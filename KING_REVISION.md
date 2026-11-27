@@ -217,3 +217,10 @@ Increment the revision number by exactly one for each substantial edit set. Reco
 ### Revision 69 CI correction note
 - The first Rust CI run exposed an incorrect test expectation: the existing IPv4 batch cursor deliberately wraps within the requested page. The implementation matched the pre-existing Dart behavior; the regression test was corrected to assert the same wrap order.
 - The exact current head includes the corrected test, explicit unsafe blocks, a crate-level unsafe-operation lint, an FFI batch-size guard and preserved dynamic symbols. The new exact-head workflow result is pending.
+
+
+### Revision 69 — restore dynamic source discovery build integrity
+- Root cause of the Flutter test compilation failure was confirmed on the PR #72 base: `king_dynamic_source_discovery.dart` contained repeated class-member blocks and truncated raw string literals; later missing-member errors in `king_local_ai.dart` and switch errors in `iran_ai_extras.dart` were parser cascades.
+- Replaced the duplicated/corrupt source-discovery file with one complete incremental implementation preserving the five GitHub search queries, 100-result pages, 10-page GitHub API boundary, 2-minute cycle budget, four workers, 12-hour cache TTL, 15-minute retry delay, path scoring, safe raw URL policy, and persistent query/page cursor.
+- Added partial-result persistence on cancellation, atomic cache replacement with backup recovery, strict Git-ref and raw URL validation, and truncated-tree handling. Existing cached feeds are retained and merged; no total feed/repository cap is introduced.
+- Expanded policy tests and source guards to prevent duplicate class blocks and loss of the incremental checkpoint/worker behavior.

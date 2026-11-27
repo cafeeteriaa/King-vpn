@@ -30,6 +30,13 @@ void main() {
       expect(KingDynamicSourceDiscovery.isSafeGitRef('main/../secret'), isFalse);
     });
 
+    test('accepts Unicode refs while rejecting Git ref metacharacters', () {
+      expect(KingDynamicSourceDiscovery.isSafeGitRef('feature/نسخه-جدید'), isTrue);
+      expect(KingDynamicSourceDiscovery.isSafeGitRef(r'feature/name\bad'), isFalse);
+      expect(KingDynamicSourceDiscovery.isSafeGitRef('feature/name.lock'), isFalse);
+      expect(KingDynamicSourceDiscovery.isSafeGitRef('feature/@{bad}'), isFalse);
+    });
+
     test('only canonical HTTPS raw GitHub file URLs are accepted', () {
       const valid = 'https://raw.githubusercontent.com/owner/repo/main/sub/all.txt';
       expect(KingDynamicSourceDiscovery.normalizeFeedUrl(valid), valid);
@@ -39,6 +46,9 @@ void main() {
       expect(KingDynamicSourceDiscovery.normalizeFeedUrl('https://raw.githubusercontent.com/owner/repo/main/%2e%2e%2fsecret'), isNull);
       expect(KingDynamicSourceDiscovery.normalizeFeedUrl('https://raw.githubusercontent.com/owner/repo/main/sub.txt?token=x'), isNull);
       expect(KingDynamicSourceDiscovery.normalizeFeedUrl('https://raw.githubusercontent.com:444/owner/repo/main/sub.txt'), isNull);
+      expect(KingDynamicSourceDiscovery.normalizeFeedUrl('https://user@raw.githubusercontent.com/owner/repo/main/sub.txt'), isNull);
+      expect(KingDynamicSourceDiscovery.normalizeFeedUrl('https://raw.githubusercontent.com/owner/repo/main/sub.txt#fragment'), isNull);
+      expect(KingDynamicSourceDiscovery.normalizeFeedUrl('https://raw.githubusercontent.com/owner/repo/main/%5Csecret.txt'), isNull);
     });
   });
 }
