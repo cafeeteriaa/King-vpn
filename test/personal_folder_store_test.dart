@@ -168,6 +168,22 @@ void main() {
       expect(await PersonalFolderStore.count(), input.length);
     });
 
+    test('streams a large archive with a strict batch working set', () async {
+      final input = List<String>.generate(
+        6000,
+        (i) => 'vless://stream-node$i@example.com:443',
+      );
+      await PersonalFolderStore.writeSnapshot(input);
+      var observed = 0;
+      var largestBatch = 0;
+      await for (final batch in PersonalFolderStore.streamBatches(batchSize: 37)) {
+        observed += batch.length;
+        if (batch.length > largestBatch) largestBatch = batch.length;
+      }
+      expect(observed, input.length);
+      expect(largestBatch, lessThanOrEqualTo(37));
+    });
+
     test('streams filtered archive matches and honors cancellation', () async {
       final input = <String>[
         ...List<String>.generate(200, (i) => 'vless://node$i@example.com:443'),
