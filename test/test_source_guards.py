@@ -3333,5 +3333,10 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('shouldAbort: () => stopFlag || !sheetOpen || nationalMode != scanNationalMode,', sheet[national_save:])
 
 
+    def test_national_ip_auto_inventory_cascade_terminates_before_hostnames(self):
+        source = (ROOT / 'lib' / 'ip_auto_scan.dart').read_text(encoding='utf-8')
+        self.assertRegex(source, r'\\.\\.addAll\\(natScanHits\\);\\s+hostnames')
+
+
 if __name__ == '__main__':
     unittest.main()

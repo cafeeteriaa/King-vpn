@@ -1,5 +1,25 @@
 # King VPN — continuation checkpoint
 
+## Current verified checkpoint — 2026-11-27 07:30 UTC
+- Repository: `cafeeteriaa/King-vpn`.
+- Development branch: `feature/personal-folder-streaming-mutations-20261127`.
+- HEAD before this checkpoint commit: `ed2ac9f100aec9c5bcc81e8837407b895250e819`; this commit records the current state and becomes the branch HEAD after the ref update.
+- PR #68 remains Draft and targets the uncapped personal-folder branch. PR #69 is a temporary stacked syntax-repair PR; this checkpoint ports its regression guard into the development branch so the duplicate PR can be retired after this commit's CI.
+- The missing semicolon in `lib/ip_auto_scan.dart::_ipAutoBlocks` is already fixed on this development branch. Added a Python source guard that requires the national `ips` cascade to terminate before the `hostnames` cascade.
+- Exact development-head CI [45957884767](https://github.com/cafeeteriaa/King-vpn/actions/runs/45957884767), commit `ed2ac9f100aec9c5bcc81e8837407b895250e819`: SUCCESS. Python guards, Flutter tests, Dart analysis, ARM64 Release build, size report, and artifact uploads all succeeded.
+- Verified artifact from that exact commit: artifact ID `15180290274`, ZIP SHA-256 `e271b0cd44de9d8d00abc6899c69b256878f4ed469724655cf3a5baf1510847e`; APK SHA-256 `25a52f19692dc273079e89ed5332c4c759f886d1dc8458e12af038f656fb8705`, 122,885,758 bytes. The archive contains one ARM64 APK with 19 ELF64/AArch64 native libraries; every PT_LOAD alignment is at least 16 KiB and each native-library ZIP data offset is 16 KiB aligned. The workflow uses a generated debug signing key, not a production release key.
+- Isolated repair-branch CI [45958072865](https://github.com/cafeeteriaa/King-vpn/actions/runs/45958072865), commit `f64a482c92f32246e5fee7856489929b67663937`: source guards, Flutter tests, and Dart analysis SUCCESS; ARM64 build FAILED after three retries because Maven Central returned HTTP 429 while downloading Kotlin Gradle Plugin 2.2.20 artifacts. This is an external dependency rate-limit failure, not a Dart/source compilation failure. No APK was produced for that isolated commit.
+- Earlier source-branch CI [45957798844](https://github.com/cafeeteriaa/King-vpn/actions/runs/45957798844) exposed the missing semicolon at `lib/ip_auto_scan.dart:113`, which prevented three Flutter test files from loading. The fix is present in `ed2ac9f`. Earlier guard-only failure [45957565918](https://github.com/cafeeteriaa/King-vpn/actions/runs/45957565918) was caused by a stale source assertion for the old SharedPreferences-to-`natScanHits` handoff; later tests were aligned with the file-backed inventory path.
+- The first isolated guard attempt [45957863923](https://github.com/cafeeteriaa/King-vpn/actions/runs/45957863923) failed because its own assertion escaped the newline incorrectly; the guard was corrected to a whitespace regex and passed on the development-head CI.
+- Main remains untouched at `9b36ae7dd9ac0379a3b3b84091752f9322bb649d`. No CI run was cancelled by this work.
+- Open engineering risks:
+  - `_natAutoScanCandidates` still stores growing national SNI/port/TLS lists as one SharedPreferences JSON string rather than a streaming file-backed inventory.
+  - `_natReadInventory` currently uses `readAsLines()` and a full deduplication map; `natNationalIpMemLoad` and `natNationalIpMemHosts` also materialize the entire inventory. This is not bounded-memory despite JSONL append storage.
+  - Personal-folder startup and connection preparation still retain full in-memory caches; scheduler remains process-local Timer-based, not a persistent Android background worker.
+  - No real-device, Iranian-operator, DNS-leak, actual TUN traffic, IPv4/IPv6 handover, or battery test has been performed.
+- IP Clean source lists, ranges, ports, and scan capabilities were not removed or narrowed.
+- First next action: validate CI for this checkpoint commit; then replace full-file national inventory reads and SharedPreferences candidate snapshots with crash-safe streaming cursor/page storage, preserving all existing records and mode isolation.
+
 ## Source of truth
 - Repository: cafeeteriaa/King-vpn
 - Active branch: fix/personal-folder-uncapped-20261127
