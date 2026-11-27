@@ -1,3 +1,7 @@
+import 'nnie_core.dart';
+
+export 'nnie_core.dart' show NatNetworkClass;
+
 /// Independent domestic/global network evidence model for Smart Pilot ∞.
 enum LinkHealth { unknown, healthy, degraded, unreachable }
 enum DetectedNetworkMode { unknown, domesticOnly, globalOnly, dualStack, offline }
@@ -181,3 +185,32 @@ PilotNetworkStrategy choosePilotNetworkStrategy(NetworkEvidence evidence) {
   }
   return PilotNetworkStrategy.preserve;
 }
+
+/// Corroborates Smart Pilot's TLS/IPv6 evidence with the independent
+/// DNS + multi-host diagnosis. Contradictory evidence preserves the route.
+PilotNetworkStrategy corroboratePilotStrategy(
+  PilotNetworkStrategy pilot,
+  NatNetworkClass diagnosis,
+) {
+  if (pilot == PilotNetworkStrategy.domestic &&
+      diagnosis == NatNetworkClass.globalReachable) {
+    return PilotNetworkStrategy.preserve;
+  }
+  if (pilot == PilotNetworkStrategy.global &&
+      diagnosis == NatNetworkClass.domesticOnlyLikely) {
+    return PilotNetworkStrategy.preserve;
+  }
+  if (pilot == PilotNetworkStrategy.offline &&
+      diagnosis != NatNetworkClass.unknown) {
+    return PilotNetworkStrategy.preserve;
+  }
+  return pilot;
+}
+
+String natNetworkClassLabel(NatNetworkClass value) => switch (value) {
+  NatNetworkClass.globalReachable => 'دسترسی جهانی برقرار',
+  NatNetworkClass.domesticOnlyLikely => 'احتمالاً فقط مسیرهای داخلی فعال‌اند',
+  NatNetworkClass.dnsDegraded => 'اختلال یا دست‌کاری DNS محتمل است',
+  NatNetworkClass.transportRestricted => 'محدودیت مسیر یا پروتکل محتمل است',
+  NatNetworkClass.unknown => 'وضعیت شبکه نامشخص است',
+};
