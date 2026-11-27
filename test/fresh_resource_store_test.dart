@@ -121,7 +121,41 @@ void main() {
         expect(await FreshResourceStore.count(root: root), 0);
         expect(await FreshResourceStore.readBatch(limit: 10, root: root), isEmpty);
         final folder = Directory('${root.path}/${FreshResourceStore.directoryName}');
-        expect(await File('${folder.path}/00.jsonl').exists(), isFalse);
+        final shards = await folder.list(followLinks: false)
+            .where((entity) => entity is File &&
+                RegExp(r'^[0-9a-f]{2}\\.jsonl
+      } finally {
+        await root.delete(recursive: true);
+      }
+    });
+
+    test('migrates the legacy flat file and repairs interrupted count metadata', () async {
+      final root = await Directory.systemTemp.createTemp('king-offline-migrate-');
+      try {
+        final folder = Directory('${root.path}/${FreshResourceStore.directoryName}');
+        await folder.create(recursive: true);
+        await File('${folder.path}/configs.txt').writeAsString(
+          'vless://one@example.test:443\nvmess://two@example.test:443\n',
+          flush: true,
+        );
+
+        expect(await FreshResourceStore.count(root: root), 2);
+        expect(
+          await File('${folder.path}/configs.txt.migrated').exists(),
+          isTrue,
+        );
+        await File('${folder.path}/metadata.json').writeAsString('{"schema":2,"count":1}');
+        await File('${folder.path}/.inventory_dirty').writeAsString('1');
+        expect(await FreshResourceStore.count(root: root), 2);
+      } finally {
+        await root.delete(recursive: true);
+      }
+    });
+  });
+}
+).hasMatch(entity.uri.pathSegments.last))
+            .toList();
+        expect(shards, isEmpty);
       } finally {
         await root.delete(recursive: true);
       }
