@@ -215,7 +215,7 @@ class KingNetworkFingerprint {
     final values = <String>{};
     for (final interface in interfaces) {
       final name = interface.name.trim().toLowerCase();
-      if (name.isEmpty || _vpnInterfaceName.hasMatch(name)) continue;
+      if (name.isEmpty || isVpnInterfaceName(name)) continue;
       for (final rawAddress in interface.addresses) {
         final address = rawAddress.trim();
         if (address.isEmpty || address == '127.0.0.1' || address == '::1') {
@@ -238,7 +238,7 @@ class KingNetworkFingerprint {
       if (fields.length < 8 || fields[1] != '00000000' || fields[7] != '00000000') continue;
       final flags = int.tryParse(fields[3], radix: 16) ?? 0;
       final iface = fields[0].toLowerCase();
-      if ((flags & 1) == 0 || _vpnInterfaceName.hasMatch(iface)) continue;
+      if ((flags & 1) == 0 || isVpnInterfaceName(iface)) continue;
       routes.add('v4:$iface:${fields[2]}:${fields[6]}');
     }
     for (final line in ipv6Lines) {
