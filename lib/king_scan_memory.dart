@@ -344,6 +344,76 @@ class KingDiskInventory {
     return task;
   }
 
+  /// Replaces incoming identities atomically per shard. This keeps endpoint
+  /// metadata (such as last-seen timestamps) current without rewriting the
+  /// complete inventory or loading a shard into memory.
+  Future<int> upsertBatch(Iterable<Map<String, Object?>> records) {
+    final path = _directory.path;
+    final previous = _writeQueues[path] ?? Future<void>.value();
+    final task = previous.then((_) async {
+      final grouped = <String, Map<String, Map<String, Object?>>>{};
+      for (final record in records) {
+        final key = record['key'];
+        if (key is! String) {
+          throw ArgumentError('Every inventory record must include a string key.');
+        }
+        final identity = _identity(key);
+        final payload = Map<String, Object?>.from(record)..remove('key');
+        grouped.putIfAbsent(identity.substring(0, 2), () => <String, Map<String, Object?>>{})[identity] = payload;
+      }
+      var written = 0;
+      for (final entry in grouped.entries) {
+        final file = File(_directory.path + '/' + entry.key + '.jsonl');
+        final temporary = File(file.path + '.tmp');
+        final sink = temporary.openWrite();
+        try {
+          if (await file.exists()) {
+            await for (final line in file.openRead()
+                .transform(utf8.decoder)
+                .transform(const LineSplitter())) {
+              if (line.trim().isEmpty) continue;
+              try {
+                final decoded = jsonDecode(line);
+                if (decoded is Map && decoded['id'] is String &&
+                    entry.value.containsKey(decoded['id'])) {
+                  continue;
+                }
+                if (decoded is Map && decoded['version'] == 1 &&
+                    decoded['id'] is String && decoded['payload'] is Map) {
+                  sink.writeln(line);
+                }
+              } catch (_) {
+                // A torn record is discarded while valid records are retained.
+              }
+            }
+          }
+          for (final item in entry.value.entries) {
+            sink.writeln(jsonEncode(<String, Object?>{
+              'version': 1,
+              'id': item.key,
+              'payload': item.value,
+            }));
+            written++;
+          }
+          await sink.flush();
+        } finally {
+          await sink.close();
+        }
+        try {
+          await temporary.rename(file.path);
+        } catch (_) {
+          if (await temporary.exists()) await temporary.delete();
+          rethrow;
+        }
+      }
+      return written;
+    });
+    _writeQueues[path] = task.then<void>((_) {}, onError: (Object error, StackTrace stack) {
+      logError(error, stack);
+    });
+    return task;
+  }
+
   /// Streams records shard-by-shard; the full inventory is never hydrated.
   Stream<Map<String, Object?>> records() async* {
     await _writeTail;
