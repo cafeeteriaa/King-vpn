@@ -1736,21 +1736,27 @@ Future<void> _natRangeStateLoad(SharedPreferences prefs) async {
     };
     await _natWriteJsonSnapshot(name, state);
   }
-  final configuredCursor = state['configuredCursor'];
+  final loaded = state ?? <String, Object?>{};
+  final configuredCursor = loaded['configuredCursor'];
   _natConfiguredRangeCursor =
       configuredCursor is num ? configuredCursor.toInt() : 0;
+  Map<String, int> decodeCursors(Object? raw) {
+    final result = <String, int>{};
+    if (raw is Map) {
+      for (final entry in raw.entries) {
+        if (entry.value is num) {
+          result['${entry.key}'] = (entry.value as num).toInt();
+        }
+      }
+    }
+    return result;
+  }
   _natConfiguredRangeCursors
     ..clear()
-    ..addAll((state['configuredCursors'] is Map)
-        ? (state['configuredCursors'] as Map).map(
-            (key, value) => MapEntry('$key', (value as num).toInt()))
-        : <String, int>{});
+    ..addAll(decodeCursors(loaded['configuredCursors']));
   _cfRangeCursors
     ..clear()
-    ..addAll((state['endpointCursors'] is Map)
-        ? (state['endpointCursors'] as Map).map(
-            (key, value) => MapEntry('$key', (value as num).toInt()))
-        : <String, int>{});
+    ..addAll(decodeCursors(loaded['endpointCursors']));
 }
 
 Future<void> _natRangeStateSave() => _natWriteJsonSnapshot(
@@ -1897,7 +1903,6 @@ Future<void> natRangesSave(String text) async {
   _natConfiguredRangeCursors.clear();
   natRangeInventoryPassComplete = false;
   try {
-    final p = await SharedPreferences.getInstance();
     await _natWriteJsonSnapshot('king_nat_configured_ranges.json', natRanges);
     await _natRangeStateSave();
   } catch (e, stk) {
