@@ -213,8 +213,16 @@ Future<String> netDiagnose() async {
   try {
     final evidence = await PilotNetworkProbe.refresh();
     final diagnosis = await NatNetworkDiagnosis.refresh();
+    final strategy = choosePilotNetworkStrategy(evidence);
+    final strategyLabel = switch (strategy) {
+      PilotNetworkStrategy.domestic => 'مسیر داخلی',
+      PilotNetworkStrategy.global => 'مسیر جهانی',
+      PilotNetworkStrategy.offline => 'فعلاً هیچ‌کدام قابل تأیید نیست',
+      PilotNetworkStrategy.preserve => 'حفظ انتخاب فعلی؛ شواهد کافی برای تغییر نیست',
+    };
     b.writeln('— شواهد مستقل مسیر داخلی/جهانی —');
     b.writeln('تشخیص: ${natNetworkClassLabel(diagnosis)}');
+    b.writeln('راهبرد پیشنهادی: $strategyLabel');
     b.writeln('TLS داخلی: ${evidence.domesticSuccesses}/${evidence.domesticSamples}'
         ' • تأخیر میانه: ${evidence.domesticLatencyMs ?? '-'}ms');
     b.writeln('TLS جهانی: ${evidence.globalSuccesses}/${evidence.globalSamples}'
