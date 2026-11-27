@@ -1,3 +1,79 @@
+## CI failure analysis and repair plan — run 45962523154
+
+- Exact tested commit: `e4e8473bd690631118b13ff3dc36fdbc3cbd2148`.
+- Run: https://github.com/cafeeteriaa/King-vpn/actions/runs/45962523154 — `failure`.
+- Python source guards passed. The Flutter unit-test step then failed during Dart compilation, so Dart analysis and Android build were skipped.
+- Root cause: `lib/king_dynamic_source_discovery.dart` had grown to 1,664 lines with repeated copies of `normalizeFeedUrl`, `_cacheFile`, `_readCache`, `cachedFeeds`, `refresh`, headers and scoring helpers, plus incomplete regex/method fragments. The corruption was introduced by commit `9efc20bf697f19dede3962c844a6610500bcb2bc`; the preceding `d1d61ef0` version was a clean 214-line implementation.
+- The broken file caused cascading unresolved identifiers and parser errors in the discovery class and `main.dart`. Two independent compile issues were also found: nullable bridge metadata was indexed after a helper call without an explicit null promotion, and Smart Pilot's dynamic mode switches lacked a fallback arm.
+- Repair reconstructs one clean discovery class, preserves extensionless feeds and strict path/URL validation, retains all discovered feeds without repository/feed-count caps, and persists a per-page processed-repository cursor so a time-budgeted cycle does not restart already completed repositories. GitHub's own 1,000-results-per-query limit, per-response byte budgets and background time/concurrency budgets remain provider/resource safeguards, not inventory caps.
+- Also adds explicit bridge-info null promotion and safe unknown-mode fallbacks for Smart Pilot.
+- Repair commit SHA: resolved from branch after commit creation; exact-head rerun pending.
+- Active Actions before repair: none. No workflow was cancelled.
+
+## First next action
+
+Run exact-head CI after this repair. If source guards and Flutter tests pass, proceed through Dart analysis and the ARM64 build; inspect an APK only if the complete run succeeds.
+
+---
+
+## CI failure analysis — run 45962305708
+
+- Exact implementation commit: `8ba22e9d2f40342800ea24b97d35e859651ab889`.
+- Run: https://github.com/cafeeteriaa/King-vpn/actions/runs/45962305708 — `failure`.
+- The workflow stopped in the Python source-guard step before Flutter tests, Dart analysis or Android build.
+- 244 Python guards ran; two failed because inherited assertions were stale, not because of the bridge implementation:
+  1. The guard expected Python-style `flush=True`; the Dart source correctly uses `flush: true`.
+  2. The guard expected `PersonalFolderStore.decodeSnapshot` inside the class implementation, but the static method is called as `decodeSnapshot(...)` from within that class.
+- Corrected both assertions to match and verify the actual Dart implementation. No production source or test expectation was weakened.
+- Guard-repair commit SHA: resolved from this branch after the commit; exact-head rerun pending.
+- Active Actions after run 45962305708: none. No run was cancelled.
+
+## First next action
+
+Run the exact-head workflow after this source-guard repair. If source guards pass, proceed through Flutter tests, Dart analysis and ARM64 build; inspect the exact-run artifact only if the full workflow succeeds.
+
+---
+
+## Current checkpoint — 2026-11-27 08:53 Europe/Rome
+
+- Repository: `cafeeteriaa/King-vpn`.
+- Development branch: `fix/native-bridge-contract-validation-20261127`.
+- Parent development branch: `fix/personal-folder-uncapped-20261127`.
+- Parent SHA before this change: `ce8fa5731514162a4377048e9d4d871d143127f3`.
+- Implementation commit SHA: resolve from this branch ref after commit creation; exact-head CI is pending.
+- Parent PRs #65 and #66 remain Draft/open and unmerged. No changes are being merged to `main`.
+- Active GitHub Actions at branch creation: none. No workflow was cancelled.
+- The parent already exposed a versioned `vpn/bg` bridge and exponential retry. This revision strengthens the handshake contract; it does not claim real-device VPN validation.
+
+## Revision 68 — validate the full native background bridge contract
+
+- Added a pure Dart contract validator for protocol version, channel name, expected app package, attached Flutter engine, all three consumed capabilities (`alive`, `back`, `vpnSettings`) and positive Android SDK metadata.
+- `_probeBgBridge` now rejects incomplete, detached, wrong-package or incompatible bridge responses and enters its existing retry/backoff path.
+- Added unit tests for valid metadata, wrong package, detached engine, missing capabilities, protocol mismatch and invalid SDK.
+- Added a source guard connecting the runtime handshake to the pure contract validator.
+- No IP Clean sources, ranges, CIDRs, ports, cursors, or scanner behavior changed.
+
+## Validation
+
+- New tests: `test/native_bridge_contract_test.dart`; source guard in `test/test_source_guards.py`.
+- Local Flutter/Python execution: not performed in this connector session.
+- Exact-head source guards, Flutter tests, Dart analysis, ARM64 release build and artifact inspection: pending CI.
+- Three source-level review passes completed: (1) protocol/feature contract, (2) engine lifecycle and retry behavior, (3) unit/source-guard compatibility. These are not device-test sign-off.
+
+## Open issues
+
+- The personal-folder startup and connection preparation paths still materialize O(N) collections; UI paging alone does not make connection preparation memory-bounded.
+- The native VPN service, real TUN traffic, DNS leak behavior, IPv4/IPv6 handover, competing VPN, failover and CPU/battery usage still need physical-device validation.
+- Parent PRs #65/#66 are diverged from their base refs and must remain Draft until ancestry is reconciled and three reviews plus exact-head CI are complete.
+
+## First next action
+
+1. Inspect exact-head CI for this bridge-contract commit; diagnose any failure from the job log without weakening tests.
+2. If CI passes, inspect the exact-run APK artifact, archive digest, APK SHA-256, ABI and signing identity.
+3. Then continue Android service lifecycle and real tunnel/DNS/failover validation, keeping VPN/Proxy modes and personal-only routing intact.
+
+---
+
 # King VPN — continuation checkpoint
 
 ## Source of truth

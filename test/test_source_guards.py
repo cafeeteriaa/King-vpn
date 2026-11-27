@@ -51,7 +51,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn("servers.jsonl", store)
         self.assertIn("servers.jsonl.bak", store)
         self.assertIn("servers.jsonl.tmp", store)
-        self.assertIn("await temp.writeAsString(contents, flush=True)", store)
+        self.assertIn("await temp.writeAsString(contents, flush: true);", store)
         self.assertIn("await _replaceByRename(temp, target)", store)
         self.assertIn("PersonalFolderStore.readOrMigrate", folder)
         self.assertIn("await PersonalFolderStore.writeSnapshot(next)", folder)
@@ -84,7 +84,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn("static String encodeSnapshot(Iterable<String> links)", store)
         self.assertIn("static List<String>? decodeSnapshot(String contents)", store)
         self.assertIn("return null;", store)
-        self.assertIn("PersonalFolderStore.decodeSnapshot", store)
+        self.assertIn("decodeSnapshot(await file.readAsString())", store)
 
     def test_personal_folder_store_supports_streaming_paged_reads(self):
         store = (ROOT / "lib" / "personal_folder_store.dart").read_text(encoding="utf-8")
@@ -559,6 +559,28 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('_bgBridgeRetryAfter', main)
         self.assertNotIn('_bgAliveUnsupported', main)
         self.assertIn("shutil.copy('android_src/MainActivity.kt', os.path.join(ka, 'MainActivity.kt'))", prepare)
+
+    def test_android_bridge_handshake_validates_complete_runtime_contract(self):
+        main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        contract = (ROOT / 'lib' / 'native_bridge_contract.dart').read_text(encoding='utf-8')
+        self.assertIn("import 'native_bridge_contract.dart';", main)
+        self.assertIn('bgBridgeInfoMatches(', main)
+        self.assertIn('expectedPackageName: ownPkg', main)
+        for field in ('protocolVersion', 'channel', 'packageName', 'engineAttached',
+                      'vpnSettings', 'back', 'alive', 'androidSdk'):
+            self.assertIn("info['" + field + "']", contract)
+
+    def test_dynamic_source_discovery_resumes_without_inventory_caps(self):
+        source = (ROOT / 'lib' / 'king_dynamic_source_discovery.dart').read_text(encoding='utf-8')
+        self.assertIn("oldCache['processedRepos']", source)
+        self.assertIn("'processedRepos': processedRepos.toList", source)
+        self.assertIn("repos.any((repo) => !processedRepos.contains(repo.fullName))", source)
+        self.assertIn("nextPage", source)
+        self.assertIn("nextQuery", source)
+        self.assertIn("_cycleBudget", source)
+        self.assertNotIn("_maxRepos", source)
+        self.assertNotIn("_maxFiles", source)
+        self.assertNotIn(".take(", source)
 
     def test_background_supervisor_is_initialized_with_its_own_dispatcher(self):
         main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')

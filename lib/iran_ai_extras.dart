@@ -2519,6 +2519,7 @@ extension HomeExtras on _HomePageState {
         DetectedNetworkMode.dualStack => 'مسیر داخلی و جهانی هر دو در دسترس‌اند',
         DetectedNetworkMode.offline => 'هیچ مسیر آزمایشی پاسخ نداد',
         DetectedNetworkMode.unknown => 'شواهد کافی نیست؛ حالت قبلی حفظ شد',
+        _ => 'شواهد نامشخص؛ حالت قبلی حفظ شد',
       };
       final strategyLabel = nationalMode ? 'نت ملی' : 'جهانی/حالت قبلی';
       localPilotText.value = 'خلبان هوشمند ∞ • اسکن اختصاصی شبکه\n'
@@ -2530,6 +2531,7 @@ extension HomeExtras on _HomePageState {
         DetectedNetworkMode.dualStack => NatNetworkClass.globalReachable,
         DetectedNetworkMode.offline => NatNetworkClass.transportRestricted,
         DetectedNetworkMode.unknown => NatNetworkClass.unknown,
+        _ => NatNetworkClass.unknown,
       };
     } catch (e, st) {
       logError(e, st);
