@@ -6,6 +6,8 @@ use std::os::raw::c_char;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::str::FromStr;
 
+#![deny(unsafe_op_in_unsafe_fn)]
+
 fn address_value(ip: IpAddr) -> (u128, u8) {
     match ip {
         IpAddr::V4(v) => (u32::from(v) as u128, 32),
@@ -89,7 +91,7 @@ fn expand_range_batch(
             u128::MAX - cursor + 1
         };
         let count = limit.min(available.min(usize::MAX as u128) as usize);
-        (cursor, count, cursor.checked_add(count as u128).unwrap_or(0), false)
+        (cursor, count, match cursor.checked_add(count as u128) { Some(value) => value, None => 0 }, false)
     } else {
         let span = high.checked_sub(low)?.checked_add(1)?;
         let offset = cursor % span;
@@ -134,8 +136,8 @@ pub unsafe extern "C" fn king_expand_range_batch(
         return -1;
     }
     let result = catch_unwind(AssertUnwindSafe(|| {
-        let input = CStr::from_ptr(input).to_str().ok()?;
-        let cursor = CStr::from_ptr(cursor).to_str().ok()?;
+        let input = unsafe { CStr::from_ptr(input) }.to_str().ok()?;
+        let cursor = unsafe { CStr::from_ptr(cursor) }.to_str().ok()?;
         let (addresses, next) = expand_range_batch(input, cursor, limit as usize)?;
         let mut encoded = String::with_capacity(40 + addresses.len() * 42);
         encoded.push_str(&next);
@@ -147,7 +149,7 @@ pub unsafe extern "C" fn king_expand_range_batch(
         if encoded.len() > output_capacity {
             return None;
         }
-        std::ptr::copy_nonoverlapping(encoded.as_ptr(), output, encoded.len());
+        unsafe { std::ptr::copy_nonoverlapping(encoded.as_ptr(), output, encoded.len()) };
         Some(encoded.len() as isize)
     }));
     match result {
