@@ -21,6 +21,7 @@ bool ipAutoStopFlag = false;
 String ipAutoStatus = '';
 final List<String> ipAutoHits = []; // به شکل «ip|port»
 final Map<String, int> ipAutoCursors = {};
+Map<String, int>? _ipAutoPendingCursors;
 int ipAutoPos = 0;
 
 String _ipAutoKeyNow() => nationalMode ? _ipAutoKeyNat : _ipAutoKeyGlob;
@@ -135,9 +136,9 @@ Future<List<String>> _ipAutoNextAddrs(Iterable<Server> knownServers, {bool Funct
   }
   final all = (gen['addrs'] as List).cast<String>();
   final generatedCursors = Map<String, int>.from(gen['cursors'] as Map);
-  ipAutoCursors
-    ..clear()
-    ..addAll(generatedCursors);
+  // Stage generated offsets. They are committed only after every endpoint in
+  // this batch has completed its TCP and core validation phases.
+  _ipAutoPendingCursors = generatedCursors;
   if (all.isEmpty) return const <String>[];
   // The generator already advanced durable per-block cursors for exactly this
   // batch. Do not slice it again: doing so silently discarded generated items.
@@ -267,12 +268,19 @@ extension IpAutoExt on _HomePageState {
     }
     final tpl = pool.take(2).toList();
     say('ساخت آدرس‌ها...');
+    _ipAutoPendingCursors = null;
     final addrs = await _ipAutoNextAddrs(
       runNationalMode ? const <Server>[] : [...good, ...pending, ...fetchedAll],
       shouldAbort: halted,
     );
     if (halted()) return false;
     if (addrs.isEmpty) {
+      if (!halted() && _ipAutoPendingCursors != null) {
+        ipAutoCursors
+          ..clear()
+          ..addAll(_ipAutoPendingCursors!);
+        _ipAutoPendingCursors = null;
+      }
       say('آدرسی برای اسکن پیدا نشد.');
       return false;
     }
@@ -339,6 +347,14 @@ extension IpAutoExt on _HomePageState {
     if (halted()) {
       say('متوقف شد؛ نتایج این اجرا کامل نیستند.');
       return false;
+    }
+    if (halted()) return false;
+    final completedCursors = _ipAutoPendingCursors;
+    if (completedCursors != null) {
+      ipAutoCursors
+        ..clear()
+        ..addAll(completedCursors);
+      _ipAutoPendingCursors = null;
     }
     say('تمام شد: $found IP جدید در حالت ${runNationalMode ? 'نت ملی' : 'جهانی'}.');
     return true;
