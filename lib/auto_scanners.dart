@@ -82,26 +82,26 @@ Future<void> autoScanRun(void Function(String) say,
     List<String> frontSnis = const <String>[]}) async {
   bool vpnActive() => isVpnActive?.call() ?? false;
   bool vpnWanted() => isVpnWanted?.call() ?? false;
-  // Scanning through an active VPN tunnel can produce misleading direct-IP results
-  // and compete with the live tunnel; keep diagnostics idle until it is disconnected.
   if (vpnActive() || vpnWanted()) {
     say('برای جلوگیری از اختلال، ابتدا VPN را قطع کنید');
     return;
   }
-  if (_autoScanRunning || dnsxManualBusy || _dnsxAutoBusy || ipAutoBusy || _natRangeScanBusy) {
+  if (_autoScanRunning || dnsxManualBusy || _dnsxAutoBusy ||
+      ipAutoBusy || _natRangeScanBusy) {
     say('اسکن دیگری در حال اجراست');
     return;
   }
+
   _autoScanRunning = true;
   dnsxManualBusy = true;
   _autoScanStop = false;
   final scanNationalMode = nationalMode;
-  bool cancelled() =>
-      _autoScanStop || vpnActive() || vpnWanted() || nationalMode != scanNationalMode;
-  String cancellationMessage() =>
-      (vpnActive() || vpnWanted())
-          ? 'با شروع اتصال VPN، اسکن برای جلوگیری از تداخل متوقف شد؛ نتایج ناقص ذخیره نشد'
-          : 'اسکن متوقف شد؛ نتایج ناقص ذخیره نشد';
+  bool cancelled() => _autoScanStop || vpnActive() || vpnWanted() ||
+      nationalMode != scanNationalMode;
+  String cancellationMessage() => (vpnActive() || vpnWanted())
+      ? 'با شروع اتصال VPN، اسکن برای جلوگیری از تداخل متوقف شد؛ نتایج ناقص ذخیره نشد'
+      : 'اسکن متوقف شد؛ نتایج ناقص ذخیره نشد';
+
   try {
     if (scanNationalMode) {
       await natNationalIpMemLoad();
@@ -116,152 +116,235 @@ Future<void> autoScanRun(void Function(String) say,
       say(cancellationMessage());
       return;
     }
-    // Scan the complete saved IP inventory and exact endpoints from the user's
-    // own server profiles. Do not synthesize fallback IPs or expand unrelated
-    // public/neighboring subnets.
-    final ipSet = <String>{
-      if (scanNationalMode) ...natNationalIpMemHosts() else ..._goldIps.keys,
-      if (scanNationalMode) ...natRelayHosts,
-      for (final server in configuredServers)
-        if (server.isIp) server.host,
-    };
-    for (final server in configuredServers) {
-      if (cancelled()) break;
-      if (server.isIp) continue;
-      ipSet.addAll(await nipResolveAll(server.host));
+
+    // Discover fresh independent feeds, retaining protocol/credential-distinct
+    // links even when their endpoint host:port is shared.
+    final sourceTemplates = <Server>[];
+    try {
+      if (scanNationalMode) {
+        sourceTemplates.addAll(await natHotAll(fetch: true));
+      } else {
+        sourceTemplates.addAll(await fetchServers(
+          stop: () => cancelled(),
+          dedupeByLink: true,
+        ));
+      }
+    } catch (error, stackTrace) {
+      logError(error, stackTrace);
     }
     if (cancelled()) {
       say(cancellationMessage());
       return;
     }
-    final ips = ipSet.toList(growable: false);
-    if (ips.isEmpty) {
-      say('هیچ IP ذخیره‌شده یا endpoint مشخصی برای بررسی وجود ندارد؛ ابتدا منابع و سرورهای خودت را وارد کن');
+
+    final templates = <Server>[];
+    final templateKeys = <String>{};
+    for (final server in [...configuredServers, ...sourceTemplates]) {
+      final key = server.link.trim();
+      if (key.isNotEmpty && templateKeys.add(key)) templates.add(server);
+    }
+    if (templates.isEmpty) {
+      say('از منابع مستقل یا پروفایل‌های کاربر هیچ قالب قابل‌بررسی پیدا نشد');
       return;
     }
-    final ports = <int>{
-      ...kAutoPorts,
-      ...natAutoPorts(configuredServers),
-      for (final server in configuredServers)
-        if (server.port >= 1 && server.port <= 65535) server.port,
-    }.toList()..sort();
-    final sniDomains = <String>{
+
+    // Exact IP inventory only: source hostnames resolve to returned A/AAAA
+    // addresses; no neighboring subnet or synthetic fallback is generated.
+    final ips = <String>{
+      if (scanNationalMode) ...natNationalIpMemHosts() else ..._goldIps.keys,
+      if (!scanNationalMode) ...natIpMemHosts(),
+      if (scanNationalMode) ...natScanHits,
+    };
+    final hostnames = <String>{
+      if (scanNationalMode) ...natNationalDomMemHosts(),
+      if (scanNationalMode) ...natRelayHosts,
+      if (!scanNationalMode)
+        ...natDomMemHosts().map((entry) => entry.split(':').first),
+    };
+    final sniCandidates = <String>{
       ...kAutoSniDomains,
       ...frontSnis,
       if (scanNationalMode) ...natNationalDomMemHosts(),
-      if (!scanNationalMode) ...natDomMemHosts().map((entry) => entry.split(':').first),
-    }.toList(growable: false);
-    say('بررسی کامل موجودی: ${ips.length} IP • ${sniDomains.length} نام SNI • ${ports.length} پورت');
-    // SNI: خروجی خود دامنه‌هاست. هر دامنه یک بار؛ به محض یک IP سالم، همان دامنه ثبت می‌شود
-    final sniHits = <String>[];
-    var n = 0;
-    sniLoop:
-    for (final d in sniDomains) {
-      n++;
-      if (scanNationalMode) {
-        await natManualYield(shouldAbort: () => cancelled());
-        if (cancelled()) break sniLoop;
+      if (!scanNationalMode)
+        ...natDomMemHosts().map((entry) => entry.split(':').first),
+      for (final server in templates) server.sni,
+    };
+    for (final server in templates) {
+      if (cancelled()) break;
+      final host = server.host.trim();
+      if (host.isEmpty) continue;
+      final literal = InternetAddress.tryParse(host);
+      if (literal != null) {
+        ips.add(literal.address);
+      } else {
+        hostnames.add(host);
+        sniCandidates.add(host);
       }
-      var ok = false;
+    }
+    for (final host in hostnames) {
+      final literal = InternetAddress.tryParse(host.trim());
+      if (literal != null) ips.add(literal.address);
+    }
+
+    final resolveHosts = hostnames
+        .map((host) => host.trim())
+        .where((host) => host.isNotEmpty && InternetAddress.tryParse(host) == null)
+        .toSet()
+        .toList(growable: false);
+    for (var offset = 0; offset < resolveHosts.length; offset += 16) {
+      if (cancelled()) break;
+      final batch = resolveHosts.skip(offset).take(16).toList(growable: false);
+      final resolved = await Future.wait<List<String>>(batch.map((host) async {
+        try {
+          return await nipResolveAll(host).timeout(const Duration(seconds: 4));
+        } catch (error, stackTrace) {
+          logError(error, stackTrace);
+          return const <String>[];
+        }
+      }));
+      for (final addresses in resolved) {
+        ips.addAll(addresses);
+      }
+    }
+    if (cancelled()) {
+      say(cancellationMessage());
+      return;
+    }
+
+    final validIps = ips
+        .map((value) => value.trim())
+        .where((value) => InternetAddress.tryParse(value) != null)
+        .map((value) => InternetAddress.tryParse(value)!.address)
+        .toSet()
+        .toList(growable: false);
+    final sniDomains = sniCandidates
+        .map((value) {
+          var host = value.trim().toLowerCase();
+          if (host.endsWith('.')) host = host.substring(0, host.length - 1);
+          return host;
+        })
+        .where(_autoValidSni)
+        .toSet()
+        .toList(growable: false);
+    final ports = <int>{
+      ...kAutoPorts,
+      ...natAutoPorts(templates),
+      for (final server in templates)
+        if (server.port >= 1 && server.port <= 65535) server.port,
+    }.where((port) => port >= 1 && port <= 65535).toSet().toList()..sort();
+
+    if (validIps.isEmpty || ports.isEmpty || sniDomains.isEmpty) {
+      say('موجودی کافی نیست: \${validIps.length} IP دقیق، \${sniDomains.length} SNI معتبر و \${ports.length} پورت');
+      return;
+    }
+    say('کشف مستقل کامل شد: \${templates.length} قالب • \${validIps.length} IP • \${sniDomains.length} SNI • \${ports.length} پورت');
+
+    // TLS success proves only the tested IP:port:SNI tuple, not Core/TUN.
+    final sniHits = <String>[];
+    var checkedSni = 0;
+    for (final domain in sniDomains) {
+      if (cancelled()) break;
+      var matched = false;
       for (final port in ports) {
-        for (final ip in ips) {
-          if (cancelled()) break sniLoop;
-          if (await _autoSniOk(ip, port, d) != null) {
-            ok = true;
+        if (cancelled()) break;
+        for (final ip in validIps) {
+          if (cancelled()) break;
+          if (await _autoSniOk(ip, port, domain) != null) {
+            matched = true;
             break;
           }
         }
-        if (ok) break;
+        if (matched) break;
       }
-      if (ok) sniHits.add(d);
-      say('SNI $n/${sniDomains.length} • گواهی معتبر: ${sniHits.length}');
+      if (matched) sniHits.add(domain);
+      checkedSni++;
+      if (checkedSni % 4 == 0) {
+        say('بررسی SNI: $checkedSni/\${sniDomains.length} • candidate: \${sniHits.length}');
+        await Future<void>.delayed(Duration.zero);
+      }
     }
-
     if (cancelled()) {
       say(cancellationMessage());
       return;
     }
 
-    // پورت: خروجی خود شماره‌ی پورت است. هر پورت یک بار؛ به محض یک IP سالم، همان پورت ثبت می‌شود
     final portHits = <String>[];
-    final nationalPortEndpoints = <String>[];
-    var m = 0;
-    portLoop:
-    for (final p in ports) {
-      m++;
-      if (scanNationalMode) {
-        await natManualYield(shouldAbort: () => cancelled());
-        if (cancelled()) break portLoop;
-      }
-      var ok = false;
-      for (final ip in ips) {
-        if (cancelled()) break portLoop;
-        if (await _autoPortOk(ip, p)) {
-          ok = true;
-          if (scanNationalMode) nationalPortEndpoints.add('$ip|$p');
-          else break;
+    final nationalPortEndpoints = <String>{};
+    var checkedPorts = 0;
+    for (final port in ports) {
+      if (cancelled()) break;
+      var matched = false;
+      for (final ip in validIps) {
+        if (cancelled()) break;
+        if (await _autoPortOk(ip, port)) {
+          matched = true;
+          if (scanNationalMode) {
+            nationalPortEndpoints.add('$ip|$port');
+          } else {
+            break;
+          }
         }
       }
-      if (ok) portHits.add('$p');
-      say('پورت $m/${ports.length} • پاسخ TCP: ${portHits.length}');
+      if (matched) portHits.add('$port');
+      checkedPorts++;
+      if (checkedPorts % 4 == 0) {
+        say('بررسی TCP: $checkedPorts/\${ports.length} • candidate: \${portHits.length}');
+        await Future<void>.delayed(Duration.zero);
+      }
     }
-
     if (cancelled()) {
       say(cancellationMessage());
       return;
     }
 
-    // TLS/ALPN: خروجی نام پروتکل‌های TLS است؛ روی اولین دامنه‌ی سالم (یا پیش‌فرض) تست می‌شود
     final tlsHits = <String>[];
-    final tlsSni = sniHits.isNotEmpty ? sniHits.first : 'www.google.com';
+    final tlsSni = sniHits.isNotEmpty ? sniHits.first : sniDomains.first;
     for (final alpn in const ['h2', 'http/1.1']) {
       if (cancelled()) break;
-      var ok = false;
+      var matched = false;
       for (final port in ports) {
-        for (final ip in ips) {
+        if (cancelled()) break;
+        for (final ip in validIps) {
           if (cancelled()) break;
-          final sel = await _autoAlpnOk(ip, port, tlsSni, alpn);
-          if (sel != null && sel.isNotEmpty) {
-            if (!tlsHits.contains(sel)) tlsHits.add(sel);
-            ok = true;
+          final selected = await _autoAlpnOk(ip, port, tlsSni, alpn);
+          if (selected != null && selected.isNotEmpty) {
+            if (!tlsHits.contains(selected)) tlsHits.add(selected);
+            matched = true;
             break;
           }
         }
-        if (ok) break;
+        if (matched) break;
       }
-      if (ok) say('TLS: $alpn ✓');
     }
-
     if (cancelled()) {
       say(cancellationMessage());
       return;
     }
-    // Commit the three result groups together only after every scan phase completes.
+
+    // Persist only after all probe phases finish. These are candidates only;
+    // no active configuration field is rewritten by this diagnostic scanner.
     if (scanNationalMode) {
       for (final domain in sniHits) {
-        if (cancelled()) return;
         await natNationalDomMemSave(domain, 443);
       }
       for (final endpoint in nationalPortEndpoints) {
-        if (cancelled()) return;
         final parts = endpoint.split('|');
-        final ip = parts.first;
         final port = int.tryParse(parts.last) ?? 0;
-        await natNationalIpMemSave(ip, port);
+        await natNationalIpMemSave(parts.first, port);
       }
     } else {
       final saved = await goldAddScans(
         {'tls': tlsHits, 'sni': sniHits, 'port': portHits},
         shouldAbort: () => cancelled(),
       );
-      if (!saved) {
+      if (!saved || cancelled()) {
         say(cancellationMessage());
         return;
       }
     }
-    say('تمام شد: ${sniHits.length} نام دارای گواهی معتبر و ${portHits.length} پورت پاسخ‌گو در ${scanNationalMode ? 'حافظه مستقل نت ملی' : 'پوشه جهانی'} ذخیره شد');
-  } catch (e, stk) {
-    logError(e, stk);
+    say('تمام شد: \${sniHits.length} SNI با TLS handshake، \${portHits.length} پورت TCP و \${tlsHits.length} ALPN candidate ذخیره شد؛ Core/TUN باید جداگانه اعتبارسنجی شود');
+  } catch (error, stackTrace) {
+    logError(error, stackTrace);
     say('خطا در اسکن خودکار');
   } finally {
     _autoScanRunning = false;
@@ -293,7 +376,7 @@ Future<void> autoScanSheet(BuildContext context,
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text('بدون ورودی دستی: IPهای تمیز پوشه‌ی جهانی تست می‌شوند و نتیجه همان‌جا ذخیره می‌شود.'),
+              const Text('منابع مستقل و پروفایل‌های کاربر بررسی می‌شوند؛ خروجی TLS/TCP فقط candidate است و سلامت Core/TUN را ثابت نمی‌کند.'),
               const SizedBox(height: 8),
               Text(status),
               const SizedBox(height: 8),
@@ -302,7 +385,7 @@ Future<void> autoScanSheet(BuildContext context,
               for (final k in const ['sni', 'port', 'tls'])
                 if ((_goldScan[k] ?? const <String>[]).isNotEmpty) ...[
                   const SizedBox(height: 6),
-                  Text(k == 'sni' ? 'SNIهای سالم:' : (k == 'port' ? 'پورت‌های سالم:' : 'TLSهای سالم:')),
+                  Text(k == 'sni' ? 'SNIهای دارای TLS handshake:' : (k == 'port' ? 'پورت‌های پاسخ‌گو (TCP):' : 'ALPNهای مذاکره‌شده:')),
                   SelectableText((_goldScan[k] ?? const <String>[]).join('\n')),
                   TextButton.icon(
                     onPressed: () => Clipboard.setData(ClipboardData(
