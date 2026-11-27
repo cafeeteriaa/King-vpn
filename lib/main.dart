@@ -11466,7 +11466,7 @@ ListTile( // KINGEXTRAS row
           !natRangeInventoryPassComplete) {
         final ips = await natRangeScanStep(
             known: [...pending, ...natRestPending],
-            maxAddrs: 30000,
+            maxAddrs: 8192,
             conc: natAdaptiveWorkers(),
             stop: () => abort || nationalMode != runNationalMode);
         if (abort || nationalMode != runNationalMode) return;
