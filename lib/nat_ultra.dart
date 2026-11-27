@@ -1801,7 +1801,8 @@ Future<void> natIpMemLoad() async {
         ? jsonDecode(await rangesFile.readAsString())
         : (p.getString(_rangeKey) ?? '')
             .split(RegExp(r'[\r\n,; ]+'))
-            .where((x) => x.contains('/') || x.contains('-'))
+            .where((x) => x.contains('/') || x.contains('-') ||
+                InternetAddress.tryParse(x)?.type == InternetAddressType.IPv4)
             .toList();
     natRanges = savedRanges is List
         ? savedRanges.map((value) => value.toString()).toList()
@@ -1925,7 +1926,8 @@ Future<void> natIpMemSave(String ip, int port) async {
 Future<void> natRangesSave(String text) async {
   natRanges = <String>{
     ...text.split(RegExp(r'[\r\n,; ]+'))
-        .where((x) => x.contains('/') || x.contains('-')),
+        .where((x) => x.contains('/') || x.contains('-') ||
+            InternetAddress.tryParse(x)?.type == InternetAddressType.IPv4),
   }.toList(growable: false);
   _natConfiguredRangeCursor = 0;
   _natConfiguredRangeCursors.clear();
@@ -2264,7 +2266,7 @@ List<String> _getCfIps({
     if (parts.length != 2) return (<String>[], 0);
     final ip = InternetAddress.tryParse(parts[0].trim());
     final prefix = int.tryParse(parts[1]);
-    if (ip == null || ip.type != InternetAddressType.IPv4 || prefix == null || prefix < 8 || prefix > 32) {
+    if (ip == null || ip.type != InternetAddressType.IPv4 || prefix == null || prefix < 0 || prefix > 32) {
       return (<String>[], 0);
     }
     final base = _ipToInt(ip.address) & (0xffffffff << (32 - prefix));
