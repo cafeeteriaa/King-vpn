@@ -162,6 +162,23 @@ void main() {
       expect(choosePilotNetworkStrategy(evidence), PilotNetworkStrategy.preserve);
     });
 
+    test('merges independent IPv6 hints before Smart Pilot route selection', () {
+      const tlsOnly = NetworkEvidence(
+        domestic: LinkHealth.healthy,
+        global: LinkHealth.unreachable,
+        domesticSamples: 3,
+        globalSamples: 3,
+        domesticSuccesses: 3,
+        domesticTlsReachabilityVerified: true,
+      );
+      final merged = tlsOnly.withIpv6Evidence(
+        domesticIpv6Successes: 0,
+        globalIpv6Successes: 2,
+      );
+      expect(merged.mode, DetectedNetworkMode.unknown);
+      expect(choosePilotNetworkStrategy(merged), PilotNetworkStrategy.preserve);
+    });
+
     test('does not classify offline when either IPv6 path has independent reachability', () {
       const evidence = NetworkEvidence(
         domestic: LinkHealth.unreachable,
