@@ -93,7 +93,7 @@ class FreshResourceStore {
   /// Compatibility API for small consumers. Production offline scanning uses
   /// openCursor() and bounded pages instead.
   static Future<List<String>> readLinks() async {
-    final cursor = await openCursor();
+    final cursor = await openCursor(startAtByte: 0);
     if (cursor == null) return <String>[];
     final values = <String>[];
     try {
