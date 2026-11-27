@@ -418,11 +418,13 @@ class FreshResourceStore {
     return merge(links, source: source, root: root);
   }
 
-  static Future<void> _migrateLegacy(Directory dir) {
+  static Future<void> _migrateLegacy(Directory dir) async {
     final marker = File('${dir.path}/.migration_v2_done');
-    if (marker.existsSync()) return Future<void>.value();
     final existing = _migrationFutures[dir.path];
-    if (existing != null) return existing;
+    if (existing != null) {
+      await existing;
+      return;
+    }
     final previous = _mergeQueues[dir.path] ?? Future<void>.value();
     final task = previous.then((_) async {
       if (await marker.exists()) return;
@@ -431,7 +433,7 @@ class FreshResourceStore {
     final queued = task.then<void>((_) {}, onError: (Object _) {});
     _mergeQueues[dir.path] = queued;
     _migrationFutures[dir.path] = task;
-    return task.whenComplete(() {
+    await task.whenComplete(() {
       if (identical(_migrationFutures[dir.path], task)) {
         _migrationFutures.remove(dir.path);
       }
