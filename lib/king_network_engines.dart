@@ -35,25 +35,87 @@ class KingEngineDescriptor {
   final String? license;
   final bool requiresProviderBackend;
   final bool requiresSeparateVpnOwner;
+
+  /// A profile can be copied into a test/verified runtime catalog without
+  /// mutating the immutable baseline inventory.
+  KingEngineDescriptor copyWith({
+    KingEngineRole? role,
+    KingIntegrationState? state,
+    int? priority,
+    bool? requiresProviderBackend,
+    bool? requiresSeparateVpnOwner,
+  }) => KingEngineDescriptor(
+    id: id,
+    name: name,
+    role: role ?? this.role,
+    state: state ?? this.state,
+    priority: priority ?? this.priority,
+    summary: summary,
+    sourceUrl: sourceUrl,
+    license: license,
+    requiresProviderBackend:
+        requiresProviderBackend ?? this.requiresProviderBackend,
+    requiresSeparateVpnOwner:
+        requiresSeparateVpnOwner ?? this.requiresSeparateVpnOwner,
+  );
 }
 
 /// Extensible registry. Descriptors are not proof of a working adapter.
 class KingNetworkEngineCatalog {
-  KingNetworkEngineCatalog([Iterable<KingEngineDescriptor> initial = defaultEngines])
-      : _engines = {for (final engine in initial) engine.id: engine};
+  KingNetworkEngineCatalog([
+    Iterable<KingEngineDescriptor> initial = defaultEngines,
+  ]) {
+    for (final engine in initial) {
+      register(engine);
+    }
+  }
 
-  final Map<String, KingEngineDescriptor> _engines;
+  final Map<String, KingEngineDescriptor> _engines = {};
 
   Iterable<KingEngineDescriptor> get all =>
       List<KingEngineDescriptor>.unmodifiable(_engines.values);
 
+  /// Only engines whose adapter, native lifecycle and data-plane path have
+  /// actually been integrated may own Android's single VPN/TUN slot.
+  Iterable<KingEngineDescriptor> get runnable => List.unmodifiable(
+    _engines.values.where((engine) => canExecute(engine.id)),
+  );
+
   KingEngineDescriptor? operator [](String id) => _engines[id];
 
-  void register(KingEngineDescriptor engine) {
-    if (_engines.containsKey(engine.id)) {
-      throw ArgumentError('Engine already registered: ${engine.id}');
+  bool canExecute(String id) {
+    final engine = _engines[id];
+    return engine != null &&
+        engine.role == KingEngineRole.fullDeviceVpn &&
+        engine.state == KingIntegrationState.integrated &&
+        !engine.requiresProviderBackend;
+  }
+
+  String? runtimeBlockReason(String id) {
+    final engine = _engines[id];
+    if (engine == null) return 'Engine is not registered';
+    if (engine.role != KingEngineRole.fullDeviceVpn) {
+      return 'Local transport modules cannot own the Android VPN slot';
     }
-    _engines[engine.id] = engine;
+    if (engine.requiresProviderBackend ||
+        engine.state == KingIntegrationState.backendRequired) {
+      return 'A provider-managed backend is required';
+    }
+    if (engine.state != KingIntegrationState.integrated) {
+      return 'Runtime adapter and end-to-end data-plane integration are not verified';
+    }
+    return null;
+  }
+
+  void register(KingEngineDescriptor engine) {
+    final id = engine.id.trim();
+    if (id.isEmpty || id != engine.id) {
+      throw ArgumentError.value(engine.id, 'engine.id', 'Must be non-empty and trimmed');
+    }
+    if (_engines.containsKey(id)) {
+      throw ArgumentError('Engine already registered: $id');
+    }
+    _engines[id] = engine;
   }
 
   int priorityOf(String id) => _engines[id]?.priority ?? 1 << 30;
