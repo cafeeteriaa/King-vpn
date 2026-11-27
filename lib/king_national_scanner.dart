@@ -841,9 +841,10 @@ class KingNationalScannerEngine {
   }) async {
     final clock = Stopwatch()..start();
     final modeSnapshot = nationalMode;
-    const totalBudget = Duration(minutes: 5);
-    bool expired() => clock.elapsed >= totalBudget;
-    bool stopped() => cancelled() || nationalMode != modeSnapshot || expired();
+    // No fixed wall-clock ceiling: a complete inventory may take longer than one
+    // foreground session. Cancellation and network-mode changes remain immediate.
+    bool expired() => false;
+    bool stopped() => cancelled() || nationalMode != modeSnapshot;
     final warnings = <String>[];
     var ownsScannerLease = false;
     var domainHits = 0, ipHits = 0, sniHits = 0, alpnHits = 0;
@@ -864,8 +865,7 @@ class KingNationalScannerEngine {
       bool externalScannerBusy() =>
           dnsxManualBusy || _dnsxAutoBusy || ipAutoBusy ||
           _natRangeScanBusy || _autoScanRunning;
-      while (externalScannerBusy() && !stopped() &&
-          lockWait.elapsed < const Duration(seconds: 12)) {
+      while (externalScannerBusy() && !stopped()) {
         await Future.delayed(const Duration(milliseconds: 200));
       }
       if (stopped()) {
@@ -949,8 +949,6 @@ class KingNationalScannerEngine {
         if (!stopped() && found.isNotEmpty) {
           domainHits = found.length;
           await addDiscovered(found);
-        } else if (phaseClock.elapsed >= const Duration(minutes: 2)) {
-          warnings.add('domain_phase_budget_reached');
         }
       }
 
@@ -1009,7 +1007,6 @@ class KingNationalScannerEngine {
               recordAlpnProbe(profileKey(server), alpn);
               alpnHits++;
             }
-            break;
           }
         }
       }
