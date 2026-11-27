@@ -95,6 +95,11 @@ Consolidated integration PR: https://github.com/cafeeteriaa/King-vpn/pull/66
 - Added a regression source guard for this crash/corruption sequence.
 - Exact-head CI and Android fault-injection tests remain pending.
 
+### Revision 65.2 — add lossless personal-folder snapshot codec tests
+- Extracted pure JSONL encode/decode helpers from file I/O so record integrity can be tested without Android path-provider channels.
+- Added Flutter tests for Unicode, embedded line breaks, case-insensitive deduplication, valid-empty versus corrupt snapshots, and 6,000-entry retention.
+- Exact-head CI remains required; these tests are committed but have not yet been executed in this session.
+
 ## Mandatory three-pass review protocol
 
 Each numbered revision must be a substantial functional change and pass three separate reviews:
