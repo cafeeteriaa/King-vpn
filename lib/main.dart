@@ -6800,27 +6800,13 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     if (!natHotReady()) unawaited(natHotEnsure());
     final now0 = DateTime.now();
     final age = listTime == null ? null : now0.difference(listTime!);
-    // A 48-hour source refresh is a staged replacement, not an in-place clear.
-    // Failed/empty/invalid downloads leave the previous offline inventory untouched.
-    var freshDiskRefreshDue = false;
-    try {
-      final diskMeta = await FreshResourceStore.metadata();
-      final diskUpdated = DateTime.tryParse(
-          (diskMeta['onlineRefreshedAt'] ?? diskMeta['updatedAt'])?.toString() ?? '');
-      freshDiskRefreshDue = diskUpdated == null ||
-          now0.difference(diskUpdated.toLocal()) >= const Duration(hours: 48);
-    } catch (e, st) {
-      logError(e, st);
-      freshDiskRefreshDue = true;
-    }
     final limit = (exhausted && autoCycle)
         ? const Duration(minutes: 2)
         : Duration(minutes: listRefreshMin);
-    final fresh = !freshDiskRefreshDue &&
-        ((nationalMode && !connected && fetchedAll.isNotEmpty && !natRefetch) || // NATIONALPATCH
-        (age != null && fetchedAll.length > 200 && age < limit && !(exhausted && _listPartial))); // QUICKLIST: لیست نیمه‌کاره فقط وقتی تمام شد کامل می‌شود، نه هر بار
+    final fresh = (nationalMode && !connected && fetchedAll.isNotEmpty && !natRefetch) || // NATIONALPATCH
+        (age != null && fetchedAll.length > 200 && age < limit && !(exhausted && _listPartial)); // QUICKLIST: لیست نیمه‌کاره فقط وقتی تمام شد کامل می‌شود، نه هر بار
     // EMPTYQ-FIX: با لیست خالی (مثلاً بعد از «پاک کردن») محدودیت ۴۵ ثانیه‌ای دانلود کنار می‌رود
-    final throttled = !freshDiskRefreshDue && fetchedAll.isNotEmpty &&
+    final throttled = fetchedAll.isNotEmpty &&
         now0.difference(lastFetchTry) <= const Duration(seconds: 45);
     if (!fresh && !throttled) {
       lastFetchTry = now0;
@@ -6829,10 +6815,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       try {
         // QUICKLIST: اولین دریافت (و نه بعد از اتصال) فقط ~۲۰۰ سرور؛ لیست کامل بعد از اتصال می‌آید
         // FASTLIST: اتصال عادی هم مثل خلبان با ~۲۰۰ سرور اول شروع می‌کند و سقف ۲۵ ثانیه‌ای دارد
-        final quick = !freshDiskRefreshDue && !bg && !connected && !nationalMode && !offlineOnly;
+        final quick = !bg && !connected && !nationalMode && !offlineOnly;
         final f = await fetchServers(stop: () => abort, quickCap: quick ? 200 : null)
-            .timeout(freshDiskRefreshDue ? const Duration(minutes: 8) : const Duration(seconds: 25),
-                onTimeout: () => <Server>[]);
+            .timeout(const Duration(seconds: 25), onTimeout: () => <Server>[]);
         _listPartial = quick && f.isNotEmpty;
         if (f.isNotEmpty) {
           // lists that were "dead" get a new chance with the new content
@@ -6843,22 +6828,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           // Persist freshly fetched public configs for later offline use.
           // Personal servers and the national IP inventory are stored elsewhere.
           try {
-            if (freshDiskRefreshDue) {
-              await FreshResourceStore.replaceSnapshot(
-                f.map((server) => server.link),
-                source: 'online-public-sources-48h-refresh',
-              );
-              freshDiskRefreshDue = false;
-            } else {
-              await FreshResourceStore.merge(
-                f.map((server) => server.link),
-                source: 'online-public-sources',
-              );
-            }
-          } catch (e, st) {
-            // Do not advance the 48-hour timestamp when the staged replacement fails.
-            logError(e, st);
-          }
+            await FreshResourceStore.merge(
+              f.map((server) => server.link),
+              source: 'online-public-sources',
+            );
+          } catch (e, st) { logError(e, st); }
           listTime = DateTime.now();
           _saveList();
         }
@@ -9703,6 +9677,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   // NATRESPATCH ---- folder of healthy servers (key 'natres2') ----
   final Map<String, _NatResItem> _resMap = {};
   Timer? _resT, _resSaveT;
+  bool _freshResourceRefreshBusy = false;
+  DateTime? _freshResourceRefreshRetryAfter;
   bool _resBusy = false, _resDirty = false, _resNext = false;
   DateTime? _resHold, _resLast, _resUi;
   int _resDone = 0, _resTotal = 0;
@@ -9737,9 +9713,45 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     }
     _resT?.cancel();
     _resT = Timer.periodic(const Duration(minutes: 2), (_) {
+      unawaited(_refreshFreshResourceSnapshotIfDue());
       _resDaily();
     });
+    unawaited(_refreshFreshResourceSnapshotIfDue());
     if (mounted) setState(() {});
+  }
+
+  /// Refreshes the four-million offline source inventory every 48 hours.
+  /// Download and validate into a separate staging directory; only a complete,
+  /// non-empty snapshot is swapped into place. Network failures preserve old data.
+  Future<void> _refreshFreshResourceSnapshotIfDue() async {
+    if (!mounted || offlineOnly || _freshResourceRefreshBusy) return;
+    final retryAfter = _freshResourceRefreshRetryAfter;
+    if (retryAfter != null && DateTime.now().isBefore(retryAfter)) return;
+    _freshResourceRefreshBusy = true;
+    try {
+      final metadata = await FreshResourceStore.metadata();
+      final stamp = DateTime.tryParse(
+          (metadata['onlineRefreshedAt'] ?? metadata['updatedAt'])?.toString() ?? '');
+      if (stamp != null &&
+          DateTime.now().difference(stamp.toLocal()) < const Duration(hours: 48)) {
+        return;
+      }
+      final downloaded = await fetchServers(stop: () => false, quickCap: null)
+          .timeout(const Duration(minutes: 8), onTimeout: () => <Server>[]);
+      if (downloaded.isEmpty) {
+        throw StateError('Online source refresh returned no usable profiles; old inventory retained.');
+      }
+      await FreshResourceStore.replaceSnapshot(
+        downloaded.map((server) => server.link),
+        source: 'online-public-sources-48h-refresh',
+      );
+      _freshResourceRefreshRetryAfter = null;
+    } catch (error, stack) {
+      logError(error, stack);
+      _freshResourceRefreshRetryAfter = DateTime.now().add(const Duration(minutes: 30));
+    } finally {
+      _freshResourceRefreshBusy = false;
+    }
   }
 
   Future<void> _resSave() async {
