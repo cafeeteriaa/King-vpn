@@ -6,6 +6,7 @@ import 'package:king_vpn/nnie_core.dart';
 import 'package:king_vpn/prefs_store.dart';
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
   group('KING National Scanner Engine capability registry', () {
     test('registers existing SNI, fragmentation and DNS adapters', () {
       final ids = KingNationalScannerEngine.registry.map((e) => e.id).toSet();
