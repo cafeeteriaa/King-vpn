@@ -159,7 +159,7 @@ extension IpAutoExt on _HomePageState {
   Future<void> ipAutoBackground({bool Function()? stop}) async {
     final runNationalMode = nationalMode;
     if (!kNatIpScanOn || !runNationalMode) return;
-    if (ipAutoBusy || dnsxManualBusy || _natRangeScanBusy || _dnsxAutoBusy) return;
+    if (ipAutoBusy || dnsxManualBusy || _natRangeScanBusy || _dnsxAutoBusy || _autoScanRunning) return;
     if (connected || busy || (stop?.call() ?? false)) return;
 
     // Acquire both shared scan locks before the first await. Otherwise a manual
