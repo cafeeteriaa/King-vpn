@@ -1,5 +1,24 @@
 # King VPN — continuation checkpoint
 
+## Current checkpoint — 2026-11-27 07:18 UTC
+- Repository: `cafeeteriaa/King-vpn`.
+- Isolated repair branch: `fix/national-ip-auto-blocks-syntax-20261127`.
+- Parent SHA at branch creation and before this commit: `73f2c4a5a759e6aeed5f5a798e6bb3eea48f3197`.
+- Source development branch: `feature/personal-folder-streaming-mutations-20261127`, forked at the exact SHA above. Its PR #68 remains Draft; no merge to `main`.
+- Repair: `lib/ip_auto_scan.dart` had a missing semicolon terminating the national-mode `ips` cascade before the `hostnames` cascade in `_ipAutoBlocks`. Added the terminator and a Python source guard so this parser-level regression is caught before Flutter analysis.
+- Tests executed locally in this run: none; repository files were inspected through GitHub. The new source guard is committed but awaits exact-commit CI.
+- CI on the source branch at checkpoint: run [45957565918](https://github.com/cafeeteriaa/King-vpn/actions/runs/45957565918) was pending for `73f2c4a5a759e6aeed5f5a798e6bb3eea48f3197`; run [45956858397](https://github.com/cafeeteriaa/King-vpn/actions/runs/45956858397) remained in progress on older SHA `ff59d665c46a0c1a6f6db86bb4015441d9d762be`. Neither was cancelled by this repair.
+- CI for this isolated repair branch: not yet started at checkpoint creation. Do not claim tests, analysis, APK build, or device validation until the exact repair commit has evidence.
+- Review passes: (1) syntax/cascade boundary inspected; (2) regression guard added; (3) full compatibility/build review pending exact-head CI.
+- Open engineering risks:
+  - `_natAutoScanCandidates` still persists the growing national SNI/port/TLS candidate collections as one SharedPreferences JSON string; it is not yet a streaming file-backed store.
+  - National IP JSONL append exists, but `natNationalIpMemLoad` and `natNationalIpMemHosts` materialize the complete inventory in memory. A cursor/page reader is still needed before claiming bounded-memory scanning.
+  - Personal-folder startup and connection preparation still retain full in-memory caches; this boundary is documented in Revision 67.
+  - The scan scheduler is process-local Timer-based, not a persistent Android background worker. Core-outbound candidate checks do not prove Android TUN traffic or real national route health.
+  - No real-device, Iranian-operator, DNS-leak, IPv4/IPv6 handover, or battery test was performed in this run.
+- IP Clean source lists, ranges, ports, and scan capabilities were not removed or narrowed.
+- First next action: inspect the exact repair-branch CI (source guards, Flutter tests, `flutter analyze`, ARM64 release build); if successful, inspect the artifact for that exact commit, then continue the disk-backed national candidate/IP inventory design with transactional cursors.
+
 ## Source of truth
 - Repository: cafeeteriaa/King-vpn
 - Active branch: fix/personal-folder-uncapped-20261127
