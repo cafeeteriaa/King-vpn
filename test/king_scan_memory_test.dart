@@ -204,6 +204,21 @@ void main() {
       expect(await reopened.records().length, 2);
     });
 
+    test('serializes writes from separate handles to the same inventory', () async {
+      final first = await KingDiskInventory.open(name: 'shared-writer', root: root);
+      final second = await KingDiskInventory.open(name: 'shared-writer', root: root);
+      await Future.wait([
+        first.appendBatch([
+          <String, Object?>{'key': 'shared-key-a', 'value': 1},
+        ]),
+        second.appendBatch([
+          <String, Object?>{'key': 'shared-key-b', 'value': 2},
+        ]),
+      ]);
+      final reopened = await KingDiskInventory.open(name: 'shared-writer', root: root);
+      expect(await reopened.records().length, 2);
+    });
+
     test('disk inventory rejects missing and oversized identities', () async {
       final inventory = await KingDiskInventory.open(name: 'validate-test', root: root);
       await expectLater(
