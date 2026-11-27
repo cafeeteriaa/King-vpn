@@ -73,6 +73,13 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn("return null;", store)
         self.assertIn("PersonalFolderStore.decodeSnapshot", store)
 
+    def test_personal_folder_store_serializes_file_mutations(self):
+        store = (ROOT / "lib" / "personal_folder_store.dart").read_text(encoding="utf-8")
+        self.assertIn("static Future<void> _mutationQueue", store)
+        self.assertIn("static Future<T> _serializeMutation<T>", store)
+        self.assertIn("return _serializeMutation(() => _writeSnapshotUnlocked(snapshot));", store)
+        self.assertIn("return _serializeMutation(() async {", store)
+
     def test_auto_scan_sheet_forwards_live_vpn_guards(self):
         source = (ROOT / 'lib' / 'auto_scanners.dart').read_text(encoding='utf-8')
         start = source.index('Future<void> autoScanSheet(')
