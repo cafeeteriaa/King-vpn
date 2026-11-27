@@ -270,13 +270,16 @@ class MainActivity : FlutterActivity() {
                                         "activeAttempt" to 0,
                                         "attemptSequence" to 0,
                                         "inFlightOperations" to 0,
-                                        "lastError" to ""
+                                        "lastErrorPresent" to false,
+                                        "lastErrorCategory" to "none"
                                     )
                                 } catch (_: Throwable) {
                                     mapOf(
                                         "protocolVersion" to 1,
                                         "serviceRunning" to false,
-                                        "diagnosticError" to "snapshot_unavailable"
+                                        "diagnosticError" to "snapshot_unavailable",
+                                        "lastErrorPresent" to false,
+                                        "lastErrorCategory" to "unavailable"
                                     )
                                 }
                                 try {
