@@ -1968,8 +1968,9 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         start = source.index('Future<void> _loadPending({')
         end = source.index('  // can this server be a test candidate', start)
         method = source[start:end]
-        fallback = method.index('if (nationalMode && !offlineOnly)')
+        fallback = method.index('if (!offlineOnly &&')
         batch = method.index('FreshResourceStore.readBatch(limit: 300)', fallback)
+        self.assertIn('srcFetchState.isNotEmpty && !onlineSourceHealthy', method)
         fetched = method.index('final fetched = fetchedAll;', batch)
         self.assertLess(fallback, batch)
         self.assertLess(batch, fetched)
