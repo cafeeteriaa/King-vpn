@@ -22,7 +22,9 @@ class FreshResourceStore {
   static const String _legacyFileName = 'configs.txt';
   static const String _metadataFileName = 'metadata.json';
   static const String _dirtyFileName = '.inventory_dirty';
+  static const String _cursorFileName = 'offline_cursor.json';
   static final Map<String, Future<void>> _mergeQueues = <String, Future<void>>{};
+  static final Map<String, Future<void>> _readQueues = <String, Future<void>>{};
   static final Map<String, Uint8List> _shardBlooms = <String, Uint8List>{};
   static final Map<String, Future<void>> _migrationFutures = <String, Future<void>>{};
 
@@ -130,6 +132,90 @@ class FreshResourceStore {
       if (result.length >= limit) break;
     }
     return result;
+  }
+
+  /// Returns the next bounded offline batch and persists per-shard byte offsets.
+  /// The cursor rotates through every shard, so repeated offline searches can
+  /// eventually consume the full four-million-entry inventory without loading it.
+  static Future<List<String>> readBatch({int limit = 300, Directory? root}) async {
+    if (limit <= 0) return <String>[];
+    final dir = await directory(root: root);
+    await _migrateLegacy(dir);
+    final path = dir.path;
+    final previous = _readQueues[path] ?? Future<void>.value();
+    final operation = previous.then((_) async {
+      final cursorFile = File('${dir.path}/$_cursorFileName');
+      var shardIndex = 0;
+      final offsets = <String, int>{};
+      try {
+        if (await cursorFile.exists()) {
+          final decoded = jsonDecode(await cursorFile.readAsString());
+          if (decoded is Map) {
+            shardIndex = ((decoded['shardIndex'] as num?)?.toInt() ?? 0) % shardCount;
+            final rawOffsets = decoded['offsets'];
+            if (rawOffsets is Map) {
+              for (final entry in rawOffsets.entries) {
+                final value = entry.value;
+                if (value is num && value >= 0) offsets[entry.key.toString()] = value.toInt();
+              }
+            }
+          }
+        }
+      } catch (_) {
+        shardIndex = 0;
+        offsets.clear();
+      }
+
+      final result = <String>[];
+      var visited = 0;
+      while (result.length < limit && visited < limit * 2) {
+        final shard = shardIndex.toRadixString(16).padLeft(2, '0');
+        final file = await _shardFile(dir, shard);
+        if (!await file.exists()) {
+          offsets[shard] = 0;
+          shardIndex = (shardIndex + 1) % shardCount;
+          visited++;
+          continue;
+        }
+        final length = await file.length();
+        var offset = offsets[shard] ?? 0;
+        if (offset < 0 || offset >= length) offset = 0;
+        var consumed = false;
+        await for (final line in file.openRead(offset)
+            .transform(utf8.decoder)
+            .transform(const LineSplitter())) {
+          consumed = true;
+          final nextOffset = offset + utf8.encode(line).length + 1;
+          offsets[shard] = nextOffset;
+          try {
+            final row = jsonDecode(line);
+            if (row is Map && row['v'] == 1 &&
+                row['id'] is String && row['link'] is String) {
+              final link = normalizeLink(row['link'] as String);
+              if (link != null && _id(link) == row['id']) result.add(link);
+            }
+          } catch (_) {}
+          break; // One record per shard visit keeps batches fair across the inventory.
+        }
+        if (!consumed || (offsets[shard] ?? 0) >= length) {
+          offsets[shard] = 0;
+        }
+        shardIndex = (shardIndex + 1) % shardCount;
+        visited++;
+      }
+
+      final temp = File('${cursorFile.path}.tmp');
+      await temp.writeAsString(jsonEncode(<String, Object?>{
+        'schema': 1,
+        'shardIndex': shardIndex,
+        'offsets': offsets,
+      }), flush: true);
+      if (await cursorFile.exists()) await cursorFile.delete();
+      await temp.rename(cursorFile.path);
+      return result;
+    });
+    _readQueues[path] = operation.then<void>((_) {}, onError: (Object _) {});
+    return operation;
   }
 
   /// Compatibility API. Prefer readPreview/streamLinks for large inventories.
@@ -389,6 +475,7 @@ class FreshResourceStore {
           (RegExp(r'^[0-9a-f]{2}\.jsonl$').hasMatch(entity.uri.pathSegments.last) ||
            entity.uri.pathSegments.last == _metadataFileName ||
            entity.uri.pathSegments.last == _dirtyFileName ||
+           entity.uri.pathSegments.last == _cursorFileName ||
            entity.uri.pathSegments.last == '.migration_v2_done' ||
            entity.uri.pathSegments.last == '$_legacyFileName.migrated')) {
         await entity.delete();
