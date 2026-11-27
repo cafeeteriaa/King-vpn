@@ -100,6 +100,17 @@ void main() {
       expect(journal.sequence, 0);
     });
 
+    test('preserves empty candidate and variant sentinel cursors', () async {
+      final journal = await KingScanJournal.open(jobId: 'empty-sentinel', root: root);
+      await journal.commit(
+        phase: 'sni',
+        phaseCompleted: false,
+        cursor: <String, Object?>{'candidateIndex': -1, 'variantIndex': -1},
+      );
+      expect(journal.latestCheckpoint?['cursor'], containsPair('candidateIndex', -1));
+      expect(journal.latestCheckpoint?['cursor'], containsPair('variantIndex', -1));
+    });
+
     test('accepts only opaque hashed target identity for resumable phases', () async {
       final journal = await KingScanJournal.open(jobId: 'opaque-resume', root: root);
       await journal.commit(
