@@ -310,9 +310,28 @@ class KingServerPayloadParser {
         uri.host.isNotEmpty && uri.hasPort && uri.port > 0 && uri.port <= 65535;
   }
 
-  bool _validOpenVpn(String value) =>
-      RegExp(r'(^|\n)client(?:\s|$)', multiLine: true).hasMatch(value) &&
-      RegExp(r'(^|\n)remote\s+\S+\s+\d+', multiLine: true).hasMatch(value);
+  bool _validOpenVpn(String value) {
+    final normalized = value
+        .replaceAll(r'\r\n', '\n')
+        .replaceAll(r'\n', '\n')
+        .replaceAll(r'\r', '\n')
+        .replaceAll('\r\n', '\n')
+        .replaceAll('\r', '\n');
+    final lines = normalized.split('\n').map((line) => line.trim());
+    var hasClient = false;
+    var hasRemote = false;
+    for (final line in lines) {
+      if (line == 'client') hasClient = true;
+      final parts = line.split(RegExp(r'\s+'));
+      if (parts.length >= 3 && parts.first == 'remote') {
+        final port = int.tryParse(parts[2]);
+        if (parts[1].isNotEmpty && port != null && port > 0 && port <= 65535) {
+          hasRemote = true;
+        }
+      }
+    }
+    return hasClient && hasRemote;
+  }
 
   bool _validWireGuard(String value, {bool amnezia = false}) {
     if (value.startsWith('wireguard://')) {
