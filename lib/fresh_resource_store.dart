@@ -331,6 +331,7 @@ class FreshResourceStore {
     final legacy = File('${dir.path}/$_legacyFileName');
     if (await legacy.exists()) {
       var batch = <String>[];
+      var migrated = 0;
       await for (final line in legacy.openRead()
           .transform(utf8.decoder)
           .transform(const LineSplitter())) {
@@ -376,7 +377,7 @@ class FreshResourceStore {
     final value = await _readMetadata(dir);
     return <String, Object?>{
       ...value,
-      'count': value['count'] is int ? value['count'] : await count(root: root),
+      'count': await count(root: root),
       'capacity': maxEntries,
     };
   }
