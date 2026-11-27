@@ -2469,6 +2469,18 @@ class KingVpnSourceGuardTests(unittest.TestCase):
 
 
 
+    def test_nat_range_batch_persists_hits_before_committing_cursors(self):
+        source = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
+        start = source.index('Future<List<String>> _natRangeScanStepBody(')
+        end = source.index('List<String> userListUrls', start)
+        body = source[start:end]
+        hits = body.index('await natIpMemMergeHits(out);')
+        state = body.index('await _natRangeStateSave(')
+        publish = body.index('_cfRangeCursors\n    ..clear()', state)
+        self.assertLess(hits, state)
+        self.assertLess(state, publish)
+        self.assertIn('if (shouldAbort()) return const <String>[];', body[hits:state])
+
     def test_smart_scanner_exhausts_all_durable_range_batches(self):
         source = (ROOT / 'lib' / 'king_national_scanner.dart').read_text(encoding='utf-8')
         start = source.index("status(KingNatScanPhase.ip, 'اسکنر: پیمایش پیوسته")
