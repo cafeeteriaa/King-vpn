@@ -96,8 +96,7 @@ Future<void> autoScanRun(void Function(String) say,
   dnsxManualBusy = true;
   _autoScanStop = false;
   final scanNationalMode = nationalMode;
-  bool cancelled() => _autoScanStop || vpnActive() || vpnWanted() ||
-      nationalMode != scanNationalMode;
+  bool cancelled() => _autoScanStop || vpnActive() || vpnWanted() || nationalMode != scanNationalMode;
   String cancellationMessage() => (vpnActive() || vpnWanted())
       ? 'با شروع اتصال VPN، اسکن برای جلوگیری از تداخل متوقف شد؛ نتایج ناقص ذخیره نشد'
       : 'اسکن متوقف شد؛ نتایج ناقص ذخیره نشد';
@@ -242,13 +241,18 @@ Future<void> autoScanRun(void Function(String) say,
     // TLS success proves only the tested IP:port:SNI tuple, not Core/TUN.
     final sniHits = <String>[];
     var checkedSni = 0;
+    sniLoop:
     for (final domain in sniDomains) {
-      if (cancelled()) break;
+      if (scanNationalMode) {
+        await natManualYield(shouldAbort: () => cancelled());
+        if (cancelled()) break sniLoop;
+      }
+      if (cancelled()) break sniLoop;
       var matched = false;
       for (final port in ports) {
         if (cancelled()) break;
         for (final ip in validIps) {
-          if (cancelled()) break;
+          if (cancelled()) break sniLoop;
           if (await _autoSniOk(ip, port, domain) != null) {
             matched = true;
             break;
@@ -271,11 +275,16 @@ Future<void> autoScanRun(void Function(String) say,
     final portHits = <String>[];
     final nationalPortEndpoints = <String>{};
     var checkedPorts = 0;
+    portLoop:
     for (final port in ports) {
-      if (cancelled()) break;
+      if (scanNationalMode) {
+        await natManualYield(shouldAbort: () => cancelled());
+        if (cancelled()) break portLoop;
+      }
+      if (cancelled()) break portLoop;
       var matched = false;
       for (final ip in validIps) {
-        if (cancelled()) break;
+        if (cancelled()) break portLoop;
         if (await _autoPortOk(ip, port)) {
           matched = true;
           if (scanNationalMode) {
@@ -337,7 +346,11 @@ Future<void> autoScanRun(void Function(String) say,
         {'tls': tlsHits, 'sni': sniHits, 'port': portHits},
         shouldAbort: () => cancelled(),
       );
-      if (!saved || cancelled()) {
+      if (!saved) {
+        say(cancellationMessage());
+        return;
+      }
+      if (cancelled()) {
         say(cancellationMessage());
         return;
       }
