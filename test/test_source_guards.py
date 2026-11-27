@@ -350,6 +350,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn('await createRepairPullRequest(', audit)
         self.assertIn('_auditTaskName', worker)
         self.assertIn('frequency: const Duration(hours: 24)', worker)
+        self.assertIn('sliceBudget: const Duration(minutes: 8)', worker)
         self.assertIn('await Workmanager().cancelByTag(_auditTag)', worker)
 
     def test_official_iran_network_research_is_scheduled_automatically(self):
@@ -2513,8 +2514,10 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('ipHits += found.length;', body)
         self.assertIn('await addDiscovered(found);', body)
         self.assertIn('ip_inventory_cursor_preserved_for_next_slice', body)
-        self.assertNotIn('while (!stopped() && !natRangeInventoryPassComplete)', body)
-        self.assertIn('const sliceBudget = Duration(seconds: 35);', source)
+        self.assertIn('while (!stopped() && !shouldYield() && !natRangeInventoryPassComplete)', body)
+        self.assertIn('Duration sliceBudget = const Duration(seconds: 45)', source)
+        self.assertIn('final portCount = max(1, natAutoPorts(seeds).length).toInt();', source)
+        self.assertIn('final batchAddressBudget = (workers * batchWaves).clamp(1, 768).toInt();', source)
         self.assertIn('sliceYielded: didYield', source)
 
     def test_nat_inventory_and_range_cursors_are_disk_backed_without_retention_caps(self):
@@ -2812,7 +2815,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('await flushLearning();', source)
         self.assertIn("await persistPhase(\n              'ip',", source)
         self.assertIn('king_national_scanner.lock', source)
-        self.assertIn('const sliceBudget = Duration(seconds: 35);', source)
+        self.assertIn('Duration sliceBudget = const Duration(seconds: 45)', source)
         self.assertIn('if (!didCancel && !didYield && !phaseDeferred)', source)
 
     def test_national_scanner_background_schedule_reuses_the_single_workmanager_dispatcher(self):
