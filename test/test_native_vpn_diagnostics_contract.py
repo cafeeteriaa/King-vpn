@@ -41,7 +41,7 @@ class NativeVpnDiagnosticsContractTests(unittest.TestCase):
         self.assertIn('"vpnService" -> {', self.kotlin)
         self.assertIn("service?.diagnosticSnapshot()", self.kotlin)
         self.assertIn('"serviceRunning" to false', self.kotlin)
-        self.assertIn('"protocolVersion" to 3', self.kotlin)
+        self.assertEqual(self.kotlin.count('"protocolVersion" to 3'), 2)
 
     def test_watchdog_metrics_use_monotonic_time_and_no_server_payload(self):
         self.assertIn("watchdogChecks.incrementAndGet()", self.java)
@@ -50,6 +50,7 @@ class NativeVpnDiagnosticsContractTests(unittest.TestCase):
         self.assertIn("SystemClock.elapsedRealtime()", self.java)
         self.assertIn("registerNetworkCallback(request, callback)", self.java)
         self.assertIn("unregisterNetworkCallback(callback)", self.java)
+        self.assertIn("physicalNetworkMonitorClosed", self.java)
         self.assertIn("NET_CAPABILITY_NOT_VPN", self.java)
         self.assertIn("NET_CAPABILITY_VALIDATED", self.java)
         self.assertIn("setUnderlyingNetworks(", self.java)
