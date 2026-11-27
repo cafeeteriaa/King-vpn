@@ -922,6 +922,7 @@ class KingNationalScannerEngine {
     var domainHits = 0, ipHits = 0, sniHits = 0, alpnHits = 0;
     var configsValidated = 0, dnsCount = 0;
     var networkEvidence = PilotNetworkProbe.current;
+    var ipv6Evidence = PilotIpv6Probe.current;
     var phaseDeferred = false;
     File? processLeaseFile;
     var ownsProcessLease = false;
@@ -981,8 +982,10 @@ class KingNationalScannerEngine {
         final samples = await Future.wait<Object>(<Future<Object>>[
           NatNetworkDiagnosis.refresh(),
           PilotNetworkProbe.refresh(),
+          PilotIpv6Probe.refresh(),
         ]).timeout(const Duration(seconds: 12));
         networkEvidence = samples[1] as NetworkEvidence;
+        ipv6Evidence = samples[2] as PilotIpv6Evidence;
       } catch (e, st) {
         logError(e, st);
         warnings.add('network_evidence_incomplete');
@@ -1385,10 +1388,10 @@ class KingNationalScannerEngine {
         domesticLatencyMs: networkEvidence.domesticLatencyMs,
         globalLatencyMs: networkEvidence.globalLatencyMs,
         networkConfidence: networkEvidence.confidence,
-        domesticIpv6Successes: networkEvidence.domesticIpv6Successes,
-        globalIpv6Successes: networkEvidence.globalIpv6Successes,
-        domesticIpv6LatencyMs: networkEvidence.domesticIpv6LatencyMs,
-        globalIpv6LatencyMs: networkEvidence.globalIpv6LatencyMs,
+        domesticIpv6Successes: ipv6Evidence.domesticIpv6Successes,
+        globalIpv6Successes: ipv6Evidence.globalIpv6Successes,
+        domesticIpv6LatencyMs: ipv6Evidence.domesticIpv6LatencyMs,
+        globalIpv6LatencyMs: ipv6Evidence.globalIpv6LatencyMs,
         inventoryPassComplete: natRangeInventoryPassComplete,
         sliceYielded: didYield,
       );
@@ -1448,7 +1451,10 @@ class KingNationalScannerEngine {
       'engine': 'KING National Scanner Engine',
       'version': 2,
       'networkClass': natNetworkClassLabel(NatNetworkDiagnosis.current),
-      'routeEvidence': PilotNetworkProbe.current.toMap(),
+      'routeEvidence': <String, Object?>{
+        ...PilotNetworkProbe.current.toMap(),
+        ...PilotIpv6Probe.current.toMap(),
+      },
       'nationalMode': nationalMode,
       'variantCatalogSize': _natSpecs.length,
       'profileCount': _history.length,
