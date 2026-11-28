@@ -9021,7 +9021,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   // FIX #12: national mode tests domestic destinations (international traffic is cut there);
   // global mode tests only international ones, so a domestic site cannot pass a dead tunnel.
   Future<bool> _tunnelTrafficOk() async {
-    if (proxyMode) return true;
+    // Proxy mode has no Android TUN, but its local Xray inbound is still a
+    // real data path. _siteOpens(viaCore: true) routes through that inbound;
+    // never report success merely because proxy mode is selected.
     await Future.delayed(const Duration(seconds: 2));
     // TUNFIX: viaCore true = the core's outbound, which is what must be measured. The app is NOT
     // excluded from its own tunnel (FIX #49, KingVpnService.java), so DIRECT requests also pass
