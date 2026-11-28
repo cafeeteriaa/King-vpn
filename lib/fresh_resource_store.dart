@@ -634,7 +634,26 @@ class FreshResourceStore {
   static Future<int> _countValidShardRecords(Directory dir) async {
     var total = 0;
     final shards = dir.list(followLinks: false).where((entity) =>
-        entity is File && RegExp(r'^[0-9a-f]{2}\\.jsonl
+        entity is File && RegExp(r'^[0-9a-f]{2}\.jsonl$')
+            .hasMatch(entity.uri.pathSegments.last));
+    await for (final entity in shards) {
+      final file = entity as File;
+      final shard = file.uri.pathSegments.last.substring(0, 2);
+      await for (final line in file.openRead()
+          .transform(utf8.decoder).transform(const LineSplitter())) {
+        try {
+          final row = jsonDecode(line);
+          if (row is Map && row['v'] == 1 && row['id'] is String &&
+              row['link'] is String && _id(row['link'] as String) == row['id'] &&
+              _shard(row['id'] as String) == shard) total++;
+        } catch (_) {}
+      }
+    }
+    return total;
+  }
+
+  static Future<void> _migrateLegacyImpl(Directory dir) async {
+    final marker = File('${dir.path}/.migration_v2_done');
     if (await marker.exists()) return;
     final legacy = File('${dir.path}/$_legacyFileName');
     if (await legacy.exists()) {
@@ -657,8 +676,7 @@ class FreshResourceStore {
         migratedCount += await _appendBatch(
           dir, batch, maxAdditions: maxEntries - migratedCount);
       }
-      // Keep the original legacy file as .migrated for recovery/audit; any
-      // records beyond capacity are retained there, not silently discarded.
+      // Preserve the original source for recovery; overflow remains in .migrated.
       await legacy.rename('${legacy.path}.migrated');
     }
     var total = 0;
@@ -672,8 +690,7 @@ class FreshResourceStore {
         try {
           final row = jsonDecode(line);
           if (row is Map && row['v'] == 1 && row['id'] is String &&
-              row['link'] is String &&
-              _id(row['link'] as String) == row['id']) {
+              row['link'] is String && _id(row['link'] as String) == row['id']) {
             total++;
           }
         } catch (_) {}
@@ -682,7 +699,6 @@ class FreshResourceStore {
     await _writeMetadata(dir, total, source: 'migration');
     await marker.writeAsString('v2', flush: true);
   }
-
   static Future<Map<String, Object?>> metadata({Directory? root}) async {
     final dir = await directory(root: root);
     await _migrateLegacy(dir);
