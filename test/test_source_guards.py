@@ -13,6 +13,8 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('target.type != InternetAddressType.IPv6', core)
         self.assertIn('queryType: queryType', core)
         self.assertIn('static bool publicV6(', core)
+        self.assertIn("(address[0] & 0xe0) != 0x20", core)
+        self.assertIn("Invalid DNS compression pointer", core)
         self.assertIn('queryType: 1,', dns)
         self.assertIn('queryType: 28,', dns)
         self.assertIn('kDnsxIpv6Defaults', dns)
