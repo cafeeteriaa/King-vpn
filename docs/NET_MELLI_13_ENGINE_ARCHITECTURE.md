@@ -60,6 +60,13 @@ raw packet transformations, broad IPv6 enumeration, and full autonomous AI
 repair require their own compatible implementations and evidence. Keep these
 states partial/deferred until the implementation and tests exist.
 
+## Tunnel validation evidence contract
+
+- A successful request to one destination is recorded as connectivity probe evidence only.
+- The validator becomes `completed` only after the stable-check path reports at least two successful destinations through the active core/TUN.
+- Failed stable checks and stable checks with fewer than two destinations remain non-complete.
+- Diagnostics expose probe totals separately from stable pass/failure totals; route classification, DNS, SNI/ALPN, and config parsing cannot promote tunnel validation.
+
 ## Permanent acceptance criteria
 
 - Preserve the 13 engine IDs and responsibilities above.
