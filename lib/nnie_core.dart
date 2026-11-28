@@ -94,15 +94,18 @@ class NatDnsProbeResult {
   bool get ok => elapsedMs != null && addresses.isNotEmpty;
 }
 
-/// Strict DNS-over-UDP A-query probe. It verifies transaction ID, QR/opcode,
-/// question name/type/class, response source IP/port, RCODE and public A answers.
-/// It is a resolver test only; it is NOT a test of the VPN server's reachability.
+/// Strict DNS-over-UDP A/AAAA probe. It verifies transaction ID, QR/opcode,
+/// question name/type/class, response source IP/port, RCODE and globally routable
+/// answers. It is a resolver test only, not proof of VPN-server reachability.
 class _NatDnsProbeCancelled implements Exception {
   const _NatDnsProbeCancelled();
 }
 
 class NatDnsWireProbe {
-  static List<int> buildQuery(String domain, int id) {
+  static List<int> buildQuery(String domain, int id, {int queryType = 1}) {
+    if (queryType != 1 && queryType != 28) {
+      throw ArgumentError.value(queryType, 'queryType', 'Only A(1) and AAAA(28) are supported');
+    }
     final labels = domain.toLowerCase().replaceAll(RegExp(r'\.$'), '').split('.');
     final out = <int>[
       (id >> 8) & 255, id & 255,
@@ -117,7 +120,7 @@ class NatDnsWireProbe {
       }
       out..add(bytes.length)..addAll(bytes);
     }
-    out.addAll(const <int>[0, 0, 1, 0, 1]); // root, A, IN
+    out.addAll(<int>[0, 0, (queryType >> 8) & 255, queryType & 255, 0, 1]); // root, QTYPE, IN
     return out;
   }
 
@@ -138,6 +141,32 @@ class NatDnsWireProbe {
     if (a == 10 && c == 10 && d == 34 && e == 34) return false;
     return true;
   }
+
+  /// Reject non-global IPv6 ranges while retaining normal global unicast,
+  /// including current public CDN and resolver addresses.
+  static bool publicV6(List<int> b, int p) {
+    if (p + 16 > b.length) return false;
+    final address = b.sublist(p, p + 16);
+    final allZero = address.every((byte) => byte == 0);
+    if (allZero) return false; // ::
+    final loopback = address.take(15).every((byte) => byte == 0) && address[15] == 1;
+    if (loopback) return false; // ::1
+    if (address[0] == 0xff) return false; // multicast
+    if (address[0] == 0xfe && (address[1] & 0xc0) == 0x80) return false; // fe80::/10
+    if ((address[0] & 0xfe) == 0xfc) return false; // fc00::/7 unique-local
+    if (address[0] == 0x20 && address[1] == 0x01 &&
+        address[2] == 0x0d && address[3] == 0xb8) return false; // 2001:db8::/32
+    final mappedV4 = address.take(10).every((byte) => byte == 0) &&
+        address[10] == 0xff && address[11] == 0xff;
+    if (mappedV4) return false; // IPv4-mapped IPv6
+    return true;
+  }
+
+  static String _formatV6(List<int> b, int p) => List<String>.generate(
+        8,
+        (index) => ((b[p + index * 2] << 8) | b[p + index * 2 + 1])
+            .toRadixString(16),
+      ).join(':');
 
   static int _skipName(List<int> b, int pos) {
     var p = pos;
@@ -184,7 +213,11 @@ class NatDnsWireProbe {
     return labels.join('.');
   }
 
-  static List<String> parseResponse(List<int> b, int id, String domain) {
+  static List<String> parseResponse(List<int> b, int id, String domain,
+      {int queryType = 1}) {
+    if (queryType != 1 && queryType != 28) {
+      throw ArgumentError.value(queryType, 'queryType', 'Only A(1) and AAAA(28) are supported');
+    }
     if (b.length < 17) throw const FormatException('Short DNS response');
     final rid = (b[0] << 8) | b[1];
     final flags = (b[2] << 8) | b[3];
@@ -203,7 +236,7 @@ class NatDnsWireProbe {
     final qtype = (b[p] << 8) | b[p + 1];
     final qclass = (b[p + 2] << 8) | b[p + 3];
     p += 4;
-    if (qname != domain.toLowerCase() || qtype != 1 || qclass != 1) {
+    if (qname != domain.toLowerCase() || qtype != queryType || qclass != 1) {
       throw const FormatException('Question mismatch');
     }
     final records = <({String owner, int type, int cls, int rd, int rdlen})>[];
@@ -234,20 +267,30 @@ class NatDnsWireProbe {
     }
     final ips = <String>[];
     for (final rr in records) {
-      if (rr.type != 1 || rr.cls != 1 || rr.rdlen != 4 ||
+      if (rr.type != queryType || rr.cls != 1 ||
           !allowedOwners.contains(rr.owner)) continue;
-      if (!publicV4(b, rr.rd)) {
-        throw const FormatException('Non-public/blockpage A answer for queried name');
+      if (queryType == 1 && rr.rdlen == 4) {
+        if (!publicV4(b, rr.rd)) {
+          throw const FormatException('Non-public/blockpage A answer for queried name');
+        }
+        ips.add('${b[rr.rd]}.${b[rr.rd + 1]}.${b[rr.rd + 2]}.${b[rr.rd + 3]}');
+      } else if (queryType == 28 && rr.rdlen == 16) {
+        if (!publicV6(b, rr.rd)) {
+          throw const FormatException('Non-global/special-use AAAA answer for queried name');
+        }
+        ips.add(_formatV6(b, rr.rd));
       }
-      ips.add('${b[rr.rd]}.${b[rr.rd + 1]}.${b[rr.rd + 2]}.${b[rr.rd + 3]}');
     }
-    if (ips.isEmpty) throw const FormatException('No usable A answer for queried name');
+    if (ips.isEmpty) {
+      throw FormatException('No usable ${queryType == 1 ? 'A' : 'AAAA'} answer for queried name');
+    }
     return ips;
   }
 
   static Future<NatDnsProbeResult> probe(String server, String domain,
       {Duration timeout = const Duration(seconds: 2),
-      bool Function()? cancelled}) async {
+      bool Function()? cancelled,
+      int queryType = 1}) async {
     RawDatagramSocket? socket;
     StreamSubscription<RawSocketEvent>? subscription;
     Timer? cancelWatcher;
@@ -262,7 +305,7 @@ class NatDnsWireProbe {
       final s = await RawDatagramSocket.bind(InternetAddress.anyIPv4, 0).timeout(timeout);
       socket = s;
       final id = Random.secure().nextInt(0x10000);
-      final packet = buildQuery(domain, id);
+      final packet = buildQuery(domain, id, queryType: queryType);
       final sw = Stopwatch()..start();
       final completer = Completer<List<String>>();
       subscription = s.listen((event) {
@@ -272,7 +315,7 @@ class NatDnsWireProbe {
         // RFC 5452: a matching ID alone is insufficient; verify source tuple.
         if (dg.port != 53 || dg.address.address != target.address) return;
         try {
-          completer.complete(parseResponse(dg.data, id, domain));
+          completer.complete(parseResponse(dg.data, id, domain, queryType: queryType));
         } catch (_) {
           // Ignore unrelated/malformed datagrams until timeout.
         }
