@@ -1777,6 +1777,15 @@ class KingNatSubsystemEngine {
       identity.state = KingNatSubsystemState.deferred;
       identity.detail = 'operator_identity_not_refreshed_in_preflight';
     }
+    final intelligence = _get('network_intelligence');
+    if (intelligence.state == KingNatSubsystemState.idle) {
+      intelligence.state = KingNatSubsystemState.deferred;
+      intelligence.detail = 'route_evidence_unavailable';
+    }
+    for (final engine in _engines.where((item) => item.state == KingNatSubsystemState.running)) {
+      engine.state = partial ? KingNatSubsystemState.deferred : KingNatSubsystemState.partial;
+      engine.detail = partial ? 'not_run_in_yielded_slice' : 'phase_not_executed_in_this_preflight';
+    }
   }
 
   static void recordFailure(String reason) {
