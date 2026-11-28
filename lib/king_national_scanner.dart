@@ -2010,6 +2010,19 @@ class KingNatSubsystemEngine {
       validator.state = KingNatSubsystemState.deferred;
       validator.detail = 'requires_connected_tunnel_probe';
     }
+    final connector = _get('multi_engine_connector');
+    if (!partial && inventoryComplete &&
+        _completedPhases.containsAll(const {'dns', 'domain', 'ip', 'sni', 'config', 'complete'}) &&
+        _stableTrafficPasses > 0) {
+      connector.record(
+        _adapterEvidence['adapterInvocations'] ?? 0,
+        'all_scan_adapters_and_stable_tunnel_validation_completed',
+        complete: true,
+      );
+    } else if (connector.state != KingNatSubsystemState.failed) {
+      connector.state = partial ? KingNatSubsystemState.deferred : KingNatSubsystemState.partial;
+      connector.detail = 'adapter_coverage_or_stable_tunnel_validation_pending';
+    }
     final identity = _get('network_identity');
     if (identity.state == KingNatSubsystemState.idle) {
       identity.state = KingNatSubsystemState.deferred;
