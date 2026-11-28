@@ -2248,13 +2248,20 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn('if (!nationalMode) ipAutoStopFlag = true;', body)
 
 
-    def test_ip_range_expanders_reject_non_positive_limits(self):
+    def test_ip_range_expanders_preserve_unbounded_default_and_reject_invalid_limits(self):
         scan = (ROOT / 'lib' / 'nat_ip_scan.dart').read_text(encoding='utf-8')
         ultra = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
-        self.assertIn('if (maxPerBlock <= 0) return const [];', scan)
-        self.assertIn('if (maxCount <= 0) return const [];', scan)
-        start = ultra.index('List<String> natExpandAny(')
-        self.assertIn('if (maxPerBlock <= 0) return const [];', ultra[start:start + 180])
+        cidr_start = scan.index('List<String> natExpandCidr(')
+        dash_start = scan.index('List<String> natExpandDash(', cidr_start)
+        cidr = scan[cidr_start:dash_start]
+        dash = scan[dash_start:scan.index('/// اتصال TCP', dash_start)]
+        self.assertIn('maxPerBlock != null && maxPerBlock <= 0', cidr)
+        self.assertIn('maxCount != null && maxCount <= 0', dash)
+        self.assertIn('maxPerBlock == null || cursor.addressCount <= maxPerBlock', cidr)
+        self.assertIn('maxCount == null || cursor.addressCount <= maxCount', dash)
+        ultra_start = ultra.index('List<String> natExpandAny(')
+        self.assertIn('if (maxPerBlock <= 0) return const [];', ultra[ultra_start:ultra_start + 180])
+
 
     def test_auto_tls_probes_bound_handshake_and_always_close_sockets(self):
         source = (ROOT / 'lib' / 'auto_scanners.dart').read_text(encoding='utf-8')
@@ -2794,18 +2801,22 @@ class KingVpnSourceGuardTests(unittest.TestCase):
     def test_manual_range_scan_honors_cancel_during_national_yield(self):
         source = (ROOT / 'lib' / 'npv_am_extras.dart').read_text(encoding='utf-8')
         start = source.index('Future<void> manualRangeScan(')
-        end = source.index('\n}', start)
+        end = source.index('\\n}', start)
         body = source[start:end]
         wait = body.index('await natManualYield(shouldAbort: () => cancelled || !open);')
         before_scan = body.index('if (!cancelled) {', wait)
-        scan = body.index('result = await natScanIps(', before_scan)
+        scan = body.index('result = await natScanAddressRanges(', before_scan)
         after_scan = body.index('if (!cancelled && open)', scan)
         persist = body.index('await goldMergeIps(', after_scan)
         self.assertLess(wait, before_scan)
         self.assertLess(before_scan, scan)
         self.assertLess(scan, after_scan)
         self.assertLess(after_scan, persist)
+        self.assertIn('validRanges', body)
+        self.assertIn('NatAddressRangeCursor.parse(range)', body)
         self.assertIn('cancelled: () => cancelled || !open,', body)
+        self.assertIn('shouldAbort: () => cancelled || !open,', body)
+        self.assertNotIn('result = await natScanIps(', body)
 
 
     def test_manual_range_scan_close_cancels_scan_and_blocks_late_persistence(self):
