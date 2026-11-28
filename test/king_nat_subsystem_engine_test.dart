@@ -357,7 +357,9 @@ void main() {
           (row as Map)['id'] as String: row,
       };
       expect(engines['capability_orchestrator']!['state'], 'completed');
-      expect(engines['multi_engine_connector']!['state'], 'completed');
+      // One successful adapter and a caller assertion cannot complete the
+      // aggregate connector without all durable phases and stable TUN proof.
+      expect(engines['multi_engine_connector']!['state'], 'partial');
     });
 
     test('multi-engine connector requires every scan adapter and stable tunnel evidence', () {
