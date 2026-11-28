@@ -201,6 +201,9 @@ void main() {
         [0x20, 0x01, 0x0d, 0xb8, ...List<int>.filled(12, 1)], // documentation
         [0xfe, 0xc0, ...List<int>.filled(14, 1)], // deprecated site-local
         [0x20, 0x01, 0x00, 0x10, ...List<int>.filled(12, 1)], // ORCHID
+        [0x20, 0x01, 0x00, 0x00, ...List<int>.filled(12, 1)], // IETF protocol assignments
+        [0x3f, 0xff, 0x00, 0x00, ...List<int>.filled(12, 1)], // documentation
+        [0x00, 0x64, 0xff, 0x9b, ...List<int>.filled(12, 1)], // translation
         [...List<int>.filled(12, 0), 192, 0, 2, 1], // IPv4-compatible
       ];
       for (final address in specialAddresses) {
