@@ -175,6 +175,16 @@ void main() {
         expect(total, fourMillionSoakEntries);
         expect(await FreshResourceStore.count(root: root), fourMillionSoakEntries);
         expect(await FreshResourceStore.verifyCount(root: root), fourMillionSoakEntries);
+        // A real four-million-entry soak also proves that the next unique
+        // profile is rejected without changing the existing inventory.
+        expect(
+          await FreshResourceStore.merge(
+            <String>['vless://over-capacity@example.test:443'],
+            source: 'four-million-capacity-boundary', root: root,
+          ),
+          fourMillionSoakEntries,
+        );
+        expect(await FreshResourceStore.verifyCount(root: root), fourMillionSoakEntries);
         final first = await FreshResourceStore.readBatch(limit: 300, root: root);
         final second = await FreshResourceStore.readBatch(limit: 300, root: root);
         expect(first, hasLength(300));
