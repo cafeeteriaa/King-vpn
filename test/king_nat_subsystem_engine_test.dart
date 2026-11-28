@@ -407,6 +407,16 @@ void main() {
       expect(evidence['cdnTunnelPasses'], 2);
       expect(evidence['validatedTransformations'], contains('fragment-v1'));
       expect(evidence['validatedRepairs'], contains('repair-a'));
+      // A stable traffic proof is single-use; it cannot validate a second
+      // strategy without another fresh multi-destination check.
+      KingNatSubsystemEngine.recordRepairEvaluation(
+        strategyId: 'repair-b', evaluated: true, changed: true,
+        tunnelImproved: true, coverageComplete: true,
+      );
+      expect(
+        KingNatSubsystemEngine.adapterEvidence()['validatedRepairs'],
+        isNot(contains('repair-b')),
+      );
     });
 
     test('config planning resolves the capability catalog without claiming adapters are active', () {
