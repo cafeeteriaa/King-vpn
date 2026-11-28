@@ -628,7 +628,6 @@ class FreshResourceStore {
     final legacy = File('${dir.path}/$_legacyFileName');
     if (await legacy.exists()) {
       var batch = <String>[];
-      var migrated = 0;
       await for (final line in legacy.openRead()
           .transform(utf8.decoder)
           .transform(const LineSplitter())) {
@@ -636,12 +635,12 @@ class FreshResourceStore {
         if (link == null) continue;
         batch.add(link);
         if (batch.length >= _batchSize) {
-          migrated += await _appendBatch(dir, batch);
+          await _appendBatch(dir, batch);
           batch = <String>[];
         }
       }
       if (batch.isNotEmpty) {
-        migrated += await _appendBatch(dir, batch);
+          await _appendBatch(dir, batch);
       }
       await legacy.rename('${legacy.path}.migrated');
     }
