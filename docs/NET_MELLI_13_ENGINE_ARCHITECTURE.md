@@ -75,3 +75,13 @@ states partial/deferred until the implementation and tests exist.
 - Maintain durable cursor, deduplication, cancellation, and last-known-good inventory.
 - Require end-to-end traffic evidence before marking a route/config healthy.
 - Review architecture, security/resource behavior, and regression/tests independently.
+
+## Runtime completion and adaptive resource contract (2026-11-28)
+
+- Completing DNS, domain, IP, or SNI work in one invocation records phase-local evidence only. The Scanner engine remains partial/deferred until the complete required phase set has run and the durable IP inventory pass is complete.
+- Discovery remains partial/deferred while any configured range cursor is pending. A non-empty prefix inventory is not equivalent to a completed traversal.
+- recordResourceBudget is a diagnostics boundary, not a policy layer: it preserves the scheduler's positive worker, slice-duration, and port-batch values without applying secondary fixed ceilings. Resource policy is calculated by the adaptive scheduler from device capacity.
+- Endpoint probe concurrency reuses natAdaptiveConcurrency; the prior independent 32-connection clamp has been removed.
+- Address-wave sizing is derived from adaptive workers and the measured slice/port budget. The prior fixed 768-address wave ceiling has been removed; each wave still yields to cancellation and the durable range cursor.
+- These changes remove duplicate hard ceilings, not resource safety. CPU-aware concurrency, bounded execution slices, cancellation, and resumable cursor traversal remain in force.
+- Regression tests cover budgets above the former coordinator ceilings and prevent a single completed phase or non-empty inventory from falsely completing Discovery/Scanner.
