@@ -1197,7 +1197,8 @@ class KingNationalScannerEngine {
         // Store only the hash of the physical-interface/default-route
         // fingerprint. The raw addresses and interface identifiers never
         // enter engine diagnostics or persistent strategy state.
-        final networkIdentity = await NatNetworkDiagnosis._identityHash();
+        final networkIdentity = await NatNetworkDiagnosis._identityHash()
+            .timeout(const Duration(seconds: 2), onTimeout: () => '');
         KingNatSubsystemEngine.recordNetworkIdentity(
           fingerprintHash: networkIdentity,
           operatorIdentity: natOpKey,
