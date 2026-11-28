@@ -1179,10 +1179,18 @@ class KingNationalScannerEngine {
         status(KingNatScanPhase.ip, 'اسکنر: پیمایش پیوستهٔ تمام بازه‌ها و endpointها...');
         if (!stopped() && !shouldYield() && kNatIpScanOn &&
             !ipAutoBusy && !_natRangeScanBusy) {
+          // Refresh the country/ISP/BGP inventory before opening a new pass.
+          // A failed refresh preserves the last known-good disk inventory.
+          if (!stopped() && !shouldYield()) {
+            await natRefreshIranRangeInventory();
+          }
+          if (stopped() || shouldYield()) {
+            phaseDeferred = true;
+          }
           // The range scanner owns durable per-range offsets. Run as many
           // bounded batches as fit in this invocation; the complete inventory
           // remains uncapped and resumes after the process/app returns.
-          await natRangeStartNextPass();
+          if (!phaseDeferred) await natRangeStartNextPass();
           final workers = max(1, natAdaptiveWorkers()).toInt();
           final portCount = max(1, natAutoPorts(seeds).length).toInt();
           final batchWaves = max(
