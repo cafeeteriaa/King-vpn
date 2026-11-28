@@ -2983,5 +2983,15 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn('FreshResourceStore.readLinks()', main)
         self.assertIn('کل بانک چندمیلیونی در کلیپ', page)
 
+    def test_online_resource_cache_has_no_fixed_configuration_ceiling(self):
+        source = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
+        self.assertNotIn('natHotMax', source)
+        self.assertNotIn('natHotPerSource', source)
+        self.assertIn('const int _hotIndexStride = 1024;', source)
+        self.assertIn('final int lineCount;', source)
+        self.assertIn('openRead(byteOffset)', source)
+        self.assertIn('total % _hotIndexStride == 0', source)
+
+
 if __name__ == '__main__':
     unittest.main()
