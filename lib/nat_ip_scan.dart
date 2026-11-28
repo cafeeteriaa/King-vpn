@@ -123,7 +123,9 @@ Future<List<NatIpHit>> natScanAddressRanges(
   Duration timeout = const Duration(milliseconds: 1500),
   bool Function()? cancelled,
   void Function(int done, int total, int hits)? onProgress,
-  void Function(int rangeIndex, int nextOffset)? onCursor,
+  FutureOr<void> Function(int rangeIndex, int nextOffset)? onCursor,
+  int startRangeIndex = 0,
+  int startOffset = 0,
   bool randomizeWithinSlice = true,
   bool collectHits = true,
   FutureOr<void> Function(List<NatIpHit> hits)? onHits,
@@ -164,9 +166,10 @@ Future<List<NatIpHit>> natScanAddressRanges(
     }
   }
 
-  for (var rangeIndex = 0; rangeIndex < cursors.length; rangeIndex++) {
+  final firstRange = startRangeIndex.clamp(0, cursors.length).toInt();
+  for (var rangeIndex = firstRange; rangeIndex < cursors.length; rangeIndex++) {
     final cursor = cursors[rangeIndex];
-    var offset = 0;
+    var offset = rangeIndex == firstRange && startOffset > 0 ? startOffset : 0;
     while (offset >= 0 && !aborted()) {
       final slice = cursor.read(offset, window);
       if (slice.$1.isEmpty) break;
@@ -197,7 +200,7 @@ Future<List<NatIpHit>> natScanAddressRanges(
       }
       done += slice.$1.length;
       offset = slice.$2;
-      onCursor?.call(rangeIndex, offset);
+      await onCursor?.call(rangeIndex, offset);
       if (onProgress != null) onProgress(done, total, hits.length);
     }
     if (aborted()) break;
