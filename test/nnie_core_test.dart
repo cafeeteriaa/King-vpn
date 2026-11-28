@@ -199,6 +199,9 @@ void main() {
         [0xfc, 0x00, ...List<int>.filled(14, 1)], // unique-local
         [0xff, 0x02, ...List<int>.filled(14, 1)], // multicast
         [0x20, 0x01, 0x0d, 0xb8, ...List<int>.filled(12, 1)], // documentation
+        [0xfe, 0xc0, ...List<int>.filled(14, 1)], // deprecated site-local
+        [0x20, 0x01, 0x00, 0x10, ...List<int>.filled(12, 1)], // ORCHID
+        [...List<int>.filled(12, 0), 192, 0, 2, 1], // IPv4-compatible
       ];
       for (final address in specialAddresses) {
         expect(
