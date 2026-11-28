@@ -38,7 +38,10 @@ void main() {
         ipv4Resources: 2400,
         ipv6Resources: 36,
       );
-      KingNatSubsystemEngine.recordNetworkIdentity('mobile|AS12345');
+      KingNatSubsystemEngine.recordNetworkIdentity(
+        fingerprintHash: List<String>.filled(64, 'a').join(),
+        operatorIdentity: 'mob|AS12345',
+      );
       KingNatSubsystemEngine.recordResourceBudget(
         workers: 8,
         sliceBudgetMs: 60000,
@@ -63,7 +66,8 @@ void main() {
       expect(diagnostics['nationalMode'], isTrue);
       expect(diagnostics['plannedVariants'], 12);
       expect(diagnostics['workers'], 8);
-      expect(diagnostics['operatorIdentity'], 'mobile|AS12345');
+      expect(diagnostics['operatorIdentity'], 'mob|AS12345');
+      expect(diagnostics['networkFingerprintHash'], List<String>.filled(64, 'a').join());
       expect((diagnostics['trafficValidation'] as Map)['passed'], 1);
       expect((diagnostics['inventory'] as Map)['ipv4Resources'], 2400);
 
@@ -143,12 +147,16 @@ void main() {
         ipv4Resources: 900,
         ipv6Resources: 40,
       );
-      KingNatSubsystemEngine.recordNetworkIdentity('mobile|AS64500');
+      KingNatSubsystemEngine.recordNetworkIdentity(
+        fingerprintHash: List<String>.filled(64, 'b').join(),
+        operatorIdentity: 'mob|AS64500',
+      );
 
       KingNatSubsystemEngine.beginRun(nationalMode: false, sliceBudgetMs: 45000);
       final diagnostics = KingNatSubsystemEngine.diagnostics();
       expect(diagnostics['nationalMode'], isFalse);
       expect(diagnostics['operatorIdentity'], 'unknown');
+      expect(diagnostics['networkFingerprintHash'], '');
       expect(diagnostics['inventory'], <String, int>{
         'ipv4Resources': 0,
         'ipv6Prefixes': 0,
@@ -160,6 +168,31 @@ void main() {
         'globalIpv6': 0,
         'confidence': 0.0,
       });
+    });
+
+    test('network identity keeps hashed fingerprint separate from operator metadata', () {
+      KingNatSubsystemEngine.beginRun(nationalMode: true, sliceBudgetMs: 30000);
+      KingNatSubsystemEngine.recordNetworkIdentity(
+        fingerprintHash: List<String>.filled(64, 'c').join(),
+        operatorIdentity: 'wifi|AS12880',
+      );
+      var diagnostics = KingNatSubsystemEngine.diagnostics();
+      expect(diagnostics['networkFingerprintHash'], List<String>.filled(64, 'c').join());
+      expect(diagnostics['operatorIdentity'], 'wifi|AS12880');
+
+      KingNatSubsystemEngine.beginRun(nationalMode: true, sliceBudgetMs: 30000);
+      KingNatSubsystemEngine.recordNetworkIdentity(
+        fingerprintHash: 'not-a-hash',
+        operatorIdentity: 'wifi|AS12880<script>',
+      );
+      diagnostics = KingNatSubsystemEngine.diagnostics();
+      expect(diagnostics['networkFingerprintHash'], '');
+      expect(diagnostics['operatorIdentity'], 'wifi|AS12880script');
+      final engines = {
+        for (final row in diagnostics['engines'] as List)
+          (row as Map)['id'] as String: row,
+      };
+      expect(engines['network_identity']!['state'], 'completed');
     });
 
     test('scanner completes only after all phases and durable inventory finish', () {
