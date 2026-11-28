@@ -1635,6 +1635,11 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         helper = nat[helper_start:helper_end]
         self.assertIn('nextRangeCursors: staged', helper)
         self.assertIn('passCompleted: complete', helper)
+        self.assertIn('natRanges.every((range) => (staged[range] ?? 0) < 0)', helper)
+        step_start = nat.index('Future<List<String>> natRangeScanStep({')
+        step_end = nat.index('Future<List<String>> _natRangeScanStepBody(', step_start)
+        step_api = nat[step_start:step_end]
+        self.assertIn('if (maxAddrs <= 0) return const <String>[];', step_api)
         self.assertNotIn('SharedPreferences.getInstance()', helper)
         scan_only_start = main.index('Future<void> _natScanOnly()')
         scan_only_end = main.index('// NATFIRSTFAST:', scan_only_start)

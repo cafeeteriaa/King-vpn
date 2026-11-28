@@ -2161,7 +2161,13 @@ Future<void> natIpMemSave(String ip, int port) async {
 ({List<String> addresses, int nextCursor, Map<String, int> nextRangeCursors, bool passCompleted})
     _natConfiguredRangeBatch(int limit) {
   final staged = Map<String, int>.of(_natConfiguredRangeCursors);
-  if (limit <= 0 || natRanges.isEmpty) {
+  if (limit <= 0) {
+    final complete = natRanges.isEmpty ||
+        natRanges.every((range) => (staged[range] ?? 0) < 0);
+    return (addresses: const <String>[], nextCursor: _natConfiguredRangeCursor,
+      nextRangeCursors: staged, passCompleted: complete);
+  }
+  if (natRanges.isEmpty) {
     return (addresses: const <String>[], nextCursor: _natConfiguredRangeCursor,
       nextRangeCursors: staged, passCompleted: true);
   }
@@ -2805,6 +2811,8 @@ Future<List<String>> natRangeScanStep({
   bool Function()? stop,
   bool coordinatorOwned = false,
 }) async {
+  // A zero-sized batch is a no-op, never evidence that an inventory pass ended.
+  if (maxAddrs <= 0) return const <String>[];
   if ((dnsxManualBusy && !coordinatorOwned) || _natRangeScanBusy) return const <String>[];
   _natRangeScanBusy = true;
   try {

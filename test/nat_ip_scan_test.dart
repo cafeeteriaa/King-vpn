@@ -94,7 +94,9 @@ void main() {
       expect(second.$2, -1);
 
       expect(cursor.read(0, 2).$1, first.$1);
-      expect(cursor.read(4, 2), (<String>[], -1));
+      final exhausted = cursor.read(4, 2);
+      expect(exhausted.$1, isEmpty);
+      expect(exhausted.$2, -1);
     });
 
     test('supports the complete IPv4 space through bounded resumable slices', () {
@@ -133,10 +135,18 @@ void main() {
 
     test('rejects invalid offsets and non-positive slice sizes', () {
       final cursor = NatAddressRangeCursor.parse('192.0.2.1/32')!;
-      expect(cursor.read(-1, 1), (<String>[], -1));
-      expect(cursor.read(0, 0), (<String>[], -1));
-      expect(cursor.read(0, -4), (<String>[], -1));
-      expect(cursor.read(1, 1), (<String>[], -1));
+      final negativeOffset = cursor.read(-1, 1);
+      expect(negativeOffset.$1, isEmpty);
+      expect(negativeOffset.$2, -1);
+      final zeroLimit = cursor.read(0, 0);
+      expect(zeroLimit.$1, isEmpty);
+      expect(zeroLimit.$2, -1);
+      final negativeLimit = cursor.read(0, -4);
+      expect(negativeLimit.$1, isEmpty);
+      expect(negativeLimit.$2, -1);
+      final exhausted = cursor.read(1, 1);
+      expect(exhausted.$1, isEmpty);
+      expect(exhausted.$2, -1);
     });
   });
 
