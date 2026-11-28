@@ -10293,7 +10293,19 @@ ListTile( // KINGEXTRAS row
         configs: servers.map((s) => s.link).toList(growable: false),
         endpoints: servers.map((s) => KingEndpoint(s.host, s.port, label: s.name)).toList(growable: false),
         networkProbe: () async => NatNetworkDiagnosis.current,
-        shouldCancel: () => !mounted || connected,
+        trafficProbe: () async {
+          final server = current;
+          if (!connected || server == null) {
+            return const KingTrafficProof(available: false, responseReceived: false,
+              multiDestination: false, elapsedMs: 0);
+          }
+          final timer = Stopwatch()..start();
+          final verified = await _stableTunnelTrafficOk(server);
+          timer.stop();
+          return KingTrafficProof(available: true, responseReceived: verified,
+            multiDestination: verified, elapsedMs: timer.elapsedMilliseconds);
+        },
+        shouldCancel: () => !mounted || !connected,
         workerBudget: nationalMode ? 3 : 2,
       );
       final report = await KingEngineFabric.run(context);
