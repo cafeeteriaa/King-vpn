@@ -10460,7 +10460,10 @@ ListTile( // KINGEXTRAS row
     if (connected) return;
     _natFetched = false;
     await natDetectOperator(); // NATULTRA: per-operator learning
-    KingNatSubsystemEngine.recordNetworkIdentity(natOpKey);
+    KingNatSubsystemEngine.recordNetworkIdentity(
+      fingerprintHash: '',
+      operatorIdentity: natOpKey,
+    );
     try {
       if (!_natLoaded) {
         _natLoaded = true;
