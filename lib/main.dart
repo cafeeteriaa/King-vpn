@@ -17555,9 +17555,16 @@ extension ProjectNatSweep on _HomePageState {
       if (raw != null) {
         final savedCursor = jsonDecode(raw);
         if (savedCursor is Map && savedCursor['fingerprint'] == rangeFingerprint) {
-          startPortIndex = (savedCursor['portIndex'] as num?)?.toInt() ?? 0;
-          startRangeIndex = (savedCursor['rangeIndex'] as num?)?.toInt() ?? 0;
-          startOffset = (savedCursor['offset'] as num?)?.toInt() ?? 0;
+          final restoredPort = (savedCursor['portIndex'] as num?)?.toInt() ?? 0;
+          final restoredRange = (savedCursor['rangeIndex'] as num?)?.toInt() ?? 0;
+          final restoredOffset = (savedCursor['offset'] as num?)?.toInt() ?? 0;
+          if (restoredPort >= 0 && restoredPort <= _natCfPorts.length &&
+              restoredRange >= 0 && restoredRange <= ranges.length &&
+              restoredOffset >= 0) {
+            startPortIndex = restoredPort;
+            startRangeIndex = restoredRange;
+            startOffset = restoredOffset;
+          }
         }
       }
     } catch (e, stk) {
