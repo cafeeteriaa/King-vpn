@@ -17579,8 +17579,9 @@ extension ProjectNatSweep on _HomePageState {
     final prevNatVar = natVar[key];
     final prevWant = wantVpn;
     final sliceWatch = Stopwatch()..start();
+    final autoTestOwnsSweep = AutoTestEngine._phase == _AtPhase.running;
     bool userCancelled() => abort || AutoTestEngine._abortRequested ||
-        AutoTestEngine._phase != _AtPhase.running;
+        (autoTestOwnsSweep && AutoTestEngine._phase != _AtPhase.running);
     bool sliceExpired() =>
         timeSlice != null && sliceWatch.elapsed >= timeSlice;
     bool shouldStopSweep() => userCancelled() || sliceExpired();
