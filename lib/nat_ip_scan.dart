@@ -184,6 +184,12 @@ Future<List<NatIpHit>> natScanAddressRanges(
         },
       );
       hits.addAll(sliceHits);
+      // A partially cancelled slice is replayed on resume. Never persist an
+      // offset past addresses that may not have been probed.
+      if (aborted()) {
+        if (onProgress != null) onProgress(done, total, hits.length);
+        break;
+      }
       done += slice.$1.length;
       offset = slice.$2;
       onCursor?.call(rangeIndex, offset);
