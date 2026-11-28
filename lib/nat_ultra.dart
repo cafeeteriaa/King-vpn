@@ -2591,7 +2591,7 @@ Future<List<String>> _natDomainFirst(List<Server> known,
       final hits = await natScanIps(
         entry.value,
         port: entry.key,
-        concurrency: conc.clamp(1, 32).toInt(),
+        concurrency: natAdaptiveConcurrency(conc),
         want: entry.value.length,
         budget: null,
         timeout: const Duration(milliseconds: 1200),
