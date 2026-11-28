@@ -1817,6 +1817,8 @@ class KingNatSubsystemEngine {
   static double _confidence = 0;
   static String _operatorIdentity = 'unknown';
   static String _lastFailure = '';
+  static bool _lastInventoryComplete = false;
+  static bool _lastScanPipelineComplete = false;
   static final Set<String> _completedPhases = <String>{};
 
   static _KingNatSubsystemRuntime _get(String id) =>
@@ -1842,6 +1844,8 @@ class KingNatSubsystemEngine {
     _confidence = 0;
     _operatorIdentity = 'unknown';
     _lastFailure = '';
+    _lastInventoryComplete = false;
+    _lastScanPipelineComplete = false;
     _completedPhases.clear();
     _adapterEvidence.updateAll((key, value) => 0);
     _activeAdapters.clear();
@@ -1864,7 +1868,13 @@ class KingNatSubsystemEngine {
   static void restoreCompletedPhases(Iterable<String> phases) {
     const known = <String>{'dns', 'domain', 'ip', 'sni', 'config', 'complete'};
     for (final phase in phases) {
-      if (known.contains(phase)) _completedPhases.add(phase);
+      if (!known.contains(phase)) continue;
+      _completedPhases.add(phase);
+      // A completed phase restored from the durable journal is also a
+      // completed adapter invocation. Rebuild this dependency edge after
+      // process restart; otherwise multi-slice runs can never satisfy the
+      // connector's aggregate dependency set.
+      _activeAdapters.add('net_melli_scan_phase_$phase');
     }
   }
 
@@ -1899,11 +1909,13 @@ class KingNatSubsystemEngine {
     };
     for (final id in ids) {
       final engine = _get(id);
-      final isPhaseLocalCompletion =
-          phase == 'config' || phase == 'complete';
+      final isPhaseLocalCompletion = phase == 'config';
+      final detail = phase == 'complete'
+          ? 'preflight_pipeline_completed_waiting_for_stable_tunnel_proof'
+          : 'phase_$phase completed${isPhaseLocalCompletion ? '' : '_slice_only'}';
       engine.record(
         evidence,
-        'phase_$phase completed${isPhaseLocalCompletion ? '' : '_slice_only'}',
+        detail,
         complete: isPhaseLocalCompletion,
       );
     }
@@ -1934,7 +1946,8 @@ class KingNatSubsystemEngine {
     _get('network_intelligence').record(
       domesticTls + globalTls + domesticIpv6 + globalIpv6,
       'route_evidence_confidence_${_confidence.toStringAsFixed(2)}',
-      complete: domesticTls + globalTls + domesticIpv6 + globalIpv6 > 0,
+      complete: domesticTls + globalTls + domesticIpv6 + globalIpv6 >= 2 &&
+          _confidence >= 0.60,
     );
   }
 
@@ -1977,7 +1990,11 @@ class KingNatSubsystemEngine {
   static void recordConfigPlan(int variants) {
     final safe = variants < 0 ? 0 : variants;
     _plannedVariants += safe;
-    _get('config_intelligence').record(safe, 'variants_planned_$safe');
+    _get('config_intelligence').record(
+      safe,
+      'variants_planned_$safe_validation_pending',
+      complete: false,
+    );
     _get('compatibility').record(
       safe, 'compatibility_variants_planned_$safe',
       complete: false,
@@ -2027,6 +2044,40 @@ class KingNatSubsystemEngine {
       'mode_${mode}_${success ? 'passed' : 'failed'}_destinations_${safeDestinations}_${stableProof ? 'stable' : 'probe_only'}',
       complete: stableProof,
     );
+    if (stableProof) _promoteStableTunnelDependents();
+  }
+
+  /// Promote aggregate engines only after a stable request has passed through
+  /// the active TUN/core. Preflight completion, TLS handshakes, and config
+  /// compilation are deliberately insufficient for this transition.
+  static void _promoteStableTunnelDependents() {
+    if (_stableTrafficPasses <= 0) return;
+    _get('connection_orchestrator').record(
+      _stableTrafficPasses,
+      'connected_tunnel_verified_by_stable_multi_destination_traffic',
+      complete: true,
+    );
+    const requiredPhases = <String>{
+      'dns', 'domain', 'ip', 'sni', 'config', 'complete',
+    };
+    const requiredAdapters = <String>{
+      'net_melli_scan_phase_dns',
+      'net_melli_scan_phase_domain',
+      'net_melli_scan_phase_ip',
+      'net_melli_scan_phase_sni',
+      'net_melli_scan_phase_config',
+      'net_melli_scan_phase_complete',
+    };
+    if (_lastInventoryComplete &&
+        _lastScanPipelineComplete &&
+        _completedPhases.containsAll(requiredPhases) &&
+        _activeAdapters.containsAll(requiredAdapters)) {
+      _get('multi_engine_connector').record(
+        _adapterEvidence['adapterInvocations'] ?? 0,
+        'all_scan_adapters_and_stable_tunnel_validation_completed',
+        complete: true,
+      );
+    }
   }
 
   // Adapter-level evidence counters. Planning/config parsing never increments these.
@@ -2157,7 +2208,6 @@ class KingNatSubsystemEngine {
     required bool deferred, required bool inventoryComplete,
   }) {
     final partial = cancelled || yielded || deferred;
-    _get('connection_orchestrator').record(1, partial ? 'scan_slice_preserved' : 'preflight_completed', complete: !partial);
     final resource = _get('resource_health_manager');
     if (yielded || deferred || cancelled) {
       resource.state = KingNatSubsystemState.deferred;
@@ -2213,18 +2263,29 @@ class KingNatSubsystemEngine {
       'net_melli_scan_phase_config',
       'net_melli_scan_phase_complete',
     };
-    if (!partial && inventoryComplete &&
-        _completedPhases.containsAll(const {'dns', 'domain', 'ip', 'sni', 'config', 'complete'}) &&
-        _activeAdapters.containsAll(requiredScanAdapters) &&
-        _stableTrafficPasses > 0) {
-      connector.record(
-        _adapterEvidence['adapterInvocations'] ?? 0,
-        'all_scan_adapters_and_stable_tunnel_validation_completed',
-        complete: true,
-      );
-    } else if (connector.state != KingNatSubsystemState.failed) {
-      connector.state = partial ? KingNatSubsystemState.deferred : KingNatSubsystemState.partial;
+    _lastInventoryComplete = !partial && inventoryComplete;
+    _lastScanPipelineComplete = !partial &&
+        inventoryComplete &&
+        _completedPhases.containsAll(const {
+          'dns', 'domain', 'ip', 'sni', 'config', 'complete',
+        }) &&
+        _activeAdapters.containsAll(requiredScanAdapters);
+    if (connector.state != KingNatSubsystemState.failed) {
+      connector.state = partial
+          ? KingNatSubsystemState.deferred
+          : KingNatSubsystemState.partial;
       connector.detail = 'adapter_coverage_or_stable_tunnel_validation_pending';
+    }
+    final orchestrator = _get('connection_orchestrator');
+    if (_stableTrafficPasses > 0) {
+      _promoteStableTunnelDependents();
+    } else if (orchestrator.state != KingNatSubsystemState.failed) {
+      orchestrator.state = partial
+          ? KingNatSubsystemState.deferred
+          : KingNatSubsystemState.partial;
+      orchestrator.detail = partial
+          ? 'preflight_slice_preserved_waiting_for_stable_tunnel_proof'
+          : 'preflight_completed_waiting_for_stable_tunnel_proof';
     }
     final identity = _get('network_identity');
     if (identity.state == KingNatSubsystemState.idle) {
