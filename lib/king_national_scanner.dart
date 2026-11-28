@@ -2200,8 +2200,15 @@ class KingNatSubsystemEngine {
     if (succeeded) _activeAdapters.add(id);
     _get('multi_engine_connector').record(
       _adapterEvidence['adapterInvocations'] ?? 0,
-      'adapter_${id}_${succeeded ? 'invoked' : 'failed'}',
-      complete: succeeded && allRequiredAdaptersConnected);
+      'adapter_${id}_${succeeded ? 'invoked' : 'failed'}_aggregate_proof_pending_${allRequiredAdaptersConnected}',
+      complete: false,
+    );
+    // A caller-supplied "all connected" flag is advisory only. The aggregate
+    // connector is promoted by _promoteStableTunnelDependents after the
+    // durable phase set, complete inventory, and stable TUN traffic all agree.
+    if (succeeded && allRequiredAdaptersConnected && _stableTrafficPasses > 0) {
+      _promoteStableTunnelDependents();
+    }
   }
 
   static Map<String, Object?> adapterEvidence() => <String, Object?>{
