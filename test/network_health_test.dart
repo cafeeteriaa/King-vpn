@@ -391,6 +391,36 @@ void main() {
       expect(noRoute.shouldCancel, isTrue);
     });
 
+    test('operator network type follows default-route interfaces, not all active links', () {
+      expect(
+        KingNetworkFingerprint.classifyDefaultRouteInterfaces(
+          const <String>['v4:wlan0:0101A8C0:00000064'],
+        ),
+        'wifi',
+      );
+      expect(
+        KingNetworkFingerprint.classifyDefaultRouteInterfaces(
+          const <String>['v4:rmnet_data0:281E140A:00000032'],
+        ),
+        'mob',
+      );
+      expect(
+        KingNetworkFingerprint.classifyDefaultRouteInterfaces(
+          const <String>[
+            'v4:wlan0:0101A8C0:00000064',
+            'v6:rmnet_data0:281E140A:00000032',
+          ],
+        ),
+        'mixed',
+      );
+      expect(
+        KingNetworkFingerprint.classifyDefaultRouteInterfaces(
+          const <String>['v4:tun0:0101A8C0:00000064'],
+        ),
+        'unknown',
+      );
+    });
+
     test('default route changes are detected even when both interfaces stay up', () {
       const interfaces = 'rmnet_data0|10.20.30.40;wlan0|192.168.1.10';
       final wifiRoute = KingNetworkFingerprint.withDefaultRoutes(
