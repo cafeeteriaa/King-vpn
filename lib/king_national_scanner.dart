@@ -1608,7 +1608,7 @@ class KingNationalScannerEngine {
               );
             }
           }
-          if (!stopped() && !shouldYield()) {
+          if (!stopped() && !shouldYield() && !sniResolutionDeferred) {
             await persistPhase(
               'sni',
               completed: false,
