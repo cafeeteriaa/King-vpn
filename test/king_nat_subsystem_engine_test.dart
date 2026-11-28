@@ -117,6 +117,43 @@ void main() {
       });
     });
 
+    test('single-destination traffic success is probe evidence, not stable validation', () {
+      KingNatSubsystemEngine.beginRun(nationalMode: true, sliceBudgetMs: 30000);
+      KingNatSubsystemEngine.recordTrafficValidation(
+        true, mode: 'national', destinations: 1,
+      );
+      var diagnostics = KingNatSubsystemEngine.diagnostics();
+      var validator = (diagnostics['engines'] as List)
+          .cast<Map>()
+          .firstWhere((row) => row['id'] == 'real_traffic_validator');
+      expect(validator['state'], 'partial');
+      expect((diagnostics['trafficValidation'] as Map)['passed'], 1);
+      expect((diagnostics['trafficValidation'] as Map)['stablePassed'], 0);
+
+      KingNatSubsystemEngine.recordTrafficValidation(
+        true, mode: 'national', destinations: 2, stable: true,
+      );
+      diagnostics = KingNatSubsystemEngine.diagnostics();
+      validator = (diagnostics['engines'] as List)
+          .cast<Map>()
+          .firstWhere((row) => row['id'] == 'real_traffic_validator');
+      expect(validator['state'], 'completed');
+      expect((diagnostics['trafficValidation'] as Map)['stablePassed'], 1);
+    });
+
+    test('stable flag cannot complete validation with fewer than two destinations', () {
+      KingNatSubsystemEngine.beginRun(nationalMode: false, sliceBudgetMs: 30000);
+      KingNatSubsystemEngine.recordTrafficValidation(
+        true, mode: 'global', destinations: 1, stable: true,
+      );
+      final diagnostics = KingNatSubsystemEngine.diagnostics();
+      final validator = (diagnostics['engines'] as List)
+          .cast<Map>()
+          .firstWhere((row) => row['id'] == 'real_traffic_validator');
+      expect(validator['state'], 'partial');
+      expect((diagnostics['trafficValidation'] as Map)['stableFailed'], 1);
+    });
+
     test('does not mark preflight-only work as real tunnel validation', () {
       KingNatSubsystemEngine.beginRun(nationalMode: true, sliceBudgetMs: 30000);
       KingNatSubsystemEngine.finishRun(
