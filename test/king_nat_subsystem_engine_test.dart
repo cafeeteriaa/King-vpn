@@ -378,21 +378,23 @@ void main() {
       KingNatSubsystemEngine.recordTransformationExecution(
         adapterId: 'fragment-v1', applied: true, tunnelTrafficPassed: true, coverageComplete: true,
       );
-      // A positive preliminary result is not stable tunnel proof.
+      // A preliminary result cannot register a pending repair.
       KingNatSubsystemEngine.recordRepairEvaluation(
         strategyId: 'repair-a', evaluated: true, changed: true,
-        tunnelImproved: true, coverageComplete: true,
+        tunnelImproved: false, coverageComplete: true,
       );
       expect(
         KingNatSubsystemEngine.adapterEvidence()['validatedRepairs'],
         isEmpty,
       );
-      KingNatSubsystemEngine.recordTrafficValidation(
-        true, mode: 'national', destinations: 2, stable: true,
-      );
+      // The exact changed strategy is registered immediately before the
+      // stable multi-destination proof; that proof validates only this ID.
       KingNatSubsystemEngine.recordRepairEvaluation(
         strategyId: 'repair-a', evaluated: true, changed: true,
         tunnelImproved: true, coverageComplete: true,
+      );
+      KingNatSubsystemEngine.recordTrafficValidation(
+        true, mode: 'national', destinations: 2, stable: true,
       );
       KingNatSubsystemEngine.recordCompatibilityEvaluation(evaluated: 5, accepted: 4, allResolved: true);
       engines = {
@@ -409,9 +411,18 @@ void main() {
       expect(evidence['validatedRepairs'], contains('repair-a'));
       // A stable traffic proof is single-use; it cannot validate a second
       // strategy without another fresh multi-destination check.
+      // A proof that happened before registration is stale and cannot be
+      // replayed to validate a later repair strategy.
       KingNatSubsystemEngine.recordRepairEvaluation(
         strategyId: 'repair-b', evaluated: true, changed: true,
         tunnelImproved: true, coverageComplete: true,
+      );
+      expect(
+        KingNatSubsystemEngine.adapterEvidence()['validatedRepairs'],
+        isNot(contains('repair-b')),
+      );
+      KingNatSubsystemEngine.recordTrafficValidation(
+        true, mode: 'national', destinations: 2, stable: true,
       );
       expect(
         KingNatSubsystemEngine.adapterEvidence()['validatedRepairs'],
