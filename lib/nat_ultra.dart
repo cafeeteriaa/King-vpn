@@ -2522,65 +2522,6 @@ List<String> _getCfIps({
   return out;
 }
 
-// Cursor-aware expansion so large CIDR catalogs are covered fairly across runs.
-(List<String>, int) _natExpandAnyCursor(String item, int cursor, int maxPerBlock) {
-  String? startIp;
-  int span = 0;
-  final raw = item.trim();
-  if (raw.contains('/')) {
-    final parts = raw.split('/');
-    if (parts.length != 2) return (<String>[], -1);
-    final ip = InternetAddress.tryParse(parts[0].trim());
-    final prefix = int.tryParse(parts[1]);
-    if (ip == null || prefix == null) return (<String>[], -1);
-    if (ip.type == InternetAddressType.IPv6) {
-      // Explicit IPv6 endpoints are supported. Broad IPv6 prefixes are not
-      // enumerated; the caller must supply an exact /128 endpoint.
-      if (prefix != 128) return (<String>[], -1);
-      if (cursor != 0 || maxPerBlock <= 0) return (<String>[], -1);
-      return (<String>[ip.address], -1);
-    }
-    if (prefix < 0 || prefix > 32) return (<String>[], -1);
-    final base = _ipToInt(ip.address) & (0xffffffff << (32 - prefix));
-    span = 1 << (32 - prefix);
-    startIp = _intToIp(base);
-  } else if (raw.contains('-')) {
-    final parts = raw.split('-');
-    if (parts.length != 2) return (<String>[], -1);
-    final a = InternetAddress.tryParse(parts[0].trim());
-    final b = InternetAddress.tryParse(parts[1].trim());
-    if (a == null || b == null ||
-        a.type != InternetAddressType.IPv4 ||
-        b.type != InternetAddressType.IPv4) {
-      return (<String>[], -1);
-    }
-    final first = _ipToInt(a.address);
-    final last = _ipToInt(b.address);
-    final low = min(first, last);
-    span = (max(first, last) - low) + 1;
-    startIp = _intToIp(low);
-  } else {
-    final ip = InternetAddress.tryParse(raw);
-    if (ip == null) return (<String>[], -1);
-    if (ip.type == InternetAddressType.IPv6) {
-      if (cursor != 0 || maxPerBlock <= 0) return (<String>[], -1);
-      return (<String>[ip.address], -1);
-    }
-    startIp = ip.address;
-    span = 1;
-  }
-  if (span <= 0 || cursor < 0 || maxPerBlock <= 0) return (<String>[], -1);
-  final base = _ipToInt(startIp);
-  final offset = cursor.clamp(0, span).toInt();
-  if (offset >= span) return (<String>[], -1);
-  final count = min(maxPerBlock, span - offset).toInt();
-  final out = <String>[];
-  for (var i = 0; i < count; i++) {
-    out.add(_intToIp(base + offset + i));
-  }
-  return (out, offset + count >= span ? -1 : offset + count);
-}
-
 // Cursor-aware exact endpoint and configured IPv4 range expansion.
 Map<String, dynamic> _genAddrsIso(Map<String, dynamic> args) {
   final int cfIpsBatch = args['cfIpsBatch'] as int;
