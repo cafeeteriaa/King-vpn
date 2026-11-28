@@ -159,6 +159,15 @@ class NatDnsWireProbe {
     final mappedV4 = address.take(10).every((byte) => byte == 0) &&
         address[10] == 0xff && address[11] == 0xff;
     if (mappedV4) return false; // IPv4-mapped IPv6
+    final compatibleV4 = address.take(12).every((byte) => byte == 0);
+    if (compatibleV4) return false; // deprecated ::/96 IPv4-compatible space
+    if (address[0] == 0xfe && (address[1] & 0xc0) == 0xc0) {
+      return false; // deprecated site-local fec0::/10
+    }
+    if (address[0] == 0x20 && address[1] == 0x01 &&
+        address[2] == 0x00 && (address[3] & 0xf0) == 0x10) {
+      return false; // ORCHID special-purpose range
+    }
     return true;
   }
 
