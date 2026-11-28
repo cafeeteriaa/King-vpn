@@ -640,7 +640,7 @@ class FreshResourceStore {
         }
       }
       if (batch.isNotEmpty) {
-          await _appendBatch(dir, batch);
+        await _appendBatch(dir, batch);
       }
       await legacy.rename('${legacy.path}.migrated');
     }
