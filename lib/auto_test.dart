@@ -1907,7 +1907,7 @@ static void _resetCoreDeadStreak() { _atCoreDeadStreak = 0; }
         .toList();
     // IPSWEEP: IP‌ها اول با ترافیک تونل سنجیده می‌شوند؛ فقط IP‌های ترافیک‌دار در پروژه می‌مانند
     autoTestText.value = 'سنجش IP تمیز با تونل...';
-    final ipWin = await _atIpSweep(healthy); // Full range inventory; cancellation remains authoritative.
+    final ipWin = await _atIpSweep(healthy, timeSlice: const Duration(minutes: 30)); // Resumable work slice; total inventory has no ceiling.
     if (ipWin.isNotEmpty) {
       cleanIps = List<CleanIp>.of(ipWin);
       cleanIpsAt = DateTime.now();
