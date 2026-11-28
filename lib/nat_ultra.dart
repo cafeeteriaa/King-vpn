@@ -2223,12 +2223,6 @@ bool _natIranRangeRefreshBusy = false;
 /// country registry data, the existing Iranian ISP inventory, and the active
 /// network ASN's currently announced BGP prefixes. Failed refreshes never
 /// replace or clear the last known-good inventory.
-bool _natIranRangeRefreshBusy = false;
-
-/// Refresh the national scanner's durable range inventory from authoritative
-/// country registry data, the existing Iranian ISP inventory, and the active
-/// network ASN's currently announced BGP prefixes. Failed refreshes never
-/// replace or clear the last known-good inventory.
 Future<bool> natRefreshIranRangeInventory({bool force = false}) async {
   if (_natIranRangeRefreshBusy) return false;
   _natIranRangeRefreshBusy = true;
