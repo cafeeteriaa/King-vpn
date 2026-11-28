@@ -2213,6 +2213,33 @@ Future<bool> natRefreshIranRangeInventory({bool force = false}) async {
   _natIranRangeRefreshBusy = true;
   try {
     final prefs = await SharedPreferences.getInstance();
+
+    // Seed Net Melli from the maintained Iranian ISP inventory even when
+    // external registry services are unreachable. This is a one-way additive
+    // migration: no previously saved range or cursor is discarded.
+    final seedRanges = <String>{...natRanges, ...kIrIspRanges}
+        .toList(growable: false);
+    if (seedRanges.length != natRanges.length) {
+      final seedSet = seedRanges.toSet();
+      final seedCursors = Map<String, int>.of(_natConfiguredRangeCursors)
+        ..removeWhere((range, _) => !seedSet.contains(range));
+      for (final range in seedRanges) {
+        seedCursors.putIfAbsent(range, () => 0);
+      }
+      await _natWriteJsonSnapshot(
+        'king_nat_configured_ranges.json',
+        seedRanges,
+      );
+      natRanges = seedRanges;
+      _natConfiguredRangeCursors
+        ..clear()
+        ..addAll(seedCursors);
+      _natConfiguredRangeCursor = seedRanges.isEmpty
+          ? 0
+          : _natConfiguredRangeCursor.clamp(0, seedRanges.length - 1).toInt();
+      await _natRangeStateSave();
+    }
+
     final now = DateTime.now();
     final lastSuccess = DateTime.fromMillisecondsSinceEpoch(
       prefs.getInt('natIranRangeRefreshSuccessMs') ?? 0,
