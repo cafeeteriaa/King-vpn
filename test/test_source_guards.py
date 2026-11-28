@@ -2260,7 +2260,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('maxPerBlock == null || cursor.addressCount <= maxPerBlock', cidr)
         self.assertIn('maxCount == null || cursor.addressCount <= maxCount', dash)
         ultra_start = ultra.index('List<String> natExpandAny(')
-        self.assertIn('if (maxPerBlock <= 0) return const [];', ultra[ultra_start:ultra_start + 180])
+        self.assertIn('if (maxPerBlock != null && maxPerBlock <= 0)', ultra[ultra_start:ultra_start + 220])
 
 
     def test_auto_tls_probes_bound_handshake_and_always_close_sockets(self):
