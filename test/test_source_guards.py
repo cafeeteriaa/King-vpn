@@ -111,6 +111,16 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('networkAware: true', main)
         self.assertIn('final urls = nationalMode ? _tunnelTestUrlsNational', main)
 
+    def test_proxy_mode_requires_real_core_proxy_traffic_before_connect_success(self):
+        main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        start = main.index('Future<bool> _tunnelTrafficOk() async {')
+        end = main.index('Future<bool> _stableTunnelTrafficOk(', start)
+        probe = main[start:end]
+        self.assertNotIn('if (proxyMode) return true;', probe)
+        self.assertIn('_siteOpens(u, viaCore: true)', probe)
+        self.assertIn('recordTrafficValidation(', probe)
+        self.assertIn('mode: nationalMode ? \'national\' : \'global\'', probe)
+
     def test_code_changes_are_pinned_to_the_official_repository(self):
         ai = (ROOT / 'lib' / 'king_local_ai.dart').read_text(encoding='utf-8')
         self.assertIn("static const String _repositoryOwner = 'cafeeteriaa';", ai)
