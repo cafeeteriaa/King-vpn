@@ -127,6 +127,8 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         end = source.index("if (shouldRunPhase('config')", start)
         sni = source[start:end]
         self.assertIn('if (ip == null)', sni)
+        self.assertIn('address.type == InternetAddressType.IPv4', sni)
+        self.assertIn('address.type == InternetAddressType.IPv6', sni)
         unresolved = sni[sni.index('if (ip == null)'):sni.index('if (ip != null)')]
         self.assertIn("persistPhase(\n              'sni'", unresolved)
         self.assertIn("'candidateIndex': -1", unresolved)
