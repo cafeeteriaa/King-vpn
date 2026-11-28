@@ -8,12 +8,12 @@ import 'package:path_provider/path_provider.dart';
 
 /// Persistent, bounded-memory store for offline VPN profiles.
 ///
-/// Four million is a storage capacity, not an in-memory List capacity.
+/// The inventory has no configured record-count ceiling. Four-million-entry
+/// soak tests remain a validation milestone, not a production capacity limit.
 /// Profiles are split across 256 append-only JSONL shards and read as a Stream.
 class FreshResourceStore {
   FreshResourceStore._();
 
-  static const int maxEntries = 4000000;
   static const int shardCount = 256;
   static const int _batchSize = 4096;
   static const int _bloomBytesPerShard = 32768;
@@ -119,7 +119,6 @@ class FreshResourceStore {
       final link = normalizeLink(value);
       if (link == null) continue;
       if (seen.add(_id(link))) result.add(link);
-      if (result.length >= maxEntries) break;
     }
     return result;
   }
@@ -165,8 +164,7 @@ class FreshResourceStore {
     final snapshot = <String, Object?>{
       'schema': 2,
       'source': source,
-      'count': count.clamp(0, maxEntries),
-      'capacity': maxEntries,
+      'count': count,
       'shards': shardCount,
       'updatedAt': now,
     };
@@ -235,7 +233,7 @@ class FreshResourceStore {
 
   /// Returns the next bounded offline batch and persists per-shard byte offsets.
   /// The cursor rotates through every shard, so repeated offline searches can
-  /// eventually consume the full four-million-entry inventory without loading it.
+  /// eventually consume the complete on-device inventory without loading it.
   static Future<List<String>> readBatch({int limit = 300, Directory? root}) async {
     if (limit <= 0) return <String>[];
     final dir = await directory(root: root);
@@ -342,7 +340,7 @@ class FreshResourceStore {
   }
 
   /// Compatibility API. Prefer readPreview/streamLinks for large inventories.
-  static Future<List<String>> readLinks({int limit = maxEntries, Directory? root}) async {
+  static Future<List<String>> readLinks({int limit = 0x7fffffffffffffff, Directory? root}) async {
     final result = <String>[];
     if (limit <= 0) return result;
     await for (final link in streamLinks(root: root)) {
@@ -361,9 +359,6 @@ class FreshResourceStore {
     var total = 0;
     await for (final _ in streamLinks(root: root)) {
       total++;
-      if (total > maxEntries) {
-        throw StateError('Resource inventory exceeds configured capacity.');
-      }
     }
     return total;
   }
@@ -384,11 +379,10 @@ class FreshResourceStore {
     final metadata = await _readMetadata(dir);
     final dirty = File('${dir.path}/$_dirtyFileName');
     final cached = metadata['count'];
-    if (!await dirty.exists() && cached is int && cached >= 0 && cached <= maxEntries) return cached;
+    if (!await dirty.exists() && cached is int && cached >= 0) return cached;
     var total = 0;
     await for (final _ in streamLinks(root: root)) {
       total++;
-      if (total >= maxEntries) break;
     }
     await _writeMetadata(dir, total, source: 'recount');
     if (await dirty.exists()) await dirty.delete();
@@ -443,16 +437,14 @@ class FreshResourceStore {
     return bits;
   }
 
-  static Future<int> _appendBatch(Directory dir, List<String> links,
-      {int maxAdds = maxEntries}) async {
-    if (maxAdds <= 0) return 0;
+  static Future<int> _appendBatch(Directory dir, List<String> links) async {
     final grouped = <String, Map<String, String>>{};
     for (final link in links) {
       final id = _id(link);
       grouped.putIfAbsent(_shard(id), () => <String, String>{})[id] = link;
     }
     var added = 0;
-    groupLoop: for (final group in grouped.entries) {
+    for (final group in grouped.entries) {
       final file = await _shardFile(dir, group.key);
       final bloom = await _loadShardBloom(dir, group.key);
       final wanted = <String>{
@@ -488,7 +480,6 @@ class FreshResourceStore {
       try {
         if (needsSeparator) sink.write('\n');
         for (final entry in group.value.entries) {
-          if (added >= maxAdds) break groupLoop;
           if (!existing.add(entry.key)) continue;
           sink.writeln(jsonEncode(<String, Object?>{
             'v': 1, 'id': entry.key, 'link': entry.value,
@@ -506,7 +497,7 @@ class FreshResourceStore {
   }
 
   /// Merges lazily in small batches. RAM usage is bounded by the batch and one
-  /// shard's matching identities, not by the total four-million-record store.
+  /// shard's matching identities, not by the total inventory size.
   static Future<int> merge(Iterable<String> links,
       {String source = 'online', Directory? root}) async {
     final dir = await directory(root: root);
@@ -521,22 +512,18 @@ class FreshResourceStore {
       if (link == null) continue;
       batch.add(link);
       if (batch.length < _batchSize) continue;
-      final remaining = maxEntries - total;
-      if (remaining <= 0) break;
       await File('${dir.path}/$_dirtyFileName').writeAsString('1', flush: true);
-      final added = await _appendBatch(dir, batch, maxAdds: remaining);
-      total = (total + added).clamp(0, maxEntries).toInt();
+      final added = await _appendBatch(dir, batch);
+      total += added;
       batch = <String>[];
       await _writeMetadata(dir, total, source: source);
       final dirty = File('${dir.path}/$_dirtyFileName');
       if (await dirty.exists()) await dirty.delete();
-      if (total >= maxEntries) break;
     }
-    if (batch.isNotEmpty && total < maxEntries) {
-      final remaining = maxEntries - total;
+    if (batch.isNotEmpty) {
       await File('${dir.path}/$_dirtyFileName').writeAsString('1', flush: true);
-      final added = await _appendBatch(dir, batch, maxAdds: remaining);
-      total = (total + added).clamp(0, maxEntries).toInt();
+      final added = await _appendBatch(dir, batch);
+      total += added;
       await _writeMetadata(dir, total, source: source);
       final dirty = File('${dir.path}/$_dirtyFileName');
       if (await dirty.exists()) await dirty.delete();
@@ -573,7 +560,7 @@ class FreshResourceStore {
       }
       if (await stageRoot.exists()) await stageRoot.delete(recursive: true);
       final total = await merge(links, source: source, root: stageRoot);
-      if (total <= 0 || total > maxEntries) {
+      if (total <= 0) {
         throw StateError('Fresh resource refresh produced no valid profiles; previous inventory preserved.');
       }
       final verified = await verifyCount(root: stageRoot);
@@ -649,15 +636,12 @@ class FreshResourceStore {
         if (link == null) continue;
         batch.add(link);
         if (batch.length >= _batchSize) {
-          final remaining = maxEntries - migrated;
-          if (remaining <= 0) break;
-          migrated += await _appendBatch(dir, batch, maxAdds: remaining);
+          migrated += await _appendBatch(dir, batch);
           batch = <String>[];
         }
       }
-      if (batch.isNotEmpty && migrated < maxEntries) {
-        final remaining = maxEntries - migrated;
-        await _appendBatch(dir, batch, maxAdds: remaining);
+      if (batch.isNotEmpty) {
+        migrated += await _appendBatch(dir, batch);
       }
       await legacy.rename('${legacy.path}.migrated');
     }
@@ -675,11 +659,9 @@ class FreshResourceStore {
               row['link'] is String &&
               _id(row['link'] as String) == row['id']) {
             total++;
-            if (total >= maxEntries) break;
-          }
+                }
         } catch (_) {}
       }
-      if (total >= maxEntries) break;
     }
     await _writeMetadata(dir, total, source: 'migration');
     await marker.writeAsString('v2', flush: true);
@@ -692,7 +674,6 @@ class FreshResourceStore {
     return <String, Object?>{
       ...value,
       'count': await count(root: root),
-      'capacity': maxEntries,
     };
   }
 
