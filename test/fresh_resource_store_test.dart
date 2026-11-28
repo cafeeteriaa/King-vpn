@@ -4,10 +4,11 @@ import 'dart:convert';
 import 'package:flutter_test/flutter_test.dart';
 import '../lib/fresh_resource_store.dart';
 
+const int fourMillionSoakEntries = 4000000;
+
 void main() {
-  group('FreshResourceStore capacity and normalization', () {
-    test('declares four million persistent entries and sharded streaming', () {
-      expect(FreshResourceStore.maxEntries, 4000000);
+  group('FreshResourceStore unbounded inventory and normalization', () {
+    test('keeps the four-million disk soak as a validation target, not a capacity ceiling', () {
       expect(FreshResourceStore.shardCount, 256);
     });
 
@@ -159,7 +160,7 @@ void main() {
       final watch = Stopwatch()..start();
       try {
         Iterable<String> profiles() sync* {
-          for (var i = 0; i < FreshResourceStore.maxEntries; i++) {
+          for (var i = 0; i < fourMillionSoakEntries; i++) {
             final suffix = i.toRadixString(16).padLeft(12, '0');
             yield 'vless://00000000-0000-4000-8000-$suffix@n$i.example:443?encryption=none&security=tls&type=tcp';
           }
@@ -170,9 +171,9 @@ void main() {
           source: 'four-million-soak',
           root: root,
         );
-        expect(total, FreshResourceStore.maxEntries);
-        expect(await FreshResourceStore.count(root: root), FreshResourceStore.maxEntries);
-        expect(await FreshResourceStore.verifyCount(root: root), FreshResourceStore.maxEntries);
+        expect(total, fourMillionSoakEntries);
+        expect(await FreshResourceStore.count(root: root), fourMillionSoakEntries);
+        expect(await FreshResourceStore.verifyCount(root: root), fourMillionSoakEntries);
         final first = await FreshResourceStore.readBatch(limit: 300, root: root);
         final second = await FreshResourceStore.readBatch(limit: 300, root: root);
         expect(first, hasLength(300));
@@ -251,14 +252,14 @@ void main() {
       }
     });
 
-    test('fills the final capacity slot even when earlier batch entries are duplicates', () async {
-      final root = await Directory.systemTemp.createTemp('king-offline-capacity-edge-');
+    test('continues appending beyond the four-million validation milestone', () async {
+      final root = await Directory.systemTemp.createTemp('king-offline-unbounded-edge-');
       try {
         const existing = 'vless://already-stored@example.test:443';
         await FreshResourceStore.merge(<String>[existing], root: root);
         final folder = Directory(root.path + '/' + FreshResourceStore.directoryName);
         await File(folder.path + '/metadata.json').writeAsString(
-          '{"schema":2,"count":3999999,"capacity":4000000}',
+          '{"schema":2,"count":4000000}',
           flush: true,
         );
         Iterable<String> incoming() sync* {
@@ -268,7 +269,7 @@ void main() {
           }
         }
 
-        expect(await FreshResourceStore.merge(incoming(), root: root), 4000000);
+        expect(await FreshResourceStore.merge(incoming(), root: root), 4004095);
         final stored = await FreshResourceStore.readLinks(limit: 10, root: root);
         expect(stored, hasLength(2));
         expect(stored, contains(existing));
