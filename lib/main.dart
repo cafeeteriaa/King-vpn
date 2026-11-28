@@ -10460,7 +10460,8 @@ ListTile( // KINGEXTRAS row
     if (connected) return;
     _natFetched = false;
     await natDetectOperator(); // NATULTRA: per-operator learning
-    final networkFingerprint = await NatNetworkDiagnosis.identityFingerprint();
+    final networkFingerprint = await NatNetworkDiagnosis.identityFingerprint()
+        .timeout(const Duration(seconds: 2), onTimeout: () => '');
     KingNatSubsystemEngine.recordNetworkIdentity(
       fingerprintHash: networkFingerprint,
       operatorIdentity: natOpKey,
