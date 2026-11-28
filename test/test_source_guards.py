@@ -2964,16 +2964,18 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('final ipv6 = PilotIpv6Probe.current;', diagnostics)
         self.assertIn('Future<NetworkEvidence> refreshPilotNetworkEvidence', engine)
 
-    def test_offline_resource_store_is_four_million_and_disk_streamed(self):
+    def test_offline_resource_store_has_no_artificial_count_ceiling_and_is_disk_streamed(self):
         store = (ROOT / 'lib' / 'fresh_resource_store.dart').read_text(encoding='utf-8')
         page = (ROOT / 'lib' / 'fresh_resources_page.dart').read_text(encoding='utf-8')
-        self.assertIn('static const int maxEntries = 4000000;', store)
+        self.assertNotIn('maxEntries', store)
+        self.assertIn('no configured record-count ceiling', store)
         self.assertIn('static const int shardCount = 256;', store)
         self.assertIn('static Stream<String> streamLinks({Directory? root})', store)
         self.assertIn('openRead()', store)
         self.assertIn('static Future<List<String>> readPreview({int limit = 100, Directory? root})', store)
         self.assertIn('FreshResourceStore.readPreview(limit: 100)', page)
         self.assertNotIn('FreshResourceStore.readLinks()', page)
+        self.assertIn('سقف عددی ثابت ندارد', page)
         main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
         self.assertIn('FreshResourceStore.readBatch(limit: 300)', main)
         self.assertNotIn('FreshResourceStore.readLinks()', main)
