@@ -327,6 +327,19 @@ void main() {
       expect(evidence['validatedRepairs'], contains('repair-a'));
     });
 
+    test('config planning resolves the capability catalog without claiming adapters are active', () {
+      KingNatSubsystemEngine.beginRun(nationalMode: true, sliceBudgetMs: 30000);
+      KingNatSubsystemEngine.recordConfigPlan(8);
+      final diagnostics = KingNatSubsystemEngine.diagnostics();
+      final engines = {
+        for (final row in diagnostics['engines'] as List)
+          (row as Map)['id'] as String: row,
+      };
+      expect(engines['capability_orchestrator']!['state'], 'completed');
+      expect(engines['multi_engine_connector']!['state'], 'running');
+      expect((diagnostics['adapterEvidence'] as Map)['adapterInvocations'], 0);
+    });
+
     test('capability and connector engines require successful resolution/invocation', () {
       KingNatSubsystemEngine.beginRun(nationalMode: false, sliceBudgetMs: 30000);
       KingNatSubsystemEngine.recordCapabilityResolution(resolved: 3, unresolved: 1);
