@@ -1528,24 +1528,14 @@ final Map<String, DateTime> _natAsnTry = {};
 
 Future<String> _natNetType() async {
   try {
-    final l = await NetworkInterface.list(
-        includeLoopback: false, type: InternetAddressType.IPv4);
-    var wifi = false, mob = false;
-    for (final i in l) {
-      if (i.addresses.isEmpty) continue;
-      final n = i.name.toLowerCase();
-      if (n.startsWith('wlan') || n.startsWith('wifi')) {
-        wifi = true;
-      } else if (n.contains('rmnet') ||
-          n.startsWith('ccmni') ||
-          n.startsWith('pdp')) {
-        mob = true;
-      }
-    }
-    return wifi ? 'wifi' : (mob ? 'mob' : 'net');
+    final fingerprint = await KingNetworkFingerprint.capture();
+    final separator = fingerprint.indexOf('#');
+    if (separator < 0) return 'unknown';
+    final routes = fingerprint.substring(separator + 1).split(';');
+    return KingNetworkFingerprint.classifyDefaultRouteInterfaces(routes);
   } catch (e, stk) {
     logError(e, stk);
-    return 'net';
+    return 'unknown';
   }
 }
 
