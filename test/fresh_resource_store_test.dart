@@ -270,10 +270,10 @@ void main() {
         }
 
         expect(await FreshResourceStore.merge(incoming(), root: root), 4004095);
-        final stored = await FreshResourceStore.readLinks(limit: 10, root: root);
-        expect(stored, hasLength(10));
+        final stored = await FreshResourceStore.streamLinks(root: root).toList();
+        expect(stored, hasLength(4096));
         expect(stored, contains(existing));
-        expect(stored.any((link) => link.contains('new-')), isTrue);
+        expect(stored.where((link) => link.contains('new-')), hasLength(4095));
       } finally {
         await root.delete(recursive: true);
       }
