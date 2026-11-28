@@ -121,6 +121,19 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('recordTrafficValidation(', probe)
         self.assertIn('mode: nationalMode ? \'national\' : \'global\'', probe)
 
+    def test_repair_validation_is_bound_to_the_immediately_following_stable_tunnel_proof(self):
+        scanner = (ROOT / 'lib' / 'king_national_scanner.dart').read_text(encoding='utf-8')
+        main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        self.assertIn('_pendingRepairStrategyId', scanner)
+        self.assertIn('final pendingRepair = _pendingRepairStrategyId;', scanner)
+        self.assertIn('_pendingRepairStrategyId = null;', scanner)
+        start = main.index('Future<bool> _stableTunnelTrafficOk(Server server)')
+        end = main.index('Future<void> _verifyPendingConnect(', start)
+        stable = main[start:end]
+        self.assertLess(stable.index('recordRepairEvaluation('),
+                        stable.index('recordTrafficValidation('))
+        self.assertIn('if (stable && validatedVariant != 0)', stable)
+
     def test_sni_scanner_preserves_unresolved_target_cursor_and_never_fakes_coverage(self):
         source = (ROOT / 'lib' / 'king_national_scanner.dart').read_text(encoding='utf-8')
         start = source.index("if (shouldRunPhase('sni')")
