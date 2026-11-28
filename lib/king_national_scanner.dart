@@ -1637,6 +1637,10 @@ class KingNatSubsystemEngine {
     _operatorIdentity = 'unknown';
     _lastFailure = '';
     _completedPhases.clear();
+    _adapterEvidence.updateAll((key, value) => 0);
+    _activeAdapters.clear();
+    _validatedTransformations.clear();
+    _validatedRepairs.clear();
     for (final engine in _engines) {
       engine.state = KingNatSubsystemState.idle;
       engine.evidence = 0;
@@ -1814,6 +1818,125 @@ class KingNatSubsystemEngine {
     );
   }
 
+  // Adapter-level evidence counters. Planning/config parsing never increments these.
+  static final Map<String, int> _adapterEvidence = <String, int>{
+    'udpProbes': 0, 'udpResponses': 0, 'cdnCandidates': 0,
+    'cdnHandshakes': 0, 'cdnTunnelPasses': 0, 'transformAttempts': 0,
+    'transformTunnelPasses': 0, 'compatibilityEvaluations': 0,
+    'compatibilityAccepted': 0, 'repairEvaluations': 0,
+    'repairTunnelImprovements': 0, 'capabilityResolutions': 0,
+    'adapterInvocations': 0,
+  };
+  static final Set<String> _activeAdapters = <String>{};
+  static final Set<String> _validatedTransformations = <String>{};
+  static final Set<String> _validatedRepairs = <String>{};
+
+  static void _incrementEvidence(String key, int amount) {
+    _adapterEvidence[key] = (_adapterEvidence[key] ?? 0) + (amount < 0 ? 0 : amount);
+  }
+
+  /// UDP discovery is complete only after the supplied durable range is exhausted.
+  /// A socket open or outbound datagram alone is not a discovered endpoint.
+  static void recordUdpDiscovery({
+    required int probes, required int responses, required bool rangeComplete,
+  }) {
+    _incrementEvidence('udpProbes', probes);
+    _incrementEvidence('udpResponses', responses);
+    final valid = probes > 0 && responses > 0;
+    final engine = _get('scanner');
+    engine.record(responses, 'udp_responses_${responses}_probes_${probes}',
+      complete: rangeComplete && valid && _completedPhases.containsAll(const {'dns','domain','ip','sni'}));
+    if (!rangeComplete) engine.state = KingNatSubsystemState.partial;
+  }
+
+  /// CDN validation distinguishes DNS/TLS reachability from traffic through TUN.
+  static void recordCdnValidation({
+    required int candidates, required int successfulHandshakes,
+    required int tunnelPasses, required bool inventoryComplete,
+  }) {
+    _incrementEvidence('cdnCandidates', candidates);
+    _incrementEvidence('cdnHandshakes', successfulHandshakes);
+    _incrementEvidence('cdnTunnelPasses', tunnelPasses);
+    final engine = _get('compatibility');
+    final valid = candidates > 0 && successfulHandshakes > 0 && tunnelPasses > 0;
+    engine.record(tunnelPasses, 'cdn_candidates_${candidates}_tls_${successfulHandshakes}_tun_${tunnelPasses}',
+      complete: inventoryComplete && valid);
+  }
+
+  /// Only a transformation applied by a real active-core adapter and followed
+  /// by successful tunnel traffic counts as implemented runtime evidence.
+  static void recordTransformationExecution({
+    required String adapterId, required bool applied,
+    required bool tunnelTrafficPassed,
+  }) {
+    final id = adapterId.trim();
+    if (id.isEmpty) return;
+    _incrementEvidence('transformAttempts', 1);
+    if (applied) _activeAdapters.add(id);
+    if (applied && tunnelTrafficPassed) {
+      _incrementEvidence('transformTunnelPasses', 1);
+      _validatedTransformations.add(id);
+    }
+    final engine = _get('dpi_traffic_transformation');
+    engine.record(_validatedTransformations.length,
+      'runtime_adapters_${_activeAdapters.length}_tunnel_validated_${_validatedTransformations.length}',
+      complete: _validatedTransformations.isNotEmpty);
+  }
+
+  /// Repair learning is accepted only when a changed strategy improves a
+  /// measured request through the connected tunnel; scores alone are not proof.
+  static void recordRepairEvaluation({
+    required String strategyId, required bool evaluated,
+    required bool changed, required bool tunnelImproved,
+  }) {
+    final id = strategyId.trim();
+    if (!evaluated || id.isEmpty) return;
+    _incrementEvidence('repairEvaluations', 1);
+    if (changed && tunnelImproved) {
+      _incrementEvidence('repairTunnelImprovements', 1);
+      _validatedRepairs.add(id);
+    }
+    final engine = _get('ai_repair_optimization');
+    engine.record(_validatedRepairs.length,
+      'evaluated_${_adapterEvidence['repairEvaluations']}_validated_improvements_${_validatedRepairs.length}',
+      complete: _validatedRepairs.isNotEmpty);
+  }
+
+  static void recordCompatibilityEvaluation({
+    required int evaluated, required int accepted, required bool allResolved,
+  }) {
+    _incrementEvidence('compatibilityEvaluations', evaluated);
+    _incrementEvidence('compatibilityAccepted', accepted);
+    _get('compatibility').record(accepted,
+      'evaluated_${evaluated}_accepted_${accepted}',
+      complete: evaluated > 0 && allResolved);
+  }
+
+  static void recordCapabilityResolution({required int resolved, required int unresolved}) {
+    _incrementEvidence('capabilityResolutions', resolved);
+    _get('capability_orchestrator').record(resolved,
+      'resolved_${resolved}_unresolved_${unresolved}',
+      complete: resolved > 0 && unresolved == 0);
+  }
+
+  static void recordAdapterInvocation({required String adapterId, required bool succeeded}) {
+    final id = adapterId.trim();
+    if (id.isEmpty) return;
+    _incrementEvidence('adapterInvocations', 1);
+    if (succeeded) _activeAdapters.add(id);
+    _get('multi_engine_connector').record(
+      _adapterEvidence['adapterInvocations'] ?? 0,
+      'adapter_${id}_${succeeded ? 'invoked' : 'failed'}',
+      complete: succeeded);
+  }
+
+  static Map<String, Object?> adapterEvidence() => <String, Object?>{
+    ..._adapterEvidence,
+    'activeAdapters': _activeAdapters.toList()..sort(),
+    'validatedTransformations': _validatedTransformations.toList()..sort(),
+    'validatedRepairs': _validatedRepairs.toList()..sort(),
+  };
+
   static void finishRun({
     required bool cancelled, required bool yielded,
     required bool deferred, required bool inventoryComplete,
@@ -1911,6 +2034,7 @@ class KingNatSubsystemEngine {
     'plannedVariants': _plannedVariants,
     'completedPhases': _completedPhases.toList()..sort(),
     'lastFailure': _lastFailure,
+    'adapterEvidence': adapterEvidence(),
     'engines': _engines.map((engine) => engine.toMap()).toList(growable: false),
   };
 }
