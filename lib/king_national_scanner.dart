@@ -1808,9 +1808,18 @@ class KingNatSubsystemEngine {
     final partial = cancelled || yielded || deferred;
     _get('connection_orchestrator').record(1, partial ? 'scan_slice_preserved' : 'preflight_completed', complete: !partial);
     final resource = _get('resource_health_manager');
-    if (yielded || deferred) {
+    if (yielded || deferred || cancelled) {
       resource.state = KingNatSubsystemState.deferred;
       resource.detail = 'yielded_with_cursor_preserved';
+    } else if (inventoryComplete && _workers > 0 && _sliceBudgetMs > 0 && _batchPorts > 0) {
+      resource.record(
+        _workers,
+        'resource_budget_applied_and_inventory_pass_finished',
+        complete: true,
+      );
+    } else {
+      resource.state = KingNatSubsystemState.partial;
+      resource.detail = 'resource_budget_applied_inventory_or_phase_work_remains';
     }
     final discovery = _get('discovery');
     if (inventoryComplete && !partial) {
