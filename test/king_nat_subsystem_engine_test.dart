@@ -363,8 +363,15 @@ void main() {
     test('adapter evidence is reset between independent network runs', () {
       KingNatSubsystemEngine.beginRun(nationalMode: true, sliceBudgetMs: 30000);
       KingNatSubsystemEngine.recordTransformationExecution(
-        adapterId: 'fragment-v1', applied: true, tunnelTrafficPassed: true,
+        adapterId: 'fragment-v1',
+        applied: true,
+        tunnelTrafficPassed: true,
+        coverageComplete: true,
       );
+      final beforeReset = KingNatSubsystemEngine.adapterEvidence();
+      expect(beforeReset['transformAttempts'], 1);
+      expect(beforeReset['validatedTransformations'], contains('fragment-v1'));
+
       KingNatSubsystemEngine.beginRun(nationalMode: false, sliceBudgetMs: 30000);
       final evidence = KingNatSubsystemEngine.adapterEvidence();
       expect(evidence['transformAttempts'], 0);
