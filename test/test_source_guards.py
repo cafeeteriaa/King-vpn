@@ -2917,6 +2917,28 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('budget: null,', scanner)
         self.assertIn('onCursor?.call(rangeIndex, offset)', scanner)
 
+    def test_cloudflare_ip_sweep_streams_full_ranges_without_sample_or_winner_caps(self):
+        main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        start = main.index('Future<List<CleanIp>> _atIpSweep(')
+        end = main.index('\n  }', start)
+        sweep = main[start:end]
+        self.assertIn('natScanAddressRanges(', sweep)
+        self.assertIn('collectHits: false,', sweep)
+        self.assertIn('onHits: (batch) => validateHits(batch, port),', sweep)
+        self.assertNotIn('maxPerBlock:', sweep)
+        self.assertNotIn('want:', sweep)
+        self.assertNotIn('scanDeadline', sweep)
+        self.assertNotIn('winners.length >=', sweep)
+        self.assertNotIn('difference(t0) > budget', sweep)
+
+    def test_automatic_ip_range_inventory_has_no_fixed_range_count_ceiling(self):
+        main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        start = main.index('List<String> _atAutoRanges(')
+        end = main.index('\n  }', start)
+        inventory = main[start:end]
+        self.assertNotIn('blocks.length >=', inventory)
+        self.assertIn('blocks.add(', inventory)
+
     def test_connection_strategy_matrix_has_no_global_variant_count_ceiling(self):
         main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
         nat = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
