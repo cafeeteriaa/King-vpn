@@ -8958,7 +8958,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           changed: true,
           tunnelImproved: true,
           coverageComplete: false,
-          stableTunnelProof: false,
         );
         dbg('نردبان: ${s.name} با حالت «${_natSpecs[v].name}» از تونل واقعی جواب داد');
         return true;
@@ -9083,7 +9082,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         changed: validatedVariant != 0,
         tunnelImproved: validatedVariant != 0,
         coverageComplete: false,
-        stableTunnelProof: true,
       );
       if (server.cdn && !server.reality) {
         KingNatSubsystemEngine.recordCdnValidation(
