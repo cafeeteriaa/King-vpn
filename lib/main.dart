@@ -17509,7 +17509,8 @@ extension ProjectNatSweep on _HomePageState {
         const {'360', 'qq'}.contains(x.fp); // NEWFP
   }
 
-  // AUTORANGE: بلوک‌های /24 سرورهای IP دار برنامه، بدون دخالت کاربر
+  // AUTORANGE: collect every distinct /24 represented by known IP servers.
+  // This is an inventory builder, not a result cap or sampling policy.
   List<String> _atAutoRanges(List<Server> servers) {
     final blocks = <String>{};
     for (final x in servers) {
@@ -17517,16 +17518,14 @@ extension ProjectNatSweep on _HomePageState {
       final p = x.host.split('.');
       if (p.length != 4) continue;
       blocks.add('${p[0]}.${p[1]}.${p[2]}.0/24');
-      if (blocks.length >= 200) break;
     }
-    return blocks.toList();
+    return blocks.toList()..sort();
   }
 
-  // IPSWEEP: هر IP تمیز را با اتصال واقعی روی یک سرور پشت کلودفلر امتحان می‌کند.
-  // فقط IP‌هایی که ترافیک تونل (google و youtube) بدهند نگه داشته می‌شوند (حداکثر ۱۰ تا).
-  // IPSWEEP: IP‌های باز را روی همه‌ی پورت‌های CDN (_natCfPorts) پیدا می‌کند، سپس هر جفت IP:پورت
-  // را با اتصال واقعی و بررسی تونل (google و youtube) می‌سنجد. فقط جفت‌های ترافیک‌دار نگه داشته می‌شوند.
-  Future<List<CleanIp>> _atIpSweep(List<Server> pool, Duration budget) async {
+  // IPSWEEP: lazily traverse every configured range for every configured CDN
+  // port. TCP hits are streamed slice-by-slice into the real tunnel validator;
+  // no sampled IP list, per-port hit ceiling, wall-clock cutoff, or winner cap.
+  Future<List<CleanIp>> _atIpSweep(List<Server> pool) async {
     Server? server;
     for (final x in pool) {
       if (_natCdnNets.contains(x.net)) {
@@ -17543,70 +17542,65 @@ extension ProjectNatSweep on _HomePageState {
       return <CleanIp>[];
     }
 
-    // بازه‌ها: کلودفلر + بلوک‌های /24 سرورهای خود برنامه
-    final ranges = <String>[..._cfRanges, ..._atAutoRanges(good)];
-    final pool2 = <String>[];
-    for (final r in ranges) {
-      pool2.addAll(natExpandCidr(r, maxPerBlock: 128));
-    }
-    pool2.shuffle(Random());
-
-    // FIXSWEEP: سقف کل مرحله‌ی «اسکن» ۳۵ ثانیه است. قبلاً هر پورت جداگانه ۳۵ ثانیه
-    // بود (۷ پورت ⇒ تا ~۴ دقیقه) و بودجه‌ی ۴۵ ثانیه‌ای فقط روی مرحله‌ی تست کاندیدها اثر داشت.
-    // لغو کاربر (abort) هم اسکن را متوقف می‌کند.
-    final scanDeadline = DateTime.now().add(const Duration(seconds: 35));
-    final opened = <CleanIp>[];
-    for (final port in _natCfPorts) {
-      if (abort || AutoTestEngine._abortRequested) break;
-      final left = scanDeadline.difference(DateTime.now());
-      if (left <= Duration.zero) break;
-      final hits = await natScanIps(pool2,
-          port: port,
-          concurrency: 24,
-          want: 20,
-          budget: left,
-          cancelled: () => abort || AutoTestEngine._abortRequested);
-      for (final h in hits) {
-        opened.add(CleanIp(h.ip, h.ms, port));
-      }
-    }
-    dbg('IPSCAN: ${opened.length} جفت IP:پورت باز');
-    var cands = opened;
-    if (cands.isEmpty && !abort) {
-      cands = [for (final ip in await _cleanCandidates()) CleanIp(ip, 0, 443)];
-    }
-
+    final ranges = <String>{..._cfRanges, ..._atAutoRanges(good)}.toList()..sort();
     final winners = <CleanIp>[];
     final saved = List<CleanIp>.of(cleanIps);
     final key = _nk(sv);
-    final prevNatVar = natVar[key]; // FIXSWEEP: حالت یادگرفته‌شده‌ی قبلی را پاک نکن
-    final t0 = DateTime.now();
+    final prevNatVar = natVar[key];
     final prevWant = wantVpn;
-    try {
-      wantVpn = true;
-      for (var i = 0; i < cands.length; i++) {
-        if (abort || AutoTestEngine._abortRequested || AutoTestEngine._phase != _AtPhase.running) break;
-        if (winners.length >= 10) break;
-        if (DateTime.now().difference(t0) > budget) break;
-        final c = cands[i];
-        cleanIps = [c];
+
+    Future<void> validateHits(List<NatIpHit> hits, int port) async {
+      for (final hit in hits) {
+        if (abort || AutoTestEngine._abortRequested ||
+            AutoTestEngine._phase != _AtPhase.running) return;
+        final candidate = CleanIp(hit.ip, hit.ms, port);
+        cleanIps = <CleanIp>[candidate];
         natVar[key] = vIdx;
-        autoTestText.value = 'سنجش IP تمیز ${winners.length}/10 • ${i + 1}/${cands.length}';
-        var ok = false;
+        autoTestText.value =
+            'سنجش IP تمیز با ترافیک تونل • ${winners.length} موفق • پورت $port';
+        var passed = false;
         try {
           if (await _start(sv)) {
             await Future.delayed(const Duration(seconds: 2));
-            ok = await _tunnelTrafficOk();
+            passed = await _tunnelTrafficOk();
           }
         } catch (e, stk) {
           logError(e, stk);
         } finally {
           await _stopV2();
         }
-        if (ok) winners.add(c);
+        if (passed) winners.add(candidate);
+      }
+    }
+
+    try {
+      wantVpn = true;
+      for (final port in _natCfPorts) {
+        if (abort || AutoTestEngine._abortRequested ||
+            AutoTestEngine._phase != _AtPhase.running) break;
+        await natScanAddressRanges(
+          ranges,
+          port: port,
+          concurrency: natAdaptiveWorkers(),
+          timeout: const Duration(milliseconds: 1500),
+          cancelled: () => abort || AutoTestEngine._abortRequested ||
+              AutoTestEngine._phase != _AtPhase.running,
+          randomizeWithinSlice: true,
+          collectHits: false,
+          onHits: (batch) => validateHits(batch, port),
+        );
+      }
+
+      // Keep the existing saved-clean-IP fallback, but validate it through the
+      // same real tunnel path when no configured range produced a TCP hit.
+      if (winners.isEmpty && !abort && !AutoTestEngine._abortRequested) {
+        final fallback = await _cleanCandidates();
+        await validateHits(
+          <NatIpHit>[for (final ip in fallback) NatIpHit(ip, 0)],
+          443,
+        );
       }
     } finally {
-      // FIXSWEEP: اگر کاربر وسط اسکن قطع کرده، wantVpn نباید دوباره true شود
       wantVpn = prevWant && !abort;
       if (prevNatVar != null) {
         natVar[key] = prevNatVar;
@@ -17615,6 +17609,7 @@ extension ProjectNatSweep on _HomePageState {
       }
       cleanIps = saved;
     }
+    dbg('IPSWEEP: ${winners.length} IP with verified tunnel traffic');
     return winners;
   }
 }
