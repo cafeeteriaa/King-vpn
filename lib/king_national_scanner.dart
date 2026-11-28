@@ -1983,16 +1983,19 @@ class KingNatSubsystemEngine {
     required int domesticIpv6, required int globalIpv6,
     required double confidence,
   }) {
-    _domesticTls = domesticTls;
-    _globalTls = globalTls;
-    _domesticIpv6 = domesticIpv6;
-    _globalIpv6 = globalIpv6;
-    _confidence = confidence.clamp(0.0, 1.0).toDouble();
+    _domesticTls = _nonNegative(domesticTls);
+    _globalTls = _nonNegative(globalTls);
+    _domesticIpv6 = _nonNegative(domesticIpv6);
+    _globalIpv6 = _nonNegative(globalIpv6);
+    _confidence = confidence.isFinite
+        ? confidence.clamp(0.0, 1.0).toDouble()
+        : 0.0;
+    final totalEvidence =
+        _domesticTls + _globalTls + _domesticIpv6 + _globalIpv6;
     _get('network_intelligence').record(
-      domesticTls + globalTls + domesticIpv6 + globalIpv6,
+      totalEvidence,
       'route_evidence_confidence_${_confidence.toStringAsFixed(2)}',
-      complete: domesticTls + globalTls + domesticIpv6 + globalIpv6 >= 2 &&
-          _confidence >= 0.60,
+      complete: totalEvidence >= 2 && _confidence >= 0.60,
     );
   }
 
@@ -2084,13 +2087,15 @@ class KingNatSubsystemEngine {
     required int destinations,
     bool stable = false,
   }) {
-    final safeDestinations = destinations < 0 ? 0 : destinations;
-    if (success) {
+    final safeDestinations = _nonNegative(destinations);
+    // An empty/invalid destination set cannot become a successful traffic sample.
+    final validSuccess = success && safeDestinations > 0;
+    if (validSuccess) {
       _trafficPasses++;
     } else {
       _trafficFailures++;
     }
-    final stableProof = stable && success && safeDestinations >= 2;
+    final stableProof = stable && validSuccess && safeDestinations >= 2;
     if (stable) {
       if (stableProof) {
         _stableTrafficPasses++;
@@ -2100,7 +2105,7 @@ class KingNatSubsystemEngine {
     }
     _get('real_traffic_validator').record(
       safeDestinations,
-      'mode_${mode}_${success ? 'passed' : 'failed'}_destinations_${safeDestinations}_${stableProof ? 'stable' : 'probe_only'}',
+      'mode_${mode}_${validSuccess ? 'passed' : 'failed'}_destinations_${safeDestinations}_${stableProof ? 'stable' : 'probe_only'}',
       complete: stableProof,
     );
     if (stableProof) _promoteStableTunnelDependents();
@@ -2152,8 +2157,11 @@ class KingNatSubsystemEngine {
   static final Set<String> _validatedTransformations = <String>{};
   static final Set<String> _validatedRepairs = <String>{};
 
+  static int _nonNegative(int value) => value < 0 ? 0 : value;
+
   static void _incrementEvidence(String key, int amount) {
-    _adapterEvidence[key] = (_adapterEvidence[key] ?? 0) + (amount < 0 ? 0 : amount);
+    _adapterEvidence[key] =
+        (_adapterEvidence[key] ?? 0) + _nonNegative(amount);
   }
 
   /// UDP discovery is complete only after the supplied durable range is exhausted.
@@ -2162,14 +2170,22 @@ class KingNatSubsystemEngine {
     required int probes, required int responses, required bool rangeComplete,
     required bool fullInventoryComplete,
   }) {
-    _incrementEvidence('udpProbes', probes);
-    _incrementEvidence('udpResponses', responses);
-    final valid = probes > 0 && responses > 0;
+    final safeProbes = _nonNegative(probes);
+    final safeResponses = responses.clamp(0, safeProbes).toInt();
+    _incrementEvidence('udpProbes', safeProbes);
+    _incrementEvidence('udpResponses', safeResponses);
+    final valid = safeProbes > 0 && safeResponses > 0;
     final engine = _get('scanner');
-    engine.record(responses, 'udp_responses_${responses}_probes_${probes}',
+    engine.record(
+      safeResponses,
+      'udp_responses_${safeResponses}_probes_${safeProbes}',
       complete: rangeComplete && fullInventoryComplete && valid &&
-          _completedPhases.containsAll(const {'dns','domain','ip','sni'}));
-    if (!rangeComplete) engine.state = KingNatSubsystemState.partial;
+          _completedPhases.containsAll(const {'dns','domain','ip','sni'}),
+    );
+    if (!rangeComplete || safeResponses != responses) {
+      engine.state = KingNatSubsystemState.partial;
+      engine.detail = 'udp_evidence_inconsistent_or_range_incomplete';
+    }
   }
 
   /// CDN validation distinguishes DNS/TLS reachability from traffic through TUN.
@@ -2177,13 +2193,20 @@ class KingNatSubsystemEngine {
     required int candidates, required int successfulHandshakes,
     required int tunnelPasses, required bool inventoryComplete,
   }) {
-    _incrementEvidence('cdnCandidates', candidates);
-    _incrementEvidence('cdnHandshakes', successfulHandshakes);
-    _incrementEvidence('cdnTunnelPasses', tunnelPasses);
+    final safeCandidates = _nonNegative(candidates);
+    final safeHandshakes =
+        successfulHandshakes.clamp(0, safeCandidates).toInt();
+    final safeTunnelPasses =
+        tunnelPasses.clamp(0, safeHandshakes).toInt();
+    _incrementEvidence('cdnCandidates', safeCandidates);
+    _incrementEvidence('cdnHandshakes', safeHandshakes);
+    _incrementEvidence('cdnTunnelPasses', safeTunnelPasses);
     final engine = _get('compatibility');
-    engine.record(tunnelPasses,
-      'cdn_candidates_${candidates}_tls_${successfulHandshakes}_tun_${tunnelPasses}_inventory_complete_${inventoryComplete}',
-      complete: false); // CDN evidence is one compatibility dimension, not the whole matrix.
+    engine.record(
+      safeTunnelPasses,
+      'cdn_candidates_${safeCandidates}_tls_${safeHandshakes}_tun_${safeTunnelPasses}_inventory_complete_${inventoryComplete}',
+      complete: false,
+    ); // CDN evidence is one compatibility dimension, not the whole matrix.
   }
 
   /// Only a transformation applied by a real active-core adapter and followed
@@ -2229,18 +2252,29 @@ class KingNatSubsystemEngine {
   static void recordCompatibilityEvaluation({
     required int evaluated, required int accepted, required bool allResolved,
   }) {
-    _incrementEvidence('compatibilityEvaluations', evaluated);
-    _incrementEvidence('compatibilityAccepted', accepted);
-    _get('compatibility').record(accepted,
-      'evaluated_${evaluated}_accepted_${accepted}',
-      complete: evaluated > 0 && allResolved);
+    final safeEvaluated = _nonNegative(evaluated);
+    final safeAccepted = accepted.clamp(0, safeEvaluated).toInt();
+    _incrementEvidence('compatibilityEvaluations', safeEvaluated);
+    _incrementEvidence('compatibilityAccepted', safeAccepted);
+    _get('compatibility').record(
+      safeAccepted,
+      'evaluated_${safeEvaluated}_accepted_${safeAccepted}',
+      complete: safeEvaluated > 0 && allResolved,
+    );
   }
 
-  static void recordCapabilityResolution({required int resolved, required int unresolved}) {
-    _incrementEvidence('capabilityResolutions', resolved);
-    _get('capability_orchestrator').record(resolved,
-      'resolved_${resolved}_unresolved_${unresolved}',
-      complete: resolved > 0 && unresolved == 0);
+  static void recordCapabilityResolution({
+    required int resolved,
+    required int unresolved,
+  }) {
+    final safeResolved = _nonNegative(resolved);
+    final safeUnresolved = _nonNegative(unresolved);
+    _incrementEvidence('capabilityResolutions', safeResolved);
+    _get('capability_orchestrator').record(
+      safeResolved,
+      'resolved_${safeResolved}_unresolved_${safeUnresolved}',
+      complete: safeResolved > 0 && safeUnresolved == 0,
+    );
   }
 
   static void recordAdapterInvocation({required String adapterId, required bool succeeded,
