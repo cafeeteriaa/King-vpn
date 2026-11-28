@@ -1748,9 +1748,7 @@ class KingNatSubsystemEngine {
     );
   }
 
-  /// Called only from a real request through the active core/TUN, never from
-  /// ping, DNS, a TLS handshake, or a structural config check.
-  /// Records a real request through the active core/TUN.
+  /// Records a real request through the active core/TUN, never a preflight probe.
   /// A single successful destination confirms connectivity, but it is not
   /// sufficient to mark the validator complete. Completion requires an
   /// explicit stable multi-destination check (at least two destinations).
@@ -1776,7 +1774,7 @@ class KingNatSubsystemEngine {
     }
     _get('real_traffic_validator').record(
       safeDestinations,
-      'mode_${mode}_${success ? 'passed' : 'failed'}_destinations_$safeDestinations_${stableProof ? 'stable' : 'probe_only'}',
+      'mode_${mode}_${success ? 'passed' : 'failed'}_destinations_${safeDestinations}_${stableProof ? 'stable' : 'probe_only'}',
       complete: stableProof,
     );
   }
