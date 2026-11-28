@@ -624,33 +624,11 @@ class FreshResourceStore {
     });
   }
 
-  static Future<int> _countValidShardRecords(Directory dir) async {
-    var total = 0;
-    final shards = dir.list(followLinks: false).where((entity) =>
-        entity is File && RegExp(r'^[0-9a-f]{2}\.jsonl$')
-            .hasMatch(entity.uri.pathSegments.last));
-    await for (final entity in shards) {
-      final file = entity as File;
-      final shard = file.uri.pathSegments.last.substring(0, 2);
-      await for (final line in file.openRead()
-          .transform(utf8.decoder).transform(const LineSplitter())) {
-        try {
-          final row = jsonDecode(line);
-          if (row is Map && row['v'] == 1 && row['id'] is String &&
-              row['link'] is String && _id(row['link'] as String) == row['id'] &&
-              _shard(row['id'] as String) == shard) total++;
-        } catch (_) {}
-      }
-    }
-    return total;
-  }
-
   static Future<void> _migrateLegacyImpl(Directory dir) async {
     final marker = File('${dir.path}/.migration_v2_done');
     if (await marker.exists()) return;
     final legacy = File('${dir.path}/$_legacyFileName');
     if (await legacy.exists()) {
-      var migratedCount = await _countValidShardRecords(dir);
       var batch = <String>[];
       await for (final line in legacy.openRead()
           .transform(utf8.decoder)
@@ -659,12 +637,12 @@ class FreshResourceStore {
         if (link == null) continue;
         batch.add(link);
         if (batch.length >= _batchSize) {
-          migratedCount += await _appendBatch(dir, batch);
+          await _appendBatch(dir, batch);
           batch = <String>[];
         }
       }
       if (batch.isNotEmpty) {
-        migratedCount += await _appendBatch(dir, batch);
+        await _appendBatch(dir, batch);
       }
       // Preserve the original source for recovery until migration is verified.
       await legacy.rename('${legacy.path}.migrated');
