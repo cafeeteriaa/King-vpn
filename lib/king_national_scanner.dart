@@ -1526,16 +1526,16 @@ class KingNationalScannerEngine {
       }
       final didCancel = cancelled() || nationalMode != modeSnapshot;
       final didYield = shouldYield();
+      if (!didCancel && !didYield && !phaseDeferred) {
+        await beginPhase('complete');
+        await completePhase('complete');
+      }
       KingNatSubsystemEngine.finishRun(
         cancelled: didCancel,
         yielded: didYield,
         deferred: phaseDeferred,
         inventoryComplete: natRangeInventoryPassComplete,
       );
-      if (!didCancel && !didYield && !phaseDeferred) {
-        await beginPhase('complete');
-        await completePhase('complete');
-      }
       _scanPhase = didCancel ? KingNatScanPhase.cancelled : KingNatScanPhase.complete;
       if (didYield) warnings.add('scan_slice_yielded_cursor_preserved');
       if (kNatIpScanOn && !natRangeInventoryPassComplete &&
@@ -2105,8 +2105,17 @@ class KingNatSubsystemEngine {
       validator.detail = 'requires_connected_tunnel_probe';
     }
     final connector = _get('multi_engine_connector');
+    const requiredScanAdapters = <String>{
+      'net_melli_scan_phase_dns',
+      'net_melli_scan_phase_domain',
+      'net_melli_scan_phase_ip',
+      'net_melli_scan_phase_sni',
+      'net_melli_scan_phase_config',
+      'net_melli_scan_phase_complete',
+    };
     if (!partial && inventoryComplete &&
         _completedPhases.containsAll(const {'dns', 'domain', 'ip', 'sni', 'config', 'complete'}) &&
+        _activeAdapters.containsAll(requiredScanAdapters) &&
         _stableTrafficPasses > 0) {
       connector.record(
         _adapterEvidence['adapterInvocations'] ?? 0,
