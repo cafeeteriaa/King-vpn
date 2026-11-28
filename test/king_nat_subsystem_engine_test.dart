@@ -89,6 +89,45 @@ void main() {
       );
     });
 
+    test('preserves adaptive resource budgets without coordinator-level fixed caps', () {
+      KingNatSubsystemEngine.beginRun(nationalMode: true, sliceBudgetMs: 30000);
+      KingNatSubsystemEngine.recordResourceBudget(
+        workers: 256,
+        sliceBudgetMs: 7200000,
+        batchPorts: 100000,
+      );
+      final diagnostics = KingNatSubsystemEngine.diagnostics();
+      expect(diagnostics['workers'], 256);
+      expect(diagnostics['sliceBudgetMs'], 7200000);
+      expect(diagnostics['batchPorts'], 100000);
+    });
+
+    test('a completed scan phase does not falsely complete the full scanner or inventory', () {
+      KingNatSubsystemEngine.beginRun(nationalMode: true, sliceBudgetMs: 30000);
+      KingNatSubsystemEngine.recordDiscoveryInventory(
+        ipv4Resources: 2400,
+        ipv6Resources: 36,
+      );
+      KingNatSubsystemEngine.phaseStarted('ip');
+      KingNatSubsystemEngine.phaseCompleted('ip', evidence: 2400);
+      KingNatSubsystemEngine.finishRun(
+        cancelled: false,
+        yielded: false,
+        deferred: false,
+        inventoryComplete: false,
+      );
+      final engines = {
+        for (final row in KingNatSubsystemEngine.diagnostics()['engines'] as List)
+          (row as Map)['id'] as String: row,
+      };
+      expect(engines['discovery']!['state'], 'partial');
+      expect(engines['scanner']!['state'], 'partial');
+      expect(
+        engines['discovery']!['detail'],
+        'inventory_continues_from_durable_cursor',
+      );
+    });
+
     test('clears prior route and inventory evidence at the next scan start', () {
       KingNatSubsystemEngine.beginRun(nationalMode: true, sliceBudgetMs: 30000);
       KingNatSubsystemEngine.recordNetworkEvidence(
