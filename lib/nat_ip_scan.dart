@@ -185,6 +185,36 @@ class NatCountryPrefixSnapshot {
     );
   }
 
+  static List<String> parseIpv6PrefixList(Object? raw) {
+    if (raw is! List) return const <String>[];
+    final result = <String>{};
+    for (final item in raw) {
+      final value = item.toString().trim();
+      if (value.isEmpty) continue;
+      final parts = value.split('/');
+      if (parts.length > 2) continue;
+      final address = InternetAddress.tryParse(parts.first.trim());
+      if (address == null || address.type != InternetAddressType.IPv6) continue;
+      final prefix = parts.length == 1 ? 128 : int.tryParse(parts[1].trim());
+      if (prefix == null || prefix < 0 || prefix > 128) continue;
+      result.add(address.address + '/' + prefix.toString());
+    }
+    return result.toList()..sort();
+  }
+
+  static List<String> parseAnnouncedIpv6(Object? payload) {
+    if (payload is! Map || payload['status'] != 'ok') return const <String>[];
+    final data = payload['data'];
+    if (data is! Map || data['prefixes'] is! List) return const <String>[];
+    final values = <String>[];
+    for (final item in data['prefixes'] as List) {
+      if (item is Map && item['prefix'] != null) {
+        values.add(item['prefix'].toString());
+      }
+    }
+    return parseIpv6PrefixList(values);
+  }
+
   static List<String> parseAnnouncedIpv4(Object? payload) {
     if (payload is! Map || payload['status'] != 'ok') return const <String>[];
     final data = payload['data'];

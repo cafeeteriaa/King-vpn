@@ -2624,6 +2624,9 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('prefix > 128', parser)
         self.assertIn("address.type != InternetAddressType.IPv6", parser)
         self.assertIn('parseAnnouncedIpv4', parser)
+        self.assertIn('parseAnnouncedIpv6', parser)
+        self.assertIn('parseIpv6PrefixList', parser)
+        self.assertIn('natIranIpv6Prefixes', (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8'))
         self.assertNotIn('NatAddressRangeCursor.parse(value)', parser[parser.index('void readIpv6'):parser.index('void readAsns')])
 
     def test_strategy_history_has_unbounded_disk_backed_persistence(self):

@@ -1740,6 +1740,7 @@ const String _rangeKey = 'natRanges';
 final List<Map<String, dynamic>> natIpMem = [];
 final Set<String> natIpDeadRun = {};
 List<String> natRanges = [];
+List<String> natIranIpv6Prefixes = [];
 int natRangeCursor = 0; // legacy generic range cursor
 int _natConfiguredRangeCursor = 0; // next configured-range entry
 final Map<String, int> _natConfiguredRangeCursors = <String, int>{};
@@ -2016,6 +2017,20 @@ Future<void> natIpMemLoad() async {
       await _natWriteJsonSnapshot('king_nat_configured_ranges.json', natRanges);
     }
     await _natRangeStateLoad(prefs);
+    final countrySourcesFile =
+        await _natMemoryFile('king_nat_country_prefix_sources.json');
+    if (await countrySourcesFile.exists()) {
+      try {
+        final sourceState = jsonDecode(await countrySourcesFile.readAsString());
+        if (sourceState is Map) {
+          natIranIpv6Prefixes = NatCountryPrefixSnapshot.parseIpv6PrefixList(
+            sourceState['ipv6Prefixes'],
+          );
+        }
+      } catch (e, stk) {
+        logError(e, stk);
+      }
+    }
   } catch (e, stk) {
     logError(e, stk);
   }
@@ -2286,6 +2301,7 @@ Future<bool> natRefreshIranRangeInventory({bool force = false}) async {
       activeAsn = '';
     }
     final announced = <String>[];
+    final announcedIpv6 = <String>[];
     if (RegExp(r'^[0-9]{1,10}
   443, 2053, 2083, 2087, 2096, 8443, 80, 8080, 8880, 2052, 2082, 2086, 2095,
   8444, 9443, 4443, 5443, 6443, 7443, 10443, 2222, 8000, 8008, 8888, 3128, 1080,
@@ -3368,10 +3384,12 @@ bool _isWorkerOutbound(Map o) {
         final response = await http.get(announcedUri)
             .timeout(const Duration(seconds: 15));
         if (response.statusCode == 200) {
+          final announcedPayload = jsonDecode(response.body);
           announced.addAll(
-            NatCountryPrefixSnapshot.parseAnnouncedIpv4(
-              jsonDecode(response.body),
-            ),
+            NatCountryPrefixSnapshot.parseAnnouncedIpv4(announcedPayload),
+          );
+          announcedIpv6.addAll(
+            NatCountryPrefixSnapshot.parseAnnouncedIpv6(announcedPayload),
           );
         }
       } catch (e, stk) {
@@ -3388,6 +3406,11 @@ bool _isWorkerOutbound(Map o) {
       ...announced,
     }.toList(growable: false);
     if (merged.isEmpty) return false;
+    final ipv6Merged = <String>{
+      ...natIranIpv6Prefixes,
+      ...country.ipv6,
+      ...announcedIpv6,
+    }.toList()..sort();
 
     final mergedSet = merged.toSet();
     final nextCursors = Map<String, int>.of(_natConfiguredRangeCursors)
@@ -3403,6 +3426,7 @@ bool _isWorkerOutbound(Map o) {
     // intact if the source fetch or atomic snapshot write fails.
     await _natWriteJsonSnapshot('king_nat_configured_ranges.json', merged);
     natRanges = merged;
+    natIranIpv6Prefixes = ipv6Merged;
     _natConfiguredRangeCursors
       ..clear()
       ..addAll(nextCursors);
@@ -3418,6 +3442,8 @@ bool _isWorkerOutbound(Map o) {
         'fetchedAt': now.toUtc().toIso8601String(),
         'registryAsns': country.asns,
         'registryIpv6Prefixes': country.ipv6,
+        'activeAsnAnnouncedIpv6Prefixes': announcedIpv6,
+        'ipv6Prefixes': ipv6Merged,
         'activeNetworkType': networkType,
         'activeAsn': activeAsn.isEmpty ? null : 'AS$activeAsn',
         'activeAsnAnnouncedIpv4Count': announced.length,

@@ -73,6 +73,19 @@ void main() {
         NatCountryPrefixSnapshot.parseAnnouncedIpv4({'status': 'error'}),
         isEmpty,
       );
+      expect(
+        NatCountryPrefixSnapshot.parseAnnouncedIpv6({
+          'status': 'ok',
+          'data': {
+            'prefixes': [
+              {'prefix': '2001:db8::/32'},
+              {'prefix': '2.144.0.0/18'},
+              {'prefix': '2001:db8::/129'},
+            ],
+          },
+        }),
+        ['2001:db8::/32'],
+      );
     });
   });
 }
