@@ -8874,7 +8874,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     if (!nationalMode) natVarNormal.remove(s.key);
     // IPSWEEP-PROJECT: فقط در نت ملی
     if (nationalMode && socialGate != null && cleanIps.isEmpty) {
-      final w = await _atIpSweep(_usable(), const Duration(seconds: 45)); // کوتاه: قبلاً ۲۰ دقیقه بود و اتصال را قفل می‌کرد
+      final w = await _atIpSweep(_usable()); // پیمایش مرحله‌ای با Cursor پایدار؛ بدون مهلت مصنوعی
       if (abort || !wantVpn) return false; // FIXLADDERABORT: کاربر وسط اسکن لغو کرده
       if (w.isNotEmpty) {
         cleanIps = List<CleanIp>.of(w);
