@@ -1598,6 +1598,8 @@ class KingNatSubsystemEngine {
   static int _batchPorts = 0;
   static int _trafficPasses = 0;
   static int _trafficFailures = 0;
+  static int _stableTrafficPasses = 0;
+  static int _stableTrafficFailures = 0;
   static int _ipv4Resources = 0;
   static int _ipv6Resources = 0;
   static int _plannedVariants = 0;
@@ -1618,6 +1620,8 @@ class KingNatSubsystemEngine {
     _batchPorts = 0;
     _trafficPasses = 0;
     _trafficFailures = 0;
+    _stableTrafficPasses = 0;
+    _stableTrafficFailures = 0;
     _ipv4Resources = 0;
     _ipv6Resources = 0;
     _plannedVariants = 0;
@@ -1746,16 +1750,34 @@ class KingNatSubsystemEngine {
 
   /// Called only from a real request through the active core/TUN, never from
   /// ping, DNS, a TLS handshake, or a structural config check.
-  static void recordTrafficValidation(bool success, {required String mode, required int destinations}) {
+  /// Records a real request through the active core/TUN.
+  /// A single successful destination confirms connectivity, but it is not
+  /// sufficient to mark the validator complete. Completion requires an
+  /// explicit stable multi-destination check (at least two destinations).
+  static void recordTrafficValidation(
+    bool success, {
+    required String mode,
+    required int destinations,
+    bool stable = false,
+  }) {
+    final safeDestinations = destinations < 0 ? 0 : destinations;
     if (success) {
       _trafficPasses++;
     } else {
       _trafficFailures++;
     }
+    final stableProof = stable && success && safeDestinations >= 2;
+    if (stable) {
+      if (stableProof) {
+        _stableTrafficPasses++;
+      } else {
+        _stableTrafficFailures++;
+      }
+    }
     _get('real_traffic_validator').record(
-      destinations < 0 ? 0 : destinations,
-      'mode_${mode}_${success ? 'passed' : 'failed'}_destinations_${destinations}',
-      complete: success,
+      safeDestinations,
+      'mode_${mode}_${success ? 'passed' : 'failed'}_destinations_$safeDestinations_${stableProof ? 'stable' : 'probe_only'}',
+      complete: stableProof,
     );
   }
 
@@ -1818,7 +1840,10 @@ class KingNatSubsystemEngine {
       'confidence': _confidence,
     },
     'operatorIdentity': _operatorIdentity,
-    'trafficValidation': <String, int>{'passed': _trafficPasses, 'failed': _trafficFailures},
+    'trafficValidation': <String, int>{
+      'passed': _trafficPasses, 'failed': _trafficFailures,
+      'stablePassed': _stableTrafficPasses, 'stableFailed': _stableTrafficFailures,
+    },
     'plannedVariants': _plannedVariants,
     'lastFailure': _lastFailure,
     'engines': _engines.map((engine) => engine.toMap()).toList(growable: false),
