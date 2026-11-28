@@ -2576,7 +2576,11 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('while (!stopped() && !shouldYield() && !natRangeInventoryPassComplete)', body)
         self.assertIn('Duration sliceBudget = const Duration(seconds: 60)', source)
         self.assertIn('final portCount = max(1, natAutoPorts(seeds).length).toInt();', source)
-        self.assertIn('final batchAddressBudget = (workers * batchWaves).clamp(1, 768).toInt();', source)
+        self.assertIn('final batchAddressBudget = max(1, workers * batchWaves).toInt();', source)
+        self.assertNotIn('clamp(1, 768)', source)
+        ultra = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
+        self.assertIn('concurrency: natAdaptiveConcurrency(conc)', ultra)
+        self.assertNotIn('concurrency: conc.clamp(1, 32)', ultra)
         self.assertIn('sliceYielded: didYield', source)
 
     def test_nat_inventory_and_range_cursors_are_disk_backed_without_retention_caps(self):
