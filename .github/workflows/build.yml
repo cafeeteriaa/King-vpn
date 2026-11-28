@@ -2,13 +2,14 @@ name: King VPN Android CI
 
 on:
   push:
-    branches: [main, master]
+    branches: [main, master, feat/net-melli-runtime-hardening-20261128]
   pull_request:
   workflow_dispatch:
 
 concurrency:
   group: android-${{ github.ref }}
-  cancel-in-progress: false
+  # New commits supersede stale runs on the same branch; the newest head gets the full blocking test/build pipeline.
+  cancel-in-progress: true
 
 permissions:
   contents: read
@@ -62,7 +63,7 @@ jobs:
       - name: Resolve Flutter dependencies
         working-directory: build_app
         run: |
-          flutter pub add http webview_flutter flutter_v2ray_client:3.5.0 installed_apps:1.6.0 permission_handler workmanager url_launcher crypto:^3.0.3 flutter_secure_storage:^9.2.2 local_inference:0.1.1 local_inference_flutter:0.1.1 path_provider package_info_plus speech_to_text:^7.4.0 cryptography:^2.7.0 flutter_tts:^4.2.3
+          flutter pub add http webview_flutter flutter_v2ray_client:3.5.0 installed_apps:1.6.0 permission_handler workmanager url_launcher crypto:^3.0.3 flutter_secure_storage:^9.2.2 local_inference:0.1.1 local_inference_flutter:0.1.1 path_provider package_info_plus cross_file share_plus speech_to_text:^7.4.0 cryptography:^2.7.0 flutter_tts:^4.2.3
           flutter pub get
 
       - name: Patch V2Ray plugin
@@ -71,7 +72,6 @@ jobs:
 
       - name: Run focused national scanner tests
         id: scanner_tests
-        continue-on-error: true
         working-directory: build_app
         run: |
           set -o pipefail
@@ -79,7 +79,6 @@ jobs:
 
       - name: Run durable scanner journal tests
         id: scanner_memory_tests
-        continue-on-error: true
         working-directory: build_app
         run: |
           set -o pipefail
@@ -87,7 +86,6 @@ jobs:
 
       - name: Run Net Melli IPv4/IPv6 endpoint tests
         id: net_melli_ip_tests
-        continue-on-error: true
         working-directory: build_app
         run: |
           set -o pipefail
@@ -95,11 +93,18 @@ jobs:
 
       - name: Run unit tests
         id: unit_tests
-        continue-on-error: true
         working-directory: build_app
         run: |
           set -o pipefail
           flutter test 2>&1 | tee test.log
+
+      - name: Run four-million offline resource soak
+        if: github.event_name == 'pull_request' && contains(fromJSON('[88,89]'), github.event.pull_request.number)
+        timeout-minutes: 60
+        working-directory: build_app
+        run: |
+          set -o pipefail
+          flutter test test/fresh_resource_store_test.dart --dart-define=KING_RUN_4M_SOAK=true --reporter expanded 2>&1 | tee offline-4m-soak.log
 
       - name: Normalize plugin compile SDK
         shell: bash

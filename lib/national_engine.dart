@@ -208,13 +208,18 @@ class NatNetworkDiagnosis {
 
   /// Network identity from local interfaces (no native code). Hashed, so the
   /// cache can tell "same network" from "network changed" without storing IPs.
+  /// Public privacy-safe fingerprint for the 13-engine identity registry.
+  /// Uses the shared physical-interface + default-route snapshot and returns
+  /// only SHA-256; raw interface addresses never leave this method.
+  static Future<String> identityFingerprint() => _identityHash();
+
   static Future<String> _identityHash() async {
     try {
-      final ifs = await NetworkInterface.list(includeLoopback: false);
-      final parts = <String>[
-        for (final i in ifs) for (final a in i.addresses) '${i.name}=${a.address}',
-      ]..sort();
-      return sha256.convert(utf8.encode(parts.join(';'))).toString();
+      // Include active IPv4/IPv6 default routes. Interface addresses alone
+      // miss Wi-Fi↔cellular egress changes when both links remain connected.
+      final fingerprint = await KingNetworkFingerprint.capture();
+      if (fingerprint.trim().isEmpty) return '';
+      return sha256.convert(utf8.encode(fingerprint)).toString();
     } catch (_) {
       return '';
     }
@@ -274,7 +279,7 @@ class NatNetworkDiagnosis {
     try {
       final at = _checkedAt;
       final id = await _identityHash();
-      if (!force && at != null && id == _identityAtCheck &&
+      if (!force && id.isNotEmpty && at != null && id == _identityAtCheck &&
           DateTime.now().difference(at) < _ttl) {
         return current;
       }
@@ -374,7 +379,8 @@ class PilotNetworkProbe {
   static Future<NetworkEvidence> _refresh({required bool force}) async {
     final identity = await _networkIdentity();
     final lastAt = _lastAt;
-    if (!force && lastAt != null && identity == _lastIdentity &&
+    if (!force && identity.isNotEmpty && lastAt != null &&
+        identity == _lastIdentity &&
         DateTime.now().difference(lastAt) < const Duration(minutes: 2)) {
       return _last;
     }
@@ -437,13 +443,11 @@ class PilotNetworkProbe {
 
   static Future<String> _networkIdentity() async {
     try {
-      final interfaces = await NetworkInterface.list(includeLoopback: false);
-      final values = <String>[
-        for (final item in interfaces)
-          for (final address in item.addresses)
-            '${item.name}=${address.address}',
-      ]..sort();
-      return sha256.convert(utf8.encode(values.join(';'))).toString();
+      // Share the route-aware physical fingerprint with the scan guard so
+      // cached TLS/IPv6 evidence expires immediately after default-egress
+      // changes even when Wi-Fi and cellular interfaces are both still up.
+      final fingerprint = await KingNetworkFingerprint.capture();
+      return sha256.convert(utf8.encode(fingerprint)).toString();
     } catch (_) {
       return '';
     }
@@ -498,7 +502,8 @@ class PilotIpv6Probe {
   static Future<PilotIpv6Evidence> _refresh({required bool force}) async {
     final identity = await PilotNetworkProbe._networkIdentity();
     final lastAt = _lastAt;
-    if (!force && lastAt != null && identity == _lastIdentity &&
+    if (!force && identity.isNotEmpty && lastAt != null &&
+        identity == _lastIdentity &&
         DateTime.now().difference(lastAt) < const Duration(minutes: 2)) {
       return _last;
     }
@@ -573,7 +578,12 @@ PilotNetworkStrategy corroboratePilotStrategy(
     return PilotNetworkStrategy.preserve;
   }
   if (pilot == PilotNetworkStrategy.offline &&
-      diagnosis != NatNetworkClass.unknown) {
+      (diagnosis == NatNetworkClass.globalReachable ||
+       diagnosis == NatNetworkClass.domesticOnlyLikely)) {
+    // A positive multi-host TLS diagnosis contradicts the dedicated probe's
+    // all-failed quorum. DNS degradation or transport restriction alone is
+    // weaker evidence: it must not suppress local-source fallback when every
+    // domestic/global TLS target and both IPv6 path groups failed.
     return PilotNetworkStrategy.preserve;
   }
   return pilot;

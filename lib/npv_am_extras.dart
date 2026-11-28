@@ -1991,18 +1991,25 @@ void goldNoteServer(Server srv) {
 }
 
 // MANUALSCAN: اسکن دستی بازه‌ها با پیشرفت و نتیجه داخل خود دیالوگ (نه پیام پشت دیالوگ)
-Future<void> manualRangeScan(BuildContext context, List<String> userAddrs) async {
+Future<void> manualRangeScan(BuildContext context, List<String> userRanges) async {
   // FOLDERHELP: IPهای تمیز پوشه اول تست می‌شوند (کمک پوشه به اسکن بازه، در نت ملی و عادی)
   await goldLoad();
-  // RANGEFIX: بازه‌ی کاربر اول می‌آید تا با سقف زمان کوتاه هرگز کنار گذاشته نشود
-  // RANGEFIX: بازه‌ی کاربر اول و با ترتیب تصادفی (تا بازه‌ی بزرگ در سقف زمان کل بازه را پوشش دهد)
-  final shuffledUser = List<String>.of(userAddrs)..shuffle(Random());
-  final addrs = {...shuffledUser, for (final c in goldIpList()) c.ip}.toList();
+  // Keep the user's ranges lazy: a /8 or /0 must not be sampled or
+  // expanded into a giant List before the scanner even starts.
+  final savedGoldIps = goldIpList().map((entry) => entry.ip).toList(growable: false);
+  final validRanges = userRanges
+      .map((range) => range.trim())
+      .where((range) => range.isNotEmpty &&
+          NatAddressRangeCursor.parse(range) != null)
+      .toList(growable: false);
+  final total = validRanges.fold<int>(
+        savedGoldIps.length,
+        (sum, range) => sum + NatAddressRangeCursor.parse(range)!.addressCount,
+      );
   var cancelled = false;
   var finished = false;
   var done = 0;
   var hitsCount = 0;
-  var total = addrs.length;
   var result = <NatIpHit>[];
   var open = true;
   StateSetter? setS;
@@ -2096,18 +2103,17 @@ Future<void> manualRangeScan(BuildContext context, List<String> userAddrs) async
     }
     // Do not start a scan if the user cancelled while waiting for the national scan.
     if (!cancelled) {
-      result = await natScanIps(
-        addrs,
-        // Explicit user-entered ranges are traversed completely; user cancellation,
-        // lifecycle cancellation, or a network-mode transition remain authoritative.
-        want: null,
+      result = await natScanAddressRanges(
+        validRanges,
+        additionalAddresses: savedGoldIps,
+        // The range cursor walks every address in every supplied range. Slice
+        // size bounds temporary RAM only; it never truncates total coverage.
         concurrency: nationalMode ? kNatManualConc : natAdaptiveWorkers(),
-        budget: null,
         timeout: const Duration(milliseconds: 1500),
         cancelled: () => cancelled || !open,
-        onProgress: (d, t, h) => upd(() {
+        randomizeWithinSlice: true,
+        onProgress: (d, _, h) => upd(() {
           done = d;
-          total = t;
           hitsCount = h;
         }),
       );

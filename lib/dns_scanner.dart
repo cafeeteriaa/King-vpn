@@ -25,6 +25,17 @@ const List<String> kDnsxNationalDefaults = [
   '10.202.10.10',
 ];
 
+/// Public IPv6 resolvers are kept separate so national-mode discovery does not
+/// silently substitute global infrastructure for domestic DNS.
+const List<String> kDnsxIpv6Defaults = <String>[
+  '2606:4700:4700::1111',
+  '2606:4700:4700::1001',
+  '2001:4860:4860::8888',
+  '2001:4860:4860::8844',
+  '2620:fe::fe',
+  '2620:fe::9',
+];
+
 /// دامنه‌های تست در نت ملی: دامنه‌های داخلی (.ir) و سایت‌های داخلی که خود برنامه
 /// برای تشخیص شبکه استفاده می‌کند. هر DNS روی همه‌ی این دامنه‌ها سنجیده می‌شود،
 /// تا نتیجه‌ی DNSهای مختلف با هم قابل مقایسه باشد.
@@ -197,11 +208,15 @@ bool dnsxAnswerOk(List<int> d, int id) {
 
 /// نتیجه‌ی یک DNS: چند دامنه جواب داد و میانگین زمان آن‌ها
 class DnsxHit {
-  DnsxHit(this.ip, this.avgMs, this.okCount, this.total);
+  DnsxHit(this.ip, this.avgMs, this.okCount, this.total,
+      {this.ipv4OkCount = 0, this.ipv6OkCount = 0});
   final String ip;
   final int avgMs;
+  /// Number of queried names with at least one usable address family.
   final int okCount;
   final int total;
+  final int ipv4OkCount;
+  final int ipv6OkCount;
 }
 
 /// سنجش یک DNS روی فهرست دامنه‌ها. برای جلوگیری از سیل پرس‌وجو، بسته‌به‌بسته (۸ تا ۸ تا) می‌رود.
@@ -213,33 +228,68 @@ Future<DnsxHit?> dnsxProbe(String server,
     bool Function()? stop}) async {
   final list = domains ?? dnsxAutoDomains();
   final times = <int>[];
-  var tested = 0; // تعداد دامنه‌هایی که واقعاً سنجیده شدند (اگر توقف زده شود، کمتر از کل است)
-  const chunk = 8; // دامنه‌ها در هر بسته‌ی همزمان
+  var tested = 0;
+  var domainHits = 0;
+  var ipv4Hits = 0;
+  var ipv6Hits = 0;
+  // Two families are queried per name; half the old name batch preserves
+  // approximately the same socket fan-out as the former A-only scanner.
+  const chunk = 4;
   for (var i = 0; i < list.length; i += chunk) {
     if (stop != null && stop()) break;
-    // فاصله بین بسته‌ها: اسکن پس‌زمینه بار ناگهانی روی اتصال نمی‌گذارد
     if (i > 0 && gap > Duration.zero) await Future.delayed(gap);
-    // Cancellation may arrive while waiting between DNS batches.
     if (stop != null && stop()) break;
     final part = list.sublist(i, min(i + chunk, list.length));
-    // NNIE: strict response validation includes transaction ID, QR/opcode,
-    // question/type/class, source IP/port, RCODE and usable A answer.
-    final res = await Future.wait(part.map((d) => NatDnsWireProbe.probe(
+    // Query A and AAAA independently over the same resolver transport.
+    // A domain counts once when either family returns a validated address;
+    // family counters remain separate so IPv4-only resolvers are not penalized.
+    final results = await Future.wait(part.map((domain) async {
+      final family = await Future.wait([
+        NatDnsWireProbe.probe(
           server,
-          d,
+          domain,
           timeout: timeout,
           cancelled: stop,
-        )));
+          queryType: 1,
+        ),
+        NatDnsWireProbe.probe(
+          server,
+          domain,
+          timeout: timeout,
+          cancelled: stop,
+          queryType: 28,
+        ),
+      ]);
+      return (ipv4: family[0], ipv6: family[1]);
+    }));
     if (stop != null && stop()) return null;
     tested += part.length;
-    for (final r in res) {
-      if (r.ok) times.add(r.elapsedMs!);
+    for (final result in results) {
+      final v4 = result.ipv4;
+      final v6 = result.ipv6;
+      if (v4.ok) ipv4Hits++;
+      if (v6.ok) ipv6Hits++;
+      if (v4.ok || v6.ok) {
+        domainHits++;
+        final samples = <int>[
+          if (v4.ok) v4.elapsedMs!,
+          if (v6.ok) v6.elapsedMs!,
+        ];
+        times.add(samples.reduce((a, b) => a + b) ~/ samples.length);
+      }
     }
   }
-  // ملاک: حداقل ۲۵٪ از دامنه‌هایی که واقعاً سنجیده شدند باید جواب بدهند
-  if (tested == 0 || times.isEmpty || times.length * 4 < tested) return null;
+  // One domain is one vote, regardless of whether it has A, AAAA or both.
+  if (tested == 0 || domainHits == 0 || domainHits * 4 < tested) return null;
   final avg = times.reduce((a, b) => a + b) ~/ times.length;
-  return DnsxHit(server, avg, times.length, tested);
+  return DnsxHit(
+    server,
+    avg,
+    domainHits,
+    tested,
+    ipv4OkCount: ipv4Hits,
+    ipv6OkCount: ipv6Hits,
+  );
 }
 
 /// اسکن گروهی (۱۲ تا ۱۲ تا). خروجی: DNSهای سالم؛ اول آن‌که بیشترین دامنه را جواب داده،
@@ -271,8 +321,12 @@ Future<List<DnsxHit>> dnsxScan(List<String> list,
     }));
   }
   results.sort((a, b) {
-    final c = b.okCount.compareTo(a.okCount);
-    return c != 0 ? c : a.avgMs.compareTo(b.avgMs);
+    final domains = b.okCount.compareTo(a.okCount);
+    if (domains != 0) return domains;
+    final ipv6 = b.ipv6OkCount.compareTo(a.ipv6OkCount);
+    if (ipv6 != 0) return ipv6;
+    final ipv4 = b.ipv4OkCount.compareTo(a.ipv4OkCount);
+    return ipv4 != 0 ? ipv4 : a.avgMs.compareTo(b.avgMs);
   });
   return results;
 }
@@ -313,7 +367,9 @@ Future<void> dnsxAutoPick({bool Function()? stop, bool force = false, bool coord
     if (!force && now - last < gapMs) return;
     final savedDns = await goldDnsList();
     if (nationalMode != scanNationalMode) return;
-    final defaults = scanNationalMode ? kDnsxNationalDefaults : kDnsxDefaults;
+    final defaults = scanNationalMode
+        ? kDnsxNationalDefaults
+        : <String>[...kDnsxDefaults, ...kDnsxIpv6Defaults];
     final list = <String>{...savedDns, ...defaults}.toList(growable: false);
     // Auto discovery checks the complete saved and mode-specific default resolver inventory.
     // The manual scanner still retains dnsxFullDomains() for user-selected full scans.
@@ -402,10 +458,13 @@ extension DnsxExt on _HomePageState {
               final extra = extraC.text
                   .split(RegExp(r'[\s,]+'))
                   .map((s) => s.trim())
-                  .where((s) =>
-                      s.isNotEmpty &&
-                      InternetAddress.tryParse(s)?.type ==
-                          InternetAddressType.IPv4)
+                  .where((s) {
+                    if (s.isEmpty) return false;
+                    final address = InternetAddress.tryParse(s);
+                    return address != null &&
+                        (address.type == InternetAddressType.IPv4 ||
+                            address.type == InternetAddressType.IPv6);
+                  })
                   .toList();
               final saved = await goldDnsList();
               if (!mounted || !sheetOpen) return;
@@ -413,7 +472,7 @@ extension DnsxExt on _HomePageState {
                 upd(() => note = 'اسکن متوقف شد؛ نتایج ذخیره نشد.');
                 return;
               }
-              final list = {...saved, ...kDnsxDefaults, ...kDnsxNationalDefaults, ...extra}
+              final list = {...saved, ...kDnsxDefaults, ...kDnsxIpv6Defaults, ...kDnsxNationalDefaults, ...extra}
                   .toList();
               upd(() => total = list.length);
               r = await dnsxScan(
@@ -513,7 +572,7 @@ extension DnsxExt on _HomePageState {
                     ListTile(
                       dense: true,
                       title: Text(r.ip),
-                      subtitle: Text('جواب‌داده: ${r.okCount} از ${r.total} دامنه'),
+                      subtitle: Text('دامنهٔ پاسخ‌گو: ${r.okCount}/${r.total} • IPv4: ${r.ipv4OkCount} • IPv6: ${r.ipv6OkCount}'),
                       trailing: Text('${r.avgMs} ms'),
                       onTap: () async {
                         await Clipboard.setData(ClipboardData(text: r.ip));

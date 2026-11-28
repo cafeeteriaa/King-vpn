@@ -1,3 +1,5 @@
+import 'dart:io';
+
 /// Independent domestic/global network evidence model for Smart Pilot ∞.
 enum LinkHealth { unknown, healthy, degraded, unreachable }
 enum DetectedNetworkMode { unknown, domesticOnly, globalOnly, dualStack, offline }
@@ -174,10 +176,172 @@ PilotNetworkStrategy choosePilotNetworkStrategy(NetworkEvidence evidence) {
   if (domesticConfirmed && !globalConfirmed && globalFailed) return PilotNetworkStrategy.domestic;
   if (globalConfirmed && !domesticConfirmed && domesticFailed) return PilotNetworkStrategy.global;
   if (domesticFailed && globalFailed) {
-    return evidence.domesticIpv6Successes >= 2 ||
-            evidence.globalIpv6Successes >= 2
-        ? PilotNetworkStrategy.preserve
-        : PilotNetworkStrategy.offline;
+    final domesticIpv6 = evidence.domesticIpv6Successes >= 2;
+    final globalIpv6 = evidence.globalIpv6Successes >= 2;
+    // When TLS is filtered on both families, a directional IPv6 path quorum
+    // can still choose which source pool to try first. This is only a route
+    // preference: configs still require real tunnel-traffic validation.
+    if (domesticIpv6 && !globalIpv6) return PilotNetworkStrategy.domestic;
+    if (globalIpv6 && !domesticIpv6) return PilotNetworkStrategy.global;
+    if (domesticIpv6 && globalIpv6) return PilotNetworkStrategy.preserve;
+    return PilotNetworkStrategy.offline;
   }
   return PilotNetworkStrategy.preserve;
+}
+
+
+/// A stable, testable snapshot of the non-VPN network interfaces.
+class KingNetworkInterfaceSnapshot {
+  const KingNetworkInterfaceSnapshot({
+    required this.name,
+    required this.addresses,
+  });
+
+  final String name;
+  final List<String> addresses;
+}
+
+/// Fingerprints the active physical network without including the VPN TUN.
+/// The result changes when the active interface or its addresses change.
+class KingNetworkFingerprint {
+  KingNetworkFingerprint._();
+
+  static final RegExp _vpnInterfaceName =
+      RegExp(r'^(tun|tap|ppp|wg|utun|vpn|ipsec|xfrm|tailscale|wireguard)[0-9]*', caseSensitive: false);
+
+  /// Shared Android/Linux VPN-interface classifier used by fingerprints and
+  /// the background scanner's fail-closed guard.
+  static bool isVpnInterfaceName(String value) =>
+      _vpnInterfaceName.hasMatch(value.trim());
+
+  static String fromInterfaces(
+    Iterable<KingNetworkInterfaceSnapshot> interfaces,
+  ) {
+    final values = <String>{};
+    for (final interface in interfaces) {
+      final name = interface.name.trim().toLowerCase();
+      if (name.isEmpty || isVpnInterfaceName(name)) continue;
+      for (final rawAddress in interface.addresses) {
+        final address = rawAddress.trim();
+        if (address.isEmpty || address == '127.0.0.1' || address == '::1') {
+          continue;
+        }
+        values.add('$name|$address');
+      }
+    }
+    final sorted = values.toList()..sort();
+    return sorted.join(';');
+  }
+
+  static List<String> parseDefaultRoutes({
+    Iterable<String> ipv4Lines = const <String>[],
+    Iterable<String> ipv6Lines = const <String>[],
+  }) {
+    final routes = <String>{};
+    for (final line in ipv4Lines) {
+      final fields = line.trim().split(RegExp(r'\s+'));
+      if (fields.length < 8 || fields[1] != '00000000' || fields[7] != '00000000') continue;
+      final flags = int.tryParse(fields[3], radix: 16) ?? 0;
+      final iface = fields[0].toLowerCase();
+      if ((flags & 1) == 0 || isVpnInterfaceName(iface)) continue;
+      routes.add('v4:$iface:${fields[2]}:${fields[6]}');
+    }
+    for (final line in ipv6Lines) {
+      final fields = line.trim().split(RegExp(r'\s+'));
+      if (fields.length < 10 ||
+          fields[0] != List<String>.filled(32, '0').join() ||
+          fields[1].toLowerCase() != '00' ||
+          fields[3].toLowerCase() != '00') continue;
+      final flags = int.tryParse(fields[8], radix: 16) ?? 0;
+      final iface = fields[9].toLowerCase();
+      if ((flags & 1) == 0 || _vpnInterfaceName.hasMatch(iface)) continue;
+      routes.add('v6:$iface:${fields[4]}:${fields[5]}');
+    }
+    return routes.toList()..sort();
+  }
+
+  /// Classifies the interface(s) that actually own the default route, not
+  /// merely interfaces that happen to be up. Simultaneous Wi-Fi and cellular
+  /// defaults remain "mixed" instead of being guessed as Wi-Fi.
+  static String classifyDefaultRouteInterfaces(Iterable<String> routes) {
+    final types = <String>{};
+    for (final route in routes) {
+      final fields = route.trim().split(':');
+      if (fields.length < 2) continue;
+      final iface = fields[1].trim().toLowerCase();
+      if (iface.isEmpty || isVpnInterfaceName(iface)) continue;
+      if (iface.startsWith('wlan') || iface.startsWith('wifi')) {
+        types.add('wifi');
+      } else if (iface.contains('rmnet') ||
+          iface.startsWith('ccmni') ||
+          iface.startsWith('pdp') ||
+          iface.startsWith('wwan') ||
+          iface.contains('cell')) {
+        types.add('mob');
+      } else {
+        types.add('net');
+      }
+    }
+    if (types.isEmpty) return 'unknown';
+    if (types.length > 1) return 'mixed';
+    return types.single;
+  }
+
+  static String withDefaultRoutes(String interfaces, Iterable<String> routes) {
+    final sorted = routes.toList()..sort();
+    // A physical interface list alone cannot identify the active egress when
+    // Wi-Fi and cellular are simultaneously up. Missing either side of the
+    // fingerprint is therefore unknown evidence, not a stable network ID.
+    if (interfaces.trim().isEmpty || sorted.isEmpty) return '';
+    return '$interfaces#${sorted.join(';')}';
+  }
+
+  static Future<String> capture() async {
+    final interfaces = await NetworkInterface.list(includeLoopback: false);
+    final interfaceFingerprint = fromInterfaces(interfaces.map((interface) =>
+        KingNetworkInterfaceSnapshot(
+          name: interface.name,
+          addresses: interface.addresses
+              .where((address) => !address.isLoopback)
+              .map((address) => address.address)
+              .toList(growable: false),
+        )));
+    // Interface lists alone miss a default-route switch when Wi-Fi and cellular
+    // are both up. Linux/Android route tables provide the active default egress.
+    Future<List<String>> readRoutes(String path) async {
+      try {
+        return await File(path).readAsLines();
+      } catch (_) {
+        return const <String>[];
+      }
+    }
+    final ipv4 = await readRoutes('/proc/net/route');
+    final ipv6 = await readRoutes('/proc/net/ipv6_route');
+    final defaults = parseDefaultRoutes(ipv4Lines: ipv4, ipv6Lines: ipv6);
+    return withDefaultRoutes(interfaceFingerprint, defaults);
+  }
+
+  static bool changed(String before, String after) =>
+      before.trim().isEmpty || after.trim().isEmpty || before != after;
+}
+
+/// Monotonic fail-closed guard for long-running network discovery.
+class KingNetworkScanGuard {
+  KingNetworkScanGuard({required this.initialFingerprint})
+      : _cancelled = initialFingerprint.trim().isEmpty;
+
+  final String initialFingerprint;
+  bool _cancelled;
+
+  bool get shouldCancel => _cancelled;
+
+  void observe({
+    required bool vpnInterfaceActive,
+    required String currentFingerprint,
+  }) {
+    if (vpnInterfaceActive ||
+        KingNetworkFingerprint.changed(initialFingerprint, currentFingerprint)) {
+      _cancelled = true;
+    }
+  }
 }

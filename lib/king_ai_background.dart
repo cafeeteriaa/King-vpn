@@ -158,34 +158,74 @@ void kingAiBackgroundDispatcher() {
 Future<bool> _kingHasVpnInterface() async {
   try {
     final interfaces = await NetworkInterface.list(includeLoopback: false);
-    return interfaces.any((interface) {
-      final name = interface.name.toLowerCase();
-      return RegExp(r'^(tun|tap|ppp|wg|utun|vpn)\d*').hasMatch(name);
-    });
+    return interfaces.any((interface) =>
+        KingNetworkFingerprint.isVpnInterfaceName(interface.name));
   } catch (e, st) {
     logError(e, st);
-    return false;
+    // Fail closed if the interface state cannot be inspected.
+    return true;
   }
 }
 
 Future<bool> _runKingNationalScannerBackgroundTask() async {
+  Timer? networkMonitor;
+  KingNetworkScanGuard? networkGuard;
+  String? scheduledContinuationName;
+  var observation = Future<void>.value();
   try {
-    // Avoid running route probes through an active Android VPN interface.
-    final vpnInterfaceActive = await _kingHasVpnInterface();
-    if (vpnInterfaceActive) return false;
+    if (await _kingHasVpnInterface()) return false;
+    final initialFingerprint = await KingNetworkFingerprint.capture();
+    final guard = KingNetworkScanGuard(
+      initialFingerprint: initialFingerprint,
+    );
+    networkGuard = guard;
+    if (guard.shouldCancel) return false;
+    Future<void> observeNetwork() {
+      // Serialize timer and pre/post-scheduling checks so a slow interface
+      // read cannot arrive out of order and overwrite a newer observation.
+      final next = observation.then((_) async {
+        if (guard.shouldCancel) return;
+        try {
+          final vpnActive = await _kingHasVpnInterface();
+          final fingerprint = await KingNetworkFingerprint.capture();
+          guard.observe(
+            vpnInterfaceActive: vpnActive,
+            currentFingerprint: fingerprint,
+          );
+        } catch (e, st) {
+          logError(e, st);
+          guard.observe(
+            vpnInterfaceActive: true,
+            currentFingerprint: '',
+          );
+        }
+      });
+      observation = next;
+      return next;
+    }
+
+    networkMonitor = Timer.periodic(const Duration(seconds: 2), (_) {
+      if (!guard.shouldCancel) unawaited(observeNetwork());
+    });
+
     await natLoadPersisted();
+    if (guard.shouldCancel) return false;
     final detectedMode = await KingNationalScannerEngine.detectNationalMode();
-    // Preserve unknown/ambiguous networks rather than guessing a route policy.
-    if (detectedMode == null) return true;
+    // Ambiguous evidence is not a completed scan; let WorkManager retry.
+    if (detectedMode == null) return false;
     nationalMode = detectedMode;
     final seeds = await natHotNext(80, fetch: false);
     final report = await KingNationalScannerEngine.runPreflight(
       knownServers: seeds,
       onStatus: (_) {},
       sliceBudget: const Duration(minutes: 8),
-      cancelled: () => vpnInterfaceActive,
+      cancelled: () => guard.shouldCancel,
       addDiscovered: natIpMemMergeHits,
+      // The WorkManager wrapper owns its single continuation decision below.
+      scheduleContinuation: false,
     );
+    await observeNetwork();
+    if (guard.shouldCancel) return false;
     final needsContinuation = report.sliceYielded ||
         report.warnings.contains('ip_inventory_cursor_preserved_for_next_slice');
     if (needsContinuation) {
@@ -193,8 +233,13 @@ Future<bool> _runKingNationalScannerBackgroundTask() async {
         networkType: NetworkType.connected,
         requiresBatteryNotLow: true,
       );
+      final continuationName =
+          'king-national-scan-resume-${DateTime.now().microsecondsSinceEpoch}';
+      scheduledContinuationName = continuationName;
+      await observeNetwork();
+      if (guard.shouldCancel) return false;
       await Workmanager().registerOneOffTask(
-        'king-national-scan-resume-${DateTime.now().microsecondsSinceEpoch}',
+        continuationName,
         _nationalScannerTaskName,
         initialDelay: const Duration(minutes: 2),
         constraints: constraints,
@@ -203,14 +248,38 @@ Future<bool> _runKingNationalScannerBackgroundTask() async {
         backoffPolicyDelay: const Duration(minutes: 2),
         tag: _nationalScannerTag,
       );
+      // A handover can happen while the native scheduler call is in flight.
+      // Cancel that exact unique work item if the post-registration check sees it.
+      await observeNetwork();
+      if (guard.shouldCancel) {
+        await Workmanager().cancelByUniqueName(continuationName);
+        return false;
+      }
       return true;
     }
     return report.completed;
   } catch (e, st) {
     logError(e, st);
     return false;
+  } finally {
+    networkMonitor?.cancel();
+    try {
+      // Drain any poll already queued before shutting down the monitor.
+      await observation;
+    } catch (e, st) {
+      logError(e, st);
+    }
+    if (networkGuard?.shouldCancel == true &&
+        scheduledContinuationName != null) {
+      try {
+        await Workmanager().cancelByUniqueName(scheduledContinuationName!);
+      } catch (e, st) {
+        logError(e, st);
+      }
+    }
   }
 }
+
 
 class KingAiBackgroundSupervisor {
   KingAiBackgroundSupervisor._();
@@ -230,14 +299,27 @@ class KingAiBackgroundSupervisor {
 
   /// Called when a foreground scan yields at its safe time slice. The durable
   /// cursor remains authoritative; this only asks Android to resume later.
-  static Future<void> scheduleNationalScannerContinuation() async {
+  static Future<void> scheduleNationalScannerContinuation({
+    bool Function()? cancelled,
+  }) async {
     if (!_kingBackgroundWorkmanagerInitialized) return;
+    bool isCancelled() {
+      try {
+        return cancelled?.call() ?? false;
+      } catch (_) {
+        return true;
+      }
+    }
+    if (isCancelled()) return;
     final constraints = Constraints(
       networkType: NetworkType.connected,
       requiresBatteryNotLow: true,
     );
+    final uniqueName =
+        'king-national-scan-resume-${DateTime.now().microsecondsSinceEpoch}';
+    if (isCancelled()) return;
     await Workmanager().registerOneOffTask(
-      'king-national-scan-resume-${DateTime.now().microsecondsSinceEpoch}',
+      uniqueName,
       _nationalScannerTaskName,
       initialDelay: const Duration(minutes: 2),
       constraints: constraints,
@@ -246,6 +328,11 @@ class KingAiBackgroundSupervisor {
       backoffPolicyDelay: const Duration(minutes: 2),
       tag: _nationalScannerTag,
     );
+    // Foreground scans can also hand over networks while the native schedule
+    // request is in flight. Cancel the exact continuation if that raced.
+    if (isCancelled()) {
+      await Workmanager().cancelByUniqueName(uniqueName);
+    }
   }
 
   /// Daily, network-constrained scanner maintenance. WorkManager is

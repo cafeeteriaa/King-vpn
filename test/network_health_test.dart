@@ -1,5 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:king_vpn/main.dart';
+import 'package:king_vpn/main.dart' show corroboratePilotStrategy;
+import 'package:king_vpn/nnie_core.dart' show NatNetworkClass;
+import 'package:king_vpn/network_health.dart';
 
 void main() {
   group('Smart Pilot route policy', () {
@@ -179,7 +181,7 @@ void main() {
       expect(choosePilotNetworkStrategy(merged), PilotNetworkStrategy.preserve);
     });
 
-    test('does not classify offline when either IPv6 path has independent reachability', () {
+    test('does not classify offline when global IPv6 path has independent reachability', () {
       const evidence = NetworkEvidence(
         domestic: LinkHealth.unreachable,
         global: LinkHealth.unreachable,
@@ -188,7 +190,7 @@ void main() {
         globalIpv6Successes: 2,
       );
       expect(evidence.mode, DetectedNetworkMode.unknown);
-      expect(choosePilotNetworkStrategy(evidence), PilotNetworkStrategy.preserve);
+      expect(choosePilotNetworkStrategy(evidence), PilotNetworkStrategy.global);
     });
 
     test('independent DNS diagnosis vetoes contradictory domestic-only selection', () {
@@ -211,14 +213,48 @@ void main() {
       );
     });
 
-    test('independent DNS evidence prevents a false offline switch', () {
+    test('transport-only DNS evidence does not override the dedicated offline quorum', () {
       expect(
         corroboratePilotStrategy(
           PilotNetworkStrategy.offline,
           NatNetworkClass.transportRestricted,
         ),
-        PilotNetworkStrategy.preserve,
+        PilotNetworkStrategy.offline,
       );
+    });
+
+    test('corroborated offline strategy remains eligible when diagnosis is unknown', () {
+      expect(
+        corroboratePilotStrategy(
+          PilotNetworkStrategy.offline,
+          NatNetworkClass.unknown,
+        ),
+        PilotNetworkStrategy.offline,
+      );
+    });
+
+    test('DNS or transport degradation does not veto corroborated local-source fallback', () {
+      for (final diagnosis in <NatNetworkClass>[
+        NatNetworkClass.dnsDegraded,
+        NatNetworkClass.transportRestricted,
+      ]) {
+        expect(
+          corroboratePilotStrategy(PilotNetworkStrategy.offline, diagnosis),
+          PilotNetworkStrategy.offline,
+        );
+      }
+    });
+
+    test('positive domestic or global diagnosis vetoes contradictory offline inference', () {
+      for (final diagnosis in <NatNetworkClass>[
+        NatNetworkClass.globalReachable,
+        NatNetworkClass.domesticOnlyLikely,
+      ]) {
+        expect(
+          corroboratePilotStrategy(PilotNetworkStrategy.offline, diagnosis),
+          PilotNetworkStrategy.preserve,
+        );
+      }
     });
 
     test('does not infer offline from missing evidence', () {
@@ -238,5 +274,213 @@ void main() {
       );
       expect(choosePilotNetworkStrategy(evidence), PilotNetworkStrategy.offline);
     });
+
+    test('uses directional IPv6 quorum to prioritize domestic source pool when TLS is filtered', () {
+      const evidence = NetworkEvidence(
+        domestic: LinkHealth.unreachable,
+        global: LinkHealth.unreachable,
+        domesticSamples: 3,
+        globalSamples: 3,
+        domesticIpv6Successes: 2,
+      );
+      expect(choosePilotNetworkStrategy(evidence), PilotNetworkStrategy.domestic);
+    });
+
+    test('uses directional IPv6 quorum to prioritize global source pool when TLS is filtered', () {
+      const evidence = NetworkEvidence(
+        domestic: LinkHealth.unreachable,
+        global: LinkHealth.unreachable,
+        domesticSamples: 3,
+        globalSamples: 3,
+        globalIpv6Successes: 2,
+      );
+      expect(choosePilotNetworkStrategy(evidence), PilotNetworkStrategy.global);
+    });
+
+    test('preserves previous route when both IPv6 route groups are reachable but TLS is filtered', () {
+      const evidence = NetworkEvidence(
+        domestic: LinkHealth.unreachable,
+        global: LinkHealth.unreachable,
+        domesticSamples: 3,
+        globalSamples: 3,
+        domesticIpv6Successes: 2,
+        globalIpv6Successes: 2,
+      );
+      expect(choosePilotNetworkStrategy(evidence), PilotNetworkStrategy.preserve);
+    });
   });
+  group('Net Melli network-change guard', () {
+    test('fingerprint is stable regardless of interface ordering', () {
+      final first = KingNetworkFingerprint.fromInterfaces(
+        const <KingNetworkInterfaceSnapshot>[
+          KingNetworkInterfaceSnapshot(name: 'wlan0', addresses: <String>['192.168.1.10', 'fe80::1']),
+          KingNetworkInterfaceSnapshot(name: 'rmnet_data0', addresses: <String>['10.20.30.40']),
+        ],
+      );
+      final second = KingNetworkFingerprint.fromInterfaces(
+        const <KingNetworkInterfaceSnapshot>[
+          KingNetworkInterfaceSnapshot(name: 'rmnet_data0', addresses: <String>['10.20.30.40']),
+          KingNetworkInterfaceSnapshot(name: 'wlan0', addresses: <String>['fe80::1', '192.168.1.10']),
+        ],
+      );
+      expect(first, second);
+      expect(first, isNotEmpty);
+    });
+
+    test('VPN tunnel interfaces are excluded from the physical fingerprint', () {
+      final physical = KingNetworkFingerprint.fromInterfaces(
+        const <KingNetworkInterfaceSnapshot>[
+          KingNetworkInterfaceSnapshot(name: 'wlan0', addresses: <String>['192.168.1.10']),
+        ],
+      );
+      final withTunnel = KingNetworkFingerprint.fromInterfaces(
+        const <KingNetworkInterfaceSnapshot>[
+          KingNetworkInterfaceSnapshot(name: 'wlan0', addresses: <String>['192.168.1.10']),
+          KingNetworkInterfaceSnapshot(name: 'tun0', addresses: <String>['10.8.0.2']),
+        ],
+      );
+      expect(withTunnel, physical);
+    });
+
+    test('Android IPsec and XFRM VPN interfaces are excluded from physical fingerprint', () {
+      expect(KingNetworkFingerprint.isVpnInterfaceName('ipsec0'), isTrue);
+      expect(KingNetworkFingerprint.isVpnInterfaceName('xfrm0'), isTrue);
+      expect(KingNetworkFingerprint.isVpnInterfaceName('tailscale0'), isTrue);
+      expect(KingNetworkFingerprint.isVpnInterfaceName('rmnet_data0'), isFalse);
+      final physical = KingNetworkFingerprint.fromInterfaces(
+        const <KingNetworkInterfaceSnapshot>[
+          KingNetworkInterfaceSnapshot(name: 'rmnet_data0', addresses: <String>['10.20.30.40']),
+        ],
+      );
+      final withVpn = KingNetworkFingerprint.fromInterfaces(
+        const <KingNetworkInterfaceSnapshot>[
+          KingNetworkInterfaceSnapshot(name: 'rmnet_data0', addresses: <String>['10.20.30.40']),
+          KingNetworkInterfaceSnapshot(name: 'ipsec0', addresses: <String>['10.0.0.2']),
+          KingNetworkInterfaceSnapshot(name: 'xfrm0', addresses: <String>['10.0.0.3']),
+          KingNetworkInterfaceSnapshot(name: 'tailscale0', addresses: <String>['100.64.0.1']),
+        ],
+      );
+      expect(withVpn, physical);
+    });
+
+    test('missing interface and route evidence fails closed with an empty fingerprint', () {
+      expect(KingNetworkFingerprint.withDefaultRoutes('', const <String>[]), isEmpty);
+      final guard = KingNetworkScanGuard(initialFingerprint:
+          KingNetworkFingerprint.withDefaultRoutes('', const <String>[]));
+      expect(guard.shouldCancel, isTrue);
+    });
+
+    test('missing either physical interfaces or default-route evidence fails closed', () {
+      expect(
+        KingNetworkFingerprint.withDefaultRoutes(
+          'wlan0|192.168.1.10', const <String>[],
+        ),
+        isEmpty,
+      );
+      expect(
+        KingNetworkFingerprint.withDefaultRoutes(
+          '', const <String>['v4:wlan0:0101A8C0:00000064'],
+        ),
+        isEmpty,
+      );
+      final noRoute = KingNetworkScanGuard(
+        initialFingerprint: KingNetworkFingerprint.withDefaultRoutes(
+          'wlan0|192.168.1.10', const <String>[],
+        ),
+      );
+      expect(noRoute.shouldCancel, isTrue);
+    });
+
+    test('operator network type follows default-route interfaces, not all active links', () {
+      expect(
+        KingNetworkFingerprint.classifyDefaultRouteInterfaces(
+          const <String>['v4:wlan0:0101A8C0:00000064'],
+        ),
+        'wifi',
+      );
+      expect(
+        KingNetworkFingerprint.classifyDefaultRouteInterfaces(
+          const <String>['v4:rmnet_data0:281E140A:00000032'],
+        ),
+        'mob',
+      );
+      expect(
+        KingNetworkFingerprint.classifyDefaultRouteInterfaces(
+          const <String>[
+            'v4:wlan0:0101A8C0:00000064',
+            'v6:rmnet_data0:281E140A:00000032',
+          ],
+        ),
+        'mixed',
+      );
+      expect(
+        KingNetworkFingerprint.classifyDefaultRouteInterfaces(
+          const <String>['v4:tun0:0101A8C0:00000064'],
+        ),
+        'unknown',
+      );
+    });
+
+    test('default route changes are detected even when both interfaces stay up', () {
+      const interfaces = 'rmnet_data0|10.20.30.40;wlan0|192.168.1.10';
+      final wifiRoute = KingNetworkFingerprint.withDefaultRoutes(
+        interfaces, const <String>['v4:wlan0:0101A8C0:00000064']);
+      final cellularRoute = KingNetworkFingerprint.withDefaultRoutes(
+        interfaces, const <String>['v4:rmnet_data0:281E140A:00000032']);
+      expect(KingNetworkFingerprint.changed(wifiRoute, cellularRoute), isTrue);
+    });
+
+    test('default-route parser ignores VPN tunnel routes and non-default routes', () {
+      final routes = KingNetworkFingerprint.parseDefaultRoutes(
+        ipv4Lines: const <String>[
+          'Iface Destination Gateway Flags RefCnt Use Metric Mask MTU Window IRTT',
+          'wlan0 00000000 0101A8C0 0001 0 0 100 00000000 0 0 0',
+          'tun0 00000000 0100000A 0001 0 0 1 00000000 0 0 0',
+          'wlan0 0001A8C0 00000000 0001 0 0 100 00FFFFFF 0 0 0',
+        ],
+      );
+      expect(routes, <String>['v4:wlan0:0101A8C0:100']);
+    });
+
+    test('IPv6 default route parser rejects non-zero source-prefix routes', () {
+      final zero = List<String>.filled(32, '0').join();
+      final routes = KingNetworkFingerprint.parseDefaultRoutes(
+        ipv6Lines: <String>[
+          '$zero 00 $zero 00 $zero 00000064 00000000 00000000 00000001 wlan0',
+          '$zero 00 $zero 40 $zero 00000064 00000000 00000000 00000001 wlan0',
+          '$zero 00 $zero 00 $zero 00000001 00000000 00000000 00000001 tun0',
+        ],
+      );
+      expect(routes, <String>['v6:wlan0:$zero:00000064']);
+    });
+
+    test('network handover cancels the scan monotonically', () {
+      const initial = 'wlan0|192.168.1.10';
+      final guard = KingNetworkScanGuard(initialFingerprint: initial);
+      expect(guard.shouldCancel, isFalse);
+      guard.observe(vpnInterfaceActive: false, currentFingerprint: initial);
+      expect(guard.shouldCancel, isFalse);
+      guard.observe(
+        vpnInterfaceActive: false,
+        currentFingerprint: 'rmnet_data0|10.20.30.40',
+      );
+      expect(guard.shouldCancel, isTrue);
+      guard.observe(vpnInterfaceActive: false, currentFingerprint: initial);
+      expect(guard.shouldCancel, isTrue);
+    });
+
+    test('VPN start and missing network evidence both fail closed', () {
+      final guard = KingNetworkScanGuard(
+        initialFingerprint: 'wlan0|192.168.1.10',
+      );
+      guard.observe(
+        vpnInterfaceActive: true,
+        currentFingerprint: 'wlan0|192.168.1.10',
+      );
+      expect(guard.shouldCancel, isTrue);
+      final unknown = KingNetworkScanGuard(initialFingerprint: '');
+      expect(unknown.shouldCancel, isTrue);
+    });
+  });
+
 }

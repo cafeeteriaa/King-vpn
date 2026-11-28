@@ -3464,7 +3464,7 @@ bool _isPrivateIpv4(String h) {
 String? coreUnsupportedReason(String link) {
   final raw = link.trim();
   if (!raw.toLowerCase().startsWith('vless://')) return null;
-  final uri = Uri.tryParse(raw);
+  final uri = parseConfigUri(raw);
   if (uri == null) return null;
   final q = uri.queryParameters;
   final security = (q['security'] ?? '').toLowerCase();
@@ -3488,8 +3488,9 @@ String? coreUnsupportedReason(String link) {
 
 String? vlessRealityOwnCfg(String link) {
   try {
-    final u = Uri.parse(link.trim());
-    if (u.scheme != 'vless' || u.host.isEmpty || !_validHost(u.host) || !u.hasPort) return null;
+    final u = parseConfigUri(link.trim());
+    if (u == null || u.scheme != 'vless' || u.host.isEmpty ||
+        !_validHost(u.host) || !u.hasPort) return null;
     final q = u.queryParameters;
     if ((q['security'] ?? '') != 'reality') return null;
     if ((q['type'] ?? 'tcp').toLowerCase() != 'tcp') return null;
@@ -3726,13 +3727,8 @@ class Server {
         if (!sv.tls && sv.net == 'tcp') sv.score -= 4;
         return sv;
       }
-      Uri? u0;
-      try {
-        u0 = Uri.parse(link);
-      } on FormatException {
-        return null; // QUIETPATCH: broken link, skipped quietly
-      }
-      final u = u0;
+      final u = parseConfigUri(link);
+      if (u == null) return null; // malformed URI, skipped without dropping a valid endpoint for stray '%'
       if (u.host.isEmpty || !_validHost(u.host)) return null;
       final sv = Server(
           link,
@@ -4253,13 +4249,23 @@ Future<int?> pingAny(
   // use domestic endpoints when nationalMode is active.
   final urls = networkAware && nationalMode ? _tunnelTestUrlsNational : _pingUrls;
   final n = tries.clamp(1, urls.length);
-  for (final u in urls.take(n)) {
+  final watch = Stopwatch()..start();
+  for (var index = 0; index < n; index++) {
     if (cancelled?.call() ?? false) return null;
+    final remaining = total - watch.elapsed;
+    if (remaining <= Duration.zero) break;
+    // The total timeout is a whole-chain budget, not a fresh timeout per host.
+    // Divide remaining time among untried endpoints so domestic fallback can
+    // test all three hosts without multiplying the connection delay.
+    final slots = n - index;
+    final perEndpoint = Duration(
+      microseconds: max(1, remaining.inMicroseconds ~/ slots).toInt(),
+    );
     final p = await pingProxy(
-      total: total,
+      total: perEndpoint,
       direct: direct,
       viaCore: viaCore,
-      url: u,
+      url: urls[index],
       cancelled: cancelled,
     );
     if (cancelled?.call() ?? false) return null;
@@ -6756,17 +6762,21 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     _purgePersonalLeaks(); // ONLYFOLDER
     // FRESH-DISK: load the phone's reusable fresh-resource folder before choosing a mode.
     // Never mix its entries into the personal-server folder.
-    try {
-      final diskLinks = await FreshResourceStore.readLinks();
-      final known = <String>{for (final item in fetchedAll) item.key};
-      for (final link in diskLinks) {
-        final parsed = Server.parse(link);
-        if (parsed != null && !_inPF(parsed) && known.add(parsed.key)) {
-          parsed.src = 'fresh-device-folder';
-          fetchedAll.add(parsed);
+    if (!offlineOnly) {
+      try {
+        // Online discovery uses only a small local preview; the full offline
+        // inventory is consumed through resumable batches below.
+        final diskLinks = await FreshResourceStore.readPreview(limit: 100);
+        final known = <String>{for (final item in fetchedAll) item.key};
+        for (final link in diskLinks) {
+          final parsed = Server.parse(link);
+          if (parsed != null && !_inPF(parsed) && known.add(parsed.key)) {
+            parsed.src = 'fresh-device-folder';
+            fetchedAll.add(parsed);
+          }
         }
-      }
-    } catch (e, st) { logError(e, st); }
+      } catch (e, st) { logError(e, st); }
+    }
     // ULTIMATE: offline-only never downloads new lists
     if (offlineOnly) {
       if (!bg) _set('حالت آفلاین: پوشه‌ی منابع تازه و سرورهای ذخیره‌شده');
@@ -6776,7 +6786,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       }
       final hotOff = await natHotNext(300, fetch: false); // هر دور ۳۰۰ تا؛ اگر پیدا نشد دور بعد ادامه می‌دهد
       // FRESH-DISK: منابع تازه‌ی ذخیره‌شده روی گوشی در اتصال آفلاین هم قابل استفاده‌اند.
-      final diskLinks = await FreshResourceStore.readLinks();
+      final diskLinks = await FreshResourceStore.readBatch(limit: 300);
       final diskOff = <Server>[];
       for (final link in diskLinks) {
         final parsed = Server.parse(link);
@@ -6836,6 +6846,34 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         logError(e, stk);
       }
     }
+    // NET-MELLI-LOCAL-FALLBACK: domestic-only connectivity often leaves
+    // public GitHub lists unreachable even though an existing VPN endpoint may
+    // still work. Consume the next bounded on-device archive page alongside
+    // domestic/public discovery; never load the four-million inventory into RAM.
+    // The dedicated offlineOnly branch above remains strict and never downloads.
+    final onlineSourceHealthy =
+        srcFetchState.values.any((state) => state == 'ok');
+    if (!offlineOnly &&
+        (nationalMode || (srcFetchState.isNotEmpty && !onlineSourceHealthy))) {
+      try {
+        final diskBatch = await FreshResourceStore.readBatch(limit: 300);
+        final known = <String>{for (final item in fetchedAll) item.key};
+        var restored = 0;
+        for (final link in diskBatch) {
+          final parsed = Server.parse(link);
+          if (parsed == null || _inPF(parsed) || !known.add(parsed.key)) continue;
+          parsed.src = 'fresh-device-folder';
+          fetchedAll.add(parsed);
+          restored++;
+        }
+        if (restored > 0) {
+          dbg('NET-MELLI-LOCAL-FALLBACK: restored $restored on-device profiles');
+        }
+      } catch (e, st) {
+        logError(e, st);
+      }
+    }
+
     final fetched = fetchedAll;
     if (fetched.isNotEmpty) total = fetched.length;
     // TCP probes are meaningless while the tunnel is up.
@@ -7824,6 +7862,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     final order = useMatrix
         ? <int>[0, ...KingNationalScannerEngine.planVariants(s, full: fullMatrix).where((v) => v != 0)]
         : const [0]; // KNS: shared registry + learned compatibility; original config first
+    KingNatSubsystemEngine.recordConfigPlan(order.length);
     // NATBUDGET: one server may only use a limited time per pass; the rest of
     // its variants continue in the next pass (natCursorAdvance)
     final budget = multi ? natBudget(full: fullMatrix) : null;
@@ -8554,7 +8593,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       // تست ترافیک سریع ۵ ثانیه‌ای؛ اگر ترافیک نبود، فوراً سرور بعدی
       if (ready && t == true && (_personalFast || (!nationalMode && !indestructibleMode))) {
         // سرور شخصی: یک تست ۳ ثانیه‌ای کافی است؛ بدون زنجیره‌ی تأخیر و بدون کانفیگ جایگزین
-        final pp = await pingAny(total: const Duration(seconds: 5), direct: true, tries: 2, networkAware: true); // PERSMUX: ۶ ثانیه برای شروع کند
+        final pp = await pingAny(total: const Duration(seconds: 5), direct: true, tries: 3, networkAware: true); // PERSMUX: ۶ ثانیه برای شروع کند
         if (!wantVpn || abort) {
           lastFail = 'لغو توسط کاربر';
           await _stopCore();
@@ -8575,16 +8614,16 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       if (ready && t == true) {
         await Future.delayed(const Duration(milliseconds: 600));
         var earlyPing = await pingAny(
-            total: const Duration(seconds: 5), direct: true, tries: 2, networkAware: true);
+            total: const Duration(seconds: 5), direct: true, tries: 3, networkAware: true);
         if (earlyPing == null && !abort && wantVpn) {
           await Future.delayed(const Duration(milliseconds: 900));
           earlyPing = await pingAny(
-              total: const Duration(seconds: 5), direct: true, tries: 2, networkAware: true);
+              total: const Duration(seconds: 5), direct: true, tries: 3, networkAware: true);
         }
         if (earlyPing == null && !abort && wantVpn) {
           await Future.delayed(const Duration(milliseconds: 2500));
           earlyPing = await pingAny(
-              total: const Duration(seconds: 6), direct: true, tries: 1, networkAware: true);
+              total: const Duration(seconds: 6), direct: true, tries: 3, networkAware: true);
         }
         if (!wantVpn || abort) {
           lastFail = 'لغو توسط کاربر';
@@ -8835,7 +8874,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     if (!nationalMode) natVarNormal.remove(s.key);
     // IPSWEEP-PROJECT: فقط در نت ملی
     if (nationalMode && socialGate != null && cleanIps.isEmpty) {
-      final w = await _atIpSweep(_usable(), const Duration(seconds: 45)); // کوتاه: قبلاً ۲۰ دقیقه بود و اتصال را قفل می‌کرد
+      final w = await _atIpSweep(_usable(), timeSlice: const Duration(seconds: 45)); // هر نوبت ۴۵ ثانیه؛ Cursor باقی می‌ماند تا کل موجودی تکمیل شود
       if (abort || !wantVpn) return false; // FIXLADDERABORT: کاربر وسط اسکن لغو کرده
       if (w.isNotEmpty) {
         cleanIps = List<CleanIp>.of(w);
@@ -8878,6 +8917,13 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                     total: Duration(seconds: nationalMode ? 12 : 9),
                     direct: true, networkAware: true) != null;
         if (!accepted) {
+          KingNatSubsystemEngine.recordRepairEvaluation(
+            strategyId: 'nat_ladder_variant_$v',
+            evaluated: true,
+            changed: true,
+            tunnelImproved: false,
+            coverageComplete: false,
+          );
           final failedElapsedMs = _nnieFinishAttempt(s) ?? 0;
           dbg('نردبان: ${s.name} با حالت «${_natSpecs[v].name}» ترافیک تونل نداد؛ حالت بعدی');
           // NNIE: only a started candidate with failed tunnel traffic is a server failure.
@@ -8903,6 +8949,15 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           natSaveSoon(); // NORMALCACHE: پایدار کن
         }
         natWinCount[v] = (natWinCount[v] ?? 0) + 1;
+        // This is only the ladder's preliminary acceptance gate; it is
+        // not stable repair proof and must not register a validated attempt.
+        KingNatSubsystemEngine.recordRepairEvaluation(
+          strategyId: 'nat_ladder_variant_$v',
+          evaluated: true,
+          changed: true,
+          tunnelImproved: false,
+          coverageComplete: false,
+        );
         dbg('نردبان: ${s.name} با حالت «${_natSpecs[v].name}» از تونل واقعی جواب داد');
         return true;
       }
@@ -8965,7 +9020,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   // FIX #12: national mode tests domestic destinations (international traffic is cut there);
   // global mode tests only international ones, so a domestic site cannot pass a dead tunnel.
   Future<bool> _tunnelTrafficOk() async {
-    if (proxyMode) return true;
+    // Proxy mode has no Android TUN, but its local Xray inbound is still a
+    // real data path. _siteOpens(viaCore: true) routes through that inbound;
+    // never report success merely because proxy mode is selected.
     await Future.delayed(const Duration(seconds: 2));
     // TUNFIX: viaCore true = the core's outbound, which is what must be measured. The app is NOT
     // excluded from its own tunnel (FIX #49, KingVpnService.java), so DIRECT requests also pass
@@ -8974,8 +9031,20 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     for (final u in urls) {
       final ok = await _siteOpens(u, viaCore: true)
           .timeout(const Duration(seconds: 8), onTimeout: () => false);
-      if (ok) return true;
+      if (ok) {
+        KingNatSubsystemEngine.recordTrafficValidation(
+          true,
+          mode: nationalMode ? 'national' : 'global',
+          destinations: 1,
+        );
+        return true;
+      }
     }
+    KingNatSubsystemEngine.recordTrafficValidation(
+      false,
+      mode: nationalMode ? 'national' : 'global',
+      destinations: urls.length,
+    );
     return false;
   }
 
@@ -8989,7 +9058,44 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         _siteOpens(url, viaCore: true).timeout(
             const Duration(seconds: 8), onTimeout: () => false)));
     final passed = results.where((ok) => ok).length;
-    return connected && identical(current, server) && passed >= 2;
+    final stable = connected && identical(current, server) && passed >= 2;
+    final validatedVariant = natVarFor(server);
+    if (stable && validatedVariant != 0) {
+      // Register this exact variant immediately before the stable proof is
+      // recorded, so another connection's proof cannot validate it later.
+      KingNatSubsystemEngine.recordRepairEvaluation(
+        strategyId: 'stable_tunnel_variant_$validatedVariant',
+        evaluated: true,
+        changed: true,
+        tunnelImproved: true,
+        coverageComplete: false,
+      );
+    }
+    KingNatSubsystemEngine.recordTrafficValidation(
+      stable,
+      mode: nationalMode ? 'national' : 'global',
+      destinations: passed,
+      stable: true,
+    );
+    if (stable) {
+      // The exact variant is credited only after two real destinations passed
+      // through the active core/TUN, not after parsing or a handshake alone.
+      KingNationalScannerEngine.recordVariantOutcome(
+        validatedVariant,
+        true,
+        profile: NationalNetworkIntelligence.keyOfServer(server),
+        latencyMs: server.ping,
+      );
+      if (server.cdn && !server.reality) {
+        KingNatSubsystemEngine.recordCdnValidation(
+          candidates: 1,
+          successfulHandshakes: 1,
+          tunnelPasses: 1,
+          inventoryComplete: false,
+        );
+      }
+    }
+    return stable;
   }
 
   // FIX #107: completes the connect waiter only when real traffic passes through the tunnel now.
@@ -9160,8 +9266,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           p = await pingAny(
             total: perEndpointBudget,
             direct: true,
-            tries: 2,
-            networkAware: true,
+            tries: 3, networkAware: true,
             cancelled: () => abort || !wantVpn,
           );
           if (p == null && !abort && wantVpn) {
@@ -9259,8 +9364,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             final p2 = await pingAny(
               total: perEndpointBudget,
               direct: true,
-              tries: 2,
-              networkAware: true,
+              tries: 3, networkAware: true,
               cancelled: () => abort || !wantVpn,
             );
             if (p2 != null && p2 < p) p = p2;
@@ -9673,6 +9777,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   // NATRESPATCH ---- folder of healthy servers (key 'natres2') ----
   final Map<String, _NatResItem> _resMap = {};
   Timer? _resT, _resSaveT;
+  bool _freshResourceRefreshBusy = false;
+  DateTime? _freshResourceRefreshRetryAfter;
   bool _resBusy = false, _resDirty = false, _resNext = false;
   DateTime? _resHold, _resLast, _resUi;
   int _resDone = 0, _resTotal = 0;
@@ -9707,9 +9813,94 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     }
     _resT?.cancel();
     _resT = Timer.periodic(const Duration(minutes: 2), (_) {
+      unawaited(_refreshFreshResourceSnapshotIfDue());
       _resDaily();
     });
     if (mounted) setState(() {});
+  }
+
+  /// Refreshes the four-million offline source inventory every 48 hours.
+  /// Download and validate into a separate staging directory; only a complete,
+  /// non-empty snapshot is swapped into place. Network failures preserve old data.
+  Future<void> _refreshFreshResourceSnapshotIfDue() async {
+    // Do not race live connection/scanner work or probe through a VPN tunnel.
+    if (!mounted || offlineOnly || connected || busy || searching || switching ||
+        upBusy || localPilotOn || warm != null || KingNationalScannerEngine.isScanning ||
+        _freshResourceRefreshBusy) return;
+    final retryAfter = _freshResourceRefreshRetryAfter;
+    if (retryAfter != null && DateTime.now().isBefore(retryAfter)) return;
+    _freshResourceRefreshBusy = true;
+    File? scannerLease;
+    var ownsScannerLease = false;
+    try {
+      // Share the scanner's cross-isolate process lease. A static Dart flag
+      // cannot coordinate the foreground isolate with WorkManager.
+      final supportDirectory = await getApplicationSupportDirectory();
+      scannerLease = File('${supportDirectory.path}/king_national_scanner.lock');
+      if (await scannerLease.exists()) {
+        final age = DateTime.now().difference(await scannerLease.lastModified());
+        if (age < const Duration(minutes: 15)) return;
+        await scannerLease.delete();
+      }
+      try {
+        await scannerLease.create(exclusive: true);
+        ownsScannerLease = true;
+        await scannerLease.writeAsString(
+          DateTime.now().millisecondsSinceEpoch.toString(),
+          flush: true,
+        );
+      } on FileSystemException {
+        // Another isolate won the lease after our existence check.
+        return;
+      }
+      final metadata = await FreshResourceStore.metadata();
+      final stamp = DateTime.tryParse(
+          metadata['onlineSnapshotRefreshedAt']?.toString() ?? '');
+      if (stamp != null &&
+          DateTime.now().difference(stamp.toLocal()) < const Duration(hours: 48)) {
+        return;
+      }
+      final downloaded = await fetchServers(stop: () => false, quickCap: null)
+          .timeout(const Duration(minutes: 8), onTimeout: () => <Server>[]);
+      if (downloaded.isEmpty) {
+        throw StateError('Online source refresh returned no usable profiles; old inventory retained.');
+      }
+      final configuredSources = userListUrls.length + listUrls.length;
+      final successfulSources = srcFetchState.values.where((state) => state == 'ok').length;
+      final previousCount = (metadata['count'] as num?)?.toInt() ?? 0;
+      final minimumEntries =
+          FreshResourceStore.minimumSnapshotReplacementCount(previousCount);
+      if (!FreshResourceStore.isSufficientSnapshotReplacement(
+        previousCount: previousCount,
+        incomingCount: downloaded.length,
+        successfulSources: successfulSources,
+        configuredSources: configuredSources,
+      )) {
+        throw StateError(
+          'Source refresh was empty, incomplete, or below the safe replacement threshold '
+          '($successfulSources/$configuredSources sources, '
+          '${downloaded.length}/$previousCount profiles); old inventory retained.',
+        );
+      }
+      await FreshResourceStore.replaceSnapshot(
+        downloaded.map((server) => server.link),
+        source: 'online-public-sources-48h-refresh',
+        minimumEntries: minimumEntries,
+      );
+      _freshResourceRefreshRetryAfter = null;
+    } catch (error, stack) {
+      logError(error, stack);
+      _freshResourceRefreshRetryAfter = DateTime.now().add(const Duration(minutes: 30));
+    } finally {
+      if (ownsScannerLease && scannerLease != null) {
+        try {
+          if (await scannerLease.exists()) await scannerLease.delete();
+        } catch (e, st) {
+          logError(e, st);
+        }
+      }
+      _freshResourceRefreshBusy = false;
+    }
   }
 
   Future<void> _resSave() async {
@@ -10285,6 +10476,12 @@ ListTile( // KINGEXTRAS row
     if (connected) return;
     _natFetched = false;
     await natDetectOperator(); // NATULTRA: per-operator learning
+    final networkFingerprint = await NatNetworkDiagnosis.identityFingerprint()
+        .timeout(const Duration(seconds: 2), onTimeout: () => '');
+    KingNatSubsystemEngine.recordNetworkIdentity(
+      fingerprintHash: networkFingerprint,
+      operatorIdentity: natOpKey,
+    );
     try {
       if (!_natLoaded) {
         _natLoaded = true;
@@ -10306,12 +10503,32 @@ ListTile( // KINGEXTRAS row
           choosePilotNetworkStrategy(evidence),
           diagnosis,
         );
-        if (strategy == PilotNetworkStrategy.domestic) {
-          nationalMode = true;
-        } else if (strategy == PilotNetworkStrategy.global) {
-          nationalMode = false;
+        final wasOfflineOnly = offlineOnly;
+        switch (strategy) {
+          case PilotNetworkStrategy.domestic:
+            nationalMode = true;
+            offlineOnly = false;
+            break;
+          case PilotNetworkStrategy.global:
+            nationalMode = false;
+            offlineOnly = false;
+            break;
+          case PilotNetworkStrategy.offline:
+            // Both independent TLS route groups failed their minimum quorum
+            // and IPv6 did not provide a contradictory path hint. Route the
+            // existing connection pipeline to its bounded on-device inventory
+            // instead of retrying unreachable public lists.
+            nationalMode = true;
+            offlineOnly = true;
+            break;
+          case PilotNetworkStrategy.preserve:
+            // Incomplete or contradictory evidence must not overwrite the
+            // user's last confirmed mode or their explicit offline setting.
+            break;
         }
-        // Unknown/dual-failure evidence preserves the previous strategy.
+        if (offlineOnly != wasOfflineOnly) await ultimateSave();
+        // Keep the existing single Smart Pilot path; offline is a source policy,
+        // not a separate connection button or a third VPN/proxy mode.
         natForce = nationalMode;
         userModeChoice = nationalMode;
       } else {
@@ -10740,20 +10957,19 @@ ListTile( // KINGEXTRAS row
           TextButton(
             // MANUALSCAN: اسکن دستی بازه‌ها؛ نتیجه در پوشه‌ی جهانی ذخیره می‌شود (نت ملی را تغییر نمی‌دهد)
             onPressed: () {
-              final lines = c.text.split('\n');
-              final addrs = <String>[];
-              for (final line in lines) {
-                final t = line.trim();
-                if (t.isEmpty) continue;
-                // LARGE: بازه‌ی CIDR یا خطی؛ بلوک‌های بزرگ تا ۶۵۵۳۶ IP برای پوشش بهتر
-                final got = natExpandCidr(t, maxPerBlock: 65536);
-                addrs.addAll(got.isNotEmpty ? got : natExpandDash(t, maxCount: 65536));
-              }
-              if (addrs.isEmpty) {
+              final ranges = c.text
+                  .split('\n')
+                  .map((line) => line.trim())
+                  .where((line) => line.isNotEmpty &&
+                      NatAddressRangeCursor.parse(line) != null)
+                  .toList(growable: false);
+              if (ranges.isEmpty) {
                 _set('بازه‌ی معتبر نیست؛ مثلاً 5.160.0.0/24 بنویس');
                 return;
               }
-              unawaited(manualRangeScan(context, addrs)); // MANUALSCAN: نتیجه و پیشرفت داخل دیالوگ
+              // Pass compact range descriptors, not a sampled/materialized IP
+              // list. The scanner owns cursoring, cancellation and full coverage.
+              unawaited(manualRangeScan(context, ranges));
             },
             child: const Text('اسکن بازه‌ها'),
           ),
@@ -12295,7 +12511,7 @@ ListTile( // KINGEXTRAS row
         return;
       }
       if (busy || switching) return;
-      final p = await pingAny(total: const Duration(seconds: 5), direct: true, tries: 1, networkAware: true);
+      final p = await pingAny(total: const Duration(seconds: 5), direct: true, tries: 3, networkAware: true);
       if (!mounted || !connected || connRow != 'p:personal') {
         t.cancel();
         return;
@@ -17314,7 +17530,8 @@ extension ProjectNatSweep on _HomePageState {
         const {'360', 'qq'}.contains(x.fp); // NEWFP
   }
 
-  // AUTORANGE: بلوک‌های /24 سرورهای IP دار برنامه، بدون دخالت کاربر
+  // AUTORANGE: collect every distinct /24 represented by known IP servers.
+  // This is an inventory builder, not a result cap or sampling policy.
   List<String> _atAutoRanges(List<Server> servers) {
     final blocks = <String>{};
     for (final x in servers) {
@@ -17322,16 +17539,14 @@ extension ProjectNatSweep on _HomePageState {
       final p = x.host.split('.');
       if (p.length != 4) continue;
       blocks.add('${p[0]}.${p[1]}.${p[2]}.0/24');
-      if (blocks.length >= 200) break;
     }
-    return blocks.toList();
+    return blocks.toList()..sort();
   }
 
-  // IPSWEEP: هر IP تمیز را با اتصال واقعی روی یک سرور پشت کلودفلر امتحان می‌کند.
-  // فقط IP‌هایی که ترافیک تونل (google و youtube) بدهند نگه داشته می‌شوند (حداکثر ۱۰ تا).
-  // IPSWEEP: IP‌های باز را روی همه‌ی پورت‌های CDN (_natCfPorts) پیدا می‌کند، سپس هر جفت IP:پورت
-  // را با اتصال واقعی و بررسی تونل (google و youtube) می‌سنجد. فقط جفت‌های ترافیک‌دار نگه داشته می‌شوند.
-  Future<List<CleanIp>> _atIpSweep(List<Server> pool, Duration budget) async {
+  // IPSWEEP: lazily traverse every configured range for every configured CDN
+  // port. TCP hits are streamed slice-by-slice into the real tunnel validator;
+  // no sampled IP list, per-port hit ceiling, wall-clock cutoff, or winner cap.
+  Future<List<CleanIp>> _atIpSweep(List<Server> pool, {Duration? timeSlice}) async {
     Server? server;
     for (final x in pool) {
       if (_natCdnNets.contains(x.net)) {
@@ -17348,70 +17563,156 @@ extension ProjectNatSweep on _HomePageState {
       return <CleanIp>[];
     }
 
-    // بازه‌ها: کلودفلر + بلوک‌های /24 سرورهای خود برنامه
-    final ranges = <String>[..._cfRanges, ..._atAutoRanges(good)];
-    final pool2 = <String>[];
-    for (final r in ranges) {
-      pool2.addAll(natExpandCidr(r, maxPerBlock: 128));
-    }
-    pool2.shuffle(Random());
-
-    // FIXSWEEP: سقف کل مرحله‌ی «اسکن» ۳۵ ثانیه است. قبلاً هر پورت جداگانه ۳۵ ثانیه
-    // بود (۷ پورت ⇒ تا ~۴ دقیقه) و بودجه‌ی ۴۵ ثانیه‌ای فقط روی مرحله‌ی تست کاندیدها اثر داشت.
-    // لغو کاربر (abort) هم اسکن را متوقف می‌کند.
-    final scanDeadline = DateTime.now().add(const Duration(seconds: 35));
-    final opened = <CleanIp>[];
-    for (final port in _natCfPorts) {
-      if (abort || AutoTestEngine._abortRequested) break;
-      final left = scanDeadline.difference(DateTime.now());
-      if (left <= Duration.zero) break;
-      final hits = await natScanIps(pool2,
-          port: port,
-          concurrency: 24,
-          want: 20,
-          budget: left,
-          cancelled: () => abort || AutoTestEngine._abortRequested);
-      for (final h in hits) {
-        opened.add(CleanIp(h.ip, h.ms, port));
+    final ranges = <String>{..._cfRanges, ..._atAutoRanges(good)}.toList()..sort();
+    final rangeFingerprint =
+        sha256.convert(utf8.encode('${sv.key}|ranges=${ranges.join('\\n')}|ports=${_natCfPorts.join(',')}')).toString();
+    const checkpointKey = 'king_cf_ip_sweep_cursor_v1';
+    final preferences = await SharedPreferences.getInstance();
+    var startPortIndex = 0;
+    var startRangeIndex = 0;
+    var startOffset = 0;
+    try {
+      final raw = preferences.getString(checkpointKey);
+      if (raw != null) {
+        final savedCursor = jsonDecode(raw);
+        if (savedCursor is Map && savedCursor['fingerprint'] == rangeFingerprint) {
+          final restoredPort = (savedCursor['portIndex'] as num?)?.toInt() ?? 0;
+          final restoredRange = (savedCursor['rangeIndex'] as num?)?.toInt() ?? 0;
+          final restoredOffset = (savedCursor['offset'] as num?)?.toInt() ?? 0;
+          final offsetWithinRange = restoredRange == ranges.length
+              ? restoredOffset == 0
+              : restoredRange >= 0 &&
+                  restoredRange < ranges.length &&
+                  restoredOffset <=
+                      (NatAddressRangeCursor.parse(ranges[restoredRange])?.addressCount ?? -1);
+          final terminalPortCursor = restoredPort == _natCfPorts.length &&
+              restoredRange == 0 && restoredOffset == 0;
+          if (restoredPort >= 0 && restoredPort <= _natCfPorts.length &&
+              restoredRange >= 0 && restoredRange <= ranges.length &&
+              restoredOffset >= 0 && offsetWithinRange &&
+              (restoredPort < _natCfPorts.length || terminalPortCursor)) {
+            startPortIndex = restoredPort;
+            startRangeIndex = restoredRange;
+            startOffset = restoredOffset;
+          }
+        }
       }
+    } catch (e, stk) {
+      logError(e, stk);
+      startPortIndex = 0;
+      startRangeIndex = 0;
+      startOffset = 0;
     }
-    dbg('IPSCAN: ${opened.length} جفت IP:پورت باز');
-    var cands = opened;
-    if (cands.isEmpty && !abort) {
-      cands = [for (final ip in await _cleanCandidates()) CleanIp(ip, 0, 443)];
-    }
-
     final winners = <CleanIp>[];
     final saved = List<CleanIp>.of(cleanIps);
     final key = _nk(sv);
-    final prevNatVar = natVar[key]; // FIXSWEEP: حالت یادگرفته‌شده‌ی قبلی را پاک نکن
-    final t0 = DateTime.now();
+    final prevNatVar = natVar[key];
     final prevWant = wantVpn;
-    try {
-      wantVpn = true;
-      for (var i = 0; i < cands.length; i++) {
-        if (abort || AutoTestEngine._abortRequested || AutoTestEngine._phase != _AtPhase.running) break;
-        if (winners.length >= 10) break;
-        if (DateTime.now().difference(t0) > budget) break;
-        final c = cands[i];
-        cleanIps = [c];
+    final sliceWatch = Stopwatch()..start();
+    final autoTestOwnsSweep = AutoTestEngine._phase == _AtPhase.running;
+    bool userCancelled() => abort ||
+        (autoTestOwnsSweep &&
+            (AutoTestEngine._abortRequested ||
+                AutoTestEngine._phase != _AtPhase.running));
+    bool sliceExpired() =>
+        timeSlice != null && sliceWatch.elapsed >= timeSlice;
+    bool shouldStopSweep() => userCancelled() || sliceExpired();
+
+    Future<void> validateHits(List<NatIpHit> hits, int port) async {
+      for (final hit in hits) {
+        if (shouldStopSweep()) return;
+        final candidate = CleanIp(hit.ip, hit.ms, port);
+        cleanIps = <CleanIp>[candidate];
         natVar[key] = vIdx;
-        autoTestText.value = 'سنجش IP تمیز ${winners.length}/10 • ${i + 1}/${cands.length}';
-        var ok = false;
+        autoTestText.value =
+            'سنجش IP تمیز با ترافیک تونل • ${winners.length} موفق • پورت $port';
+        var passed = false;
         try {
           if (await _start(sv)) {
             await Future.delayed(const Duration(seconds: 2));
-            ok = await _tunnelTrafficOk();
+            passed = await _tunnelTrafficOk();
           }
         } catch (e, stk) {
           logError(e, stk);
         } finally {
           await _stopV2();
         }
-        if (ok) winners.add(c);
+        if (passed) winners.add(candidate);
+      }
+    }
+
+    try {
+      wantVpn = true;
+      for (var portIndex = startPortIndex;
+          portIndex < _natCfPorts.length;
+          portIndex++) {
+        if (shouldStopSweep()) break;
+        final port = _natCfPorts[portIndex];
+        final resumeThisPort = portIndex == startPortIndex;
+        await natScanAddressRanges(
+          ranges,
+          port: port,
+          concurrency: natAdaptiveWorkers(),
+          timeout: const Duration(milliseconds: 1500),
+          cancelled: shouldStopSweep,
+          randomizeWithinSlice: true,
+          collectHits: false,
+          startRangeIndex: resumeThisPort ? startRangeIndex : 0,
+          startOffset: resumeThisPort ? startOffset : 0,
+          onCursor: (rangeIndex, nextOffset) async {
+            var nextPort = portIndex;
+            var nextRange = rangeIndex;
+            var nextAddress = nextOffset;
+            if (nextOffset < 0) {
+              nextRange++;
+              nextAddress = 0;
+              if (nextRange >= ranges.length) {
+                nextPort++;
+                nextRange = 0;
+              }
+            }
+            try {
+              await preferences.setString(
+                checkpointKey,
+                jsonEncode(<String, Object?>{
+                  'version': 1,
+                  'fingerprint': rangeFingerprint,
+                  'portIndex': nextPort,
+                  'rangeIndex': nextRange,
+                  'offset': nextAddress,
+                }),
+              );
+            } catch (e, stk) {
+              logError(e, stk);
+            }
+          },
+          onHits: (batch) => validateHits(batch, port),
+        );
+        if (shouldStopSweep()) break;
+        startRangeIndex = 0;
+        startOffset = 0;
+        startPortIndex = portIndex + 1;
+      }
+
+      final sweepWasCancelled = shouldStopSweep();
+      if (!sweepWasCancelled) {
+        try {
+          await preferences.remove(checkpointKey);
+        } catch (e, stk) {
+          logError(e, stk);
+        }
+      }
+
+      // Keep the existing saved-clean-IP fallback, but validate it through the
+      // same real tunnel path only after the configured range inventory finishes.
+      if (winners.isEmpty && !sweepWasCancelled) {
+        final fallback = await _cleanCandidates();
+        await validateHits(
+          <NatIpHit>[for (final ip in fallback) NatIpHit(ip, 0)],
+          443,
+        );
       }
     } finally {
-      // FIXSWEEP: اگر کاربر وسط اسکن قطع کرده، wantVpn نباید دوباره true شود
       wantVpn = prevWant && !abort;
       if (prevNatVar != null) {
         natVar[key] = prevNatVar;
@@ -17420,6 +17721,7 @@ extension ProjectNatSweep on _HomePageState {
       }
       cleanIps = saved;
     }
+    dbg('IPSWEEP: ${winners.length} IP with verified tunnel traffic');
     return winners;
   }
 }

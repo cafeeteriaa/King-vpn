@@ -33,11 +33,13 @@ void main() {
       expect(await natScanIps(['127.0.0.1'], port: 65536), isEmpty);
     });
 
-    test('adaptive concurrency always returns a bounded integer', () {
-      expect(natAdaptiveConcurrency(0), isA<int>());
-      expect(natAdaptiveConcurrency(0), inInclusiveRange(8, 64));
+    test('adaptive concurrency follows device CPU capacity without a fixed global cap', () {
+      final cores = Platform.numberOfProcessors < 1 ? 1 : Platform.numberOfProcessors;
+      expect(natAdaptiveConcurrency(0), cores * 2);
+      expect(natAdaptiveConcurrency(-1), cores * 2);
       expect(natAdaptiveConcurrency(1), 1);
-      expect(natAdaptiveConcurrency(999999), lessThanOrEqualTo(256));
+      expect(natAdaptiveConcurrency(cores * 4), cores * 4);
+      expect(natAdaptiveConcurrency(999999), cores * 4);
     });
 
     test('scans an explicit IPv6 endpoint when loopback IPv6 is available', () async {
@@ -77,5 +79,170 @@ void main() {
       expect(natExpandCidr('10.0.0.0/30', maxPerBlock: 4), hasLength(4));
       expect(natExpandDash('10.0.0.1-10.0.0.3', maxCount: 3), hasLength(3));
     });
+
+    test('default CIDR and explicit-range expansion do not silently sample', () {
+      expect(natExpandCidr('10.0.0.0/24'), hasLength(256));
+      expect(natExpandDash('10.0.0.1-10.0.0.3'), [
+        '10.0.0.1', '10.0.0.2', '10.0.0.3',
+      ]);
+    });
+
+    test('large CIDR inventory remains fully addressable through cursor slices', () {
+      final cursor = NatAddressRangeCursor.parse('0.0.0.0/0')!;
+      expect(cursor.addressCount, 4294967296);
+      final first = cursor.read(0, 2);
+      expect(first.$1, ['0.0.0.0', '0.0.0.1']);
+      expect(first.$2, 2);
+      final last = cursor.read(4294967294, 2);
+      expect(last.$1, ['255.255.255.254', '255.255.255.255']);
+      expect(last.$2, -1);
+    });
   });
+  group('streaming complete address-range scan', () {
+    test('scans an explicit range through bounded slices and reports cursor completion', () async {
+      final listener = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
+      final accepted = listener.listen((socket) => socket.destroy());
+      final cursors = <(int, int)>[];
+      try {
+        final hits = await natScanAddressRanges(
+          ['127.0.0.1/32'],
+          port: listener.port,
+          concurrency: 1,
+          sliceSize: 1,
+          timeout: const Duration(seconds: 2),
+          onCursor: (rangeIndex, nextOffset) async {
+            await Future<void>.delayed(Duration.zero);
+            cursors.add((rangeIndex, nextOffset));
+          },
+        );
+        expect(hits, hasLength(1));
+        expect(hits.single.ip, '127.0.0.1');
+        expect(cursors, [(0, -1)]);
+      } finally {
+        await accepted.cancel();
+        await listener.close();
+      }
+    });
+
+    test('cancelled in-flight slice does not commit its cursor', () async {
+      final listener = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
+      final accepted = listener.listen((socket) => socket.destroy());
+      var cancellationChecks = 0;
+      var cursorCommitted = false;
+      try {
+        await natScanAddressRanges(
+          ['127.0.0.1/32'],
+          port: listener.port,
+          concurrency: 1,
+          sliceSize: 1,
+          timeout: const Duration(seconds: 2),
+          cancelled: () => ++cancellationChecks >= 3,
+          onCursor: (_, __) => cursorCommitted = true,
+        );
+        expect(cursorCommitted, isFalse);
+      } finally {
+        await accepted.cancel();
+        await listener.close();
+      }
+    });
+
+    test('invalid port and timeout never advance a range cursor', () async {
+      var cursorCalls = 0;
+      final invalidPort = await natScanAddressRanges(
+        ['127.0.0.1/32'],
+        port: 65536,
+        onCursor: (_, __) => cursorCalls++,
+      );
+      final invalidTimeout = await natScanAddressRanges(
+        ['127.0.0.1/32'],
+        timeout: Duration.zero,
+        onCursor: (_, __) => cursorCalls++,
+      );
+      expect(invalidPort, isEmpty);
+      expect(invalidTimeout, isEmpty);
+      expect(cursorCalls, 0);
+    });
+
+    test('cancellation stops a range traversal before probing', () async {
+      var cursorCalls = 0;
+      final hits = await natScanAddressRanges(
+        ['127.0.0.1/32'],
+        cancelled: () => true,
+        onCursor: (_, __) => cursorCalls++,
+      );
+      expect(hits, isEmpty);
+      expect(cursorCalls, 0);
+    });
+  });
+
+  group('resumable address range cursor', () {
+    test('walks an explicit range exactly once across multiple slices', () {
+      final cursor = NatAddressRangeCursor.parse('10.0.0.1-10.0.0.4')!;
+      expect(cursor.addressCount, 4);
+
+      final first = cursor.read(0, 2);
+      expect(first.$1, ['10.0.0.1', '10.0.0.2']);
+      expect(first.$2, 2);
+
+      final second = cursor.read(first.$2, 2);
+      expect(second.$1, ['10.0.0.3', '10.0.0.4']);
+      expect(second.$2, -1);
+
+      expect(cursor.read(0, 2).$1, first.$1);
+      final exhausted = cursor.read(4, 2);
+      expect(exhausted.$1, isEmpty);
+      expect(exhausted.$2, -1);
+    });
+
+    test('supports the complete IPv4 space through bounded resumable slices', () {
+      final cursor = NatAddressRangeCursor.parse('203.0.113.9/0')!;
+      expect(cursor.addressCount, 4294967296);
+
+      final beginning = cursor.read(0, 3);
+      expect(beginning.$1, ['0.0.0.0', '0.0.0.1', '0.0.0.2']);
+      expect(beginning.$2, 3);
+
+      final ending = cursor.read(4294967294, 8);
+      expect(ending.$1, ['255.255.255.254', '255.255.255.255']);
+      expect(ending.$2, -1);
+    });
+
+    test('normalizes CIDR host bits and validates range direction', () {
+      final cidr = NatAddressRangeCursor.parse('10.0.0.7/30')!;
+      expect(cidr.addressCount, 4);
+      expect(cidr.read(0, 8).$1,
+          ['10.0.0.4', '10.0.0.5', '10.0.0.6', '10.0.0.7']);
+
+      final reversed = NatAddressRangeCursor.parse('10.0.0.4-10.0.0.1')!;
+      expect(reversed.read(0, 4).$1,
+          ['10.0.0.1', '10.0.0.2', '10.0.0.3', '10.0.0.4']);
+      expect(NatAddressRangeCursor.parse('10.0.0.1/33'), isNull);
+      expect(NatAddressRangeCursor.parse('10.0.0.1/24/8'), isNull);
+    });
+
+    test('accepts exact IPv6 endpoints but does not expand broad prefixes', () {
+      final address = NatAddressRangeCursor.parse('2001:4860:4860::8888/128')!;
+      expect(address.addressCount, 1);
+      expect(address.read(0, 1).$1, hasLength(1));
+      expect(NatAddressRangeCursor.parse('2001:4860::/64'), isNull);
+      expect(NatAddressRangeCursor.parse('2001:4860::1'), isNotNull);
+    });
+
+    test('rejects invalid offsets and non-positive slice sizes', () {
+      final cursor = NatAddressRangeCursor.parse('192.0.2.1/32')!;
+      final negativeOffset = cursor.read(-1, 1);
+      expect(negativeOffset.$1, isEmpty);
+      expect(negativeOffset.$2, -1);
+      final zeroLimit = cursor.read(0, 0);
+      expect(zeroLimit.$1, isEmpty);
+      expect(zeroLimit.$2, -1);
+      final negativeLimit = cursor.read(0, -4);
+      expect(negativeLimit.$1, isEmpty);
+      expect(negativeLimit.$2, -1);
+      final exhausted = cursor.read(1, 1);
+      expect(exhausted.$1, isEmpty);
+      expect(exhausted.$2, -1);
+    });
+  });
+
 }

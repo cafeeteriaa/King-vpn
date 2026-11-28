@@ -1528,24 +1528,14 @@ final Map<String, DateTime> _natAsnTry = {};
 
 Future<String> _natNetType() async {
   try {
-    final l = await NetworkInterface.list(
-        includeLoopback: false, type: InternetAddressType.IPv4);
-    var wifi = false, mob = false;
-    for (final i in l) {
-      if (i.addresses.isEmpty) continue;
-      final n = i.name.toLowerCase();
-      if (n.startsWith('wlan') || n.startsWith('wifi')) {
-        wifi = true;
-      } else if (n.contains('rmnet') ||
-          n.startsWith('ccmni') ||
-          n.startsWith('pdp')) {
-        mob = true;
-      }
-    }
-    return wifi ? 'wifi' : (mob ? 'mob' : 'net');
+    final fingerprint = await KingNetworkFingerprint.capture();
+    final separator = fingerprint.indexOf('#');
+    if (separator < 0) return 'unknown';
+    final routes = fingerprint.substring(separator + 1).split(';');
+    return KingNetworkFingerprint.classifyDefaultRouteInterfaces(routes);
   } catch (e, stk) {
     logError(e, stk);
-    return 'net';
+    return 'unknown';
   }
 }
 
@@ -1740,6 +1730,7 @@ const String _rangeKey = 'natRanges';
 final List<Map<String, dynamic>> natIpMem = [];
 final Set<String> natIpDeadRun = {};
 List<String> natRanges = [];
+List<String> natIranIpv6Prefixes = [];
 int natRangeCursor = 0; // legacy generic range cursor
 int _natConfiguredRangeCursor = 0; // next configured-range entry
 final Map<String, int> _natConfiguredRangeCursors = <String, int>{};
@@ -2016,6 +2007,20 @@ Future<void> natIpMemLoad() async {
       await _natWriteJsonSnapshot('king_nat_configured_ranges.json', natRanges);
     }
     await _natRangeStateLoad(prefs);
+    final countrySourcesFile =
+        await _natMemoryFile('king_nat_country_prefix_sources.json');
+    if (await countrySourcesFile.exists()) {
+      try {
+        final sourceState = jsonDecode(await countrySourcesFile.readAsString());
+        if (sourceState is Map) {
+          natIranIpv6Prefixes = NatCountryPrefixSnapshot.parseIpv6PrefixList(
+            sourceState['ipv6Prefixes'],
+          );
+        }
+      } catch (e, stk) {
+        logError(e, stk);
+      }
+    }
   } catch (e, stk) {
     logError(e, stk);
   }
@@ -2146,7 +2151,13 @@ Future<void> natIpMemSave(String ip, int port) async {
 ({List<String> addresses, int nextCursor, Map<String, int> nextRangeCursors, bool passCompleted})
     _natConfiguredRangeBatch(int limit) {
   final staged = Map<String, int>.of(_natConfiguredRangeCursors);
-  if (limit <= 0 || natRanges.isEmpty) {
+  if (limit <= 0) {
+    final complete = natRanges.isEmpty ||
+        natRanges.every((range) => (staged[range] ?? 0) < 0);
+    return (addresses: const <String>[], nextCursor: _natConfiguredRangeCursor,
+      nextRangeCursors: staged, passCompleted: complete);
+  }
+  if (natRanges.isEmpty) {
     return (addresses: const <String>[], nextCursor: _natConfiguredRangeCursor,
       nextRangeCursors: staged, passCompleted: true);
   }
@@ -2199,6 +2210,191 @@ Future<void> natRangesSave(String text) async {
     await _natRangeStateSave();
   } catch (e, stk) {
     logError(e, stk);
+  }
+}
+
+bool _natIranRangeRefreshBusy = false;
+
+/// Refresh the national scanner's durable range inventory from authoritative
+/// country registry data, the existing Iranian ISP inventory, and the active
+/// network ASN's currently announced BGP prefixes. Failed refreshes never
+/// replace or clear the last known-good inventory.
+Future<bool> natRefreshIranRangeInventory({bool force = false}) async {
+  if (_natIranRangeRefreshBusy) return false;
+  _natIranRangeRefreshBusy = true;
+  try {
+    final prefs = await SharedPreferences.getInstance();
+
+    // Seed Net Melli from the maintained Iranian ISP inventory even when
+    // external registry services are unreachable.
+    final seedRanges = <String>{...natRanges, ...kIrIspRanges}
+        .toList(growable: false);
+    if (seedRanges.length != natRanges.length) {
+      final seedSet = seedRanges.toSet();
+      final seedCursors = Map<String, int>.of(_natConfiguredRangeCursors)
+        ..removeWhere((range, _) => !seedSet.contains(range));
+      for (final range in seedRanges) {
+        seedCursors.putIfAbsent(range, () => 0);
+      }
+      await _natWriteJsonSnapshot(
+        'king_nat_configured_ranges.json',
+        seedRanges,
+      );
+      natRanges = seedRanges;
+      _natConfiguredRangeCursors
+        ..clear()
+        ..addAll(seedCursors);
+      _natConfiguredRangeCursor = seedRanges.isEmpty
+          ? 0
+          : _natConfiguredRangeCursor.clamp(0, seedRanges.length - 1).toInt();
+      await _natRangeStateSave();
+    }
+
+    final now = DateTime.now();
+    final lastSuccess = DateTime.fromMillisecondsSinceEpoch(
+      prefs.getInt('natIranRangeRefreshSuccessMs') ?? 0,
+    );
+    final lastAttempt = DateTime.fromMillisecondsSinceEpoch(
+      prefs.getInt('natIranRangeRefreshAttemptMs') ?? 0,
+    );
+    if (!force &&
+        natRanges.isNotEmpty &&
+        now.difference(lastSuccess) < const Duration(hours: 24)) {
+      return false;
+    }
+    if (!force &&
+        now.difference(lastAttempt) < const Duration(hours: 6)) {
+      return false;
+    }
+    await prefs.setInt(
+      'natIranRangeRefreshAttemptMs',
+      now.millisecondsSinceEpoch,
+    );
+
+    final countryUri = Uri.https(
+      'stat.ripe.net',
+      '/data/country-resource-list/data.json',
+      <String, String>{
+        'resource': 'ir',
+        'v4_format': 'prefix',
+        'sourceapp': 'kingvpn',
+      },
+    );
+    final countryResponse = await http.get(countryUri)
+        .timeout(const Duration(seconds: 15));
+    if (countryResponse.statusCode != 200) return false;
+    final country = NatCountryPrefixSnapshot.parseCountryResources(
+      jsonDecode(countryResponse.body),
+    );
+    if (country == null || country.ipv4.isEmpty) return false;
+
+    final networkType = await _natNetType();
+    var activeAsn = _natAsnByType[networkType] ?? '';
+    if (activeAsn.isEmpty) {
+      await natDetectOperator();
+      activeAsn = _natAsnByType[networkType] ?? '';
+    }
+    // Never mix a foreign roaming/current ISP into Iran's inventory.
+    if (activeAsn.isNotEmpty &&
+        (!country.asns.contains('AS' + activeAsn) ||
+            int.tryParse(activeAsn) == null)) {
+      activeAsn = '';
+    }
+
+    final announcedIpv4 = <String>[];
+    final announcedIpv6 = <String>[];
+    if (activeAsn.isNotEmpty) {
+      final announcedUri = Uri.https(
+        'stat.ripe.net',
+        '/data/announced-prefixes/data.json',
+        <String, String>{
+          'resource': 'AS' + activeAsn,
+          'min_peers_seeing': '1',
+          'sourceapp': 'kingvpn',
+        },
+      );
+      try {
+        final response = await http.get(announcedUri)
+            .timeout(const Duration(seconds: 15));
+        if (response.statusCode == 200) {
+          final payload = jsonDecode(response.body);
+          announcedIpv4.addAll(
+            NatCountryPrefixSnapshot.parseAnnouncedIpv4(payload),
+          );
+          announcedIpv6.addAll(
+            NatCountryPrefixSnapshot.parseAnnouncedIpv6(payload),
+          );
+        }
+      } catch (e, stk) {
+        // Registry resources remain useful if the live BGP endpoint fails.
+        logError(e, stk);
+      }
+    }
+
+    final merged = <String>{
+      ...natRanges,
+      ...kIrIspRanges,
+      ...country.ipv4,
+      ...announcedIpv4,
+    }.toList(growable: false);
+    if (merged.isEmpty) return false;
+    final ipv6Merged = <String>{
+      ...natIranIpv6Prefixes,
+      ...country.ipv6,
+      ...announcedIpv6,
+    }.toList()..sort();
+
+    final mergedSet = merged.toSet();
+    final nextCursors = Map<String, int>.of(_natConfiguredRangeCursors)
+      ..removeWhere((range, _) => !mergedSet.contains(range));
+    for (final range in merged) {
+      nextCursors.putIfAbsent(range, () => 0);
+    }
+    final nextRangeCursor = merged.isEmpty
+        ? 0
+        : _natConfiguredRangeCursor.clamp(0, merged.length - 1).toInt();
+
+    // Commit the inventory before its cursors. A failed fetch/write never
+    // clears the previous usable inventory.
+    await _natWriteJsonSnapshot(
+      'king_nat_configured_ranges.json',
+      merged,
+    );
+    natRanges = merged;
+    natIranIpv6Prefixes = ipv6Merged;
+    _natConfiguredRangeCursors
+      ..clear()
+      ..addAll(nextCursors);
+    _natConfiguredRangeCursor = nextRangeCursor;
+    await _natRangeStateSave();
+
+    await _natWriteJsonSnapshot(
+      'king_nat_country_prefix_sources.json',
+      <String, Object?>{
+        'schema': 1,
+        'country': 'IR',
+        'source': 'RIPEstat country-resource-list + announced-prefixes',
+        'fetchedAt': now.toUtc().toIso8601String(),
+        'registryAsns': country.asns,
+        'registryIpv6Prefixes': country.ipv6,
+        'activeAsnAnnouncedIpv6Prefixes': announcedIpv6,
+        'ipv6Prefixes': ipv6Merged,
+        'activeNetworkType': networkType,
+        'activeAsn': activeAsn.isEmpty ? null : 'AS' + activeAsn,
+        'activeAsnAnnouncedIpv4Count': announcedIpv4.length,
+        'ipv4InventoryCount': merged.length,
+      },
+    );
+    await prefs.setInt(
+      'natIranRangeRefreshSuccessMs',
+      now.millisecondsSinceEpoch,
+    );
+    return true;
+  } catch (e, stk) {
+    logError(e, stk);
+    return false;
+  } finally {
+    _natIranRangeRefreshBusy = false;
   }
 }
 
@@ -2272,34 +2468,15 @@ int _ipToInt(String ip) {
 String _intToIp(int v) =>
     '${(v >> 24) & 255}.${(v >> 16) & 255}.${(v >> 8) & 255}.${v & 255}';
 
-List<String> natExpandAny(String item, {int maxPerBlock = 65536}) {
-  if (maxPerBlock <= 0) return const [];
-  if (!item.contains('-')) return natExpandCidr(item, maxPerBlock: maxPerBlock);
-  final parts = item.split('-');
-  if (parts.length != 2) return const [];
-  final a = InternetAddress.tryParse(parts[0].trim());
-  final b = InternetAddress.tryParse(parts[1].trim());
-  if (a == null || b == null ||
-      a.type != InternetAddressType.IPv4 ||
-      b.type != InternetAddressType.IPv4) {
-    return const [];
+/// Compatibility facade over the central CIDR/range cursor helpers.
+/// No default sampling limit is applied; callers may pass an explicit limit
+/// only when they intentionally request a bounded preview.
+List<String> natExpandAny(String item, {int? maxPerBlock}) {
+  if (maxPerBlock != null && maxPerBlock <= 0) return const <String>[];
+  if (item.contains('-')) {
+    return natExpandDash(item, maxCount: maxPerBlock);
   }
-  var start = _ipToInt(a.address);
-  var end = _ipToInt(b.address);
-  if (end < start) {
-    final t = start;
-    start = end;
-    end = t;
-  }
-  final out = <String>[];
-  final count = end - start + 1;
-  final step = count > maxPerBlock
-      ? (count + maxPerBlock - 1) ~/ maxPerBlock
-      : 1;
-  for (var v = start; v <= end && out.length < maxPerBlock; v += step) {
-    out.add(_intToIp(v));
-  }
-  return out;
+  return natExpandCidr(item, maxPerBlock: maxPerBlock);
 }
 
 const List<String> natIranDnsHosts = [
@@ -2391,7 +2568,7 @@ Future<List<String>> _natDomainFirst(List<Server> known,
       final hits = await natScanIps(
         entry.value,
         port: entry.key,
-        concurrency: conc.clamp(1, 32).toInt(),
+        concurrency: natAdaptiveConcurrency(conc),
         want: entry.value.length,
         budget: null,
         timeout: const Duration(milliseconds: 1200),
@@ -2522,67 +2699,7 @@ List<String> _getCfIps({
   return out;
 }
 
-// Cursor-aware expansion so large CIDR catalogs are covered fairly across runs.
-(List<String>, int) _natExpandAnyCursor(String item, int cursor, int maxPerBlock) {
-  String? startIp;
-  int span = 0;
-  final raw = item.trim();
-  if (raw.contains('/')) {
-    final parts = raw.split('/');
-    if (parts.length != 2) return (<String>[], -1);
-    final ip = InternetAddress.tryParse(parts[0].trim());
-    final prefix = int.tryParse(parts[1]);
-    if (ip == null || prefix == null) return (<String>[], -1);
-    if (ip.type == InternetAddressType.IPv6) {
-      // Explicit IPv6 endpoints are supported. Broad IPv6 prefixes are not
-      // enumerated; the caller must supply an exact /128 endpoint.
-      if (prefix != 128) return (<String>[], -1);
-      if (cursor != 0 || maxPerBlock <= 0) return (<String>[], -1);
-      return (<String>[ip.address], -1);
-    }
-    if (prefix < 0 || prefix > 32) return (<String>[], -1);
-    final base = _ipToInt(ip.address) & (0xffffffff << (32 - prefix));
-    span = 1 << (32 - prefix);
-    startIp = _intToIp(base);
-  } else if (raw.contains('-')) {
-    final parts = raw.split('-');
-    if (parts.length != 2) return (<String>[], -1);
-    final a = InternetAddress.tryParse(parts[0].trim());
-    final b = InternetAddress.tryParse(parts[1].trim());
-    if (a == null || b == null ||
-        a.type != InternetAddressType.IPv4 ||
-        b.type != InternetAddressType.IPv4) {
-      return (<String>[], -1);
-    }
-    final first = _ipToInt(a.address);
-    final last = _ipToInt(b.address);
-    final low = min(first, last);
-    span = (max(first, last) - low) + 1;
-    startIp = _intToIp(low);
-  } else {
-    final ip = InternetAddress.tryParse(raw);
-    if (ip == null) return (<String>[], -1);
-    if (ip.type == InternetAddressType.IPv6) {
-      if (cursor != 0 || maxPerBlock <= 0) return (<String>[], -1);
-      return (<String>[ip.address], -1);
-    }
-    startIp = ip.address;
-    span = 1;
-  }
-  if (span <= 0 || cursor < 0 || maxPerBlock <= 0) return (<String>[], -1);
-  final base = _ipToInt(startIp);
-  final offset = cursor.clamp(0, span).toInt();
-  if (offset >= span) return (<String>[], -1);
-  final count = min(maxPerBlock, span - offset).toInt();
-  final out = <String>[];
-  for (var i = 0; i < count; i++) {
-    out.add(_intToIp(base + offset + i));
-  }
-  return (out, offset + count >= span ? -1 : offset + count);
-}
-
-// Cursor-aware exact endpoint and configured IPv4 range expansion. The batch
-// size limits only transient memory; it never reduces the total range coverage.
+// Cursor-aware exact endpoint and configured IPv4 range expansion.
 Map<String, dynamic> _genAddrsIso(Map<String, dynamic> args) {
   final int cfIpsBatch = args['cfIpsBatch'] as int;
   final List<String> blocks = List<String>.from(args['blocks'] as List);
@@ -2590,8 +2707,8 @@ Map<String, dynamic> _genAddrsIso(Map<String, dynamic> args) {
   final List<String> liveRanges = List<String>.from(args['liveRanges'] as List);
   final Map<String, int> cursors = Map<String, int>.from(args['cursors'] as Map);
   final addrs = <String>[];
-  // NATMEM: هر بلوک حداکثر ۲۵۶ آدرس پراکنده و کل فهرست سقف دارد. قبلاً هر بلوک تا ۶۵۵۳۶ آدرس
-  // و فهرست ISP حدود ۲۸۰۰ بلوک داشت، یعنی ده‌ها میلیون رشته در isolate و فقط ۶۰۰۰ تای آن استفاده می‌شد.
+  // A bounded batch limits transient memory only; durable cursors cover every
+  // address in each explicitly configured range over subsequent invocations.
   final cap = max(0, (args['outputLimit'] as int?) ?? max(cfIpsBatch * 4, 20000));
   void addBlocks() {
     if (blocks.isEmpty || cap <= 0) return;
@@ -2608,8 +2725,6 @@ Map<String, dynamic> _genAddrsIso(Map<String, dynamic> args) {
         addrs.addAll(generated.$1);
         cursors[key] = generated.$2;
       } else {
-        // Persist exhaustion for this endpoint block; zero would restart it
-        // from the beginning and prevent a complete inventory pass.
         cursors[key] = -1;
       }
       processed++;
@@ -2626,6 +2741,15 @@ Map<String, dynamic> _genAddrsIso(Map<String, dynamic> args) {
     addrs.addAll(_getCfIps(batchSize: cfIpsBatch, liveRanges: liveRanges, cursors: cursors));
   }
   return {'addrs': addrs, 'cursors': cursors};
+}
+
+/// The per-call limit bounds transient memory only; each valid configured IPv4
+/// range is traversed completely by its durable offset. No sampling stride or
+/// per-range address ceiling is applied to the runtime inventory.
+(List<String>, int) _natExpandAnyCursor(String item, int cursor, int maxPerBlock) {
+  final range = NatAddressRangeCursor.parse(item);
+  if (range == null) return (<String>[], -1);
+  return range.read(cursor, maxPerBlock);
 }
 
 // Begin another complete pass only after the previous inventory pass finished.
@@ -2658,6 +2782,8 @@ Future<List<String>> natRangeScanStep({
   bool Function()? stop,
   bool coordinatorOwned = false,
 }) async {
+  // A zero-sized batch is a no-op, never evidence that an inventory pass ended.
+  if (maxAddrs <= 0) return const <String>[];
   if ((dnsxManualBusy && !coordinatorOwned) || _natRangeScanBusy) return const <String>[];
   _natRangeScanBusy = true;
   try {
@@ -2847,9 +2973,8 @@ Future<void> userListsSave(String text) async {
 }
 
 // HOTCAP: کاهش از ۲ میلیون برای جلوگیری از OOM روی گوشی ضعیف
-const int natHotPerSource = 80000;
 const int natHotMin = 30000;
-const int natHotMax = 400000;
+const int _hotIndexStride = 1024;
 List<Server> Function()? natExtraSource;
 const Duration natHotTtl = Duration(hours: 72);
 const Duration natHotFetchDeadline = Duration(seconds: 900);
@@ -2860,8 +2985,11 @@ Map<String, double> natSrcRates = {};
 
 class _HotIdx {
   final String file;
-  final List<int> offs;
-  _HotIdx(this.file, this.offs);
+  /// Sparse byte offsets: one checkpoint for each [_hotIndexStride] records.
+  final List<int> offsets;
+  final int lineCount;
+  final int fileLength;
+  _HotIdx(this.file, this.offsets, this.lineCount, this.fileLength);
 }
 
 _HotIdx? _hot;
@@ -2982,7 +3110,6 @@ Future<List<String>> _hotFetchOne(String u) async {
     // فیکس ۱۱: split روی رشته‌ی چند مگابایتی در isolate انجام می‌شود
     final lines = await compute(_hotSplitIso, body);
     for (final l in lines) {
-      if (out.length >= natHotPerSource) break;
       final t = l.trim();
       if (!t.contains('://') || t.contains('[email') || t.contains('protected]')) {
         continue;
@@ -3050,18 +3177,17 @@ Future<void> _natHotEnsureImpl({bool force = false}) async {
               .compareTo(natSrcRates[urls[a]] ?? 0.3));
       final mixed = order;
       final newPath = '${_hotPath()}.new';
-      final offs = <int>[0];
+      final offsets = <int>[0];
       var pos = 0;
+      var total = 0;
       final sink = File(newPath).openWrite();
       try {
-        var full = false;
         final seenKeys = <String>{};
         final mergeFrom = <String>[
           if (File(extraPath).existsSync()) extraPath,
           for (final i in mixed) parts[i],
         ];
         for (final pth in mergeFrom) {
-          if (full) break;
           final pf = File(pth);
           if (!pf.existsSync()) continue;
           await for (final line in pf
@@ -3076,19 +3202,15 @@ Future<void> _natHotEnsureImpl({bool force = false}) async {
             sink.add(b);
             sink.add(const [10]);
             pos += b.length + 1;
-            offs.add(pos);
-            if (offs.length - 1 >= natHotMax) {
-              full = true;
-              break;
-            }
+            total++;
+            if (total % _hotIndexStride == 0) offsets.add(pos);
           }
         }
       } finally {
         await sink.close();
       }
-      final total = offs.length - 1;
       final oldIdx = await _hotLoad();
-      final oldTotal = oldIdx == null ? 0 : oldIdx.offs.length - 1;
+      final oldTotal = oldIdx?.lineCount ?? 0;
       if (total > 0 && oldTotal > 0 && total < oldTotal ~/ 2) {
         dbg('پوشه‌ی منابع تازه: ساخت جدید فقط $total کانفیگ داشت (قبلی $oldTotal)؛ پوشه‌ی قبلی نگه داشته شد');
         _hotFailAt = DateTime.now();
@@ -3098,7 +3220,7 @@ Future<void> _natHotEnsureImpl({bool force = false}) async {
       } else if (total > 0) {
         _hotFailAt = null;
         await File(newPath).rename(_hotPath());
-        _hot = _HotIdx(_hotPath(), offs);
+        _hot = _HotIdx(_hotPath(), offsets, total, pos);
         _hotCursor = 0;
         if (total < natHotMin) {
           dbg('پوشه‌ی منابع تازه: $total کانفیگ (کمتر از $natHotMin)');
@@ -3133,22 +3255,28 @@ bool natHotReady() {
   }
 }
 
-// فیکس ۴: ساخت جدول offset خط‌ها برای فایل‌های بزرگ (> 512KB) در isolate انجام می‌شود
-// تا حلقه‌ی بایت‌به‌بایت روی چند مگابایت ترد UI را نگیرد. منطق offs عیناً همان است.
-Future<List<int>> _hotBuildOffsets(String path) =>
-    compute(_hotOffsetsIso, path);
-
-Future<List<int>> _hotOffsetsIso(String path) async {
-  final offs = <int>[0];
+// Build a sparse disk index so index memory grows with file size in
+// fixed-size checkpoints rather than one integer per saved configuration.
+Future<_HotIdx> _hotBuildOffsets(String path) async {
+  final offsets = <int>[0];
   var pos = 0;
+  var lineCount = 0;
+  var lastByte = -1;
   await for (final chunk in File(path).openRead()) {
     for (var i = 0; i < chunk.length; i++) {
-      if (chunk[i] == 10) offs.add(pos + i + 1);
+      final byte = chunk[i];
+      if (byte == 10) {
+        lineCount++;
+        if (lineCount % _hotIndexStride == 0) {
+          offsets.add(pos + i + 1);
+        }
+      }
+      lastByte = byte;
     }
     pos += chunk.length;
   }
-  if (offs.last != pos) offs.add(pos);
-  return offs;
+  if (pos > 0 && lastByte != 10) lineCount++;
+  return _HotIdx(path, offsets, lineCount, pos);
 }
 
 Future<_HotIdx?> _hotLoad() async {
@@ -3156,22 +3284,8 @@ Future<_HotIdx?> _hotLoad() async {
   if (cur != null) return cur;
   final f = File(_hotPath());
   try {
-    if (!f.existsSync() || f.lengthSync() == 0) return null;
-    List<int> offs;
-    if (f.lengthSync() > 512 * 1024) {
-      offs = await _hotBuildOffsets(f.path);
-    } else {
-      offs = <int>[0];
-      var pos = 0;
-      await for (final chunk in f.openRead()) {
-        for (var i = 0; i < chunk.length; i++) {
-          if (chunk[i] == 10) offs.add(pos + i + 1);
-        }
-        pos += chunk.length;
-      }
-      if (offs.last != pos) offs.add(pos);
-    }
-    _hot = _HotIdx(f.path, offs);
+    if (!await f.exists() || await f.length() == 0) return null;
+    _hot = await _hotBuildOffsets(f.path);
     _hotCursor = 0;
     return _hot;
   } catch (e, stk) {
@@ -3185,44 +3299,55 @@ Future<List<Server>> natHotNext(int n,
   try {
     if (fetch) unawaited(natHotEnsure());
     final h = await _hotLoad();
-    if (h == null) return const [];
-    final lines = h.offs.length - 1;
-    if (lines <= 0) return const [];
-    final out = <Server>[];
-    final raf = await File(h.file).open();
-    try {
-      // HOTSTALE: طول handle باز را با ایندکس بسنج؛ handle به inode ثابت است، پس
-      // اگر فایل وسط rename عوض شده باشد، این مقایسه ناهم‌خوانی را می‌گیرد
-      if (await raf.length() != h.offs.last) {
-        _hot = null; // ایندکس قدیمی را دور بریز
-        if (retried) return const [];
-        return natHotNext(n, fetch: false, retried: true);
-      }
-      var read = 0;
-      while (out.length < n && read < lines) {
-        var start = _hotCursor;
-        if (start >= lines) start = 0;
-        final take = min(min(n - out.length, lines - start), lines - read);
-        final from = h.offs[start];
-        final to = h.offs[start + take];
-        await raf.setPosition(from);
-        final bytes = await raf.read(to - from);
-        final text = utf8.decode(bytes, allowMalformed: true);
-        for (final e in text.split('\n')) {
-          final i = e.indexOf('\t');
-          if (i < 0) continue;
-          final s = Server.parse(e.substring(i + 1));
-          if (s != null) {
-            s.src = e.substring(0, i);
-            out.add(s);
-          }
-        }
-        read += take;
-        _hotCursor = (start + take) % lines;
-      }
-    } finally {
-      await raf.close();
+    if (h == null || n <= 0 || h.lineCount <= 0) return const [];
+    final actualLength = await File(h.file).length();
+    if (actualLength != h.fileLength) {
+      _hot = null;
+      if (retried) return const [];
+      return natHotNext(n, fetch: false, retried: true);
     }
+
+    final linesToRead = min(n, h.lineCount);
+    final firstCount = min(linesToRead, h.lineCount - _hotCursor);
+    final out = <Server>[];
+
+    Future<void> readRange(int startLine, int count) async {
+      if (count <= 0) return;
+      final checkpoint = startLine ~/ _hotIndexStride;
+      final checkpointLine = checkpoint * _hotIndexStride;
+      if (checkpoint >= h.offsets.length) {
+        throw StateError('Hot cache sparse index is incomplete');
+      }
+      final byteOffset = h.offsets[checkpoint];
+      var skipped = 0;
+      var consumed = 0;
+      await for (final line in File(h.file)
+          .openRead(byteOffset)
+          .transform(utf8.decoder)
+          .transform(const LineSplitter())) {
+        if (skipped < startLine - checkpointLine) {
+          skipped++;
+          continue;
+        }
+        if (consumed >= count) break;
+        consumed++;
+        final tab = line.indexOf('\t');
+        if (tab < 0) continue;
+        final server = Server.parse(line.substring(tab + 1));
+        if (server != null) {
+          server.src = line.substring(0, tab);
+          out.add(server);
+        }
+      }
+      if (consumed != count) {
+        throw StateError('Hot cache changed while reading indexed records');
+      }
+    }
+
+    await readRange(_hotCursor, firstCount);
+    final wrappedCount = linesToRead - firstCount;
+    if (wrappedCount > 0) await readRange(0, wrappedCount);
+    _hotCursor = (_hotCursor + linesToRead) % h.lineCount;
     return out;
   } catch (e, stk) {
     logError(e, stk);
