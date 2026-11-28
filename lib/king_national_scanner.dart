@@ -1674,7 +1674,7 @@ class KingNatSubsystemEngine {
     _confidence = confidence.clamp(0.0, 1.0).toDouble();
     _get('network_intelligence').record(
       domesticTls + globalTls + domesticIpv6 + globalIpv6,
-      'route_evidence_confidence_\${_confidence.toStringAsFixed(2)}',
+      'route_evidence_confidence_${_confidence.toStringAsFixed(2)}',
       complete: domesticTls + globalTls + domesticIpv6 + globalIpv6 > 0,
     );
   }
@@ -1684,7 +1684,7 @@ class KingNatSubsystemEngine {
     _ipv6Resources = ipv6Resources < 0 ? 0 : ipv6Resources;
     _get('discovery').record(
       _ipv4Resources + _ipv6Resources,
-      'ipv4_resources_\$_ipv4Resources_ipv6_prefixes_\$_ipv6Resources',
+      'ipv4_resources_$_ipv4Resources_ipv6_prefixes_$_ipv6Resources',
       complete: _ipv4Resources + _ipv6Resources > 0,
     );
   }
@@ -1694,7 +1694,7 @@ class KingNatSubsystemEngine {
     _operatorIdentity = safe.length > 96 ? safe.substring(0, 96) : safe;
     _get('network_identity').record(
       _operatorIdentity == 'unknown' ? 0 : 1,
-      'identity_\$_operatorIdentity',
+      'identity_$_operatorIdentity',
       complete: _operatorIdentity != 'unknown',
     );
   }
@@ -1705,22 +1705,22 @@ class KingNatSubsystemEngine {
     _batchPorts = batchPorts.clamp(1, 65536).toInt();
     _get('resource_health_manager').record(
       _workers,
-      'workers_\$_workers_ports_\$_batchPorts_slice_ms_\$_sliceBudgetMs',
+      'workers_$_workers_ports_$_batchPorts_slice_ms_$_sliceBudgetMs',
     );
   }
 
   static void recordConfigPlan(int variants) {
     final safe = variants < 0 ? 0 : variants;
     _plannedVariants += safe;
-    _get('config_intelligence').record(safe, 'variants_planned_\$safe');
-    _get('compatibility').record(safe, 'compatibility_variants_planned_\$safe');
+    _get('config_intelligence').record(safe, 'variants_planned_$safe');
+    _get('compatibility').record(safe, 'compatibility_variants_planned_$safe');
     _get('capability_orchestrator').record(1, 'registry_consulted');
     _get('dpi_traffic_transformation').record(
-      safe, 'existing_transformation_variants_evaluated_\$safe',
+      safe, 'existing_transformation_variants_evaluated_$safe',
       complete: safe > 0,
     );
     _get('ai_repair_optimization').record(
-      safe, 'evidence_ranked_strategy_plan_\$safe',
+      safe, 'evidence_ranked_strategy_plan_$safe',
       complete: safe > 0,
     );
   }
@@ -1735,7 +1735,7 @@ class KingNatSubsystemEngine {
     }
     _get('real_traffic_validator').record(
       destinations < 0 ? 0 : destinations,
-      'mode_\$mode_\${success ? 'passed' : 'failed'}_destinations_\$destinations',
+      'mode_$mode_${success ? 'passed' : 'failed'}_destinations_$destinations',
       complete: success,
     );
   }
