@@ -1379,18 +1379,27 @@ class KingNationalScannerEngine {
             );
             if (!stopped() && !shouldYield()) {
               dnsCount = dnsxBestCache.length;
-              final udpEvidence = await probeUdpDnsInventory(
-                cancelled: () => stopped() || shouldYield(),
-              );
-              udpProbes = udpEvidence['probes'] ?? 0;
-              udpResponses = udpEvidence['responses'] ?? 0;
-              udpExpected = udpEvidence['expected'] ?? 0;
-              final preferences = await SharedPreferences.getInstance();
-              await preferences.flush();
-              if (dnsClock.elapsed >= const Duration(seconds: 60)) {
-                warnings.add('dns_phase_extended_over_60s');
+              if (dnsCount <= 0) {
+                // A scan with no usable resolver is not a completed DNS phase.
+                // Keep the durable cursor on DNS so the next slice can retry
+                // after the network or resolver inventory changes.
+                warnings.add('dns_scan_no_usable_resolver_deferred');
+                phaseDeferred = true;
+                await persistPhase('dns', completed: false);
+              } else {
+                final udpEvidence = await probeUdpDnsInventory(
+                  cancelled: () => stopped() || shouldYield(),
+                );
+                udpProbes = udpEvidence['probes'] ?? 0;
+                udpResponses = udpEvidence['responses'] ?? 0;
+                udpExpected = udpEvidence['expected'] ?? 0;
+                final preferences = await SharedPreferences.getInstance();
+                await preferences.flush();
+                if (dnsClock.elapsed >= const Duration(seconds: 60)) {
+                  warnings.add('dns_phase_extended_over_60s');
+                }
+                await completePhase('dns');
               }
-              await completePhase('dns');
             }
           }
         }
@@ -1600,6 +1609,11 @@ class KingNationalScannerEngine {
         await beginPhase('config');
         status(KingNatScanPhase.config, 'اسکنر: اعتبارسنجی ساختار کانفیگ‌ها...');
       if (!stopped() && !shouldYield()) {
+        if (seeds.isEmpty) {
+          warnings.add('config_scan_waiting_for_seed_configs');
+          phaseDeferred = true;
+          await persistPhase('config', completed: false);
+        } else {
         final resumeServerHash = resumePhase == 'config'
             ? resumeCursor['serverKeyHash']?.toString() : null;
         final foundResumeServer = resumeServerHash == null
@@ -1655,7 +1669,18 @@ class KingNationalScannerEngine {
             );
           }
         }
-        if (!stopped() && !shouldYield()) await completePhase('config');
+        if (!stopped() && !shouldYield()) {
+          if (configsValidated > 0) {
+            await completePhase('config');
+          } else {
+            // Exhausting an empty/invalid config set is not successful
+            // configuration intelligence; retain the checkpoint for retry.
+            warnings.add('config_scan_no_valid_variant_deferred');
+            phaseDeferred = true;
+            await persistPhase('config', completed: false);
+          }
+        }
+        }
       }
       }
 
