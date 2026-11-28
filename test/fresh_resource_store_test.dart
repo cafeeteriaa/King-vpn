@@ -8,7 +8,8 @@ const int fourMillionSoakEntries = 4000000;
 
 void main() {
   group('FreshResourceStore unbounded inventory and normalization', () {
-    test('keeps the four-million disk soak as a validation target, not a capacity ceiling', () {
+    test('enforces the four-million offline archive capacity', () {
+      expect(FreshResourceStore.maxEntries, fourMillionSoakEntries);
       expect(FreshResourceStore.shardCount, 256);
     });
 
@@ -252,32 +253,31 @@ void main() {
       }
     });
 
-    test('continues appending beyond the four-million validation milestone', () async {
-      final root = await Directory.systemTemp.createTemp('king-offline-unbounded-edge-');
+    test('does not append beyond the four-million archive capacity', () async {
+      final root = await Directory.systemTemp.createTemp('king-offline-capacity-');
       try {
         const existing = 'vless://already-stored@example.test:443';
         await FreshResourceStore.merge(<String>[existing], root: root);
         final folder = Directory(root.path + '/' + FreshResourceStore.directoryName);
         await File(folder.path + '/metadata.json').writeAsString(
-          '{"schema":2,"count":4000000}',
-          flush: true,
+          '{"schema":2,"count":4000000}', flush: true,
         );
-        Iterable<String> incoming() sync* {
-          yield existing;
-          for (var i = 0; i < 4095; i++) {
-            yield 'vless://new-$i@example.test:443';
-          }
-        }
-
-        expect(await FreshResourceStore.merge(incoming(), root: root), 4004095);
+        final total = await FreshResourceStore.merge(
+          <String>[
+            existing,
+            'vless://must-not-be-added@example.test:443',
+          ],
+          root: root,
+        );
+        expect(total, FreshResourceStore.maxEntries);
         final stored = await FreshResourceStore.streamLinks(root: root).toList();
-        expect(stored, hasLength(4096));
-        expect(stored, contains(existing));
-        expect(stored.where((link) => link.contains('new-')), hasLength(4095));
+        expect(stored, <String>[existing]);
       } finally {
         await root.delete(recursive: true);
       }
     });
+
+
 
     test('recovers from a malformed or negative persistent cursor without losing profiles', () async {
       final root = await Directory.systemTemp.createTemp('king-offline-cursor-corrupt-');
