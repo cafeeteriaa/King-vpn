@@ -2917,6 +2917,14 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn('natExpandCidr(', dialog)
         self.assertNotIn('natExpandDash(', dialog)
 
+    def test_range_scanner_rejects_invalid_probe_settings_before_cursor_progress(self):
+        source = (ROOT / 'lib' / 'nat_ip_scan.dart').read_text(encoding='utf-8')
+        start = source.index('Future<List<NatIpHit>> natScanAddressRanges(')
+        end = source.index('/// Validated country-level registry/BGP prefix snapshot.', start)
+        scanner = source[start:end]
+        self.assertIn('if (port < 1 || port > 65535 || timeout <= Duration.zero)', scanner)
+        self.assertLess(scanner.index('if (port < 1'), scanner.index('final cursors ='))
+
     def test_range_scanner_uses_bounded_slices_without_total_coverage_ceiling(self):
         source = (ROOT / 'lib' / 'nat_ip_scan.dart').read_text(encoding='utf-8')
         start = source.index('Future<List<NatIpHit>> natScanAddressRanges(')
