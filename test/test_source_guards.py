@@ -131,6 +131,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn("persistPhase(\n              'sni'", unresolved)
         self.assertIn("'candidateIndex': -1", unresolved)
         self.assertIn('break;', unresolved)
+        self.assertIn('&& !sniResolutionDeferred', sni)
         self.assertIn('final sniInventoryComplete =', sni)
         self.assertIn('inventoryComplete: sniInventoryComplete', sni)
         self.assertNotIn('inventoryComplete: true', sni)
