@@ -125,6 +125,8 @@ Future<List<NatIpHit>> natScanAddressRanges(
   void Function(int done, int total, int hits)? onProgress,
   void Function(int rangeIndex, int nextOffset)? onCursor,
   bool randomizeWithinSlice = true,
+  bool collectHits = true,
+  FutureOr<void> Function(List<NatIpHit> hits)? onHits,
 }) async {
   final cursors = <NatAddressRangeCursor>[];
   for (final raw in ranges) {
@@ -183,7 +185,10 @@ Future<List<NatIpHit>> natScanAddressRanges(
           }
         },
       );
-      hits.addAll(sliceHits);
+      if (!aborted() && sliceHits.isNotEmpty && onHits != null) {
+        await onHits(List<NatIpHit>.unmodifiable(sliceHits));
+      }
+      if (collectHits) hits.addAll(sliceHits);
       // A partially cancelled slice is replayed on resume. Never persist an
       // offset past addresses that may not have been probed.
       if (aborted()) {
@@ -216,7 +221,10 @@ Future<List<NatIpHit>> natScanAddressRanges(
         }
       },
     );
-    hits.addAll(sliceHits);
+    if (!aborted() && sliceHits.isNotEmpty && onHits != null) {
+      await onHits(List<NatIpHit>.unmodifiable(sliceHits));
+    }
+    if (collectHits) hits.addAll(sliceHits);
     done += slice.length;
     if (onProgress != null) onProgress(done, total, hits.length);
   }
