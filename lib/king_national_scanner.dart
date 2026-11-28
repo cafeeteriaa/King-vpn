@@ -868,6 +868,60 @@ class KingNationalScannerEngine {
     }
   }
 
+  /// Validates configured DNS resolvers over real UDP datagrams. This is
+  /// resolver evidence only; it is never promoted to VPN tunnel evidence.
+  static Future<Map<String, int>> probeUdpDnsInventory({
+    required bool Function() cancelled,
+    int? concurrency,
+  }) async {
+    final resolvers = <String>{
+      ..._natDnsList,
+      ...dnsxBestCache,
+    }.where((value) {
+      final address = InternetAddress.tryParse(value.trim());
+      return address != null &&
+          (address.type == InternetAddressType.IPv4 ||
+              address.type == InternetAddressType.IPv6);
+    }).map((value) => value.trim()).toList(growable: false);
+    const domains = <String>['example.com', 'digikala.com'];
+    const queryTypes = <int>[1, 28];
+    final jobs = <({String resolver, String domain, int type})>[
+      for (final resolver in resolvers)
+        for (final domain in domains)
+          for (final type in queryTypes)
+            (resolver: resolver, domain: domain, type: type),
+    ];
+    var next = 0;
+    var probes = 0;
+    var responses = 0;
+    final workerCount = min(
+      jobs.length,
+      max(1, concurrency ?? natAdaptiveWorkers()),
+    ).toInt();
+    Future<void> worker() async {
+      while (!cancelled()) {
+        if (next >= jobs.length) return;
+        final job = jobs[next++];
+        probes++;
+        final result = await NatDnsWireProbe.probe(
+          job.resolver,
+          job.domain,
+          queryType: job.type,
+          timeout: const Duration(milliseconds: 1800),
+          cancelled: cancelled,
+        );
+        if (result.ok) responses++;
+      }
+    }
+    await Future.wait(List<Future<void>>.generate(workerCount, (_) => worker()));
+    return <String, int>{
+      'probes': probes,
+      'responses': responses,
+      'expected': jobs.length,
+      'resolvers': resolvers.length,
+    };
+  }
+
   static Future<String?> _probeSniAlpn(String ip, int port, String sni) async {
     Socket? raw;
     SecureSocket? secure;
@@ -946,6 +1000,8 @@ class KingNationalScannerEngine {
     var ownsScannerLease = false;
     var domainHits = 0, ipHits = 0, sniHits = 0, alpnHits = 0;
     var configsValidated = 0, dnsCount = 0;
+    var udpProbes = 0, udpResponses = 0, udpExpected = 0;
+    var cdnCandidateAttempts = 0;
     var networkEvidence = PilotNetworkProbe.current;
     var ipv6Evidence = PilotIpv6Probe.current;
     var phaseDeferred = false;
@@ -977,6 +1033,10 @@ class KingNationalScannerEngine {
             'sniHandshakes': sniHits,
             'alpnNegotiations': alpnHits,
             'configsValidated': configsValidated,
+            'udpProbes': udpProbes,
+            'udpResponses': udpResponses,
+            'udpExpected': udpExpected,
+            'cdnCandidates': cdnCandidateAttempts,
           },
         );
       } catch (e, st) {
@@ -1108,6 +1168,10 @@ class KingNationalScannerEngine {
             sniHits = restored('sniHandshakes');
             alpnHits = restored('alpnNegotiations');
             configsValidated = restored('configsValidated');
+            udpProbes = restored('udpProbes');
+            udpResponses = restored('udpResponses');
+            udpExpected = restored('udpExpected');
+            cdnCandidateAttempts = restored('cdnCandidates');
           }
           if (resumePhase.isNotEmpty) warnings.add('resuming_from_$resumePhase');
         }
@@ -1195,6 +1259,12 @@ class KingNationalScannerEngine {
               stop: () => stopped() || shouldYield(),
             );
             dnsCount = dnsxBestCache.length;
+            final udpEvidence = await probeUdpDnsInventory(
+              cancelled: () => stopped() || shouldYield(),
+            );
+            udpProbes = udpEvidence['probes'] ?? 0;
+            udpResponses = udpEvidence['responses'] ?? 0;
+            udpExpected = udpEvidence['expected'] ?? 0;
             final preferences = await SharedPreferences.getInstance();
             await preferences.flush();
             if (dnsClock.elapsed >= const Duration(seconds: 60)) warnings.add('dns_phase_extended_over_60s');
@@ -1336,6 +1406,7 @@ class KingNationalScannerEngine {
               if (stopped() || shouldYield()) break;
               if (serverIndex == resumeServer && candidateIndex <= resumeCandidate) continue;
               final candidate = candidates[candidateIndex];
+              cdnCandidateAttempts++;
               final alpn = await _probeSniAlpn(ip, server.port, candidate.value);
               if (stopped()) break;
               if (alpn != null) {
@@ -1370,7 +1441,15 @@ class KingNationalScannerEngine {
             );
           }
         }
-        if (!stopped() && !shouldYield()) await completePhase('sni');
+        if (!stopped() && !shouldYield()) {
+          KingNatSubsystemEngine.recordCdnValidation(
+            candidates: cdnCandidateAttempts,
+            successfulHandshakes: sniHits,
+            tunnelPasses: 0,
+            inventoryComplete: true,
+          );
+          await completePhase('sni');
+        }
       }
       }
 
@@ -1437,6 +1516,14 @@ class KingNationalScannerEngine {
       }
       }
 
+      if (udpProbes > 0) {
+        KingNatSubsystemEngine.recordUdpDiscovery(
+          probes: udpProbes,
+          responses: udpResponses,
+          rangeComplete: udpProbes == udpExpected,
+          fullInventoryComplete: natRangeInventoryPassComplete,
+        );
+      }
       final didCancel = cancelled() || nationalMode != modeSnapshot;
       final didYield = shouldYield();
       KingNatSubsystemEngine.finishRun(
