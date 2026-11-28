@@ -11,6 +11,16 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         body = source[start:]
         self.assertIn('isVpnActive: isVpnActive, isVpnWanted: isVpnWanted', body)
 
+    def test_auto_sni_and_alpn_scans_enforce_tls_certificate_validation(self):
+        source = (ROOT / 'lib' / 'auto_scanners.dart').read_text(encoding='utf-8')
+        start = source.index('Future<int?> _autoSniOk(')
+        end = source.index('Future<bool> _autoPortOk(', start)
+        tls_helpers = source[start:end]
+        self.assertEqual(tls_helpers.count('SecureSocket.secure('), 2)
+        self.assertNotIn('onBadCertificate', tls_helpers)
+        self.assertIn('host: sni', tls_helpers)
+        self.assertIn('supportedProtocols: [alpn]', tls_helpers)
+
     def test_auto_sni_scan_refuses_to_compete_with_live_vpn(self):
         auto = (ROOT / 'lib' / 'auto_scanners.dart').read_text(encoding='utf-8')
         start = auto.index('Future<void> autoScanRun(')
