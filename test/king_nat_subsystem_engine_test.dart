@@ -85,6 +85,38 @@ void main() {
       );
     });
 
+    test('clears prior route and inventory evidence at the next scan start', () {
+      KingNatSubsystemEngine.beginRun(nationalMode: true, sliceBudgetMs: 30000);
+      KingNatSubsystemEngine.recordNetworkEvidence(
+        domesticTls: 3,
+        globalTls: 1,
+        domesticIpv6: 2,
+        globalIpv6: 1,
+        confidence: 0.9,
+      );
+      KingNatSubsystemEngine.recordDiscoveryInventory(
+        ipv4Resources: 900,
+        ipv6Resources: 40,
+      );
+      KingNatSubsystemEngine.recordNetworkIdentity('mobile|AS64500');
+
+      KingNatSubsystemEngine.beginRun(nationalMode: false, sliceBudgetMs: 45000);
+      final diagnostics = KingNatSubsystemEngine.diagnostics();
+      expect(diagnostics['nationalMode'], isFalse);
+      expect(diagnostics['operatorIdentity'], 'unknown');
+      expect(diagnostics['inventory'], <String, int>{
+        'ipv4Resources': 0,
+        'ipv6Prefixes': 0,
+      });
+      expect(diagnostics['routeEvidence'], <String, Object?>{
+        'domesticTls': 0,
+        'globalTls': 0,
+        'domesticIpv6': 0,
+        'globalIpv6': 0,
+        'confidence': 0.0,
+      });
+    });
+
     test('does not mark preflight-only work as real tunnel validation', () {
       KingNatSubsystemEngine.beginRun(nationalMode: true, sliceBudgetMs: 30000);
       KingNatSubsystemEngine.finishRun(
