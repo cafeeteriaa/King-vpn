@@ -17543,6 +17543,29 @@ extension ProjectNatSweep on _HomePageState {
     }
 
     final ranges = <String>{..._cfRanges, ..._atAutoRanges(good)}.toList()..sort();
+    final rangeFingerprint =
+        sha256.convert(utf8.encode(ranges.join('\\n'))).toString();
+    const checkpointKey = 'king_cf_ip_sweep_cursor_v1';
+    final preferences = await SharedPreferences.getInstance();
+    var startPortIndex = 0;
+    var startRangeIndex = 0;
+    var startOffset = 0;
+    try {
+      final raw = preferences.getString(checkpointKey);
+      if (raw != null) {
+        final savedCursor = jsonDecode(raw);
+        if (savedCursor is Map && savedCursor['fingerprint'] == rangeFingerprint) {
+          startPortIndex = (savedCursor['portIndex'] as num?)?.toInt() ?? 0;
+          startRangeIndex = (savedCursor['rangeIndex'] as num?)?.toInt() ?? 0;
+          startOffset = (savedCursor['offset'] as num?)?.toInt() ?? 0;
+        }
+      }
+    } catch (e, stk) {
+      logError(e, stk);
+      startPortIndex = 0;
+      startRangeIndex = 0;
+      startOffset = 0;
+    }
     final winners = <CleanIp>[];
     final saved = List<CleanIp>.of(cleanIps);
     final key = _nk(sv);
@@ -17575,9 +17598,13 @@ extension ProjectNatSweep on _HomePageState {
 
     try {
       wantVpn = true;
-      for (final port in _natCfPorts) {
+      for (var portIndex = startPortIndex;
+          portIndex < _natCfPorts.length;
+          portIndex++) {
         if (abort || AutoTestEngine._abortRequested ||
             AutoTestEngine._phase != _AtPhase.running) break;
+        final port = _natCfPorts[portIndex];
+        final resumeThisPort = portIndex == startPortIndex;
         await natScanAddressRanges(
           ranges,
           port: port,
@@ -17587,13 +17614,57 @@ extension ProjectNatSweep on _HomePageState {
               AutoTestEngine._phase != _AtPhase.running,
           randomizeWithinSlice: true,
           collectHits: false,
+          startRangeIndex: resumeThisPort ? startRangeIndex : 0,
+          startOffset: resumeThisPort ? startOffset : 0,
+          onCursor: (rangeIndex, nextOffset) async {
+            var nextPort = portIndex;
+            var nextRange = rangeIndex;
+            var nextAddress = nextOffset;
+            if (nextOffset < 0) {
+              nextRange++;
+              nextAddress = 0;
+              if (nextRange >= ranges.length) {
+                nextPort++;
+                nextRange = 0;
+              }
+            }
+            try {
+              await preferences.setString(
+                checkpointKey,
+                jsonEncode(<String, Object?>{
+                  'version': 1,
+                  'fingerprint': rangeFingerprint,
+                  'portIndex': nextPort,
+                  'rangeIndex': nextRange,
+                  'offset': nextAddress,
+                }),
+              );
+            } catch (e, stk) {
+              logError(e, stk);
+            }
+          },
           onHits: (batch) => validateHits(batch, port),
         );
+        if (abort || AutoTestEngine._abortRequested ||
+            AutoTestEngine._phase != _AtPhase.running) break;
+        startRangeIndex = 0;
+        startOffset = 0;
+        startPortIndex = portIndex + 1;
+      }
+
+      final sweepWasCancelled = abort || AutoTestEngine._abortRequested ||
+          AutoTestEngine._phase != _AtPhase.running;
+      if (!sweepWasCancelled) {
+        try {
+          await preferences.remove(checkpointKey);
+        } catch (e, stk) {
+          logError(e, stk);
+        }
       }
 
       // Keep the existing saved-clean-IP fallback, but validate it through the
-      // same real tunnel path when no configured range produced a TCP hit.
-      if (winners.isEmpty && !abort && !AutoTestEngine._abortRequested) {
+      // same real tunnel path only after the configured range inventory finishes.
+      if (winners.isEmpty && !sweepWasCancelled) {
         final fallback = await _cleanCandidates();
         await validateHits(
           <NatIpHit>[for (final ip in fallback) NatIpHit(ip, 0)],
