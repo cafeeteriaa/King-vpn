@@ -3169,6 +3169,13 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('safeDestinations >= 2', traffic)
         self.assertIn('connected_tunnel_verified_by_stable_multi_destination_traffic', traffic)
 
+        preflight_start = source.index('static Future<KingNatScanReport> _runPreflight(')
+        preflight_end = source.index('static Map<String, Object?> diagnostics()', preflight_start)
+        preflight = source[preflight_start:preflight_end]
+        self.assertIn('NatNetworkDiagnosis._identityHash()', preflight)
+        self.assertIn('recordNetworkIdentity(networkIdentity)', preflight)
+        self.assertIn('network_identity_unavailable', preflight)
+
         finish_start = source.index('static void finishRun(')
         finish_end = source.index('static void recordFailure(', finish_start)
         finish = source[finish_start:finish_end]
