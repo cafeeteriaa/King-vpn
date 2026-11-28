@@ -2955,6 +2955,11 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn('winners.length >=', sweep)
         self.assertNotIn('difference(t0) > budget', sweep)
 
+    def test_auto_test_ip_inventory_uses_resumable_slice_not_a_total_limit(self):
+        source = (ROOT / 'lib' / 'auto_test.dart').read_text(encoding='utf-8')
+        self.assertIn('_atIpSweep(healthy, timeSlice: const Duration(minutes: 30))', source)
+        self.assertNotIn('_atCap(const Duration(minutes: 30))', source)
+
     def test_connection_ladder_uses_resumable_time_slice_without_total_scan_cutoff(self):
         main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
         start = main.index('Future<bool> _natLadder(')
