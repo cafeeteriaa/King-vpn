@@ -79,7 +79,60 @@ void main() {
       expect(natExpandCidr('10.0.0.0/30', maxPerBlock: 4), hasLength(4));
       expect(natExpandDash('10.0.0.1-10.0.0.3', maxCount: 3), hasLength(3));
     });
+
+    test('default CIDR and explicit-range expansion do not silently sample', () {
+      expect(natExpandCidr('10.0.0.0/24'), hasLength(256));
+      expect(natExpandDash('10.0.0.1-10.0.0.3'), [
+        '10.0.0.1', '10.0.0.2', '10.0.0.3',
+      ]);
+    });
+
+    test('large CIDR inventory remains fully addressable through cursor slices', () {
+      final cursor = NatAddressRangeCursor.parse('0.0.0.0/0')!;
+      expect(cursor.addressCount, 4294967296);
+      final first = cursor.read(0, 2);
+      expect(first.$1, ['0.0.0.0', '0.0.0.1']);
+      expect(first.$2, 2);
+      final last = cursor.read(4294967294, 2);
+      expect(last.$1, ['255.255.255.254', '255.255.255.255']);
+      expect(last.$2, -1);
+    });
   });
+  group('streaming complete address-range scan', () {
+    test('scans an explicit range through bounded slices and reports cursor completion', () async {
+      final listener = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
+      final accepted = listener.listen((socket) => socket.destroy());
+      final cursors = <(int, int)>[];
+      try {
+        final hits = await natScanAddressRanges(
+          ['127.0.0.1/32'],
+          port: listener.port,
+          concurrency: 1,
+          sliceSize: 1,
+          timeout: const Duration(seconds: 2),
+          onCursor: (rangeIndex, nextOffset) => cursors.add((rangeIndex, nextOffset)),
+        );
+        expect(hits, hasLength(1));
+        expect(hits.single.ip, '127.0.0.1');
+        expect(cursors, [(0, -1)]);
+      } finally {
+        await accepted.cancel();
+        await listener.close();
+      }
+    });
+
+    test('cancellation stops a range traversal before probing', () async {
+      var cursorCalls = 0;
+      final hits = await natScanAddressRanges(
+        ['127.0.0.1/32'],
+        cancelled: () => true,
+        onCursor: (_, __) => cursorCalls++,
+      );
+      expect(hits, isEmpty);
+      expect(cursorCalls, 0);
+    });
+  });
+
   group('resumable address range cursor', () {
     test('walks an explicit range exactly once across multiple slices', () {
       final cursor = NatAddressRangeCursor.parse('10.0.0.1-10.0.0.4')!;
