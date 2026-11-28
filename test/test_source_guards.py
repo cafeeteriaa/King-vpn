@@ -2917,6 +2917,19 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('budget: null,', scanner)
         self.assertIn('onCursor?.call(rangeIndex, offset)', scanner)
 
+    def test_sni_probe_uses_cancellable_dart_connection_task_api(self):
+        source = (ROOT / 'lib' / 'king_national_scanner.dart').read_text(encoding='utf-8')
+        start = source.index('static Future<String?> _probeSniAlpn')
+        end = source.index('\n  static Future<', start)
+        probe = source[start:end]
+        self.assertIn('Future<ConnectionTask<Socket>>? connectionFuture;', probe)
+        self.assertIn('connection = await Future.any<ConnectionTask<Socket>>(', probe)
+        self.assertIn('connection!.cancel();', probe)
+        self.assertNotIn('unawaited(pending.cancel())', probe)
+        self.assertNotIn('await connection!.cancel()', probe)
+        self.assertNotIn('onBadCertificate', probe)
+        self.assertIn('cancellation.future', probe)
+
     def test_cloudflare_ip_sweep_streams_full_ranges_without_sample_or_winner_caps(self):
         main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
         start = main.index('Future<List<CleanIp>> _atIpSweep(')
