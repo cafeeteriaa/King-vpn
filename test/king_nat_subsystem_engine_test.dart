@@ -215,6 +215,20 @@ void main() {
           (row as Map)['id'] as String: row,
       };
       expect(engines['network_identity']!['state'], 'completed');
+
+      // An unavailable route/interface snapshot must not become SHA-256(empty).
+      KingNatSubsystemEngine.beginRun(nationalMode: true, sliceBudgetMs: 30000);
+      KingNatSubsystemEngine.recordNetworkIdentity(
+        fingerprintHash: '',
+        operatorIdentity: 'unknown',
+      );
+      diagnostics = KingNatSubsystemEngine.diagnostics();
+      final emptyIdentityEngines = {
+        for (final row in diagnostics['engines'] as List)
+          (row as Map)['id'] as String: row,
+      };
+      expect(diagnostics['networkFingerprintHash'], '');
+      expect(emptyIdentityEngines['network_identity']!['state'], 'partial');
     });
 
     test('scanner completes only after all phases and durable inventory finish', () {
