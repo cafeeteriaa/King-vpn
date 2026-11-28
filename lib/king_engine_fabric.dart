@@ -128,6 +128,8 @@ class _ScannerEngine extends _KingEngine {
   static bool _active = false;
   @override KingEngineId get id => KingEngineId.scanner;
   @override Future<KingEngineResult> run(KingEngineContext c) async {
+    if (c.tunnelConnected) return KingEngineResult(id, KingEngineStatus.skipped,
+      'Direct endpoint scan skipped while the VPN tunnel is active');
     if (_active) return KingEngineResult(id, KingEngineStatus.skipped, 'Duplicate scan coalesced');
     _active = true;
     try {
