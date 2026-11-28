@@ -109,6 +109,116 @@ class NatAddressRangeCursor {
   }
 }
 
+/// Full, resumable range scanner. Address ranges are expanded only into a
+/// bounded in-memory slice; the cursor advances until every address has been
+/// visited or the caller cancels. There is no total-address/result ceiling.
+/// [sliceSize] controls transient memory, not coverage. Persist [onCursor]
+/// offsets when a scan must survive process death.
+Future<List<NatIpHit>> natScanAddressRanges(
+  List<String> ranges, {
+  List<String> additionalAddresses = const <String>[],
+  int port = 443,
+  int concurrency = 16,
+  int? sliceSize,
+  Duration timeout = const Duration(milliseconds: 1500),
+  bool Function()? cancelled,
+  void Function(int done, int total, int hits)? onProgress,
+  void Function(int rangeIndex, int nextOffset)? onCursor,
+  bool randomizeWithinSlice = true,
+}) async {
+  final cursors = <NatAddressRangeCursor>[];
+  for (final raw in ranges) {
+    final cursor = NatAddressRangeCursor.parse(raw);
+    if (cursor != null) cursors.add(cursor);
+  }
+  final extra = additionalAddresses
+      .map((value) => value.trim())
+      .where((value) {
+        final parsed = InternetAddress.tryParse(value);
+        return parsed != null &&
+            (parsed.type == InternetAddressType.IPv4 ||
+                parsed.type == InternetAddressType.IPv6);
+      })
+      .toList(growable: false);
+  if (cursors.isEmpty && extra.isEmpty) return <NatIpHit>[];
+
+  final workers = natAdaptiveConcurrency(concurrency);
+  final window = sliceSize != null && sliceSize > 0
+      ? sliceSize
+      : (workers * 64 < 256 ? 256 : workers * 64);
+  final total = cursors.fold<int>(
+        0,
+        (sum, cursor) => sum + cursor.addressCount,
+      ) +
+      extra.length;
+  final hits = <NatIpHit>[];
+  var done = 0;
+
+  bool aborted() {
+    try {
+      return cancelled?.call() ?? false;
+    } catch (_) {
+      return true;
+    }
+  }
+
+  for (var rangeIndex = 0; rangeIndex < cursors.length; rangeIndex++) {
+    final cursor = cursors[rangeIndex];
+    var offset = 0;
+    while (offset >= 0 && !aborted()) {
+      final slice = cursor.read(offset, window);
+      if (slice.$1.isEmpty) break;
+      final sliceHits = await natScanIps(
+        slice.$1,
+        port: port,
+        concurrency: workers,
+        want: null,
+        budget: null,
+        timeout: timeout,
+        cancelled: aborted,
+        randomize: randomizeWithinSlice,
+        onProgress: (sliceDone, _, sliceHitCount) {
+          if (onProgress != null) {
+            onProgress(done + sliceDone, total, hits.length + sliceHitCount);
+          }
+        },
+      );
+      hits.addAll(sliceHits);
+      done += slice.$1.length;
+      offset = slice.$2;
+      onCursor?.call(rangeIndex, offset);
+      if (onProgress != null) onProgress(done, total, hits.length);
+    }
+    if (aborted()) break;
+  }
+
+  for (var start = 0; start < extra.length && !aborted(); start += window) {
+    final end = start + window < extra.length ? start + window : extra.length;
+    final slice = extra.sublist(start, end);
+    final sliceHits = await natScanIps(
+      slice,
+      port: port,
+      concurrency: workers,
+      want: null,
+      budget: null,
+      timeout: timeout,
+      cancelled: aborted,
+      randomize: randomizeWithinSlice,
+      onProgress: (sliceDone, _, sliceHitCount) {
+        if (onProgress != null) {
+          onProgress(done + sliceDone, total, hits.length + sliceHitCount);
+        }
+      },
+    );
+    hits.addAll(sliceHits);
+    done += slice.length;
+    if (onProgress != null) onProgress(done, total, hits.length);
+  }
+
+  natStableSort(hits, (a, b) => a.ms.compareTo(b.ms));
+  return hits;
+}
+
 /// Validated country-level registry/BGP prefix snapshot.
 /// IPv6 prefixes are retained as prefixes; they are never expanded into
 /// individual addresses because a /64 contains an infeasible address space.
@@ -248,61 +358,46 @@ class NatIpHit {
   String toString() => '$ip ($ms ms)';
 }
 
-/// بلوک CIDR مثل «5.160.0.0/16» را به فهرست IP تبدیل می‌کند.
-/// برای بلوک‌های بزرگ، فقط [maxPerBlock] آدرس پراکنده برمی‌گرداند.
-List<String> natExpandCidr(String cidr, {int maxPerBlock = 4096}) {
-  if (maxPerBlock <= 0) return const [];
-  final parts = cidr.trim().split('/');
-  if (parts.length != 2) return const [];
-  final octets = parts[0].split('.');
-  final prefix = int.tryParse(parts[1].trim());
-  if (octets.length != 4 || prefix == null || prefix < 0 || prefix > 32) {
-    return const [];
-  }
-  int base = 0;
-  for (final o in octets) {
-    final v = int.tryParse(o.trim());
-    if (v == null || v < 0 || v > 255) return const [];
-    base = (base << 8) | v;
-  }
-  final size = 1 << (32 - prefix);
-  final start = base & ~(size - 1) & 0xFFFFFFFF;
-  // Ceiling division is required: floor division can exceed maxPerBlock
-  // for non-divisible subnet sizes (e.g. /24 with a limit of 100 yields 128).
-  final step = size > maxPerBlock ? (size + maxPerBlock - 1) ~/ maxPerBlock : 1;
+/// Eager compatibility helper. With no explicit limit it expands the
+/// complete IPv4 CIDR; for large ranges prefer [natScanAddressRanges] to avoid
+/// materializing the full address space in RAM. An explicit maxPerBlock is a
+/// caller-requested sampling option retained for backward compatibility.
+List<String> natExpandCidr(String cidr, {int? maxPerBlock}) {
+  if (!cidr.contains('/')) return const <String>[];
+  if (maxPerBlock != null && maxPerBlock <= 0) return const <String>[];
+  final cursor = NatAddressRangeCursor.parse(cidr);
+  if (cursor == null) return const <String>[];
+  final count = maxPerBlock == null || cursor.addressCount <= maxPerBlock
+      ? cursor.addressCount
+      : maxPerBlock;
   final out = <String>[];
-  for (var i = 0; i < size; i += step) {
-    final v = start + i;
-    out.add('${(v >> 24) & 255}.${(v >> 16) & 255}.${(v >> 8) & 255}.${v & 255}');
+  for (var index = 0; index < count; index++) {
+    final offset = count == cursor.addressCount
+        ? index
+        : (index * cursor.addressCount) ~/ count;
+    final item = cursor.read(offset, 1).$1;
+    if (item.isNotEmpty) out.add(item.single);
   }
   return out;
 }
 
-/// بازه‌ی خطی به شکل a.b.c.d-e.f.g.h (برای نوشته‌هایی که CIDR نیستند).
-/// بازه‌های بزرگ‌تر از maxCount به‌طور یکنواخت نمونه‌برداری می‌شوند.
-List<String> natExpandDash(String range, {int maxCount = 65536}) {
-  if (maxCount <= 0) return const [];
-  final parts = range.trim().split('-');
-  if (parts.length != 2) return const [];
-  int? toInt(String ip) {
-    final o = ip.trim().split('.');
-    if (o.length != 4) return null;
-    var v = 0;
-    for (final x in o) {
-      final n = int.tryParse(x.trim());
-      if (n == null || n < 0 || n > 255) return null;
-      v = (v << 8) | n;
-    }
-    return v;
-  }
-  final a = toInt(parts[0]);
-  final b = toInt(parts[1]);
-  if (a == null || b == null || b < a) return const [];
-  final count = b - a + 1;
-  final step = count > maxCount ? (count + maxCount - 1) ~/ maxCount : 1; // مشکل ۱۵: سقف رعایت شود
+/// Eager compatibility helper for an explicit IPv4 range. Defaults to every
+/// address; large ranges should be scanned with the resumable cursor API.
+List<String> natExpandDash(String range, {int? maxCount}) {
+  if (!range.contains('-')) return const <String>[];
+  if (maxCount != null && maxCount <= 0) return const <String>[];
+  final cursor = NatAddressRangeCursor.parse(range);
+  if (cursor == null) return const <String>[];
+  final count = maxCount == null || cursor.addressCount <= maxCount
+      ? cursor.addressCount
+      : maxCount;
   final out = <String>[];
-  for (var v = a; v <= b; v += step) {
-    out.add('${(v >> 24) & 255}.${(v >> 16) & 255}.${(v >> 8) & 255}.${v & 255}');
+  for (var index = 0; index < count; index++) {
+    final offset = count == cursor.addressCount
+        ? index
+        : (index * cursor.addressCount) ~/ count;
+    final item = cursor.read(offset, 1).$1;
+    if (item.isNotEmpty) out.add(item.single);
   }
   return out;
 }
