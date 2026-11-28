@@ -931,6 +931,7 @@ class KingNationalScannerEngine {
     String sni, {
     required bool Function() cancelled,
   }) async {
+    Future<ConnectionTask<Socket>>? connectionFuture;
     ConnectionTask<Socket>? connection;
     Socket? raw;
     SecureSocket? secure;
@@ -948,10 +949,8 @@ class KingNationalScannerEngine {
       cancellation.complete();
       secure?.destroy();
       raw?.destroy();
-      final pending = connection;
-      if (pending != null && raw == null) {
-        unawaited(pending.cancel());
-      }
+      // ConnectionTask.cancel() returns void in the pinned Dart SDK.
+      if (connection != null && raw == null) connection!.cancel();
     }
 
     try {
@@ -962,9 +961,25 @@ class KingNationalScannerEngine {
         (_) => observeCancellation(),
       );
 
-      connection = Socket.startConnect(ip, port);
+      connectionFuture = Socket.startConnect(ip, port);
+      // If cancellation wins before startConnect resolves, cancel the task as
+      // soon as the Future produces it; never leave a late socket connect alive.
+      unawaited(connectionFuture!.then<void>(
+        (task) {
+          if (cancellation.isCompleted && raw == null) task.cancel();
+        },
+        onError: (Object error, StackTrace stack) {},
+      ));
+      connection = await Future.any<ConnectionTask<Socket>>(
+        <Future<ConnectionTask<Socket>>>[
+          connectionFuture!,
+          cancellation.future.then<ConnectionTask<Socket>>(
+            (_) => throw StateError('SNI probe cancelled'),
+          ),
+        ],
+      ).timeout(const Duration(seconds: 2));
       raw = await Future.any<Socket>(<Future<Socket>>[
-        connection.socket,
+        connection!.socket,
         cancellation.future.then<Socket>(
           (_) => throw StateError('SNI probe cancelled'),
         ),
@@ -992,13 +1007,10 @@ class KingNationalScannerEngine {
       secure?.destroy();
       raw?.destroy();
       if (connection != null && raw == null) {
-        try {
-          await connection!.cancel();
-        } catch (_) {}
+        connection!.cancel();
       }
     }
   }
-
   static Future<KingNatScanReport> runPreflight({
     required List<Server> knownServers,
     required void Function(String) onStatus,
