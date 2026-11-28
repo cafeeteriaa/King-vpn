@@ -33,11 +33,13 @@ void main() {
       expect(await natScanIps(['127.0.0.1'], port: 65536), isEmpty);
     });
 
-    test('adaptive concurrency always returns a bounded integer', () {
-      expect(natAdaptiveConcurrency(0), isA<int>());
-      expect(natAdaptiveConcurrency(0), inInclusiveRange(8, 64));
+    test('adaptive concurrency follows device CPU capacity without a fixed global cap', () {
+      final cores = Platform.numberOfProcessors < 1 ? 1 : Platform.numberOfProcessors;
+      expect(natAdaptiveConcurrency(0), cores * 2);
+      expect(natAdaptiveConcurrency(-1), cores * 2);
       expect(natAdaptiveConcurrency(1), 1);
-      expect(natAdaptiveConcurrency(999999), lessThanOrEqualTo(256));
+      expect(natAdaptiveConcurrency(cores * 4), cores * 4);
+      expect(natAdaptiveConcurrency(999999), cores * 4);
     });
 
     test('scans an explicit IPv6 endpoint when loopback IPv6 is available', () async {
