@@ -1551,8 +1551,21 @@ class KingNationalScannerEngine {
             try {
               final addresses = await InternetAddress.lookup(server.host)
                   .timeout(const Duration(seconds: 3));
+              // Prefer IPv4 for compatibility, but retain an IPv6-only CDN
+              // endpoint instead of treating its hostname as unresolved.
               for (final address in addresses) {
-                if (address.type == InternetAddressType.IPv4) { ip = address.address; break; }
+                if (address.type == InternetAddressType.IPv4) {
+                  ip = address.address;
+                  break;
+                }
+              }
+              if (ip == null) {
+                for (final address in addresses) {
+                  if (address.type == InternetAddressType.IPv6) {
+                    ip = address.address;
+                    break;
+                  }
+                }
               }
             } catch (_) {
               ip = null;
