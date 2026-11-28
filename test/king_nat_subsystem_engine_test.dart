@@ -170,6 +170,28 @@ void main() {
       });
     });
 
+    test('strategy profiles are isolated by operator while keeping endpoint identity private', () {
+      final server = Server(
+        'vless://user@example.com:443?security=tls',
+        'profile-test',
+        'example.com',
+        443,
+      );
+      final previous = natOpKey;
+      try {
+        natOpKey = 'wifi|AS12880';
+        final wifiProfile = KingNationalScannerEngine.profileKey(server);
+        natOpKey = 'mob|AS12345';
+        final mobileProfile = KingNationalScannerEngine.profileKey(server);
+        expect(wifiProfile, isNot(mobileProfile));
+        expect(wifiProfile, contains('wifi|AS12880'));
+        expect(mobileProfile, contains('mob|AS12345'));
+        expect(wifiProfile, isNot(contains('example.com')));
+      } finally {
+        natOpKey = previous;
+      }
+    });
+
     test('network identity keeps hashed fingerprint separate from operator metadata', () {
       KingNatSubsystemEngine.beginRun(nationalMode: true, sliceBudgetMs: 30000);
       KingNatSubsystemEngine.recordNetworkIdentity(
