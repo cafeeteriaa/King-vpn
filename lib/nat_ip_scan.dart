@@ -130,6 +130,9 @@ Future<List<NatIpHit>> natScanAddressRanges(
   bool collectHits = true,
   FutureOr<void> Function(List<NatIpHit> hits)? onHits,
 }) async {
+  if (port < 1 || port > 65535 || timeout <= Duration.zero) {
+    return <NatIpHit>[];
+  }
   final cursors = <NatAddressRangeCursor>[];
   for (final raw in ranges) {
     final cursor = NatAddressRangeCursor.parse(raw);
