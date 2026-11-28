@@ -1852,6 +1852,8 @@ class KingNatSubsystemEngine {
   static int _trafficFailures = 0;
   static int _stableTrafficPasses = 0;
   static int _stableTrafficFailures = 0;
+  static int _stableTrafficProofSequence = 0;
+  static int _consumedRepairProofSequence = 0;
   static int _ipv4Resources = 0;
   static int _ipv6Resources = 0;
   static int _plannedVariants = 0;
@@ -1878,6 +1880,8 @@ class KingNatSubsystemEngine {
     _trafficFailures = 0;
     _stableTrafficPasses = 0;
     _stableTrafficFailures = 0;
+    _stableTrafficProofSequence = 0;
+    _consumedRepairProofSequence = 0;
     _ipv4Resources = 0;
     _ipv6Resources = 0;
     _plannedVariants = 0;
@@ -2099,6 +2103,7 @@ class KingNatSubsystemEngine {
     if (stable) {
       if (stableProof) {
         _stableTrafficPasses++;
+        _stableTrafficProofSequence++;
       } else {
         _stableTrafficFailures++;
       }
@@ -2235,15 +2240,18 @@ class KingNatSubsystemEngine {
     required String strategyId, required bool evaluated,
     required bool changed, required bool tunnelImproved,
     required bool coverageComplete,
-    bool stableTunnelProof = false,
   }) {
     final id = strategyId.trim();
     if (!evaluated || id.isEmpty) return;
     _incrementEvidence('repairEvaluations', 1);
-    // A preliminary ping/social gate is useful probe evidence, but only
-    // the stable multi-destination check through the active core may validate
-    // a repair. Callers cannot promote this engine with a score or one URL.
-    if (stableTunnelProof && changed && tunnelImproved) {
+    // Consume a fresh proof produced internally by recordTrafficValidation.
+    // A caller cannot manufacture stable proof by passing a boolean or score.
+    final hasFreshStableProof =
+        _stableTrafficProofSequence > _consumedRepairProofSequence;
+    if (hasFreshStableProof) {
+      _consumedRepairProofSequence = _stableTrafficProofSequence;
+    }
+    if (hasFreshStableProof && changed && tunnelImproved) {
       _incrementEvidence('repairTunnelImprovements', 1);
       _validatedRepairs.add(id);
     }
