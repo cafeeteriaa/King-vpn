@@ -2801,7 +2801,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
     def test_manual_range_scan_honors_cancel_during_national_yield(self):
         source = (ROOT / 'lib' / 'npv_am_extras.dart').read_text(encoding='utf-8')
         start = source.index('Future<void> manualRangeScan(')
-        end = source.index('\\n}', start)
+        end = source.index('\n}', start)
         body = source[start:end]
         wait = body.index('await natManualYield(shouldAbort: () => cancelled || !open);')
         before_scan = body.index('if (!cancelled) {', wait)
