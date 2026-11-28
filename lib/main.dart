@@ -5597,6 +5597,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     } catch (e, stk) { logError(e, stk); }
     if (!mounted) return;
     setState(() => connected = true);
+    unawaited(_runKingEngineFabric()); // post-connect: adapter-gated TUN validation
     _set(_connStatus());
     _startWatch(); // starts the standby search again
     // CHANNELPROMPT-UNIFIED: همان دیالوگ کانال را نشان می‌دهد
@@ -5813,6 +5814,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         _shProb('selfheal:core-up-app-down',
             'هسته CONNECTED است ولی اپ قطع می‌دانست • خودکار اصلاح شد');
         setState(() => connected = true);
+        unawaited(_runKingEngineFabric()); // core/app state reconciliation
         dropTimer?.cancel();
         if (watch?.isActive != true) _startWatch();
         return true;
@@ -8771,6 +8773,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     }
     lastSwitch = DateTime.now();
     connected = true;
+    unawaited(_runKingEngineFabric()); // run connected-state engines after core success
     // remembered so the app can pick the tunnel up again after being closed
     SharedPreferences.getInstance()
         .then((p) => p.setString('last_conn', s.link));
