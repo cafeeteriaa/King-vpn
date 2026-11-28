@@ -17544,7 +17544,7 @@ extension ProjectNatSweep on _HomePageState {
 
     final ranges = <String>{..._cfRanges, ..._atAutoRanges(good)}.toList()..sort();
     final rangeFingerprint =
-        sha256.convert(utf8.encode(ranges.join('\\n'))).toString();
+        sha256.convert(utf8.encode('${sv.key}|ranges=${ranges.join('\\n')}|ports=${_natCfPorts.join(',')}')).toString();
     const checkpointKey = 'king_cf_ip_sweep_cursor_v1';
     final preferences = await SharedPreferences.getInstance();
     var startPortIndex = 0;
