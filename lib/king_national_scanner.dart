@@ -2235,11 +2235,15 @@ class KingNatSubsystemEngine {
     required String strategyId, required bool evaluated,
     required bool changed, required bool tunnelImproved,
     required bool coverageComplete,
+    bool stableTunnelProof = false,
   }) {
     final id = strategyId.trim();
     if (!evaluated || id.isEmpty) return;
     _incrementEvidence('repairEvaluations', 1);
-    if (changed && tunnelImproved) {
+    // A preliminary ping/social gate is useful probe evidence, but only
+    // the stable multi-destination check through the active core may validate
+    // a repair. Callers cannot promote this engine with a score or one URL.
+    if (stableTunnelProof && changed && tunnelImproved) {
       _incrementEvidence('repairTunnelImprovements', 1);
       _validatedRepairs.add(id);
     }
