@@ -1530,7 +1530,17 @@ class KingNationalScannerEngine {
         final candidates = natFrontSnis.asMap().entries.where(
           (entry) => InternetAddress.tryParse(entry.value) == null,
         ).toList(growable: false);
-        for (var serverIndex = 0; serverIndex < targets.length; serverIndex++) {
+        var sniResolutionDeferred = false;
+        if (targets.isEmpty || candidates.isEmpty) {
+          warnings.add(
+            targets.isEmpty
+                ? 'sni_scan_no_eligible_cdn_targets'
+                : 'sni_scan_no_front_sni_candidates',
+          );
+        }
+        for (var serverIndex = 0;
+            serverIndex < targets.length && candidates.isNotEmpty;
+            serverIndex++) {
           if (stopped() || shouldYield()) break;
           final server = targets[serverIndex];
           if (serverIndex < resumeServer || !seenTargets.add(server.key)) continue;
@@ -1547,6 +1557,23 @@ class KingNationalScannerEngine {
             } catch (_) {
               ip = null;
             }
+          }
+          if (ip == null) {
+            // Do not advance the durable cursor past a target whose address
+            // could not be resolved. Later targets must not make this one
+            // disappear from the next slice.
+            sniResolutionDeferred = true;
+            warnings.add('sni_target_dns_unresolved');
+            await persistPhase(
+              'sni',
+              completed: false,
+              cursor: <String, Object?>{
+                'serverIndex': serverIndex,
+                'serverKeyHash': sha256.convert(utf8.encode(server.key)).toString(),
+                'candidateIndex': -1,
+              },
+            );
+            break;
           }
           if (ip != null) {
             for (var candidateIndex = 0; candidateIndex < candidates.length; candidateIndex++) {
@@ -1594,13 +1621,24 @@ class KingNationalScannerEngine {
           }
         }
         if (!stopped() && !shouldYield()) {
+          final sniInventoryComplete =
+              !sniResolutionDeferred &&
+              targets.isNotEmpty &&
+              candidates.isNotEmpty &&
+              cdnCandidateAttempts > 0;
           KingNatSubsystemEngine.recordCdnValidation(
             candidates: cdnCandidateAttempts,
             successfulHandshakes: sniHits,
             tunnelPasses: 0,
-            inventoryComplete: true,
+            inventoryComplete: sniInventoryComplete,
           );
-          await completePhase('sni');
+          if (sniResolutionDeferred) {
+            phaseDeferred = true;
+          } else {
+            // An empty eligible set is an inspected inventory, not evidence
+            // that a CDN/SNI adapter successfully tested any candidate.
+            await completePhase('sni');
+          }
         }
       }
       }
