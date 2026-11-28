@@ -221,7 +221,9 @@ Future<DnsxHit?> dnsxProbe(String server,
   var domainHits = 0;
   var ipv4Hits = 0;
   var ipv6Hits = 0;
-  const chunk = 8;
+  // Two families are queried per name; half the old name batch preserves
+  // approximately the same socket fan-out as the former A-only scanner.
+  const chunk = 4;
   for (var i = 0; i < list.length; i += chunk) {
     if (stop != null && stop()) break;
     if (i > 0 && gap > Duration.zero) await Future.delayed(gap);
