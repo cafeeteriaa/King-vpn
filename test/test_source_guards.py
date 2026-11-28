@@ -3173,7 +3173,9 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         preflight_end = source.index('static Map<String, Object?> diagnostics()', preflight_start)
         preflight = source[preflight_start:preflight_end]
         self.assertIn('NatNetworkDiagnosis._identityHash()', preflight)
-        self.assertIn('recordNetworkIdentity(networkIdentity)', preflight)
+        self.assertIn('natDetectOperator().then<Object>', preflight)
+        self.assertIn('fingerprintHash: networkIdentity', preflight)
+        self.assertIn('operatorIdentity: natOpKey', preflight)
         self.assertIn('network_identity_unavailable', preflight)
 
         finish_start = source.index('static void finishRun(')
