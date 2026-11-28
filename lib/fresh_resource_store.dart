@@ -8,13 +8,12 @@ import 'package:path_provider/path_provider.dart';
 
 /// Persistent, bounded-memory store for offline VPN profiles.
 ///
-/// The offline archive has a deliberate four-million-profile capacity.
-/// Profiles are split across 256 append-only JSONL shards and read as a Stream,
-/// so the configured capacity never requires loading the archive into RAM.
+/// The offline archive has no configured profile-count ceiling.
+/// Profiles are split across append-only JSONL shards and read in bounded
+/// batches/streams, so inventory growth does not require loading it into RAM.
 class FreshResourceStore {
   FreshResourceStore._();
 
-  static const int maxEntries = 4000000;
   static const int shardCount = 256;
   static const int _batchSize = 4096;
   static const int _bloomBytesPerShard = 32768;
@@ -439,8 +438,7 @@ class FreshResourceStore {
   }
 
   static Future<int> _appendBatch(
-      Directory dir, List<String> links, {int maxAdditions = maxEntries}) async {
-    if (maxAdditions <= 0) return 0;
+      Directory dir, List<String> links) async {
     final grouped = <String, Map<String, String>>{};
     for (final link in links) {
       final id = _id(link);
@@ -483,7 +481,6 @@ class FreshResourceStore {
       try {
         if (needsSeparator) sink.write('\n');
         for (final entry in group.value.entries) {
-          if (added >= maxAdditions) break;
           if (!existing.add(entry.key)) continue;
           sink.writeln(jsonEncode(<String, Object?>{
             'v': 1, 'id': entry.key, 'link': entry.value,
@@ -496,14 +493,13 @@ class FreshResourceStore {
         await sink.close();
       }
       _shardTailChecked.add(tailKey);
-      if (added >= maxAdditions) break;
     }
     return added;
   }
 
-  /// Merges lazily in small batches and never grows beyond maxEntries. RAM
-  /// usage is bounded by the batch and one
-  /// shard's matching identities, not by the total inventory size.
+  /// Merges lazily in small batches without a fixed profile-count ceiling.
+  /// RAM usage is bounded by the current batch and one shard's matching
+  /// identities, not by the total inventory size.
   static Future<int> merge(Iterable<String> links,
       {String source = 'online', Directory? root}) async {
     final dir = await directory(root: root);
@@ -514,24 +510,21 @@ class FreshResourceStore {
     var total = await _countUnlocked(dir, root: root);
     var batch = <String>[];
     for (final value in links) {
-      if (total >= maxEntries) break;
       final link = normalizeLink(value);
       if (link == null) continue;
       batch.add(link);
       if (batch.length < _batchSize) continue;
       await File('${dir.path}/$_dirtyFileName').writeAsString('1', flush: true);
-      final added = await _appendBatch(
-        dir, batch, maxAdditions: maxEntries - total);
+      final added = await _appendBatch(dir, batch);
       total += added;
       batch = <String>[];
       await _writeMetadata(dir, total, source: source);
       final dirty = File('${dir.path}/$_dirtyFileName');
       if (await dirty.exists()) await dirty.delete();
     }
-    if (batch.isNotEmpty && total < maxEntries) {
+    if (batch.isNotEmpty) {
       await File('${dir.path}/$_dirtyFileName').writeAsString('1', flush: true);
-      final added = await _appendBatch(
-        dir, batch, maxAdditions: maxEntries - total);
+      final added = await _appendBatch(dir, batch);
       total += added;
       await _writeMetadata(dir, total, source: source);
       final dirty = File('${dir.path}/$_dirtyFileName');
@@ -662,21 +655,18 @@ class FreshResourceStore {
       await for (final line in legacy.openRead()
           .transform(utf8.decoder)
           .transform(const LineSplitter())) {
-        if (migratedCount >= maxEntries) break;
         final link = normalizeLink(line);
         if (link == null) continue;
         batch.add(link);
         if (batch.length >= _batchSize) {
-          migratedCount += await _appendBatch(
-            dir, batch, maxAdditions: maxEntries - migratedCount);
+          migratedCount += await _appendBatch(dir, batch);
           batch = <String>[];
         }
       }
-      if (batch.isNotEmpty && migratedCount < maxEntries) {
-        migratedCount += await _appendBatch(
-          dir, batch, maxAdditions: maxEntries - migratedCount);
+      if (batch.isNotEmpty) {
+        migratedCount += await _appendBatch(dir, batch);
       }
-      // Preserve the original source for recovery; overflow remains in .migrated.
+      // Preserve the original source for recovery until migration is verified.
       await legacy.rename('${legacy.path}.migrated');
     }
     var total = 0;

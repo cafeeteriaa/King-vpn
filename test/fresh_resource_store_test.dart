@@ -8,8 +8,7 @@ const int fourMillionSoakEntries = 4000000;
 
 void main() {
   group('FreshResourceStore unbounded inventory and normalization', () {
-    test('enforces the four-million offline archive capacity', () {
-      expect(FreshResourceStore.maxEntries, fourMillionSoakEntries);
+    test('has no configured profile-count ceiling and retains sharded storage', () {
       expect(FreshResourceStore.shardCount, 256);
     });
 
@@ -175,16 +174,16 @@ void main() {
         expect(total, fourMillionSoakEntries);
         expect(await FreshResourceStore.count(root: root), fourMillionSoakEntries);
         expect(await FreshResourceStore.verifyCount(root: root), fourMillionSoakEntries);
-        // A real four-million-entry soak also proves that the next unique
-        // profile is rejected without changing the existing inventory.
+        // Four million is a stress-test scale, not a configured capacity.
+        // A further unique profile must still be accepted.
         expect(
           await FreshResourceStore.merge(
             <String>['vless://over-capacity@example.test:443'],
-            source: 'four-million-capacity-boundary', root: root,
+            source: 'unbounded-capacity-continuation', root: root,
           ),
-          fourMillionSoakEntries,
+          fourMillionSoakEntries + 1,
         );
-        expect(await FreshResourceStore.verifyCount(root: root), fourMillionSoakEntries);
+        expect(await FreshResourceStore.verifyCount(root: root), fourMillionSoakEntries + 1);
         final first = await FreshResourceStore.readBatch(limit: 300, root: root);
         final second = await FreshResourceStore.readBatch(limit: 300, root: root);
         expect(first, hasLength(300));
@@ -263,25 +262,25 @@ void main() {
       }
     });
 
-    test('does not append beyond the four-million archive capacity', () async {
-      final root = await Directory.systemTemp.createTemp('king-offline-capacity-');
+    test('continues appending beyond the historical four-million count', () async {
+      final root = await Directory.systemTemp.createTemp('king-offline-unbounded-');
       try {
         const existing = 'vless://already-stored@example.test:443';
+        const additional = 'vless://beyond-old-boundary@example.test:443';
         await FreshResourceStore.merge(<String>[existing], root: root);
         final folder = Directory(root.path + '/' + FreshResourceStore.directoryName);
+        // Simulate an archive whose persisted count is already at the former
+        // ceiling while keeping this focused test small and deterministic.
         await File(folder.path + '/metadata.json').writeAsString(
           '{"schema":2,"count":4000000}', flush: true,
         );
         final total = await FreshResourceStore.merge(
-          <String>[
-            existing,
-            'vless://must-not-be-added@example.test:443',
-          ],
-          root: root,
+          <String>[existing, additional],
+          source: 'unbounded-capacity-regression', root: root,
         );
-        expect(total, FreshResourceStore.maxEntries);
+        expect(total, 4000001);
         final stored = await FreshResourceStore.streamLinks(root: root).toList();
-        expect(stored, <String>[existing]);
+        expect(stored, <String>[existing, additional]);
       } finally {
         await root.delete(recursive: true);
       }
