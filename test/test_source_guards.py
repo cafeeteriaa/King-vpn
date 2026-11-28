@@ -121,6 +121,20 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('recordTrafficValidation(', probe)
         self.assertIn('mode: nationalMode ? \'national\' : \'global\'', probe)
 
+    def test_sni_scanner_preserves_unresolved_target_cursor_and_never_fakes_coverage(self):
+        source = (ROOT / 'lib' / 'king_national_scanner.dart').read_text(encoding='utf-8')
+        start = source.index("if (shouldRunPhase('sni')")
+        end = source.index("if (shouldRunPhase('config')", start)
+        sni = source[start:end]
+        self.assertIn('if (ip == null)', sni)
+        unresolved = sni[sni.index('if (ip == null)'):sni.index('if (ip != null)')]
+        self.assertIn("persistPhase(\n              'sni'", unresolved)
+        self.assertIn("'candidateIndex': -1", unresolved)
+        self.assertIn('break;', unresolved)
+        self.assertIn('final sniInventoryComplete =', sni)
+        self.assertIn('inventoryComplete: sniInventoryComplete', sni)
+        self.assertNotIn('inventoryComplete: true', sni)
+
     def test_code_changes_are_pinned_to_the_official_repository(self):
         ai = (ROOT / 'lib' / 'king_local_ai.dart').read_text(encoding='utf-8')
         self.assertIn("static const String _repositoryOwner = 'cafeeteriaa';", ai)
