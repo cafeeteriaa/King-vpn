@@ -262,7 +262,10 @@ class KingNetworkFingerprint {
 
   static String withDefaultRoutes(String interfaces, Iterable<String> routes) {
     final sorted = routes.toList()..sort();
-    if (interfaces.trim().isEmpty && sorted.isEmpty) return '';
+    // A physical interface list alone cannot identify the active egress when
+    // Wi-Fi and cellular are simultaneously up. Missing either side of the
+    // fingerprint is therefore unknown evidence, not a stable network ID.
+    if (interfaces.trim().isEmpty || sorted.isEmpty) return '';
     return '$interfaces#${sorted.join(';')}';
   }
 
