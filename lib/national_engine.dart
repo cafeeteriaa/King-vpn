@@ -218,6 +218,7 @@ class NatNetworkDiagnosis {
       // Include active IPv4/IPv6 default routes. Interface addresses alone
       // miss Wi-Fi↔cellular egress changes when both links remain connected.
       final fingerprint = await KingNetworkFingerprint.capture();
+      if (fingerprint.trim().isEmpty) return '';
       return sha256.convert(utf8.encode(fingerprint)).toString();
     } catch (_) {
       return '';
