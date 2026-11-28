@@ -8949,14 +8949,13 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           natSaveSoon(); // NORMALCACHE: پایدار کن
         }
         natWinCount[v] = (natWinCount[v] ?? 0) + 1;
-        // This is only the ladder's preliminary acceptance gate. The
-        // repair optimizer is promoted later by _stableTunnelTrafficOk after
-        // at least two destinations pass through the active core.
+        // This is only the ladder's preliminary acceptance gate; it is
+        // not stable repair proof and must not register a validated attempt.
         KingNatSubsystemEngine.recordRepairEvaluation(
           strategyId: 'nat_ladder_variant_$v',
           evaluated: true,
           changed: true,
-          tunnelImproved: true,
+          tunnelImproved: false,
           coverageComplete: false,
         );
         dbg('نردبان: ${s.name} با حالت «${_natSpecs[v].name}» از تونل واقعی جواب داد');
@@ -9060,6 +9059,18 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             const Duration(seconds: 8), onTimeout: () => false)));
     final passed = results.where((ok) => ok).length;
     final stable = connected && identical(current, server) && passed >= 2;
+    final validatedVariant = natVarFor(server);
+    if (stable && validatedVariant != 0) {
+      // Register this exact variant immediately before the stable proof is
+      // recorded, so another connection's proof cannot validate it later.
+      KingNatSubsystemEngine.recordRepairEvaluation(
+        strategyId: 'stable_tunnel_variant_$validatedVariant',
+        evaluated: true,
+        changed: true,
+        tunnelImproved: true,
+        coverageComplete: false,
+      );
+    }
     KingNatSubsystemEngine.recordTrafficValidation(
       stable,
       mode: nationalMode ? 'national' : 'global',
@@ -9069,21 +9080,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     if (stable) {
       // The exact variant is credited only after two real destinations passed
       // through the active core/TUN, not after parsing or a handshake alone.
-      final validatedVariant = natVarFor(server);
       KingNationalScannerEngine.recordVariantOutcome(
         validatedVariant,
         true,
         profile: NationalNetworkIntelligence.keyOfServer(server),
         latencyMs: server.ping,
-      );
-      // A repaired variant is credited only here, after the stable
-      // multi-destination active-core check above has passed.
-      KingNatSubsystemEngine.recordRepairEvaluation(
-        strategyId: 'stable_tunnel_variant_$validatedVariant',
-        evaluated: true,
-        changed: validatedVariant != 0,
-        tunnelImproved: validatedVariant != 0,
-        coverageComplete: false,
       );
       if (server.cdn && !server.reality) {
         KingNatSubsystemEngine.recordCdnValidation(
