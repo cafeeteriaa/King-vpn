@@ -1229,7 +1229,7 @@ class KingNationalScannerEngine {
             1,
             (sliceBudget.inMilliseconds * 0.50 / (portCount * 1500)).floor(),
           ).toInt();
-          final batchAddressBudget = (workers * batchWaves).clamp(1, 768).toInt();
+          final batchAddressBudget = max(1, workers * batchWaves).toInt();
           var batch = 0;
           while (!stopped() && !shouldYield() && !natRangeInventoryPassComplete) {
             batch++;
