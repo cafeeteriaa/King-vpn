@@ -39,6 +39,7 @@ validation, recovery, learning, and resource lifecycle.
 ## Evidence and status rules
 
 - The network fingerprint is a SHA-256 digest used only to detect a physical-network change. It is not a carrier/ASN identifier. The operator token is collected separately by the interface/ASN detector, sanitized before diagnostics, and may remain unknown when the current network cannot reach public ASN sources.
+- Adaptive configuration/compatibility learning is partitioned by access-network class and ASN as well as protocol, transport, security, port, and hashed host. Existing pre-partition learning remains a read-only fallback; new results are stored under the operator-aware key so historical evidence is not discarded.
 
 - A phase completing means that phase's own work completed; it does not prove a VPN tunnel works.
 - A full IP inventory pass is complete only when all configured cursor-backed IPv4 resources have been traversed. A yielded slice remains resumable and is not reported as complete.
