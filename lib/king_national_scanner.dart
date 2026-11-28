@@ -1072,7 +1072,7 @@ class KingNationalScannerEngine {
           resumePhase = nextRank >= 0 && nextRank < phaseOrder.length
               ? phaseOrder[nextRank] : '';
           KingNatSubsystemEngine.restoreCompletedPhases(
-            phaseOrder.take(nextRank.clamp(0, phaseOrder.length)),
+            phaseOrder.take(nextRank.clamp(0, phaseOrder.length).toInt()),
           );
           if (!wasCompleted && previous['cursor'] is Map) {
             resumeCursor = Map<String, Object?>.from(previous['cursor'] as Map);
