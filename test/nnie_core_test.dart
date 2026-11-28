@@ -24,7 +24,7 @@ List<int> _response({
   for (final label in qname.split('.')) {
     out..add(label.length)..addAll(label.codeUnits);
   }
-  out.addAll([0, 0, (queryType >> 8) & 255, queryType & 255, 0, 1]); // root, QTYPE, QCLASS=IN
+  out.addAll([0, (queryType >> 8) & 255, queryType & 255, 0, 1]); // root, QTYPE, QCLASS=IN
   if (an > 0) {
     out.addAll([
       0xc0, 0x0c, // name: pointer to the question name
