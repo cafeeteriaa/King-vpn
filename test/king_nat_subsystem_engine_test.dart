@@ -72,7 +72,9 @@ void main() {
           (row as Map)['id'] as String: row,
       };
       expect(engines['network_intelligence']!['state'], 'completed');
-      expect(engines['discovery']!['state'], 'partial');
+      // A yielded slice is resumable work, not a failed/partial inventory.
+      expect(engines['discovery']!['state'], 'deferred');
+      expect(engines['scanner']!['state'], 'deferred');
       expect(engines['real_traffic_validator']!['state'], 'partial');
       expect(
         engines['real_traffic_validator']!['detail'],
