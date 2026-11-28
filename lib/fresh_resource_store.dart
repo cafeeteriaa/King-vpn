@@ -8,12 +8,13 @@ import 'package:path_provider/path_provider.dart';
 
 /// Persistent, bounded-memory store for offline VPN profiles.
 ///
-/// The inventory has no configured record-count ceiling. Four-million-entry
-/// soak tests remain a validation milestone, not a production capacity limit.
-/// Profiles are split across 256 append-only JSONL shards and read as a Stream.
+/// The offline archive has a deliberate four-million-profile capacity.
+/// Profiles are split across 256 append-only JSONL shards and read as a Stream,
+/// so the configured capacity never requires loading the archive into RAM.
 class FreshResourceStore {
   FreshResourceStore._();
 
+  static const int maxEntries = 4000000;
   static const int shardCount = 256;
   static const int _batchSize = 4096;
   static const int _bloomBytesPerShard = 32768;
@@ -437,7 +438,9 @@ class FreshResourceStore {
     return bits;
   }
 
-  static Future<int> _appendBatch(Directory dir, List<String> links) async {
+  static Future<int> _appendBatch(
+      Directory dir, List<String> links, {int maxAdditions = maxEntries}) async {
+    if (maxAdditions <= 0) return 0;
     final grouped = <String, Map<String, String>>{};
     for (final link in links) {
       final id = _id(link);
@@ -480,6 +483,7 @@ class FreshResourceStore {
       try {
         if (needsSeparator) sink.write('\n');
         for (final entry in group.value.entries) {
+          if (added >= maxAdditions) break;
           if (!existing.add(entry.key)) continue;
           sink.writeln(jsonEncode(<String, Object?>{
             'v': 1, 'id': entry.key, 'link': entry.value,
@@ -492,11 +496,13 @@ class FreshResourceStore {
         await sink.close();
       }
       _shardTailChecked.add(tailKey);
+      if (added >= maxAdditions) break;
     }
     return added;
   }
 
-  /// Merges lazily in small batches. RAM usage is bounded by the batch and one
+  /// Merges lazily in small batches and never grows beyond maxEntries. RAM
+  /// usage is bounded by the batch and one
   /// shard's matching identities, not by the total inventory size.
   static Future<int> merge(Iterable<String> links,
       {String source = 'online', Directory? root}) async {
@@ -508,21 +514,24 @@ class FreshResourceStore {
     var total = await _countUnlocked(dir, root: root);
     var batch = <String>[];
     for (final value in links) {
+      if (total >= maxEntries) break;
       final link = normalizeLink(value);
       if (link == null) continue;
       batch.add(link);
       if (batch.length < _batchSize) continue;
       await File('${dir.path}/$_dirtyFileName').writeAsString('1', flush: true);
-      final added = await _appendBatch(dir, batch);
+      final added = await _appendBatch(
+        dir, batch, maxAdditions: maxEntries - total);
       total += added;
       batch = <String>[];
       await _writeMetadata(dir, total, source: source);
       final dirty = File('${dir.path}/$_dirtyFileName');
       if (await dirty.exists()) await dirty.delete();
     }
-    if (batch.isNotEmpty) {
+    if (batch.isNotEmpty && total < maxEntries) {
       await File('${dir.path}/$_dirtyFileName').writeAsString('1', flush: true);
-      final added = await _appendBatch(dir, batch);
+      final added = await _appendBatch(
+        dir, batch, maxAdditions: maxEntries - total);
       total += added;
       await _writeMetadata(dir, total, source: source);
       final dirty = File('${dir.path}/$_dirtyFileName');
@@ -622,26 +631,145 @@ class FreshResourceStore {
     });
   }
 
+  static Future<int> _countValidShardRecords(Directory dir) async {
+    var total = 0;
+    final shards = dir.list(followLinks: false).where((entity) =>
+        entity is File && RegExp(r'^[0-9a-f]{2}\\.jsonl
+    if (await marker.exists()) return;
+    final legacy = File('${dir.path}/$_legacyFileName');
+    if (await legacy.exists()) {
+      var migratedCount = await _countValidShardRecords(dir);
+      var batch = <String>[];
+      await for (final line in legacy.openRead()
+          .transform(utf8.decoder)
+          .transform(const LineSplitter())) {
+        if (migratedCount >= maxEntries) break;
+        final link = normalizeLink(line);
+        if (link == null) continue;
+        batch.add(link);
+        if (batch.length >= _batchSize) {
+          migratedCount += await _appendBatch(
+            dir, batch, maxAdditions: maxEntries - migratedCount);
+          batch = <String>[];
+        }
+      }
+      if (batch.isNotEmpty && migratedCount < maxEntries) {
+        migratedCount += await _appendBatch(
+          dir, batch, maxAdditions: maxEntries - migratedCount);
+      }
+      // Keep the original legacy file as .migrated for recovery/audit; any
+      // records beyond capacity are retained there, not silently discarded.
+      await legacy.rename('${legacy.path}.migrated');
+    }
+    var total = 0;
+    final shards = dir.list(followLinks: false)
+        .where((entity) => entity is File &&
+            RegExp(r'^[0-9a-f]{2}\.jsonl$').hasMatch(entity.uri.pathSegments.last));
+    await for (final entity in shards) {
+      await for (final line in (entity as File).openRead()
+          .transform(utf8.decoder)
+          .transform(const LineSplitter())) {
+        try {
+          final row = jsonDecode(line);
+          if (row is Map && row['v'] == 1 && row['id'] is String &&
+              row['link'] is String &&
+              _id(row['link'] as String) == row['id']) {
+            total++;
+          }
+        } catch (_) {}
+      }
+    }
+    await _writeMetadata(dir, total, source: 'migration');
+    await marker.writeAsString('v2', flush: true);
+  }
+
+  static Future<Map<String, Object?>> metadata({Directory? root}) async {
+    final dir = await directory(root: root);
+    await _migrateLegacy(dir);
+    final value = await _readMetadata(dir);
+    return <String, Object?>{
+      ...value,
+      'count': await count(root: root),
+    };
+  }
+
+  static Future<void> clear({Directory? root}) async {
+    final dir = await directory(root: root);
+    final path = dir.path;
+    final pendingWrite = _mergeQueues[path] ?? Future<void>.value();
+    final pendingRead = _readQueues[path] ?? Future<void>.value();
+    final operation = Future.wait<void>(<Future<void>>[
+      pendingWrite,
+      pendingRead,
+    ]).then((_) async {
+      await File('${dir.path}/.migration_v2_done').writeAsString('v2', flush: true);
+      await File('${dir.path}/$_dirtyFileName').writeAsString('1', flush: true);
+      await for (final entity in dir.list(followLinks: false)) {
+        if (entity is File &&
+            (RegExp(r'^[0-9a-f]{2}\.jsonl$').hasMatch(entity.uri.pathSegments.last) ||
+             entity.uri.pathSegments.last == _metadataFileName ||
+             entity.uri.pathSegments.last == _cursorFileName ||
+             entity.uri.pathSegments.last == _legacyFileName ||
+             entity.uri.pathSegments.last == '${_legacyFileName}.migrated')) {
+          await entity.delete();
+        }
+      }
+      _shardBlooms.removeWhere((key, _) => key.startsWith('${dir.path}/'));
+      _shardTailChecked.removeWhere((key) => key.startsWith('${dir.path}/'));
+      await _writeMetadata(dir, 0, source: 'cleared');
+      final dirty = File('${dir.path}/$_dirtyFileName');
+      if (await dirty.exists()) await dirty.delete();
+      await File('${dir.path}/.migration_v2_done').writeAsString('v2', flush: true);
+    });
+    final queued = operation.then<void>((_) {}, onError: (Object _) {});
+    _mergeQueues[path] = queued;
+    _readQueues[path] = queued;
+    await operation;
+  }
+})
+            .hasMatch(entity.uri.pathSegments.last));
+    await for (final entity in shards) {
+      final file = entity as File;
+      final shard = file.uri.pathSegments.last.substring(0, 2);
+      await for (final line in file.openRead()
+          .transform(utf8.decoder).transform(const LineSplitter())) {
+        try {
+          final row = jsonDecode(line);
+          if (row is Map && row['v'] == 1 && row['id'] is String &&
+              row['link'] is String && _id(row['link'] as String) == row['id'] &&
+              _shard(row['id'] as String) == shard) total++;
+        } catch (_) {}
+      }
+    }
+    return total;
+  }
+
   static Future<void> _migrateLegacyImpl(Directory dir) async {
     final marker = File('${dir.path}/.migration_v2_done');
     if (await marker.exists()) return;
     final legacy = File('${dir.path}/$_legacyFileName');
     if (await legacy.exists()) {
+      var migratedCount = await _countValidShardRecords(dir);
       var batch = <String>[];
       await for (final line in legacy.openRead()
           .transform(utf8.decoder)
           .transform(const LineSplitter())) {
+        if (migratedCount >= maxEntries) break;
         final link = normalizeLink(line);
         if (link == null) continue;
         batch.add(link);
         if (batch.length >= _batchSize) {
-          await _appendBatch(dir, batch);
+          migratedCount += await _appendBatch(
+            dir, batch, maxAdditions: maxEntries - migratedCount);
           batch = <String>[];
         }
       }
-      if (batch.isNotEmpty) {
-        await _appendBatch(dir, batch);
+      if (batch.isNotEmpty && migratedCount < maxEntries) {
+        migratedCount += await _appendBatch(
+          dir, batch, maxAdditions: maxEntries - migratedCount);
       }
+      // Keep the original legacy file as .migrated for recovery/audit; any
+      // records beyond capacity are retained there, not silently discarded.
       await legacy.rename('${legacy.path}.migrated');
     }
     var total = 0;
