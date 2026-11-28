@@ -160,6 +160,50 @@ void main() {
       });
     });
 
+    test('scanner completes only after all phases and durable inventory finish', () {
+      KingNatSubsystemEngine.beginRun(nationalMode: true, sliceBudgetMs: 30000);
+      KingNatSubsystemEngine.recordDiscoveryInventory(
+        ipv4Resources: 2400,
+        ipv6Resources: 36,
+      );
+      for (final phase in const ['dns', 'domain', 'ip', 'sni']) {
+        KingNatSubsystemEngine.phaseStarted(phase);
+        KingNatSubsystemEngine.phaseCompleted(phase, evidence: 10);
+      }
+      KingNatSubsystemEngine.finishRun(
+        cancelled: false,
+        yielded: false,
+        deferred: false,
+        inventoryComplete: true,
+      );
+      final engines = {
+        for (final row in KingNatSubsystemEngine.diagnostics()['engines'] as List)
+          (row as Map)['id'] as String: row,
+      };
+      expect(engines['discovery']!['state'], 'completed');
+      expect(engines['scanner']!['state'], 'completed');
+    });
+
+    test('all phase markers still cannot complete scanner with a pending inventory cursor', () {
+      KingNatSubsystemEngine.beginRun(nationalMode: true, sliceBudgetMs: 30000);
+      for (final phase in const ['dns', 'domain', 'ip', 'sni']) {
+        KingNatSubsystemEngine.phaseStarted(phase);
+        KingNatSubsystemEngine.phaseCompleted(phase, evidence: 10);
+      }
+      KingNatSubsystemEngine.finishRun(
+        cancelled: false,
+        yielded: false,
+        deferred: false,
+        inventoryComplete: false,
+      );
+      final engines = {
+        for (final row in KingNatSubsystemEngine.diagnostics()['engines'] as List)
+          (row as Map)['id'] as String: row,
+      };
+      expect(engines['scanner']!['state'], 'partial');
+      expect(engines['discovery']!['state'], 'partial');
+    });
+
     test('single-destination traffic success is probe evidence, not stable validation', () {
       KingNatSubsystemEngine.beginRun(nationalMode: true, sliceBudgetMs: 30000);
       KingNatSubsystemEngine.recordTrafficValidation(
