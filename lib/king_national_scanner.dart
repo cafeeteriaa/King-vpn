@@ -491,14 +491,18 @@ class KingNationalScannerEngine {
         _history.putIfAbsent(key, () => <int, _KingNatVariantStats>{});
     final stats = profiles.putIfAbsent(variant, _KingNatVariantStats.new);
     stats.attempts++;
-    recordCompatibilityEvaluation(evaluated: 1, accepted: success ? 1 : 0, allResolved: false);
+    KingNatSubsystemEngine.recordCompatibilityEvaluation(
+      evaluated: 1,
+      accepted: success ? 1 : 0,
+      allResolved: false,
+    );
     if (success) {
       stats.successes++;
       for (final id in _featuresFor(_natSpecs[variant])) {
         _featureEvidence[id] = (_featureEvidence[id] ?? 0) + 1;
         if (id == 'tls_hello_fragmentation') {
           // recordVariantOutcome is called only after CONNECTED + TUN + real traffic.
-          recordTransformationExecution(
+          KingNatSubsystemEngine.recordTransformationExecution(
             adapterId: 'xray_freedom_tls_fragment',
             applied: true,
             tunnelTrafficPassed: true,
@@ -1793,7 +1797,10 @@ class KingNatSubsystemEngine {
     );
     // Every catalog entry is resolved to an explicit capability state; research-only
     // and infrastructure-dependent entries remain visible rather than being activated.
-    recordCapabilityResolution(resolved: registry.length, unresolved: 0);
+    KingNatSubsystemEngine.recordCapabilityResolution(
+      resolved: KingNationalScannerEngine.registry.length,
+      unresolved: 0,
+    );
     _get('dpi_traffic_transformation').record(
       safe, 'existing_transformations_structurally_planned_not_tunnel_verified',
       complete: false,
