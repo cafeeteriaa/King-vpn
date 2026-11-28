@@ -80,4 +80,62 @@ void main() {
       expect(natExpandDash('10.0.0.1-10.0.0.3', maxCount: 3), hasLength(3));
     });
   });
+  group('resumable address range cursor', () {
+    test('walks an explicit range exactly once across multiple slices', () {
+      final cursor = NatAddressRangeCursor.parse('10.0.0.1-10.0.0.4')!;
+      expect(cursor.addressCount, 4);
+
+      final first = cursor.read(0, 2);
+      expect(first.$1, ['10.0.0.1', '10.0.0.2']);
+      expect(first.$2, 2);
+
+      final second = cursor.read(first.$2, 2);
+      expect(second.$1, ['10.0.0.3', '10.0.0.4']);
+      expect(second.$2, -1);
+
+      expect(cursor.read(0, 2).$1, first.$1);
+      expect(cursor.read(4, 2), (<String>[], -1));
+    });
+
+    test('supports the complete IPv4 space through bounded resumable slices', () {
+      final cursor = NatAddressRangeCursor.parse('203.0.113.9/0')!;
+      expect(cursor.addressCount, 4294967296);
+
+      final beginning = cursor.read(0, 3);
+      expect(beginning.$1, ['0.0.0.0', '0.0.0.1', '0.0.0.2']);
+      expect(beginning.$2, 3);
+
+      final ending = cursor.read(4294967294, 8);
+      expect(ending.$1, ['255.255.255.254', '255.255.255.255']);
+      expect(ending.$2, -1);
+    });
+
+    test('normalizes CIDR host bits and validates range direction', () {
+      final cidr = NatAddressRangeCursor.parse('10.0.0.7/30')!;
+      expect(cidr.addressCount, 4);
+      expect(cidr.read(0, 8).$1,
+          ['10.0.0.4', '10.0.0.5', '10.0.0.6', '10.0.0.7']);
+
+      expect(NatAddressRangeCursor.parse('10.0.0.4-10.0.0.1'), isNull);
+      expect(NatAddressRangeCursor.parse('10.0.0.1/33'), isNull);
+      expect(NatAddressRangeCursor.parse('10.0.0.1/24/8'), isNull);
+    });
+
+    test('accepts exact IPv6 endpoints but does not expand broad prefixes', () {
+      final address = NatAddressRangeCursor.parse('2001:4860:4860::8888/128')!;
+      expect(address.addressCount, 1);
+      expect(address.read(0, 1).$1, hasLength(1));
+      expect(NatAddressRangeCursor.parse('2001:4860::/64'), isNull);
+      expect(NatAddressRangeCursor.parse('2001:4860::1'), isNotNull);
+    });
+
+    test('rejects invalid offsets and non-positive slice sizes', () {
+      final cursor = NatAddressRangeCursor.parse('192.0.2.1/32')!;
+      expect(cursor.read(-1, 1), (<String>[], -1));
+      expect(cursor.read(0, 0), (<String>[], -1));
+      expect(cursor.read(0, -4), (<String>[], -1));
+      expect(cursor.read(1, 1), (<String>[], -1));
+    });
+  });
+
 }
