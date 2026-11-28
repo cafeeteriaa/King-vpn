@@ -2592,6 +2592,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         body = nat[start:end]
         self.assertIn('country-resource-list/data.json', body)
         self.assertIn('announced-prefixes/data.json', body)
+        self.assertIn("country.asns.contains('AS$activeAsn')", body)
         self.assertIn('...kIrIspRanges', body)
         self.assertIn('...country.ipv4', body)
         self.assertIn('...announced', body)
