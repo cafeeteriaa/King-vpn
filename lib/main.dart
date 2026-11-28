@@ -10289,7 +10289,7 @@ ListTile( // KINGEXTRAS row
         networkClass: NatNetworkDiagnosis.current.name,
         configs: servers.map((s) => s.link).toList(growable: false),
         endpoints: servers.map((s) => KingEndpoint(s.host, s.port, label: s.name)).toList(growable: false),
-        networkProbe: () async => NatNetworkDiagnosis.refresh(),
+        networkProbe: () async => NatNetworkDiagnosis.current,
         shouldCancel: () => !mounted || connected,
         workerBudget: nationalMode ? 3 : 2,
       );
