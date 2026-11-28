@@ -456,15 +456,18 @@ class KingNationalScannerEngine {
 
     final activeProfileKey = profileKey(server);
     final legacyProfileKey = _legacyProfileKey(server);
-    final profile = _history[activeProfileKey] ?? _history[legacyProfileKey];
-    if (profile != null && profile.isNotEmpty && result.length > 3) {
+    final profile = _history[activeProfileKey];
+    final legacyProfile = _history[legacyProfileKey];
+    if (((profile?.isNotEmpty ?? false) ||
+            (legacyProfile?.isNotEmpty ?? false)) &&
+        result.length > 3) {
       // Preserve the original config and the first cached/priority candidate.
       final fixedPrefix = result.take(2).toList();
       final tail = result.skip(fixedPrefix.length).toList();
       tail.sort((a, b) {
         double score(int code, int position) {
           final variant = code % _natCodeBase;
-          final stats = profile[variant];
+          final stats = profile?[variant] ?? legacyProfile?[variant];
           if (stats == null || stats.attempts < 2) {
             return -position * 0.001;
           }
