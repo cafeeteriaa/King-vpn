@@ -72,10 +72,11 @@ class NatAddressRangeCursor {
       final left = _ipv4ToInt(parts[0]);
       final right = _ipv4ToInt(parts[1]);
       if (left == null || right == null) return null;
-      // Keep input direction strict. Silently reversing a malformed range
-      // can make a typo scan an unintended address block.
-      if (right < left) return null;
-      return NatAddressRangeCursor._(left, right - left + 1, null);
+      // Explicit ranges are intentionally direction-agnostic; normalize
+      // them so every pass traverses the same addresses in ascending order.
+      final first = left < right ? left : right;
+      final last = left < right ? right : left;
+      return NatAddressRangeCursor._(first, last - first + 1, null);
     }
     final address = InternetAddress.tryParse(raw);
     if (address == null) return null;

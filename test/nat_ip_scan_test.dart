@@ -116,7 +116,9 @@ void main() {
       expect(cidr.read(0, 8).$1,
           ['10.0.0.4', '10.0.0.5', '10.0.0.6', '10.0.0.7']);
 
-      expect(NatAddressRangeCursor.parse('10.0.0.4-10.0.0.1'), isNull);
+      final reversed = NatAddressRangeCursor.parse('10.0.0.4-10.0.0.1')!;
+      expect(reversed.read(0, 4).$1,
+          ['10.0.0.1', '10.0.0.2', '10.0.0.3', '10.0.0.4']);
       expect(NatAddressRangeCursor.parse('10.0.0.1/33'), isNull);
       expect(NatAddressRangeCursor.parse('10.0.0.1/24/8'), isNull);
     });
