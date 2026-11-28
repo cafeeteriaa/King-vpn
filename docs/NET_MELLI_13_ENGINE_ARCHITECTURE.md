@@ -85,3 +85,11 @@ states partial/deferred until the implementation and tests exist.
 - Address-wave sizing is derived from adaptive workers and the measured slice/port budget. The prior fixed 768-address wave ceiling has been removed; each wave still yields to cancellation and the durable range cursor.
 - These changes remove duplicate hard ceilings, not resource safety. CPU-aware concurrency, bounded execution slices, cancellation, and resumable cursor traversal remain in force.
 - Regression tests cover budgets above the former coordinator ceilings and prevent a single completed phase or non-empty inventory from falsely completing Discovery/Scanner.
+
+## Dual-stack DNS evidence (2026-11-28)
+
+- Resolver discovery now issues independent A (QTYPE 1) and AAAA (QTYPE 28) queries for each tested domain. Both use the same strict transaction-ID, QR/opcode, question, source-address/port, RCODE, answer-owner and CNAME-chain validation.
+- A answers must be globally routable IPv4 addresses; AAAA answers must be globally routable IPv6 unicast addresses. Unspecified, loopback, link-local, unique-local, multicast, documentation and IPv4-mapped IPv6 ranges are rejected.
+- DNS resolver scoring counts each domain once when either family returns a usable address, and reports IPv4 and IPv6 success counts separately. An IPv4-only resolver is therefore not falsely penalized for a domain without AAAA records.
+- The per-resolver domain batch is reduced from eight to four because each domain now opens two concurrent family probes. This preserves approximately the former socket fan-out instead of doubling resource pressure.
+- DNS success remains resolver evidence only; it is never promoted to proof of a working domestic/global data path or a validated VPN tunnel.
