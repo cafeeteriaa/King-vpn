@@ -2280,6 +2280,11 @@ Future<bool> natRefreshIranRangeInventory({bool force = false}) async {
       await natDetectOperator();
       activeAsn = _natAsnByType[networkType] ?? '';
     }
+    // Never mix a foreign roaming/current ISP into Iran's inventory. The
+    // detected ASN must also appear in RIPE's country-IR registry snapshot.
+    if (activeAsn.isNotEmpty && !country.asns.contains('AS$activeAsn')) {
+      activeAsn = '';
+    }
     final announced = <String>[];
     if (RegExp(r'^[0-9]{1,10}
   443, 2053, 2083, 2087, 2096, 8443, 80, 8080, 8880, 2052, 2082, 2086, 2095,
