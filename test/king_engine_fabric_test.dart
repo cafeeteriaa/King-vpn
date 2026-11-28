@@ -21,7 +21,7 @@ void main() {
         KingEngineStatus.unavailable);
   });
 
-  test('TUN validation requires bidirectional bytes and a response', () async {
+  test('TUN validation requires stable multi-destination responses', () async {
     final stable = KingTrafficProof(available: true, responseReceived: true,
       multiDestination: true, elapsedMs: 120);
     final singleDestination = KingTrafficProof(available: true,
