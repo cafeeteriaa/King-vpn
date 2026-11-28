@@ -10285,6 +10285,7 @@ ListTile( // KINGEXTRAS row
   Future<void> _runKingEngineFabric() async {
     if (!mounted) return;
     try {
+      final wasConnected = connected;
       final servers = _resMap.values.map((e) => e.s).toList(growable: false);
       final context = KingEngineContext(
         operatorIdentity: natOpKey,
@@ -10305,7 +10306,7 @@ ListTile( // KINGEXTRAS row
           return KingTrafficProof(available: true, responseReceived: verified,
             multiDestination: verified, elapsedMs: timer.elapsedMilliseconds);
         },
-        shouldCancel: () => !mounted || !connected,
+        shouldCancel: () => !mounted || connected != wasConnected,
         workerBudget: nationalMode ? 3 : 2,
       );
       final report = await KingEngineFabric.run(context);
