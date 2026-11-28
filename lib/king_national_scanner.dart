@@ -1652,13 +1652,21 @@ class KingNatSubsystemEngine {
       'dns' => const ['discovery', 'scanner'],
       'domain' => const ['discovery', 'scanner', 'multi_engine_connector'],
       'ip' => const ['discovery', 'scanner', 'resource_health_manager'],
-      'sni' => const ['scanner', 'compatibility', 'dpi_traffic_transformation'],
-      'config' => const ['config_intelligence', 'compatibility', 'capability_orchestrator', 'dpi_traffic_transformation', 'ai_repair_optimization'],
+      'sni' => const ['scanner'],
+      'config' => const ['config_intelligence', 'capability_orchestrator'],
       'complete' => const ['connection_orchestrator'],
       _ => const <String>[],
     };
     for (final id in ids) {
       _get(id).record(evidence, 'phase_$phase completed');
+    }
+    if (phase == 'sni' || phase == 'config') {
+      for (final id in const ['compatibility', 'dpi_traffic_transformation', 'ai_repair_optimization']) {
+        final engine = _get(id);
+        if (engine.state != KingNatSubsystemState.completed) {
+          engine.record(evidence, 'structural_or_handshake_evidence_only_not_end_to_end_verified', complete: false);
+        }
+      }
     }
   }
 
@@ -1713,15 +1721,18 @@ class KingNatSubsystemEngine {
     final safe = variants < 0 ? 0 : variants;
     _plannedVariants += safe;
     _get('config_intelligence').record(safe, 'variants_planned_$safe');
-    _get('compatibility').record(safe, 'compatibility_variants_planned_$safe');
+    _get('compatibility').record(
+      safe, 'compatibility_variants_planned_$safe',
+      complete: false,
+    );
     _get('capability_orchestrator').record(1, 'registry_consulted');
     _get('dpi_traffic_transformation').record(
-      safe, 'existing_transformation_variants_evaluated_$safe',
-      complete: safe > 0,
+      safe, 'existing_transformations_structurally_planned_not_tunnel_verified',
+      complete: false,
     );
     _get('ai_repair_optimization').record(
-      safe, 'evidence_ranked_strategy_plan_$safe',
-      complete: safe > 0,
+      safe, 'strategy_ranking_active_ai_repair_not_connected',
+      complete: false,
     );
   }
 
