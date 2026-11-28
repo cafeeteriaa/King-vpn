@@ -922,20 +922,80 @@ class KingNationalScannerEngine {
     };
   }
 
-  static Future<String?> _probeSniAlpn(String ip, int port, String sni) async {
+  /// SNI/ALPN preflight is cancellable at both TCP connect and TLS
+  /// negotiation. Socket.startConnect exposes a cancellable connection task;
+  /// closing the raw socket aborts a TLS handshake already in progress.
+  static Future<String?> _probeSniAlpn(
+    String ip,
+    int port,
+    String sni, {
+    required bool Function() cancelled,
+  }) async {
+    ConnectionTask<Socket>? connection;
     Socket? raw;
     SecureSocket? secure;
+    Timer? cancellationWatcher;
+    final cancellation = Completer<void>();
+
+    void observeCancellation() {
+      var shouldCancel = false;
+      try {
+        shouldCancel = cancelled();
+      } catch (_) {
+        shouldCancel = true;
+      }
+      if (!shouldCancel || cancellation.isCompleted) return;
+      cancellation.complete();
+      secure?.destroy();
+      raw?.destroy();
+      final pending = connection;
+      if (pending != null && raw == null) {
+        unawaited(pending.cancel());
+      }
+    }
+
     try {
-      raw = await Socket.connect(ip, port, timeout: const Duration(seconds: 2));
-      secure = await SecureSocket.secure(
-        raw, host: sni, supportedProtocols: const <String>['h2', 'http/1.1'],
-      ).timeout(const Duration(seconds: 3));
-      return secure.selectedProtocol ?? '';
+      observeCancellation();
+      if (cancellation.isCompleted) return null;
+      cancellationWatcher = Timer.periodic(
+        const Duration(milliseconds: 100),
+        (_) => observeCancellation(),
+      );
+
+      connection = Socket.startConnect(ip, port);
+      raw = await Future.any<Socket>(<Future<Socket>>[
+        connection.socket,
+        cancellation.future.then<Socket>(
+          (_) => throw StateError('SNI probe cancelled'),
+        ),
+      ]).timeout(const Duration(seconds: 2));
+      observeCancellation();
+      if (cancellation.isCompleted) return null;
+
+      secure = await Future.any<SecureSocket>(<Future<SecureSocket>>[
+        SecureSocket.secure(
+          raw!,
+          host: sni,
+          supportedProtocols: const <String>['h2', 'http/1.1'],
+        ),
+        cancellation.future.then<SecureSocket>(
+          (_) => throw StateError('SNI probe cancelled'),
+        ),
+      ]).timeout(const Duration(seconds: 3));
+      observeCancellation();
+      if (cancellation.isCompleted) return null;
+      return secure!.selectedProtocol ?? '';
     } catch (_) {
       return null;
     } finally {
+      cancellationWatcher?.cancel();
       secure?.destroy();
       raw?.destroy();
+      if (connection != null && raw == null) {
+        try {
+          await connection!.cancel();
+        } catch (_) {}
+      }
     }
   }
 
@@ -1407,7 +1467,12 @@ class KingNationalScannerEngine {
               if (serverIndex == resumeServer && candidateIndex <= resumeCandidate) continue;
               final candidate = candidates[candidateIndex];
               cdnCandidateAttempts++;
-              final alpn = await _probeSniAlpn(ip, server.port, candidate.value);
+              final alpn = await _probeSniAlpn(
+                ip,
+                server.port,
+                candidate.value,
+                cancelled: () => stopped() || shouldYield(),
+              );
               if (stopped()) break;
               if (alpn != null) {
                 recordSniProbe(profileKey(server), candidate.key);
