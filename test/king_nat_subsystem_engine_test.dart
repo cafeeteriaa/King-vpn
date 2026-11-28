@@ -378,8 +378,22 @@ void main() {
       KingNatSubsystemEngine.recordTransformationExecution(
         adapterId: 'fragment-v1', applied: true, tunnelTrafficPassed: true, coverageComplete: true,
       );
+      // A positive preliminary result is not stable tunnel proof.
       KingNatSubsystemEngine.recordRepairEvaluation(
-        strategyId: 'repair-a', evaluated: true, changed: true, tunnelImproved: true, coverageComplete: true,
+        strategyId: 'repair-a', evaluated: true, changed: true,
+        tunnelImproved: true, coverageComplete: true,
+      );
+      expect(
+        KingNatSubsystemEngine.adapterEvidence()['validatedRepairs'],
+        isEmpty,
+      );
+      KingNatSubsystemEngine.recordTrafficValidation(
+        true, mode: 'national', destinations: 2, stable: true,
+      );
+      KingNatSubsystemEngine.recordRepairEvaluation(
+        strategyId: 'repair-a', evaluated: true, changed: true,
+        tunnelImproved: true, coverageComplete: true,
+        stableTunnelProof: true,
       );
       KingNatSubsystemEngine.recordCompatibilityEvaluation(evaluated: 5, accepted: 4, allResolved: true);
       engines = {
