@@ -2931,6 +2931,20 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn('winners.length >=', sweep)
         self.assertNotIn('difference(t0) > budget', sweep)
 
+    def test_cloudflare_sweep_cursor_is_persisted_and_bound_to_inventory_identity(self):
+        main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        start = main.index('Future<List<CleanIp>> _atIpSweep(')
+        end = main.index('\n  }', start)
+        sweep = main[start:end]
+        self.assertIn("king_cf_ip_sweep_cursor_v1", sweep)
+        self.assertIn("'fingerprint': rangeFingerprint", sweep)
+        self.assertIn("'portIndex': nextPort", sweep)
+        self.assertIn("'rangeIndex': nextRange", sweep)
+        self.assertIn("'offset': nextAddress", sweep)
+        self.assertIn('startRangeIndex:', sweep)
+        self.assertIn('startOffset:', sweep)
+        self.assertIn('await preferences.remove(checkpointKey)', sweep)
+
     def test_automatic_ip_range_inventory_has_no_fixed_range_count_ceiling(self):
         main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
         start = main.index('List<String> _atAutoRanges(')
