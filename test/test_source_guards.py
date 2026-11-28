@@ -2604,7 +2604,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertEqual(nat.count('bool _natIranRangeRefreshBusy = false;'), 1)
         self.assertEqual(nat.count('Future<bool> natRefreshIranRangeInventory('), 1)
         self.assertLess(
-            body.index("await _natWriteJsonSnapshot('king_nat_configured_ranges.json', merged);"),
+            body.index("      'king_nat_configured_ranges.json',\n      merged,"),
             body.index('natRanges = merged;'),
         )
         self.assertIn('...natRanges', body)
