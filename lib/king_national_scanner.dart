@@ -1992,7 +1992,7 @@ class KingNatSubsystemEngine {
     _plannedVariants += safe;
     _get('config_intelligence').record(
       safe,
-      'variants_planned_$safe_validation_pending',
+      'variants_planned_${safe}_validation_pending',
       complete: false,
     );
     _get('compatibility').record(
