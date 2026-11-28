@@ -146,6 +146,23 @@ void main() {
       }
     });
 
+    test('invalid port and timeout never advance a range cursor', () async {
+      var cursorCalls = 0;
+      final invalidPort = await natScanAddressRanges(
+        ['127.0.0.1/32'],
+        port: 65536,
+        onCursor: (_, __) => cursorCalls++,
+      );
+      final invalidTimeout = await natScanAddressRanges(
+        ['127.0.0.1/32'],
+        timeout: Duration.zero,
+        onCursor: (_, __) => cursorCalls++,
+      );
+      expect(invalidPort, isEmpty);
+      expect(invalidTimeout, isEmpty);
+      expect(cursorCalls, 0);
+    });
+
     test('cancellation stops a range traversal before probing', () async {
       var cursorCalls = 0;
       final hits = await natScanAddressRanges(
