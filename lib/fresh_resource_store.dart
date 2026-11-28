@@ -659,7 +659,7 @@ class FreshResourceStore {
               row['link'] is String &&
               _id(row['link'] as String) == row['id']) {
             total++;
-                }
+          }
         } catch (_) {}
       }
     }
