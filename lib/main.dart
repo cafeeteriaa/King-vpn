@@ -7862,6 +7862,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     final order = useMatrix
         ? <int>[0, ...KingNationalScannerEngine.planVariants(s, full: fullMatrix).where((v) => v != 0)]
         : const [0]; // KNS: shared registry + learned compatibility; original config first
+    KingNatSubsystemEngine.recordConfigPlan(order.length);
     // NATBUDGET: one server may only use a limited time per pass; the rest of
     // its variants continue in the next pass (natCursorAdvance)
     final budget = multi ? natBudget(full: fullMatrix) : null;
@@ -9012,8 +9013,20 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     for (final u in urls) {
       final ok = await _siteOpens(u, viaCore: true)
           .timeout(const Duration(seconds: 8), onTimeout: () => false);
-      if (ok) return true;
+      if (ok) {
+        KingNatSubsystemEngine.recordTrafficValidation(
+          true,
+          mode: nationalMode ? 'national' : 'global',
+          destinations: 1,
+        );
+        return true;
+      }
     }
+    KingNatSubsystemEngine.recordTrafficValidation(
+      false,
+      mode: nationalMode ? 'national' : 'global',
+      destinations: urls.length,
+    );
     return false;
   }
 
@@ -9027,7 +9040,13 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         _siteOpens(url, viaCore: true).timeout(
             const Duration(seconds: 8), onTimeout: () => false)));
     final passed = results.where((ok) => ok).length;
-    return connected && identical(current, server) && passed >= 2;
+    final stable = connected && identical(current, server) && passed >= 2;
+    KingNatSubsystemEngine.recordTrafficValidation(
+      stable,
+      mode: nationalMode ? 'national' : 'global',
+      destinations: passed,
+    );
+    return stable;
   }
 
   // FIX #107: completes the connect waiter only when real traffic passes through the tunnel now.
@@ -10408,6 +10427,7 @@ ListTile( // KINGEXTRAS row
     if (connected) return;
     _natFetched = false;
     await natDetectOperator(); // NATULTRA: per-operator learning
+    KingNatSubsystemEngine.recordNetworkIdentity(natOpKey);
     try {
       if (!_natLoaded) {
         _natLoaded = true;
