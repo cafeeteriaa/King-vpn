@@ -260,6 +260,33 @@ class KingNetworkFingerprint {
     return routes.toList()..sort();
   }
 
+  /// Classifies the interface(s) that actually own the default route, not
+  /// merely interfaces that happen to be up. Simultaneous Wi-Fi and cellular
+  /// defaults remain "mixed" instead of being guessed as Wi-Fi.
+  static String classifyDefaultRouteInterfaces(Iterable<String> routes) {
+    final types = <String>{};
+    for (final route in routes) {
+      final fields = route.trim().split(':');
+      if (fields.length < 2) continue;
+      final iface = fields[1].trim().toLowerCase();
+      if (iface.isEmpty || isVpnInterfaceName(iface)) continue;
+      if (iface.startsWith('wlan') || iface.startsWith('wifi')) {
+        types.add('wifi');
+      } else if (iface.contains('rmnet') ||
+          iface.startsWith('ccmni') ||
+          iface.startsWith('pdp') ||
+          iface.startsWith('wwan') ||
+          iface.contains('cell')) {
+        types.add('mob');
+      } else {
+        types.add('net');
+      }
+    }
+    if (types.isEmpty) return 'unknown';
+    if (types.length > 1) return 'mixed';
+    return types.single;
+  }
+
   static String withDefaultRoutes(String interfaces, Iterable<String> routes) {
     final sorted = routes.toList()..sort();
     // A physical interface list alone cannot identify the active egress when
