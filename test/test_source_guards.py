@@ -2994,6 +2994,8 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn("'portIndex': nextPort", sweep)
         self.assertIn("'rangeIndex': nextRange", sweep)
         self.assertIn("'offset': nextAddress", sweep)
+        self.assertIn('offsetWithinRange', sweep)
+        self.assertIn('restoredOffset <=', sweep)
         self.assertIn('startRangeIndex:', sweep)
         self.assertIn('startOffset:', sweep)
         self.assertIn('await preferences.remove(checkpointKey)', sweep)
