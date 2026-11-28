@@ -71,14 +71,14 @@ void main() {
         for (final row in diagnostics['engines'] as List)
           (row as Map)['id'] as String: row,
       };
-      expect(engines['network_intelligence']['state'], 'completed');
-      expect(engines['discovery']['state'], 'partial');
-      expect(engines['real_traffic_validator']['state'], 'completed');
-      expect(engines['resource_health_manager']['state'], 'deferred');
-      expect(engines['config_intelligence']['state'], 'completed');
-      expect(engines['dpi_traffic_transformation']['state'], 'partial');
-      expect(engines['ai_repair_optimization']['state'], 'partial');
-      expect(engines['compatibility']['state'], 'partial');
+      expect(engines['network_intelligence']!['state'], 'completed');
+      expect(engines['discovery']!['state'], 'partial');
+      expect(engines['real_traffic_validator']!['state'], 'completed');
+      expect(engines['resource_health_manager']!['state'], 'deferred');
+      expect(engines['config_intelligence']!['state'], 'completed');
+      expect(engines['dpi_traffic_transformation']!['state'], 'partial');
+      expect(engines['ai_repair_optimization']!['state'], 'partial');
+      expect(engines['compatibility']!['state'], 'partial');
       expect(
         engines.values.every((row) => row['state'] != 'running'),
         isTrue,
@@ -129,9 +129,9 @@ void main() {
         for (final row in KingNatSubsystemEngine.diagnostics()['engines'] as List)
           (row as Map)['id'] as String: row,
       };
-      expect(engines['real_traffic_validator']['state'], 'deferred');
+      expect(engines['real_traffic_validator']!['state'], 'deferred');
       expect(
-        engines['real_traffic_validator']['detail'],
+        engines['real_traffic_validator']!['detail'],
         'requires_connected_tunnel_probe',
       );
     });
