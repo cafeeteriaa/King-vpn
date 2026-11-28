@@ -110,11 +110,36 @@ void main() {
           concurrency: 1,
           sliceSize: 1,
           timeout: const Duration(seconds: 2),
-          onCursor: (rangeIndex, nextOffset) => cursors.add((rangeIndex, nextOffset)),
+          onCursor: (rangeIndex, nextOffset) async {
+            await Future<void>.delayed(Duration.zero);
+            cursors.add((rangeIndex, nextOffset));
+          },
         );
         expect(hits, hasLength(1));
         expect(hits.single.ip, '127.0.0.1');
         expect(cursors, [(0, -1)]);
+      } finally {
+        await accepted.cancel();
+        await listener.close();
+      }
+    });
+
+    test('cancelled in-flight slice does not commit its cursor', () async {
+      final listener = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
+      final accepted = listener.listen((socket) => socket.destroy());
+      var cancellationChecks = 0;
+      var cursorCommitted = false;
+      try {
+        await natScanAddressRanges(
+          ['127.0.0.1/32'],
+          port: listener.port,
+          concurrency: 1,
+          sliceSize: 1,
+          timeout: const Duration(seconds: 2),
+          cancelled: () => ++cancellationChecks >= 3,
+          onCursor: (_, __) => cursorCommitted = true,
+        );
+        expect(cursorCommitted, isFalse);
       } finally {
         await accepted.cancel();
         await listener.close();
