@@ -32,12 +32,12 @@ class KingEndpoint {
   String get key => '${host.toLowerCase()}:$port';
 }
 class KingTrafficProof {
-  const KingTrafficProof({required this.available, required this.bytesIn,
-    required this.bytesOut, required this.responseReceived, required this.elapsedMs});
-  final bool available;
-  final int bytesIn, bytesOut, elapsedMs;
-  final bool responseReceived;
-  bool get passed => available && bytesIn > 0 && bytesOut > 0 && responseReceived;
+  const KingTrafficProof({required this.available, required this.responseReceived,
+    required this.multiDestination, required this.elapsedMs});
+  final bool available, responseReceived, multiDestination;
+  final int elapsedMs;
+  // The core probe returns a boolean, not byte counters. Never manufacture totals.
+  bool get passed => available && responseReceived && multiDestination;
 }
 typedef KingNetworkProbe = Future<Object?> Function();
 typedef KingTrafficProbe = Future<KingTrafficProof> Function();
@@ -199,8 +199,8 @@ class _TrafficEngine extends _KingEngine {
     try {
       c.proof = await c.trafficProbe!();
       return KingEngineResult(id, c.proof!.passed ? KingEngineStatus.passed : KingEngineStatus.failed,
-        c.proof!.passed ? 'Bidirectional TUN traffic proof received' : 'TUN proof incomplete',
-        metrics: {'rx': c.proof!.bytesIn, 'tx': c.proof!.bytesOut, 'ms': c.proof!.elapsedMs});
+        c.proof!.passed ? 'Multi-destination response proof received through active core' : 'TUN proof incomplete',
+        metrics: {'multiDestination': c.proof!.multiDestination ? 1 : 0, 'ms': c.proof!.elapsedMs});
     } catch (e) { return KingEngineResult(id, KingEngineStatus.failed, 'TUN probe failed: $e'); }
   }
 }
