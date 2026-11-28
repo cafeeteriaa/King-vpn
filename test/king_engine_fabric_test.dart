@@ -22,12 +22,12 @@ void main() {
   });
 
   test('TUN validation requires bidirectional bytes and a response', () async {
-    final ok = KingTrafficProof(available: true, bytesIn: 100, bytesOut: 40,
-      responseReceived: true, elapsedMs: 120);
-    final oneWay = KingTrafficProof(available: true, bytesIn: 100, bytesOut: 0,
-      responseReceived: true, elapsedMs: 120);
-    expect(ok.passed, isTrue);
-    expect(oneWay.passed, isFalse);
+    final stable = KingTrafficProof(available: true, responseReceived: true,
+      multiDestination: true, elapsedMs: 120);
+    final singleDestination = KingTrafficProof(available: true,
+      responseReceived: true, multiDestination: false, elapsedMs: 120);
+    expect(stable.passed, isTrue);
+    expect(singleDestination.passed, isFalse);
   });
 
   test('scanner checks only supplied endpoints and preserves source inventory', () async {
