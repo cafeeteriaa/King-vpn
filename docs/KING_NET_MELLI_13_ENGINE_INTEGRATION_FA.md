@@ -17,7 +17,7 @@
 3. Discovery — نرمال‌سازی موجودی صریح سرورها و حذف تکرار.
 4. Scanner — سنجش TCP مقصدهای موجود در فهرست؛ خطای گذرا رکورد منبع را حذف نمی‌کند.
 5. Compatibility — اعتبارسنجی scheme و authority کانفیگ‌های اعلام‌شده.
-6. Real Traffic Validator — فقط با adapter واقعی TUN و ترافیک دوطرفه موفق می‌شود.
+6. Real Traffic Validator — به آزمون چندمقصدی `_stableTunnelTrafficOk` متصل است؛ فقط پاسخ موفق از مسیر هسته را proof می‌پذیرد.
 7. Config Intelligence — بررسی URI و percent-escape.
 8. Network Identity — fingerprint هش‌شده رابط‌های شبکه، بدون ثبت آدرس خام.
 9. DPI & Traffic Transformation — فقط با adapter هسته‌ای تأییدشده؛ بدون adapter unavailable گزارش می‌شود.
@@ -30,7 +30,7 @@
 
 این commit ادغام اجرایی و ارزیابی پایه را اضافه می‌کند، اما موارد زیر را به‌دروغ تکمیل‌شده اعلام نمی‌کند:
 
-- adapter اثبات ترافیک TUN اندروید هنوز به fabric تزریق نشده است.
+- اعتبارسنجی ترافیک واقعی به `_stableTunnelTrafficOk` متصل است و حداقل دو مقصد را از مسیر هسته بررسی می‌کند؛ اما شمارندهٔ دقیق بایت RX/TX از سرویس Android هنوز به fabric ارائه نمی‌شود.
 - adapter اعمال واقعی fragmentation/DPI در هسته هنوز متصل نشده است.
 - این scanner فقط endpointهای صریح موجود در فهرست سرورها را با TCP بررسی می‌کند؛ اسکن UDP، کشف خودکار گستره‌های IP و اعتبارسنجی عبور از تونل در آن پیاده نشده است.
 - افزودن scheme به فهرست compatibility به معنی وجود core اجرایی آن پروتکل نیست.
