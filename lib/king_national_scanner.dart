@@ -1700,7 +1700,7 @@ class KingNatSubsystemEngine {
     _ipv6Resources = ipv6Resources < 0 ? 0 : ipv6Resources;
     _get('discovery').record(
       _ipv4Resources + _ipv6Resources,
-      'ipv4_resources_$_ipv4Resources_ipv6_prefixes_$_ipv6Resources',
+      'ipv4_resources_${_ipv4Resources}_ipv6_prefixes_${_ipv6Resources}',
       complete: _ipv4Resources + _ipv6Resources > 0,
     );
   }
@@ -1721,7 +1721,7 @@ class KingNatSubsystemEngine {
     _batchPorts = batchPorts.clamp(1, 65536).toInt();
     _get('resource_health_manager').record(
       _workers,
-      'workers_$_workers_ports_$_batchPorts_slice_ms_$_sliceBudgetMs',
+      'workers_${_workers}_ports_${_batchPorts}_slice_ms_${_sliceBudgetMs}',
     );
   }
 
@@ -1754,7 +1754,7 @@ class KingNatSubsystemEngine {
     }
     _get('real_traffic_validator').record(
       destinations < 0 ? 0 : destinations,
-      'mode_$mode_${success ? 'passed' : 'failed'}_destinations_$destinations',
+      'mode_${mode}_${success ? 'passed' : 'failed'}_destinations_${destinations}',
       complete: success,
     );
   }
