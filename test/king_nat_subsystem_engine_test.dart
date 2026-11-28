@@ -79,6 +79,10 @@ void main() {
       expect(engines['dpi_traffic_transformation']['state'], 'partial');
       expect(engines['ai_repair_optimization']['state'], 'partial');
       expect(engines['compatibility']['state'], 'partial');
+      expect(
+        engines.values.every((row) => row['state'] != 'running'),
+        isTrue,
+      );
     });
 
     test('does not mark preflight-only work as real tunnel validation', () {
