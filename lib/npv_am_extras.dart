@@ -2112,7 +2112,7 @@ Future<void> manualRangeScan(BuildContext context, List<String> userRanges) asyn
         timeout: const Duration(milliseconds: 1500),
         cancelled: () => cancelled || !open,
         randomizeWithinSlice: true,
-        onProgress: (d, t, h) => upd(() {
+        onProgress: (d, _, h) => upd(() {
           done = d;
           hitsCount = h;
         }),
