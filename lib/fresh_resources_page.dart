@@ -231,7 +231,7 @@ class _FreshResourcesPageState extends State<FreshResourcesPage> {
             if (_busy) const Padding(padding: EdgeInsets.all(12), child: Center(child: CircularProgressIndicator())),
             if (_message.isNotEmpty) Padding(padding: const EdgeInsets.all(8), child: Text(_message)),
             const SizedBox(height: 8),
-            Text('تعداد کانفیگ‌ها سقف عددی ثابت ندارد؛ داده‌ها در ۲۵۶ بخش روی دیسک ذخیره و به‌صورت جریانی خوانده می‌شوند. ظرفیت عملی به فضای ذخیره‌سازی دستگاه وابسته است و کل مجموعه در RAM بارگذاری نمی‌شود.'),
+            Text('ظرفیت بانک منابع آفلاین حداکثر ۴ میلیون کانفیگ است؛ داده‌ها در ۲۵۶ بخش روی دیسک ذخیره و به‌صورت جریانی خوانده می‌شوند تا کل مجموعه در RAM بارگذاری نشود.'),
           ],
         ),
       ),
