@@ -421,10 +421,6 @@ void main() {
         KingNatSubsystemEngine.adapterEvidence()['validatedRepairs'],
         isNot(contains('repair-b')),
       );
-      expect(
-        KingNatSubsystemEngine.adapterEvidence()['validatedRepairs'],
-        isNot(contains('repair-b')),
-      );
     });
 
     test('config planning resolves the capability catalog without claiming adapters are active', () {
