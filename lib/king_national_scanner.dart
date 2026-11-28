@@ -1877,8 +1877,8 @@ class KingNatSubsystemEngine {
     _incrementEvidence('cdnHandshakes', successfulHandshakes);
     _incrementEvidence('cdnTunnelPasses', tunnelPasses);
     final engine = _get('compatibility');
-    final valid = candidates > 0 && successfulHandshakes > 0 && tunnelPasses > 0;
-    engine.record(tunnelPasses, 'cdn_candidates_${candidates}_tls_${successfulHandshakes}_tun_${tunnelPasses}',
+    engine.record(tunnelPasses,
+      'cdn_candidates_${candidates}_tls_${successfulHandshakes}_tun_${tunnelPasses}_inventory_complete_${inventoryComplete}',
       complete: false); // CDN evidence is one compatibility dimension, not the whole matrix.
   }
 
