@@ -1983,7 +1983,25 @@ class KingNatSubsystemEngine {
     required String operatorIdentity,
   }) {
     final fingerprint = fingerprintHash.trim().toLowerCase();
-    _networkFingerprintHash = RegExp(r'^[a-f0-9]{64}
+    final validFingerprint = fingerprint.length == 64 &&
+        RegExp(r'^[a-f0-9]{64}').hasMatch(fingerprint);
+    _networkFingerprintHash = validFingerprint ? fingerprint : '';
+    final safeOperator = operatorIdentity.trim().replaceAll(
+      RegExp(r'[^a-zA-Z0-9_|:-]'), '',
+    );
+    _operatorIdentity = safeOperator.isEmpty || safeOperator == 'x'
+        ? 'unknown'
+        : safeOperator.substring(0, safeOperator.length.clamp(0, 96).toInt());
+    final available = _networkFingerprintHash.isNotEmpty ||
+        _operatorIdentity != 'unknown';
+    _get('network_identity').record(
+      available ? 1 : 0,
+      'fingerprint_${_networkFingerprintHash.isEmpty ? 'unavailable' : 'sha256'}_operator_$_operatorIdentity',
+      complete: available,
+    );
+  }
+
+
 
   static void recordResourceBudget({required int workers, required int sliceBudgetMs, required int batchPorts}) {
     // The scheduler computes these values from live device capacity. Preserve
