@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'king_engine_fabric.dart'; // KING 13-engine runtime fabric
 import 'network_health.dart';
 import 'king_local_ai.dart';
 import 'king_ai_console.dart';
@@ -10278,11 +10279,41 @@ ListTile( // KINGEXTRAS row
     }
   }
 
+  Future<void> _runKingEngineFabric() async {
+    if (!mounted) return;
+    try {
+      final servers = _resMap.values.map((e) => e.s).toList(growable: false);
+      final context = KingEngineContext(
+        operatorIdentity: natOpKey,
+        tunnelConnected: connected,
+        networkClass: NatNetworkDiagnosis.current.name,
+        configs: servers.map((s) => s.link).toList(growable: false),
+        endpoints: servers.map((s) => KingEndpoint(s.host, s.port, label: s.name)).toList(growable: false),
+        networkProbe: () async => NatNetworkDiagnosis.refresh(),
+        shouldCancel: () => !mounted || connected,
+        workerBudget: nationalMode ? 3 : 2,
+      );
+      final report = await KingEngineFabric.run(context);
+      dbg('KING-13: passed=${report.passed} degraded=${report.degraded} unavailable=${report.unavailable} failed=${report.failed}; endpoints=${report.endpointCount}');
+    } catch (e, st) {
+      logError(e, st);
+    }
+  }
+
   Future<void> _natDetect() async {
     if (connected) return;
     _natFetched = false;
     await natDetectOperator(); // NATULTRA: per-operator learning
     try {
+      // Independent domestic/global DNS+TCP diagnosis complements the TLS pilot.
+      final diagnosis = NatNetworkDiagnosis.refresh(force: true);
+      final pilot = PilotNetworkProbe.refresh();
+      try {
+        await Future.wait<Object>(<Future<Object>>[diagnosis, pilot])
+            .timeout(const Duration(seconds: 14));
+      } catch (probeError, probeStack) {
+        logError(probeError, probeStack); // Keep saved/manual connect paths alive.
+      }
       if (!_natLoaded) {
         _natLoaded = true;
         natGood.addAll(_resMap.keys); // FOLDERONLY
@@ -10292,14 +10323,18 @@ ListTile( // KINGEXTRAS row
       if (localPilotOn) {
         // Pilot and national mode share their own bounded probe; the general
         // DNS/IP/SNI scanners are never started by this detection path.
-        final evidence = await PilotNetworkProbe.refresh();
-        final strategy = choosePilotNetworkStrategy(evidence);
-        if (strategy == PilotNetworkStrategy.domestic) {
+        final strategy = choosePilotNetworkStrategy(PilotNetworkProbe.current);
+        final diagnosisClass = NatNetworkDiagnosis.current;
+        final domesticLikely = diagnosisClass == NatNetworkClass.domesticOnlyLikely ||
+            diagnosisClass == NatNetworkClass.dnsDegraded ||
+            diagnosisClass == NatNetworkClass.transportRestricted;
+        final globalLikely = diagnosisClass == NatNetworkClass.globalReachable;
+        if (strategy == PilotNetworkStrategy.domestic && domesticLikely) {
           nationalMode = true;
-        } else if (strategy == PilotNetworkStrategy.global) {
+        } else if (strategy == PilotNetworkStrategy.global && globalLikely) {
           nationalMode = false;
         }
-        // Unknown/dual-failure evidence preserves the previous strategy.
+        // Disagreement or unknown evidence preserves the prior selection.
         natForce = nationalMode;
         userModeChoice = nationalMode;
       } else {
@@ -10343,6 +10378,7 @@ ListTile( // KINGEXTRAS row
         }
       }
       if (nationalMode != was) _resetNetworkHealthCounters();
+      unawaited(_runKingEngineFabric());
       // نت ملی: جستجوی بی‌نهایت همیشه روشن است
       if (nationalMode) indestructibleMode = true;
       if (nationalMode != was && mounted) {
