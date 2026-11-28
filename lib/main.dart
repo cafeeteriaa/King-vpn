@@ -8949,12 +8949,16 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           natSaveSoon(); // NORMALCACHE: پایدار کن
         }
         natWinCount[v] = (natWinCount[v] ?? 0) + 1;
+        // This is only the ladder's preliminary acceptance gate. The
+        // repair optimizer is promoted later by _stableTunnelTrafficOk after
+        // at least two destinations pass through the active core.
         KingNatSubsystemEngine.recordRepairEvaluation(
           strategyId: 'nat_ladder_variant_$v',
           evaluated: true,
           changed: true,
           tunnelImproved: true,
           coverageComplete: false,
+          stableTunnelProof: false,
         );
         dbg('نردبان: ${s.name} با حالت «${_natSpecs[v].name}» از تونل واقعی جواب داد');
         return true;
@@ -9064,11 +9068,22 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     if (stable) {
       // The exact variant is credited only after two real destinations passed
       // through the active core/TUN, not after parsing or a handshake alone.
+      final validatedVariant = natVarFor(server);
       KingNationalScannerEngine.recordVariantOutcome(
-        natVarFor(server),
+        validatedVariant,
         true,
         profile: NationalNetworkIntelligence.keyOfServer(server),
         latencyMs: server.ping,
+      );
+      // A repaired variant is credited only here, after the stable
+      // multi-destination active-core check above has passed.
+      KingNatSubsystemEngine.recordRepairEvaluation(
+        strategyId: 'stable_tunnel_variant_$validatedVariant',
+        evaluated: true,
+        changed: validatedVariant != 0,
+        tunnelImproved: validatedVariant != 0,
+        coverageComplete: false,
+        stableTunnelProof: true,
       );
       if (server.cdn && !server.reality) {
         KingNatSubsystemEngine.recordCdnValidation(
