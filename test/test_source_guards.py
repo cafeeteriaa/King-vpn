@@ -5,6 +5,21 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class KingVpnSourceGuardTests(unittest.TestCase):
+
+    def test_dns_scanner_validates_ipv4_and_ipv6_resolvers_and_answers(self):
+        core = (ROOT / 'lib' / 'nnie_core.dart').read_text(encoding='utf-8')
+        dns = (ROOT / 'lib' / 'dns_scanner.dart').read_text(encoding='utf-8')
+        self.assertIn('InternetAddress.anyIPv6', core)
+        self.assertIn('target.type != InternetAddressType.IPv6', core)
+        self.assertIn('queryType: queryType', core)
+        self.assertIn('static bool publicV6(', core)
+        self.assertIn('queryType: 1,', dns)
+        self.assertIn('queryType: 28,', dns)
+        self.assertIn('kDnsxIpv6Defaults', dns)
+        self.assertIn('address.type == InternetAddressType.IPv6', dns)
+        self.assertIn('ipv4OkCount: ipv4Hits', dns)
+        self.assertIn('ipv6OkCount: ipv6Hits', dns)
+
     def test_auto_scan_sheet_forwards_live_vpn_guards(self):
         source = (ROOT / 'lib' / 'auto_scanners.dart').read_text(encoding='utf-8')
         start = source.index('Future<void> autoScanSheet(')
