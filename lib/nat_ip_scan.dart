@@ -329,21 +329,21 @@ Future<int?> natTcpProbe(String ip, int port, Duration timeout) async {
   }
 }
 
-/// Clamp a user-supplied concurrency to what this device can actually sustain.
-/// 0 or negative = auto (based on CPU count). Very high values = clamped.
+/// Derive scanner concurrency from the actual processor count.
+/// A non-positive request selects the adaptive default; a positive request is
+/// respected up to four workers per logical processor. This is a resource
+/// safety bound, not a fixed scan-count ceiling: the scanner can still traverse
+/// the complete input through its resumable work cursor.
 int natAdaptiveConcurrency(int requested) {
   int cores;
   try {
     cores = Platform.numberOfProcessors;
   } catch (_) {
-    cores = 4; // conservative fallback
+    cores = 2; // conservative fallback when the runtime cannot report CPUs
   }
-  // Safe ceiling: 4 × CPU cores. 8-core phone → 32. 4-core → 16. 2-core → 8.
-  // Absolute ceiling: 256 (never reasonable on a phone, but respected if asked).
-  final safeMax = (cores * 4).clamp(16, 256).toInt();
-  if (requested <= 0) {
-    return (cores * 2).clamp(8, 64).toInt();
-  }
+  final availableCores = cores < 1 ? 1 : cores;
+  final safeMax = availableCores * 4;
+  if (requested <= 0) return availableCores * 2;
   return requested.clamp(1, safeMax).toInt();
 }
 
