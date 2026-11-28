@@ -2478,34 +2478,15 @@ int _ipToInt(String ip) {
 String _intToIp(int v) =>
     '${(v >> 24) & 255}.${(v >> 16) & 255}.${(v >> 8) & 255}.${v & 255}';
 
-List<String> natExpandAny(String item, {int maxPerBlock = 65536}) {
-  if (maxPerBlock <= 0) return const [];
-  if (!item.contains('-')) return natExpandCidr(item, maxPerBlock: maxPerBlock);
-  final parts = item.split('-');
-  if (parts.length != 2) return const [];
-  final a = InternetAddress.tryParse(parts[0].trim());
-  final b = InternetAddress.tryParse(parts[1].trim());
-  if (a == null || b == null ||
-      a.type != InternetAddressType.IPv4 ||
-      b.type != InternetAddressType.IPv4) {
-    return const [];
+/// Compatibility facade over the central CIDR/range cursor helpers.
+/// No default sampling limit is applied; callers may pass an explicit limit
+/// only when they intentionally request a bounded preview.
+List<String> natExpandAny(String item, {int? maxPerBlock}) {
+  if (maxPerBlock != null && maxPerBlock <= 0) return const <String>[];
+  if (item.contains('-')) {
+    return natExpandDash(item, maxCount: maxPerBlock);
   }
-  var start = _ipToInt(a.address);
-  var end = _ipToInt(b.address);
-  if (end < start) {
-    final t = start;
-    start = end;
-    end = t;
-  }
-  final out = <String>[];
-  final count = end - start + 1;
-  final step = count > maxPerBlock
-      ? (count + maxPerBlock - 1) ~/ maxPerBlock
-      : 1;
-  for (var v = start; v <= end && out.length < maxPerBlock; v += step) {
-    out.add(_intToIp(v));
-  }
-  return out;
+  return natExpandCidr(item, maxPerBlock: maxPerBlock);
 }
 
 const List<String> natIranDnsHosts = [
