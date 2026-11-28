@@ -1618,7 +1618,15 @@ class KingNatSubsystemEngine {
     _batchPorts = 0;
     _trafficPasses = 0;
     _trafficFailures = 0;
+    _ipv4Resources = 0;
+    _ipv6Resources = 0;
     _plannedVariants = 0;
+    _domesticTls = 0;
+    _globalTls = 0;
+    _domesticIpv6 = 0;
+    _globalIpv6 = 0;
+    _confidence = 0;
+    _operatorIdentity = 'unknown';
     _lastFailure = '';
     for (final engine in _engines) {
       engine.state = KingNatSubsystemState.idle;
