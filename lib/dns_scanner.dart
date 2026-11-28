@@ -554,7 +554,7 @@ extension DnsxExt on _HomePageState {
                     ListTile(
                       dense: true,
                       title: Text(r.ip),
-                      subtitle: Text('جواب‌داده: ${r.okCount} از ${r.total} دامنه'),
+                      subtitle: Text('دامنهٔ پاسخ‌گو: ${r.okCount}/${r.total} • IPv4: ${r.ipv4OkCount} • IPv6: ${r.ipv6OkCount}'),
                       trailing: Text('${r.avgMs} ms'),
                       onTap: () async {
                         await Clipboard.setData(ClipboardData(text: r.ip));
