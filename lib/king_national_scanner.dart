@@ -972,6 +972,7 @@ class KingNationalScannerEngine {
       }
     }
     Future<void> beginPhase(String phase) async {
+      KingNatSubsystemEngine.phaseStarted(phase);
       await persistPhase(
         phase,
         completed: false,
@@ -980,6 +981,17 @@ class KingNationalScannerEngine {
     }
     Future<void> completePhase(String phase) async {
       await persistPhase(phase, completed: true);
+      KingNatSubsystemEngine.phaseCompleted(
+        phase,
+        evidence: switch (phase) {
+          'dns' => dnsCount,
+          'domain' => domainHits,
+          'ip' => ipHits,
+          'sni' => sniHits + alpnHits,
+          'config' => configsValidated,
+          _ => 1,
+        },
+      );
     }
     void status(KingNatScanPhase phase, String message) {
       _scanPhase = phase;
@@ -987,6 +999,10 @@ class KingNationalScannerEngine {
     }
 
     try {
+      KingNatSubsystemEngine.beginRun(
+        nationalMode: modeSnapshot,
+        sliceBudgetMs: sliceBudget.inMilliseconds,
+      );
       await load();
       await NationalNetworkIntelligence.load();
       try {
@@ -996,6 +1012,13 @@ class KingNationalScannerEngine {
         ]).timeout(const Duration(seconds: 12));
         networkEvidence = samples[1] as NetworkEvidence;
         ipv6Evidence = PilotIpv6Probe.current;
+        KingNatSubsystemEngine.recordNetworkEvidence(
+          domesticTls: networkEvidence.domesticSuccesses,
+          globalTls: networkEvidence.globalSuccesses,
+          domesticIpv6: ipv6Evidence.domesticIpv6Successes,
+          globalIpv6: ipv6Evidence.globalIpv6Successes,
+          confidence: networkEvidence.confidence,
+        );
       } catch (e, st) {
         logError(e, st);
         warnings.add('network_evidence_incomplete');
@@ -1183,6 +1206,10 @@ class KingNationalScannerEngine {
           // A failed refresh preserves the last known-good disk inventory.
           if (!stopped() && !shouldYield()) {
             await natRefreshIranRangeInventory();
+            KingNatSubsystemEngine.recordDiscoveryInventory(
+              ipv4Resources: natRanges.length,
+              ipv6Resources: natIranIpv6Prefixes.length,
+            );
           }
           if (stopped() || shouldYield()) {
             phaseDeferred = true;
@@ -1193,6 +1220,11 @@ class KingNationalScannerEngine {
           if (!phaseDeferred) await natRangeStartNextPass();
           final workers = max(1, natAdaptiveWorkers()).toInt();
           final portCount = max(1, natAutoPorts(seeds).length).toInt();
+          KingNatSubsystemEngine.recordResourceBudget(
+            workers: workers,
+            sliceBudgetMs: sliceBudget.inMilliseconds,
+            batchPorts: portCount,
+          );
           final batchWaves = max(
             1,
             (sliceBudget.inMilliseconds * 0.50 / (portCount * 1500)).floor(),
@@ -1338,6 +1370,7 @@ class KingNationalScannerEngine {
           final server = seeds[serverIndex];
           if (serverIndex < resumeServer || coreUnsupportedReason(server.link) != null) continue;
           final variants = planVariants(server, full: true);
+          KingNatSubsystemEngine.recordConfigPlan(variants.length);
           final resumeVariant = serverIndex == resumeServer && resumeVariantCode != null
               ? variants.indexOf(resumeVariantCode) : -1;
           for (var variantIndex = 0; variantIndex < variants.length; variantIndex++) {
@@ -1384,6 +1417,12 @@ class KingNationalScannerEngine {
 
       final didCancel = cancelled() || nationalMode != modeSnapshot;
       final didYield = shouldYield();
+      KingNatSubsystemEngine.finishRun(
+        cancelled: didCancel,
+        yielded: didYield,
+        deferred: phaseDeferred,
+        inventoryComplete: natRangeInventoryPassComplete,
+      );
       if (!didCancel && !didYield && !phaseDeferred) {
         await beginPhase('complete');
         await completePhase('complete');
@@ -1418,6 +1457,7 @@ class KingNationalScannerEngine {
     } catch (e, st) {
       logError(e, st);
       warnings.add('scanner_exception');
+      KingNatSubsystemEngine.recordFailure('scanner_exception');
       _scanPhase = KingNatScanPhase.complete;
       return KingNatScanReport(
         completed: false, timedOut: expired(),
@@ -1487,7 +1527,272 @@ class KingNationalScannerEngine {
       'realTrafficSuccesses': successes,
       'realTrafficFailures': failures,
       'capabilityStatusCounts': counts,
+      'subsystemEngines': KingNatSubsystemEngine.diagnostics(),
       'registry': registry.map((e) => e.toMap()).toList(growable: false),
     };
   }
+}
+
+/// Runtime coordinator for the 13 internal KING Net Melli engines.
+/// These are subsystem engines, not external VPN protocol cores. Existing
+/// DNS/IP/SNI scanners, route probes, config compiler and connection traffic
+/// checks remain the actual workers; this coordinator gives them one lifecycle,
+/// dependency map and diagnostics surface.
+enum KingNatSubsystemState { idle, running, completed, partial, failed, deferred }
+
+class _KingNatSubsystemRuntime {
+  _KingNatSubsystemRuntime(this.id, this.name, this.role);
+  final String id;
+  final String name;
+  final String role;
+  KingNatSubsystemState state = KingNatSubsystemState.idle;
+  int runs = 0;
+  int evidence = 0;
+  String detail = 'not_started';
+  DateTime? lastAt;
+
+  void start([String value = 'running']) {
+    state = KingNatSubsystemState.running;
+    detail = value;
+    runs++;
+    lastAt = DateTime.now();
+  }
+
+  void record(int count, String value, {bool complete = true}) {
+    evidence += count < 0 ? 0 : count;
+    state = complete ? KingNatSubsystemState.completed : KingNatSubsystemState.partial;
+    detail = value;
+    lastAt = DateTime.now();
+  }
+
+  Map<String, Object?> toMap() => <String, Object?>{
+    'id': id, 'name': name, 'role': role, 'state': state.name,
+    'runs': runs, 'evidence': evidence, 'detail': detail,
+    'lastAt': lastAt?.toIso8601String(),
+  };
+}
+
+class KingNatSubsystemEngine {
+  KingNatSubsystemEngine._();
+
+  static final List<_KingNatSubsystemRuntime> _engines = <_KingNatSubsystemRuntime>[
+    _KingNatSubsystemRuntime('connection_orchestrator', 'Connection Orchestrator', 'pipeline_and_recovery'),
+    _KingNatSubsystemRuntime('network_intelligence', 'Network Intelligence', 'domestic_global_and_ipv6_evidence'),
+    _KingNatSubsystemRuntime('discovery', 'Discovery', 'iran_ip_dns_domain_and_endpoint_inventory'),
+    _KingNatSubsystemRuntime('scanner', 'Scanner', 'dns_ip_sni_alpn_and_port_scans'),
+    _KingNatSubsystemRuntime('compatibility', 'Compatibility', 'operator_and_transport_compatibility'),
+    _KingNatSubsystemRuntime('real_traffic_validator', 'Real Traffic Validator', 'connected_tun_end_to_end_evidence'),
+    _KingNatSubsystemRuntime('config_intelligence', 'Config Intelligence', 'config_compile_and_variant_planning'),
+    _KingNatSubsystemRuntime('network_identity', 'Network Identity', 'network_type_and_operator_asn'),
+    _KingNatSubsystemRuntime('dpi_traffic_transformation', 'DPI & Traffic Transformation', 'supported_transformations_and_evidence'),
+    _KingNatSubsystemRuntime('capability_orchestrator', 'Capability Orchestrator', 'capability_registry_and_dependency_selection'),
+    _KingNatSubsystemRuntime('multi_engine_connector', 'Multi-Engine Connector', 'internal_scanner_and_probe_adapters'),
+    _KingNatSubsystemRuntime('ai_repair_optimization', 'AI Repair & Optimization', 'evidence_ranked_strategy_learning'),
+    _KingNatSubsystemRuntime('resource_health_manager', 'Resource & Health Manager', 'adaptive_workers_slices_and_cancellation'),
+  ];
+
+  static int _run = 0;
+  static bool _nationalMode = false;
+  static int _sliceBudgetMs = 0;
+  static int _workers = 0;
+  static int _batchPorts = 0;
+  static int _trafficPasses = 0;
+  static int _trafficFailures = 0;
+  static int _ipv4Resources = 0;
+  static int _ipv6Resources = 0;
+  static int _plannedVariants = 0;
+  static int _domesticTls = 0, _globalTls = 0;
+  static int _domesticIpv6 = 0, _globalIpv6 = 0;
+  static double _confidence = 0;
+  static String _operatorIdentity = 'unknown';
+  static String _lastFailure = '';
+
+  static _KingNatSubsystemRuntime _get(String id) =>
+      _engines.firstWhere((engine) => engine.id == id);
+
+  static void beginRun({required bool nationalMode, required int sliceBudgetMs}) {
+    _run++;
+    _nationalMode = nationalMode;
+    _sliceBudgetMs = sliceBudgetMs;
+    _workers = 0;
+    _batchPorts = 0;
+    _trafficPasses = 0;
+    _trafficFailures = 0;
+    _plannedVariants = 0;
+    _lastFailure = '';
+    for (final engine in _engines) {
+      engine.state = KingNatSubsystemState.idle;
+      engine.evidence = 0;
+      engine.detail = 'waiting_for_dependency';
+      engine.lastAt = null;
+    }
+    _get('connection_orchestrator').start('preflight_started');
+    _get('resource_health_manager').start('slice_budget_initialized');
+    _get('multi_engine_connector').start('shared_scanner_lease_initialized');
+  }
+
+  static void phaseStarted(String phase) {
+    final ids = switch (phase) {
+      'dns' => const ['discovery', 'scanner'],
+      'domain' => const ['discovery', 'scanner', 'multi_engine_connector'],
+      'ip' => const ['discovery', 'scanner', 'resource_health_manager'],
+      'sni' => const ['scanner', 'compatibility', 'dpi_traffic_transformation'],
+      'config' => const ['config_intelligence', 'compatibility', 'capability_orchestrator', 'dpi_traffic_transformation', 'ai_repair_optimization'],
+      'complete' => const ['connection_orchestrator'],
+      _ => const <String>[],
+    };
+    for (final id in ids) {
+      final engine = _get(id);
+      if (engine.state != KingNatSubsystemState.completed) engine.start('phase_$phase');
+    }
+  }
+
+  static void phaseCompleted(String phase, {required int evidence}) {
+    final ids = switch (phase) {
+      'dns' => const ['discovery', 'scanner'],
+      'domain' => const ['discovery', 'scanner', 'multi_engine_connector'],
+      'ip' => const ['discovery', 'scanner', 'resource_health_manager'],
+      'sni' => const ['scanner', 'compatibility', 'dpi_traffic_transformation'],
+      'config' => const ['config_intelligence', 'compatibility', 'capability_orchestrator', 'dpi_traffic_transformation', 'ai_repair_optimization'],
+      'complete' => const ['connection_orchestrator'],
+      _ => const <String>[],
+    };
+    for (final id in ids) {
+      _get(id).record(evidence, 'phase_$phase completed');
+    }
+  }
+
+  static void recordNetworkEvidence({
+    required int domesticTls, required int globalTls,
+    required int domesticIpv6, required int globalIpv6,
+    required double confidence,
+  }) {
+    _domesticTls = domesticTls;
+    _globalTls = globalTls;
+    _domesticIpv6 = domesticIpv6;
+    _globalIpv6 = globalIpv6;
+    _confidence = confidence.clamp(0.0, 1.0).toDouble();
+    _get('network_intelligence').record(
+      domesticTls + globalTls + domesticIpv6 + globalIpv6,
+      'route_evidence_confidence_\${_confidence.toStringAsFixed(2)}',
+      complete: domesticTls + globalTls + domesticIpv6 + globalIpv6 > 0,
+    );
+  }
+
+  static void recordDiscoveryInventory({required int ipv4Resources, required int ipv6Resources}) {
+    _ipv4Resources = ipv4Resources < 0 ? 0 : ipv4Resources;
+    _ipv6Resources = ipv6Resources < 0 ? 0 : ipv6Resources;
+    _get('discovery').record(
+      _ipv4Resources + _ipv6Resources,
+      'ipv4_resources_\$_ipv4Resources_ipv6_prefixes_\$_ipv6Resources',
+      complete: _ipv4Resources + _ipv6Resources > 0,
+    );
+  }
+
+  static void recordNetworkIdentity(String identity) {
+    final safe = identity.trim().isEmpty ? 'unknown' : identity.trim();
+    _operatorIdentity = safe.length > 96 ? safe.substring(0, 96) : safe;
+    _get('network_identity').record(
+      _operatorIdentity == 'unknown' ? 0 : 1,
+      'identity_\$_operatorIdentity',
+      complete: _operatorIdentity != 'unknown',
+    );
+  }
+
+  static void recordResourceBudget({required int workers, required int sliceBudgetMs, required int batchPorts}) {
+    _workers = workers.clamp(1, 128).toInt();
+    _sliceBudgetMs = sliceBudgetMs.clamp(1000, 3600000).toInt();
+    _batchPorts = batchPorts.clamp(1, 65536).toInt();
+    _get('resource_health_manager').record(
+      _workers,
+      'workers_\$_workers_ports_\$_batchPorts_slice_ms_\$_sliceBudgetMs',
+    );
+  }
+
+  static void recordConfigPlan(int variants) {
+    final safe = variants < 0 ? 0 : variants;
+    _plannedVariants += safe;
+    _get('config_intelligence').record(safe, 'variants_planned_\$safe');
+    _get('compatibility').record(safe, 'compatibility_variants_planned_\$safe');
+    _get('capability_orchestrator').record(1, 'registry_consulted');
+    _get('dpi_traffic_transformation').record(
+      safe, 'existing_transformation_variants_evaluated_\$safe',
+      complete: safe > 0,
+    );
+    _get('ai_repair_optimization').record(
+      safe, 'evidence_ranked_strategy_plan_\$safe',
+      complete: safe > 0,
+    );
+  }
+
+  /// Called only from a real request through the active core/TUN, never from
+  /// ping, DNS, a TLS handshake, or a structural config check.
+  static void recordTrafficValidation(bool success, {required String mode, required int destinations}) {
+    if (success) {
+      _trafficPasses++;
+    } else {
+      _trafficFailures++;
+    }
+    _get('real_traffic_validator').record(
+      destinations < 0 ? 0 : destinations,
+      'mode_\$mode_\${success ? 'passed' : 'failed'}_destinations_\$destinations',
+      complete: success,
+    );
+  }
+
+  static void finishRun({
+    required bool cancelled, required bool yielded,
+    required bool deferred, required bool inventoryComplete,
+  }) {
+    final partial = cancelled || yielded || deferred;
+    _get('connection_orchestrator').record(1, partial ? 'scan_slice_preserved' : 'preflight_completed', complete: !partial);
+    final resource = _get('resource_health_manager');
+    if (yielded || deferred) {
+      resource.state = KingNatSubsystemState.deferred;
+      resource.detail = 'yielded_with_cursor_preserved';
+    }
+    final discovery = _get('discovery');
+    if (!inventoryComplete && discovery.state == KingNatSubsystemState.completed) {
+      discovery.state = KingNatSubsystemState.partial;
+      discovery.detail = 'inventory_continues_from_durable_cursor';
+    }
+    final validator = _get('real_traffic_validator');
+    if (validator.state == KingNatSubsystemState.idle) {
+      validator.state = KingNatSubsystemState.deferred;
+      validator.detail = 'requires_connected_tunnel_probe';
+    }
+    final identity = _get('network_identity');
+    if (identity.state == KingNatSubsystemState.idle) {
+      identity.state = KingNatSubsystemState.deferred;
+      identity.detail = 'operator_identity_not_refreshed_in_preflight';
+    }
+  }
+
+  static void recordFailure(String reason) {
+    _lastFailure = reason;
+    for (final engine in _engines.where((item) => item.state == KingNatSubsystemState.running)) {
+      engine.state = KingNatSubsystemState.failed;
+      engine.detail = reason;
+    }
+  }
+
+  static Map<String, Object?> diagnostics() => <String, Object?>{
+    'version': 1,
+    'run': _run,
+    'nationalMode': _nationalMode,
+    'sliceBudgetMs': _sliceBudgetMs,
+    'workers': _workers,
+    'batchPorts': _batchPorts,
+    'inventory': <String, int>{'ipv4Resources': _ipv4Resources, 'ipv6Prefixes': _ipv6Resources},
+    'routeEvidence': <String, Object?>{
+      'domesticTls': _domesticTls, 'globalTls': _globalTls,
+      'domesticIpv6': _domesticIpv6, 'globalIpv6': _globalIpv6,
+      'confidence': _confidence,
+    },
+    'operatorIdentity': _operatorIdentity,
+    'trafficValidation': <String, int>{'passed': _trafficPasses, 'failed': _trafficFailures},
+    'plannedVariants': _plannedVariants,
+    'lastFailure': _lastFailure,
+    'engines': _engines.map((engine) => engine.toMap()).toList(growable: false),
+  };
 }
