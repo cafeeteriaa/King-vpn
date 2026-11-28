@@ -197,6 +197,10 @@ class NatDnsWireProbe {
       if (n == 0) return p + 1;
       if ((n & 0xc0) == 0xc0) {
         if (p + 1 >= b.length) throw const FormatException('Bad DNS pointer');
+        final ptr = ((n & 0x3f) << 8) | b[p + 1];
+        if (ptr >= p || ptr >= b.length) {
+          throw const FormatException('Invalid DNS compression pointer');
+        }
         return p + 2;
       }
       if ((n & 0xc0) != 0 || n > 63 || p + 1 + n > b.length) {
@@ -222,6 +226,12 @@ class NatDnsWireProbe {
       if ((n & 0xc0) == 0xc0) {
         if (p + 1 >= b.length) throw const FormatException('Bad pointer');
         final ptr = ((n & 0x3f) << 8) | b[p + 1];
+        // DNS compression pointers reference an earlier offset in this packet.
+        // Reject forward/self/out-of-range pointers instead of returning a
+        // truncated owner name that could pass the answer-owner checks.
+        if (ptr >= p || ptr >= b.length) {
+          throw const FormatException('Invalid DNS compression pointer');
+        }
         if (resume < 0) resume = p + 2;
         p = ptr;
         continue;
