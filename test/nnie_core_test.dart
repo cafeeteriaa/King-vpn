@@ -162,6 +162,29 @@ void main() {
       expect(NatDnsWireProbe.parseResponse(bytes, 0x1234, 'google.com'), ['8.8.8.8']);
     });
 
+    test('rejects forward and out-of-range DNS compression pointers', () {
+      for (final pointer in <int>[0x00ff, 0x001c]) {
+        final bytes = _response(
+          id: 0x1234,
+          rdata: [8, 8, 8, 8],
+        );
+        // The answer owner starts immediately after the 12-byte header,
+        // encoded google.com question name and its four-byte QTYPE/QCLASS.
+        const answerOwnerOffset = 28;
+        bytes[answerOwnerOffset] = 0xc0 | ((pointer >> 8) & 0x3f);
+        bytes[answerOwnerOffset + 1] = pointer & 0xff;
+        expect(
+          () => NatDnsWireProbe.parseResponse(
+            bytes,
+            0x1234,
+            'google.com',
+          ),
+          throwsA(isA<FormatException>()),
+          reason: 'pointer=0x${pointer.toRadixString(16)}',
+        );
+      }
+    });
+
     test('buildQuery supports AAAA without changing the A default', () {
       final a = NatDnsWireProbe.buildQuery('example.com', 0x1234);
       final aaaa = NatDnsWireProbe.buildQuery(
