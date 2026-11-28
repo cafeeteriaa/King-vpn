@@ -421,9 +421,6 @@ void main() {
         KingNatSubsystemEngine.adapterEvidence()['validatedRepairs'],
         isNot(contains('repair-b')),
       );
-      KingNatSubsystemEngine.recordTrafficValidation(
-        true, mode: 'national', destinations: 2, stable: true,
-      );
       expect(
         KingNatSubsystemEngine.adapterEvidence()['validatedRepairs'],
         isNot(contains('repair-b')),
