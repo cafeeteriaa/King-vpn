@@ -17558,9 +17558,18 @@ extension ProjectNatSweep on _HomePageState {
           final restoredPort = (savedCursor['portIndex'] as num?)?.toInt() ?? 0;
           final restoredRange = (savedCursor['rangeIndex'] as num?)?.toInt() ?? 0;
           final restoredOffset = (savedCursor['offset'] as num?)?.toInt() ?? 0;
+          final offsetWithinRange = restoredRange == ranges.length
+              ? restoredOffset == 0
+              : restoredRange >= 0 &&
+                  restoredRange < ranges.length &&
+                  restoredOffset <=
+                      (NatAddressRangeCursor.parse(ranges[restoredRange])?.addressCount ?? -1);
+          final terminalPortCursor = restoredPort == _natCfPorts.length &&
+              restoredRange == 0 && restoredOffset == 0;
           if (restoredPort >= 0 && restoredPort <= _natCfPorts.length &&
               restoredRange >= 0 && restoredRange <= ranges.length &&
-              restoredOffset >= 0) {
+              restoredOffset >= 0 && offsetWithinRange &&
+              (restoredPort < _natCfPorts.length || terminalPortCursor)) {
             startPortIndex = restoredPort;
             startRangeIndex = restoredRange;
             startOffset = restoredOffset;
