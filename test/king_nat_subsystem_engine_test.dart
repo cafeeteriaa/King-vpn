@@ -360,6 +360,39 @@ void main() {
       expect(engines['multi_engine_connector']!['state'], 'completed');
     });
 
+    test('multi-engine connector requires every scan adapter and stable tunnel evidence', () {
+      KingNatSubsystemEngine.beginRun(nationalMode: true, sliceBudgetMs: 30000);
+      for (final phase in const ['dns', 'domain', 'ip', 'sni', 'config', 'complete']) {
+        KingNatSubsystemEngine.phaseStarted(phase);
+        KingNatSubsystemEngine.phaseCompleted(phase, evidence: 1);
+      }
+      KingNatSubsystemEngine.recordTrafficValidation(
+        true, mode: 'national', destinations: 2, stable: true,
+      );
+      KingNatSubsystemEngine.finishRun(
+        cancelled: false, yielded: false, deferred: false, inventoryComplete: true,
+      );
+      var connector = (KingNatSubsystemEngine.diagnostics()['engines'] as List)
+          .cast<Map>()
+          .firstWhere((row) => row['id'] == 'multi_engine_connector');
+      expect(connector['state'], 'partial');
+
+      for (final phase in const ['dns', 'domain', 'ip', 'sni', 'config', 'complete']) {
+        KingNatSubsystemEngine.recordAdapterInvocation(
+          adapterId: 'net_melli_scan_phase_$phase',
+          succeeded: true,
+          allRequiredAdaptersConnected: false,
+        );
+      }
+      KingNatSubsystemEngine.finishRun(
+        cancelled: false, yielded: false, deferred: false, inventoryComplete: true,
+      );
+      connector = (KingNatSubsystemEngine.diagnostics()['engines'] as List)
+          .cast<Map>()
+          .firstWhere((row) => row['id'] == 'multi_engine_connector');
+      expect(connector['state'], 'completed');
+    });
+
     test('adapter evidence is reset between independent network runs', () {
       KingNatSubsystemEngine.beginRun(nationalMode: true, sliceBudgetMs: 30000);
       KingNatSubsystemEngine.recordTransformationExecution(
