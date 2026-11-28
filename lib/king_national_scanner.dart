@@ -1827,7 +1827,7 @@ class KingNatSubsystemEngine {
     }
     final scanner = _get('scanner');
     const requiredScanPhases = <String>{'dns', 'domain', 'ip', 'sni'};
-    if (!partial && _completedPhases.containsAll(requiredScanPhases)) {
+    if (!partial && inventoryComplete && _completedPhases.containsAll(requiredScanPhases)) {
       scanner.record(
         _completedPhases.length,
         'all_required_scan_phases_completed',
