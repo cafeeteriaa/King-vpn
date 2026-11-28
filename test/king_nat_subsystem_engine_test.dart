@@ -282,6 +282,82 @@ void main() {
       expect((diagnostics['trafficValidation'] as Map)['stableFailed'], 1);
     });
 
+    test('UDP, CDN, transformation and repair require adapter-backed evidence', () {
+      KingNatSubsystemEngine.beginRun(nationalMode: true, sliceBudgetMs: 30000);
+      KingNatSubsystemEngine.recordUdpDiscovery(probes: 10, responses: 0, rangeComplete: true);
+      KingNatSubsystemEngine.recordCdnValidation(
+        candidates: 5, successfulHandshakes: 3, tunnelPasses: 0, inventoryComplete: true,
+      );
+      KingNatSubsystemEngine.recordTransformationExecution(
+        adapterId: 'fragment-v1', applied: true, tunnelTrafficPassed: false,
+      );
+      KingNatSubsystemEngine.recordRepairEvaluation(
+        strategyId: 'repair-a', evaluated: true, changed: true, tunnelImproved: false,
+      );
+      var engines = {
+        for (final row in KingNatSubsystemEngine.diagnostics()['engines'] as List)
+          (row as Map)['id'] as String: row,
+      };
+      expect(engines['dpi_traffic_transformation']!['state'], 'partial');
+      expect(engines['ai_repair_optimization']!['state'], 'partial');
+      expect(engines['compatibility']!['state'], 'partial');
+
+      KingNatSubsystemEngine.recordUdpDiscovery(probes: 10, responses: 2, rangeComplete: true);
+      KingNatSubsystemEngine.recordCdnValidation(
+        candidates: 5, successfulHandshakes: 3, tunnelPasses: 2, inventoryComplete: true,
+      );
+      KingNatSubsystemEngine.recordTransformationExecution(
+        adapterId: 'fragment-v1', applied: true, tunnelTrafficPassed: true,
+      );
+      KingNatSubsystemEngine.recordRepairEvaluation(
+        strategyId: 'repair-a', evaluated: true, changed: true, tunnelImproved: true,
+      );
+      engines = {
+        for (final row in KingNatSubsystemEngine.diagnostics()['engines'] as List)
+          (row as Map)['id'] as String: row,
+      };
+      expect(engines['dpi_traffic_transformation']!['state'], 'completed');
+      expect(engines['ai_repair_optimization']!['state'], 'completed');
+      expect(engines['compatibility']!['state'], 'completed');
+      final evidence = KingNatSubsystemEngine.adapterEvidence();
+      expect(evidence['udpResponses'], 2);
+      expect(evidence['cdnTunnelPasses'], 2);
+      expect(evidence['validatedTransformations'], contains('fragment-v1'));
+      expect(evidence['validatedRepairs'], contains('repair-a'));
+    });
+
+    test('capability and connector engines require successful resolution/invocation', () {
+      KingNatSubsystemEngine.beginRun(nationalMode: false, sliceBudgetMs: 30000);
+      KingNatSubsystemEngine.recordCapabilityResolution(resolved: 3, unresolved: 1);
+      KingNatSubsystemEngine.recordAdapterInvocation(adapterId: 'dns-adapter', succeeded: false);
+      var engines = {
+        for (final row in KingNatSubsystemEngine.diagnostics()['engines'] as List)
+          (row as Map)['id'] as String: row,
+      };
+      expect(engines['capability_orchestrator']!['state'], 'partial');
+      expect(engines['multi_engine_connector']!['state'], 'partial');
+      KingNatSubsystemEngine.recordCapabilityResolution(resolved: 4, unresolved: 0);
+      KingNatSubsystemEngine.recordAdapterInvocation(adapterId: 'dns-adapter', succeeded: true);
+      engines = {
+        for (final row in KingNatSubsystemEngine.diagnostics()['engines'] as List)
+          (row as Map)['id'] as String: row,
+      };
+      expect(engines['capability_orchestrator']!['state'], 'completed');
+      expect(engines['multi_engine_connector']!['state'], 'completed');
+    });
+
+    test('adapter evidence is reset between independent network runs', () {
+      KingNatSubsystemEngine.beginRun(nationalMode: true, sliceBudgetMs: 30000);
+      KingNatSubsystemEngine.recordTransformationExecution(
+        adapterId: 'fragment-v1', applied: true, tunnelTrafficPassed: true,
+      );
+      KingNatSubsystemEngine.beginRun(nationalMode: false, sliceBudgetMs: 30000);
+      final evidence = KingNatSubsystemEngine.adapterEvidence();
+      expect(evidence['transformAttempts'], 0);
+      expect(evidence['validatedTransformations'], isEmpty);
+      expect(evidence['validatedRepairs'], isEmpty);
+    });
+
     test('does not mark preflight-only work as real tunnel validation', () {
       KingNatSubsystemEngine.beginRun(nationalMode: true, sliceBudgetMs: 30000);
       KingNatSubsystemEngine.finishRun(
