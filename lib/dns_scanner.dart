@@ -25,6 +25,17 @@ const List<String> kDnsxNationalDefaults = [
   '10.202.10.10',
 ];
 
+/// Public IPv6 resolvers are kept separate so national-mode discovery does not
+/// silently substitute global infrastructure for domestic DNS.
+const List<String> kDnsxIpv6Defaults = <String>[
+  '2606:4700:4700::1111',
+  '2606:4700:4700::1001',
+  '2001:4860:4860::8888',
+  '2001:4860:4860::8844',
+  '2620:fe::fe',
+  '2620:fe::9',
+];
+
 /// دامنه‌های تست در نت ملی: دامنه‌های داخلی (.ir) و سایت‌های داخلی که خود برنامه
 /// برای تشخیص شبکه استفاده می‌کند. هر DNS روی همه‌ی این دامنه‌ها سنجیده می‌شود،
 /// تا نتیجه‌ی DNSهای مختلف با هم قابل مقایسه باشد.
@@ -356,7 +367,9 @@ Future<void> dnsxAutoPick({bool Function()? stop, bool force = false, bool coord
     if (!force && now - last < gapMs) return;
     final savedDns = await goldDnsList();
     if (nationalMode != scanNationalMode) return;
-    final defaults = scanNationalMode ? kDnsxNationalDefaults : kDnsxDefaults;
+    final defaults = scanNationalMode
+        ? kDnsxNationalDefaults
+        : <String>[...kDnsxDefaults, ...kDnsxIpv6Defaults];
     final list = <String>{...savedDns, ...defaults}.toList(growable: false);
     // Auto discovery checks the complete saved and mode-specific default resolver inventory.
     // The manual scanner still retains dnsxFullDomains() for user-selected full scans.
@@ -445,10 +458,13 @@ extension DnsxExt on _HomePageState {
               final extra = extraC.text
                   .split(RegExp(r'[\s,]+'))
                   .map((s) => s.trim())
-                  .where((s) =>
-                      s.isNotEmpty &&
-                      InternetAddress.tryParse(s)?.type ==
-                          InternetAddressType.IPv4)
+                  .where((s) {
+                    if (s.isEmpty) return false;
+                    final address = InternetAddress.tryParse(s);
+                    return address != null &&
+                        (address.type == InternetAddressType.IPv4 ||
+                            address.type == InternetAddressType.IPv6);
+                  })
                   .toList();
               final saved = await goldDnsList();
               if (!mounted || !sheetOpen) return;
@@ -456,7 +472,7 @@ extension DnsxExt on _HomePageState {
                 upd(() => note = 'اسکن متوقف شد؛ نتایج ذخیره نشد.');
                 return;
               }
-              final list = {...saved, ...kDnsxDefaults, ...kDnsxNationalDefaults, ...extra}
+              final list = {...saved, ...kDnsxDefaults, ...kDnsxIpv6Defaults, ...kDnsxNationalDefaults, ...extra}
                   .toList();
               upd(() => total = list.length);
               r = await dnsxScan(
