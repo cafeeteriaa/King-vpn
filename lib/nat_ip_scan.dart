@@ -159,7 +159,7 @@ class NatCountryPrefixSnapshot {
         if (address == null || address.type != InternetAddressType.IPv6) continue;
         final prefix = parts.length == 1 ? 128 : int.tryParse(parts[1].trim());
         if (prefix == null || prefix < 0 || prefix > 128) continue;
-        ipv6.add('\${address.address}/$prefix');
+        ipv6.add('${address.address}/$prefix');
       }
     }
 
@@ -192,7 +192,7 @@ class NatCountryPrefixSnapshot {
     final result = <String>{};
     for (final item in data['prefixes'] as List) {
       if (item is! Map) continue;
-      final value = '\${item['prefix'] ?? ''}'.trim();
+      final value = '${item['prefix'] ?? ''}'.trim();
       if (value.isEmpty) continue;
       final parsed = NatAddressRangeCursor.parse(value);
       if (parsed == null) continue;
