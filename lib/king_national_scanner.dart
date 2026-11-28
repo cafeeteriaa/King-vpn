@@ -1928,8 +1928,8 @@ class KingNatSubsystemEngine {
   static int _trafficFailures = 0;
   static int _stableTrafficPasses = 0;
   static int _stableTrafficFailures = 0;
-  static int _stableTrafficProofSequence = 0;
-  static int _consumedRepairProofSequence = 0;
+  static String? _pendingRepairStrategyId;
+  static bool _pendingRepairCoverageComplete = false;
   static int _ipv4Resources = 0;
   static int _ipv6Resources = 0;
   static int _plannedVariants = 0;
@@ -1956,8 +1956,8 @@ class KingNatSubsystemEngine {
     _trafficFailures = 0;
     _stableTrafficPasses = 0;
     _stableTrafficFailures = 0;
-    _stableTrafficProofSequence = 0;
-    _consumedRepairProofSequence = 0;
+    _pendingRepairStrategyId = null;
+    _pendingRepairCoverageComplete = false;
     _ipv4Resources = 0;
     _ipv6Resources = 0;
     _plannedVariants = 0;
@@ -2179,10 +2179,24 @@ class KingNatSubsystemEngine {
     if (stable) {
       if (stableProof) {
         _stableTrafficPasses++;
-        _stableTrafficProofSequence++;
+        final pendingRepair = _pendingRepairStrategyId;
+        if (pendingRepair != null) {
+          _incrementEvidence('repairTunnelImprovements', 1);
+          _validatedRepairs.add(pendingRepair);
+          _get('ai_repair_optimization').record(
+            _validatedRepairs.length,
+            'evaluated_${_adapterEvidence['repairEvaluations']}_validated_improvements_${_validatedRepairs.length}',
+            complete: _pendingRepairCoverageComplete &&
+                _validatedRepairs.isNotEmpty,
+          );
+        }
       } else {
         _stableTrafficFailures++;
       }
+      // A stable check (pass or fail) closes the pending repair attempt. A
+      // later unrelated success must never be able to validate this strategy.
+      _pendingRepairStrategyId = null;
+      _pendingRepairCoverageComplete = false;
     }
     _get('real_traffic_validator').record(
       safeDestinations,
@@ -2320,17 +2334,13 @@ class KingNatSubsystemEngine {
     final id = strategyId.trim();
     if (!evaluated || id.isEmpty) return;
     _incrementEvidence('repairEvaluations', 1);
-    // Consume a fresh proof produced internally by recordTrafficValidation.
-    // A caller cannot manufacture stable proof by passing a boolean or score.
-    final hasFreshStableProof =
-        _stableTrafficProofSequence > _consumedRepairProofSequence;
-    if (hasFreshStableProof) {
-      _consumedRepairProofSequence = _stableTrafficProofSequence;
-    }
-    if (hasFreshStableProof && changed && tunnelImproved) {
-      _incrementEvidence('repairTunnelImprovements', 1);
-      _validatedRepairs.add(id);
-    }
+    // Register the exact strategy immediately before its stable traffic
+    // check. The next stable check consumes this one-shot association; an
+    // earlier or unrelated proof cannot be replayed for a later strategy.
+    _pendingRepairStrategyId =
+        changed && tunnelImproved ? id : null;
+    _pendingRepairCoverageComplete =
+        _pendingRepairStrategyId != null && coverageComplete;
     final engine = _get('ai_repair_optimization');
     engine.record(_validatedRepairs.length,
       'evaluated_${_adapterEvidence['repairEvaluations']}_validated_improvements_${_validatedRepairs.length}',
