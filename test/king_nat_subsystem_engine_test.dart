@@ -78,7 +78,7 @@ void main() {
       expect(engines['real_traffic_validator']!['state'], 'partial');
       expect(
         engines['real_traffic_validator']!['detail'],
-        'mode_national_passed_destinations_1_probe_only',
+        'mode_national_passed_destinations_2_probe_only',
       );
       expect(engines['resource_health_manager']!['state'], 'deferred');
       expect(engines['config_intelligence']!['state'], 'completed');
