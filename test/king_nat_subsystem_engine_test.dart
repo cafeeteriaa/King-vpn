@@ -483,6 +483,69 @@ void main() {
       expect(evidence['validatedRepairs'], isEmpty);
     });
 
+    test('rejects empty success and sanitizes malformed route evidence', () {
+      KingNatSubsystemEngine.beginRun(nationalMode: true, sliceBudgetMs: 30000);
+      KingNatSubsystemEngine.recordTrafficValidation(
+        true, mode: 'national', destinations: 0, stable: true,
+      );
+      KingNatSubsystemEngine.recordNetworkEvidence(
+        domesticTls: -4,
+        globalTls: 0,
+        domesticIpv6: -2,
+        globalIpv6: 0,
+        confidence: double.nan,
+      );
+      final diagnostics = KingNatSubsystemEngine.diagnostics();
+      final validator = (diagnostics['engines'] as List)
+          .cast<Map>()
+          .firstWhere((row) => row['id'] == 'real_traffic_validator');
+      final intelligence = (diagnostics['engines'] as List)
+          .cast<Map>()
+          .firstWhere((row) => row['id'] == 'network_intelligence');
+      expect((diagnostics['trafficValidation'] as Map)['passed'], 0);
+      expect((diagnostics['trafficValidation'] as Map)['failed'], 1);
+      expect((diagnostics['trafficValidation'] as Map)['stablePassed'], 0);
+      expect(validator['state'], 'partial');
+      expect(intelligence['state'], 'partial');
+      expect((diagnostics['routeEvidence'] as Map)['confidence'], 0.0);
+      expect((diagnostics['routeEvidence'] as Map)['domesticTls'], 0);
+      expect((diagnostics['routeEvidence'] as Map)['domesticIpv6'], 0);
+    });
+
+    test('clamps impossible UDP, CDN, compatibility and capability counters', () {
+      KingNatSubsystemEngine.beginRun(nationalMode: true, sliceBudgetMs: 30000);
+      KingNatSubsystemEngine.recordUdpDiscovery(
+        probes: 2, responses: 9, rangeComplete: true,
+        fullInventoryComplete: true,
+      );
+      KingNatSubsystemEngine.recordCdnValidation(
+        candidates: 2, successfulHandshakes: 7,
+        tunnelPasses: 8, inventoryComplete: true,
+      );
+      KingNatSubsystemEngine.recordCompatibilityEvaluation(
+        evaluated: 3, accepted: 11, allResolved: true,
+      );
+      KingNatSubsystemEngine.recordCapabilityResolution(
+        resolved: -5, unresolved: -2,
+      );
+      final evidence = KingNatSubsystemEngine.adapterEvidence();
+      final diagnostics = KingNatSubsystemEngine.diagnostics();
+      final engines = {
+        for (final row in diagnostics['engines'] as List)
+          (row as Map)['id'] as String: row,
+      };
+      expect(evidence['udpProbes'], 2);
+      expect(evidence['udpResponses'], 2);
+      expect(evidence['cdnCandidates'], 2);
+      expect(evidence['cdnHandshakes'], 2);
+      expect(evidence['cdnTunnelPasses'], 2);
+      expect(evidence['compatibilityEvaluations'], 3);
+      expect(evidence['compatibilityAccepted'], 3);
+      expect(evidence['capabilityResolutions'], 0);
+      expect(engines['capability_orchestrator']!['state'], 'partial');
+      expect(engines['scanner']!['state'], 'partial');
+    });
+
     test('does not mark preflight-only work as real tunnel validation', () {
       KingNatSubsystemEngine.beginRun(nationalMode: true, sliceBudgetMs: 30000);
       KingNatSubsystemEngine.finishRun(
