@@ -166,6 +166,11 @@ void main() {
         ipv4Resources: 2400,
         ipv6Resources: 36,
       );
+      KingNatSubsystemEngine.recordResourceBudget(
+        workers: 8,
+        sliceBudgetMs: 30000,
+        batchPorts: 4,
+      );
       for (final phase in const ['dns', 'domain', 'ip', 'sni']) {
         KingNatSubsystemEngine.phaseStarted(phase);
         KingNatSubsystemEngine.phaseCompleted(phase, evidence: 10);
@@ -182,6 +187,7 @@ void main() {
       };
       expect(engines['discovery']!['state'], 'completed');
       expect(engines['scanner']!['state'], 'completed');
+      expect(engines['resource_health_manager']!['state'], 'completed');
     });
 
     test('all phase markers still cannot complete scanner with a pending inventory cursor', () {
