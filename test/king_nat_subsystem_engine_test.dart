@@ -393,7 +393,6 @@ void main() {
       KingNatSubsystemEngine.recordRepairEvaluation(
         strategyId: 'repair-a', evaluated: true, changed: true,
         tunnelImproved: true, coverageComplete: true,
-        stableTunnelProof: true,
       );
       KingNatSubsystemEngine.recordCompatibilityEvaluation(evaluated: 5, accepted: 4, allResolved: true);
       engines = {
