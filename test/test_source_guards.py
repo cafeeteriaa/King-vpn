@@ -3148,5 +3148,25 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('total % _hotIndexStride == 0', source)
 
 
+    def test_national_scanner_does_not_checkpoint_skipped_dns_or_discovery_as_complete(self):
+        source = (ROOT / 'lib' / 'king_national_scanner.dart').read_text(encoding='utf-8')
+        dns_start = source.index("if (shouldRunPhase('dns')")
+        domain_start = source.index("if (shouldRunPhase('domain')", dns_start)
+        ip_start = source.index("if (shouldRunPhase('ip')", domain_start)
+        dns = source[dns_start:domain_start]
+        domain = source[domain_start:ip_start]
+        ip_end = source.index("if (shouldRunPhase('sni')", ip_start)
+        ip = source[ip_start:ip_end]
+
+        self.assertIn("warnings.add('dns_scan_busy_deferred');", dns)
+        self.assertIn('phaseDeferred = true;', dns)
+        self.assertNotIn("if (!stopped() && !shouldYield()) await completePhase('dns');", dns)
+        self.assertIn('domain_scan_waiting_for_seed_configs', domain)
+        self.assertIn('domain_scan_waiting_for_ip_discovery_enabled', domain)
+        self.assertIn('phaseDeferred = true;', domain)
+        self.assertIn("warnings.add('ip_scan_disabled_by_policy');", ip)
+        self.assertIn('phaseDeferred = true;', ip)
+        self.assertNotIn("await completePhase('ip');", ip[ip.index("} else if (!kNatIpScanOn)"):])
+
 if __name__ == '__main__':
     unittest.main()

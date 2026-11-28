@@ -1322,7 +1322,11 @@ class KingNationalScannerEngine {
         status(KingNatScanPhase.dns, 'اسکنر: بررسی DNS متناسب با شبکه...');
         if (!stopped() && !shouldYield()) {
           if (_dnsxAutoBusy) {
-            warnings.add('dns_scan_busy_skipped');
+            // A skipped adapter is not a completed phase. Keep the durable
+            // checkpoint on DNS so the next slice retries instead of silently
+            // advancing the scanner journal past missing resolver evidence.
+            warnings.add('dns_scan_busy_deferred');
+            phaseDeferred = true;
           } else {
             final dnsClock = Stopwatch()..start();
             await dnsxAutoPick(
@@ -1330,35 +1334,52 @@ class KingNationalScannerEngine {
               coordinatorOwned: true,
               stop: () => stopped() || shouldYield(),
             );
-            dnsCount = dnsxBestCache.length;
-            final udpEvidence = await probeUdpDnsInventory(
-              cancelled: () => stopped() || shouldYield(),
-            );
-            udpProbes = udpEvidence['probes'] ?? 0;
-            udpResponses = udpEvidence['responses'] ?? 0;
-            udpExpected = udpEvidence['expected'] ?? 0;
-            final preferences = await SharedPreferences.getInstance();
-            await preferences.flush();
-            if (dnsClock.elapsed >= const Duration(seconds: 60)) warnings.add('dns_phase_extended_over_60s');
+            if (!stopped() && !shouldYield()) {
+              dnsCount = dnsxBestCache.length;
+              final udpEvidence = await probeUdpDnsInventory(
+                cancelled: () => stopped() || shouldYield(),
+              );
+              udpProbes = udpEvidence['probes'] ?? 0;
+              udpResponses = udpEvidence['responses'] ?? 0;
+              udpExpected = udpEvidence['expected'] ?? 0;
+              final preferences = await SharedPreferences.getInstance();
+              await preferences.flush();
+              if (dnsClock.elapsed >= const Duration(seconds: 60)) {
+                warnings.add('dns_phase_extended_over_60s');
+              }
+              await completePhase('dns');
+            }
           }
         }
-        if (!stopped() && !shouldYield()) await completePhase('dns');
       }
 
       if (shouldRunPhase('domain') && !stopped() && !shouldYield() && !phaseDeferred) {
         await beginPhase('domain');
         status(KingNatScanPhase.domain, 'اسکنر: کشف دامنه و endpointهای کانفیگ...');
-        if (!stopped() && !shouldYield() && seeds.isNotEmpty && kNatIpScanOn) {
-          final found = await _natDomainFirst(
-            seeds, conc: max(2, natAdaptiveWorkers()).toInt(),
-            stop: () => stopped() || shouldYield(),
-          );
-          if (!stopped() && found.isNotEmpty) {
-            domainHits = found.length;
-            await addDiscovered(found);
+        if (!stopped() && !shouldYield()) {
+          if (seeds.isEmpty || !kNatIpScanOn) {
+            // Do not checkpoint an empty/disabled discovery pass as complete:
+            // a later slice must retry when usable seed configs are available.
+            warnings.add(
+              seeds.isEmpty
+                  ? 'domain_scan_waiting_for_seed_configs'
+                  : 'domain_scan_waiting_for_ip_discovery_enabled',
+            );
+            phaseDeferred = true;
+          } else {
+            final found = await _natDomainFirst(
+              seeds, conc: max(2, natAdaptiveWorkers()).toInt(),
+              stop: () => stopped() || shouldYield(),
+            );
+            if (!stopped() && !shouldYield()) {
+              if (found.isNotEmpty) {
+                domainHits = found.length;
+                await addDiscovered(found);
+              }
+              await completePhase('domain');
+            }
           }
         }
-        if (!stopped() && !shouldYield()) await completePhase('domain');
       }
 
       if (shouldRunPhase('ip') && !stopped() && !shouldYield() && !phaseDeferred) {
@@ -1427,8 +1448,10 @@ class KingNationalScannerEngine {
             warnings.add('ip_inventory_cursor_preserved_for_next_slice');
           }
         } else if (!kNatIpScanOn) {
+          // IP discovery is a required Net Melli inventory phase. A disabled
+          // switch must remain visible as deferred work, not a green completion.
           warnings.add('ip_scan_disabled_by_policy');
-          if (!stopped()) await completePhase('ip');
+          phaseDeferred = true;
         } else if (ipAutoBusy || _natRangeScanBusy) {
           warnings.add('ip_scan_busy_skipped');
           phaseDeferred = true;
