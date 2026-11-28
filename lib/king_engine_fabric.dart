@@ -82,7 +82,7 @@ abstract class _KingEngine {
 class _ResourceEngine extends _KingEngine {
   @override KingEngineId get id => KingEngineId.resourceHealthManager;
   @override Future<KingEngineResult> run(KingEngineContext c) async {
-    c.workers = max(1, min(max(1, c.workerBudget), 8));
+    c.workers = max(1, min(max(1, c.workerBudget), 8)).toInt();
     return KingEngineResult(id, KingEngineStatus.passed, 'Resource-aware worker budget selected',
       metrics: {'workers': c.workers});
   }
@@ -149,7 +149,7 @@ class _ScannerEngine extends _KingEngine {
           } finally { socket?.destroy(); }
         }
       }
-      final count = min(c.workers, max(1, c.discovered.length));
+      final count = min(c.workers, max(1, c.discovered.length)).toInt();
       await Future.wait(List<Future<void>>.generate(count, (_) => worker()));
       c.reachable = alive;
       return KingEngineResult(id, cancelled ? KingEngineStatus.skipped :
