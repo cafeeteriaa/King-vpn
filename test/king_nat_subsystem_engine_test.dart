@@ -190,6 +190,39 @@ void main() {
       expect(engines['resource_health_manager']!['state'], 'completed');
     });
 
+    test('resumed scan restores earlier completed phases from its durable journal', () {
+      KingNatSubsystemEngine.beginRun(nationalMode: true, sliceBudgetMs: 30000);
+      KingNatSubsystemEngine.restoreCompletedPhases(const ['dns', 'domain']);
+      KingNatSubsystemEngine.recordDiscoveryInventory(
+        ipv4Resources: 2400,
+        ipv6Resources: 36,
+      );
+      KingNatSubsystemEngine.recordResourceBudget(
+        workers: 8,
+        sliceBudgetMs: 30000,
+        batchPorts: 4,
+      );
+      for (final phase in const ['ip', 'sni']) {
+        KingNatSubsystemEngine.phaseStarted(phase);
+        KingNatSubsystemEngine.phaseCompleted(phase, evidence: 10);
+      }
+      KingNatSubsystemEngine.finishRun(
+        cancelled: false,
+        yielded: false,
+        deferred: false,
+        inventoryComplete: true,
+      );
+      final engines = {
+        for (final row in KingNatSubsystemEngine.diagnostics()['engines'] as List)
+          (row as Map)['id'] as String: row,
+      };
+      expect(engines['scanner']!['state'], 'completed');
+      expect(
+        KingNatSubsystemEngine.diagnostics()['completedPhases'],
+        containsAll(const ['dns', 'domain', 'ip', 'sni']),
+      );
+    });
+
     test('all phase markers still cannot complete scanner with a pending inventory cursor', () {
       KingNatSubsystemEngine.beginRun(nationalMode: true, sliceBudgetMs: 30000);
       for (final phase in const ['dns', 'domain', 'ip', 'sni']) {
