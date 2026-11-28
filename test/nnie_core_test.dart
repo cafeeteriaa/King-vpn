@@ -15,6 +15,8 @@ List<int> _response({
   String qname = 'google.com',
   required List<int> rdata,
   int an = 1,
+  int queryType = 1,
+  int? answerType,
 }) {
   final out = <int>[
     ..._u16(id), ..._u16(flags), ..._u16(1), ..._u16(an), ..._u16(0), ..._u16(0),
@@ -22,11 +24,11 @@ List<int> _response({
   for (final label in qname.split('.')) {
     out..add(label.length)..addAll(label.codeUnits);
   }
-  out.addAll([0, 0, 1, 0, 1]); // root, QTYPE=A, QCLASS=IN
+  out.addAll([0, 0, (queryType >> 8) & 255, queryType & 255, 0, 1]); // root, QTYPE, QCLASS=IN
   if (an > 0) {
     out.addAll([
       0xc0, 0x0c, // name: pointer to the question name
-      ..._u16(1), ..._u16(1), // TYPE=A, CLASS=IN
+      ..._u16(answerType ?? queryType), ..._u16(1), // TYPE, CLASS=IN
       0, 0, 0, 60, // TTL
       ..._u16(rdata.length), ...rdata,
     ]);
@@ -158,6 +160,78 @@ void main() {
     test('accepts a valid public A answer', () {
       final bytes = _response(id: 0x1234, rdata: [8, 8, 8, 8]);
       expect(NatDnsWireProbe.parseResponse(bytes, 0x1234, 'google.com'), ['8.8.8.8']);
+    });
+
+    test('buildQuery supports AAAA without changing the A default', () {
+      final a = NatDnsWireProbe.buildQuery('example.com', 0x1234);
+      final aaaa = NatDnsWireProbe.buildQuery(
+        'example.com',
+        0x1234,
+        queryType: 28,
+      );
+      expect(a.sublist(a.length - 4), [0, 1, 0, 1]);
+      expect(aaaa.sublist(aaaa.length - 4), [0, 28, 0, 1]);
+    });
+
+    test('accepts a globally routable AAAA answer', () {
+      final bytes = _response(
+        id: 0x1234,
+        queryType: 28,
+        rdata: [
+          0x26, 0x06, 0x47, 0x00, 0x47, 0x00, 0x00, 0x00,
+          0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x11, 0x11,
+        ],
+      );
+      final result = NatDnsWireProbe.parseResponse(
+        bytes,
+        0x1234,
+        'google.com',
+        queryType: 28,
+      );
+      expect(result, ['2606:4700:4700:0:0:0:0:1111']);
+    });
+
+    test('rejects AAAA answers from non-global IPv6 ranges', () {
+      final specialAddresses = <List<int>>[
+        List<int>.filled(16, 0), // unspecified
+        [...List<int>.filled(15, 0), 1], // loopback
+        [0xfe, 0x80, ...List<int>.filled(14, 0)], // link-local
+        [0xfc, 0x00, ...List<int>.filled(14, 1)], // unique-local
+        [0xff, 0x02, ...List<int>.filled(14, 1)], // multicast
+        [0x20, 0x01, 0x0d, 0xb8, ...List<int>.filled(12, 1)], // documentation
+      ];
+      for (final address in specialAddresses) {
+        expect(
+          NatDnsWireProbe.publicV6(address, 0),
+          isFalse,
+          reason: address.toString(),
+        );
+      }
+      expect(
+        NatDnsWireProbe.publicV6([
+          0x26, 0x06, 0x47, 0x00, 0x47, 0x00, 0, 0,
+          0, 0, 0, 0, 0, 0, 0x11, 0x11,
+        ], 0),
+        isTrue,
+      );
+    });
+
+    test('does not accept an A response for an AAAA question', () {
+      final bytes = _response(
+        id: 0x1234,
+        queryType: 28,
+        answerType: 1,
+        rdata: [8, 8, 8, 8],
+      );
+      expect(
+        () => NatDnsWireProbe.parseResponse(
+          bytes,
+          0x1234,
+          'google.com',
+          queryType: 28,
+        ),
+        throwsA(isA<FormatException>()),
+      );
     });
 
     test('rejects a mismatched transaction ID', () {
