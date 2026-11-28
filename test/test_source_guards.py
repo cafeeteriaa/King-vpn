@@ -2955,6 +2955,22 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn('winners.length >=', sweep)
         self.assertNotIn('difference(t0) > budget', sweep)
 
+    def test_connection_ladder_uses_resumable_time_slice_without_total_scan_cutoff(self):
+        main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        start = main.index('Future<bool> _natLadder(')
+        end = main.index('\n    try {', start)
+        ladder = main[start:end]
+        self.assertIn('_atIpSweep(_usable(), timeSlice: const Duration(seconds: 45))', ladder)
+        sweep_start = main.index('Future<List<CleanIp>> _atIpSweep(')
+        sweep_end = main.index('\n  }', sweep_start)
+        sweep = main[sweep_start:sweep_end]
+        self.assertIn('final autoTestOwnsSweep = AutoTestEngine._phase == _AtPhase.running;', sweep)
+        self.assertIn('bool sliceExpired()', sweep)
+        self.assertIn('bool shouldStopSweep() => userCancelled() || sliceExpired();', sweep)
+        self.assertIn('king_cf_ip_sweep_cursor_v1', sweep)
+        self.assertNotIn('scanDeadline', sweep)
+        self.assertNotIn('winners.length >=', sweep)
+
     def test_cloudflare_sweep_cursor_is_persisted_and_bound_to_inventory_identity(self):
         main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
         start = main.index('Future<List<CleanIp>> _atIpSweep(')
