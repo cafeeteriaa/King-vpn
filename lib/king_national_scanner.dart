@@ -1071,6 +1071,9 @@ class KingNationalScannerEngine {
           final nextRank = previousRank < 0 ? 0 : previousRank + (wasCompleted ? 1 : 0);
           resumePhase = nextRank >= 0 && nextRank < phaseOrder.length
               ? phaseOrder[nextRank] : '';
+          KingNatSubsystemEngine.restoreCompletedPhases(
+            phaseOrder.take(nextRank.clamp(0, phaseOrder.length)),
+          );
           if (!wasCompleted && previous['cursor'] is Map) {
             resumeCursor = Map<String, Object?>.from(previous['cursor'] as Map);
           }
@@ -1643,6 +1646,16 @@ class KingNatSubsystemEngine {
     _get('connection_orchestrator').start('preflight_started');
     _get('resource_health_manager').start('slice_budget_initialized');
     _get('multi_engine_connector').start('shared_scanner_lease_initialized');
+  }
+
+  /// Restores phases already completed in the durable journal before this
+  /// invocation's resume point. Without this, a multi-slice scan could never
+  /// complete its aggregate Scanner state after process restart.
+  static void restoreCompletedPhases(Iterable<String> phases) {
+    const known = <String>{'dns', 'domain', 'ip', 'sni', 'config', 'complete'};
+    for (final phase in phases) {
+      if (known.contains(phase)) _completedPhases.add(phase);
+    }
   }
 
   static void phaseStarted(String phase) {
