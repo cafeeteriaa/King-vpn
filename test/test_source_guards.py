@@ -3178,6 +3178,11 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('operatorIdentity: natOpKey', preflight)
         self.assertIn('network_identity_unavailable', preflight)
 
+        self.assertIn('static String _legacyProfileKey(Server s)', source)
+        self.assertIn('profile?[variant] ?? legacyProfile?[variant]', source)
+        self.assertIn('_sniPreferences[legacyProfileKey]', source)
+        self.assertIn('_alpnPreferences[legacyProfileKey]', source)
+
         finish_start = source.index('static void finishRun(')
         finish_end = source.index('static void recordFailure(', finish_start)
         finish = source[finish_start:finish_end]
