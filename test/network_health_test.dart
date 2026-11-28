@@ -370,6 +370,27 @@ void main() {
       expect(guard.shouldCancel, isTrue);
     });
 
+    test('missing either physical interfaces or default-route evidence fails closed', () {
+      expect(
+        KingNetworkFingerprint.withDefaultRoutes(
+          'wlan0|192.168.1.10', const <String>[],
+        ),
+        isEmpty,
+      );
+      expect(
+        KingNetworkFingerprint.withDefaultRoutes(
+          '', const <String>['v4:wlan0:0101A8C0:00000064'],
+        ),
+        isEmpty,
+      );
+      final noRoute = KingNetworkScanGuard(
+        initialFingerprint: KingNetworkFingerprint.withDefaultRoutes(
+          'wlan0|192.168.1.10', const <String>[],
+        ),
+      );
+      expect(noRoute.shouldCancel, isTrue);
+    });
+
     test('default route changes are detected even when both interfaces stay up', () {
       const interfaces = 'rmnet_data0|10.20.30.40;wlan0|192.168.1.10';
       final wifiRoute = KingNetworkFingerprint.withDefaultRoutes(
