@@ -2817,7 +2817,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         close_pop = body.index('Navigator.pop(ctx);', close)
         completion = body.index('open = false;', body.index(').then((_) {'))
         completion_cancel = body.index('cancelled = true;', completion)
-        scan = body.index('result = await natScanIps(')
+        scan = body.index('result = await natScanAddressRanges(')
         stop = body.index('cancelled: () => cancelled || !open,', scan)
         persist_guard = body.index('if (!cancelled && open)', scan)
         persist = body.index('await goldMergeIps(', persist_guard)
@@ -2889,10 +2889,33 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         start = source.index('Future<void> manualRangeScan(')
         end = source.index('\n}', start)
         body = source[start:end]
-        self.assertIn('want: null,', body)
-        self.assertIn('budget: null,', body)
+        self.assertIn('result = await natScanAddressRanges(', body)
+        self.assertIn('validRanges,', body)
+        self.assertIn('additionalAddresses: savedGoldIps,', body)
+        self.assertIn('Slice size bounds temporary RAM only', body)
         self.assertNotIn('want: 1000', body)
-        self.assertNotIn('Duration(minutes: userAddrs.length', body)
+        self.assertNotIn('Duration(minutes: userRanges.length', body)
+
+    def test_manual_range_ui_preserves_lazy_ranges_instead_of_sampling_ip_lists(self):
+        main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        start = main.index("void _natRangesDialog(")
+        end = main.index("final TextEditingController _smartCommandController", start)
+        dialog = main[start:end]
+        self.assertIn('NatAddressRangeCursor.parse(line) != null', dialog)
+        self.assertIn('manualRangeScan(context, ranges)', dialog)
+        self.assertNotIn('natExpandCidr(', dialog)
+        self.assertNotIn('natExpandDash(', dialog)
+
+    def test_range_scanner_uses_bounded_slices_without_total_coverage_ceiling(self):
+        source = (ROOT / 'lib' / 'nat_ip_scan.dart').read_text(encoding='utf-8')
+        start = source.index('Future<List<NatIpHit>> natScanAddressRanges(')
+        end = source.index('/// Validated country-level registry/BGP prefix snapshot.', start)
+        scanner = source[start:end]
+        self.assertIn('cursor.read(offset, window)', scanner)
+        self.assertIn('while (offset >= 0 && !aborted())', scanner)
+        self.assertIn('want: null,', scanner)
+        self.assertIn('budget: null,', scanner)
+        self.assertIn('onCursor?.call(rangeIndex, offset)', scanner)
 
     def test_connection_strategy_matrix_has_no_global_variant_count_ceiling(self):
         main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
