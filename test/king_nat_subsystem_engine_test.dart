@@ -284,15 +284,15 @@ void main() {
 
     test('UDP, CDN, transformation and repair require adapter-backed evidence', () {
       KingNatSubsystemEngine.beginRun(nationalMode: true, sliceBudgetMs: 30000);
-      KingNatSubsystemEngine.recordUdpDiscovery(probes: 10, responses: 0, rangeComplete: true);
+      KingNatSubsystemEngine.recordUdpDiscovery(probes: 10, responses: 0, rangeComplete: true, fullInventoryComplete: false);
       KingNatSubsystemEngine.recordCdnValidation(
         candidates: 5, successfulHandshakes: 3, tunnelPasses: 0, inventoryComplete: true,
       );
       KingNatSubsystemEngine.recordTransformationExecution(
-        adapterId: 'fragment-v1', applied: true, tunnelTrafficPassed: false,
+        adapterId: 'fragment-v1', applied: true, tunnelTrafficPassed: false, coverageComplete: false,
       );
       KingNatSubsystemEngine.recordRepairEvaluation(
-        strategyId: 'repair-a', evaluated: true, changed: true, tunnelImproved: false,
+        strategyId: 'repair-a', evaluated: true, changed: true, tunnelImproved: false, coverageComplete: false,
       );
       var engines = {
         for (final row in KingNatSubsystemEngine.diagnostics()['engines'] as List)
@@ -302,16 +302,17 @@ void main() {
       expect(engines['ai_repair_optimization']!['state'], 'partial');
       expect(engines['compatibility']!['state'], 'partial');
 
-      KingNatSubsystemEngine.recordUdpDiscovery(probes: 10, responses: 2, rangeComplete: true);
+      KingNatSubsystemEngine.recordUdpDiscovery(probes: 10, responses: 2, rangeComplete: true, fullInventoryComplete: true);
       KingNatSubsystemEngine.recordCdnValidation(
         candidates: 5, successfulHandshakes: 3, tunnelPasses: 2, inventoryComplete: true,
       );
       KingNatSubsystemEngine.recordTransformationExecution(
-        adapterId: 'fragment-v1', applied: true, tunnelTrafficPassed: true,
+        adapterId: 'fragment-v1', applied: true, tunnelTrafficPassed: true, coverageComplete: true,
       );
       KingNatSubsystemEngine.recordRepairEvaluation(
-        strategyId: 'repair-a', evaluated: true, changed: true, tunnelImproved: true,
+        strategyId: 'repair-a', evaluated: true, changed: true, tunnelImproved: true, coverageComplete: true,
       );
+      KingNatSubsystemEngine.recordCompatibilityEvaluation(evaluated: 5, accepted: 4, allResolved: true);
       engines = {
         for (final row in KingNatSubsystemEngine.diagnostics()['engines'] as List)
           (row as Map)['id'] as String: row,
@@ -329,7 +330,7 @@ void main() {
     test('capability and connector engines require successful resolution/invocation', () {
       KingNatSubsystemEngine.beginRun(nationalMode: false, sliceBudgetMs: 30000);
       KingNatSubsystemEngine.recordCapabilityResolution(resolved: 3, unresolved: 1);
-      KingNatSubsystemEngine.recordAdapterInvocation(adapterId: 'dns-adapter', succeeded: false);
+      KingNatSubsystemEngine.recordAdapterInvocation(adapterId: 'dns-adapter', succeeded: false, allRequiredAdaptersConnected: false);
       var engines = {
         for (final row in KingNatSubsystemEngine.diagnostics()['engines'] as List)
           (row as Map)['id'] as String: row,
@@ -337,7 +338,7 @@ void main() {
       expect(engines['capability_orchestrator']!['state'], 'partial');
       expect(engines['multi_engine_connector']!['state'], 'partial');
       KingNatSubsystemEngine.recordCapabilityResolution(resolved: 4, unresolved: 0);
-      KingNatSubsystemEngine.recordAdapterInvocation(adapterId: 'dns-adapter', succeeded: true);
+      KingNatSubsystemEngine.recordAdapterInvocation(adapterId: 'dns-adapter', succeeded: true, allRequiredAdaptersConnected: true);
       engines = {
         for (final row in KingNatSubsystemEngine.diagnostics()['engines'] as List)
           (row as Map)['id'] as String: row,
