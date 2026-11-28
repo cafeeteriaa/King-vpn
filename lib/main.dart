@@ -9045,6 +9045,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       stable,
       mode: nationalMode ? 'national' : 'global',
       destinations: passed,
+      stable: true,
     );
     return stable;
   }
