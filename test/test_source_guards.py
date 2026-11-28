@@ -3148,6 +3148,34 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('total % _hotIndexStride == 0', source)
 
 
+    def test_net_melli_engine_completion_requires_stable_tunnel_and_restores_phase_adapters(self):
+        source = (ROOT / 'lib' / 'king_national_scanner.dart').read_text(encoding='utf-8')
+        restore_start = source.index('static void restoreCompletedPhases(')
+        restore_end = source.index('static void phaseStarted(', restore_start)
+        restore = source[restore_start:restore_end]
+        self.assertIn("_activeAdapters.add('net_melli_scan_phase_$phase');", restore)
+
+        phase_start = source.index('static void phaseCompleted(')
+        phase_end = source.index('static void recordNetworkEvidence(', phase_start)
+        phase = source[phase_start:phase_end]
+        self.assertIn("final isPhaseLocalCompletion = phase == 'config';", phase)
+        self.assertIn('preflight_pipeline_completed_waiting_for_stable_tunnel_proof', phase)
+        self.assertNotIn("phase == 'complete';", phase)
+
+        traffic_start = source.index('static void recordTrafficValidation(')
+        traffic_end = source.index('// Adapter-level evidence counters.', traffic_start)
+        traffic = source[traffic_start:traffic_end]
+        self.assertIn('if (stableProof) _promoteStableTunnelDependents();', traffic)
+        self.assertIn('safeDestinations >= 2', traffic)
+        self.assertIn('connected_tunnel_verified_by_stable_multi_destination_traffic', traffic)
+
+        finish_start = source.index('static void finishRun(')
+        finish_end = source.index('static void recordFailure(', finish_start)
+        finish = source[finish_start:finish_end]
+        self.assertIn('preflight_completed_waiting_for_stable_tunnel_proof', finish)
+        self.assertIn('_lastScanPipelineComplete', finish)
+        self.assertNotIn("complete: !partial", finish)
+
     def test_national_scanner_does_not_checkpoint_skipped_dns_or_discovery_as_complete(self):
         source = (ROOT / 'lib' / 'king_national_scanner.dart').read_text(encoding='utf-8')
         dns_start = source.index("if (shouldRunPhase('dns')")
