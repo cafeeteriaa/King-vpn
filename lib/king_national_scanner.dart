@@ -148,9 +148,9 @@ class KingNationalScannerEngine {
   static Future<void>? _loadFlight;
   static Future<void>? _persistFlight;
 
-  /// Privacy-preserving strategy profile: raw host is hashed; no IP, UUID,
-  /// credential, or raw config is written to persistent memory.
-  static String profileKey(Server s) {
+  /// Legacy profile key used to read learning saved before operator-aware
+  /// strategy partitioning. New outcomes are written only to the scoped key.
+  static String _legacyProfileKey(Server s) {
     final protocol = s.link.contains('://')
         ? s.link.substring(0, s.link.indexOf('://')).toLowerCase()
         : 'unknown';
@@ -161,6 +161,29 @@ class KingNationalScannerEngine {
         sha256.convert(utf8.encode(s.host.toLowerCase())).toString().substring(0, 16);
     return <String>[
       network, protocol, transport, security, s.port.toString(), hostHash
+    ].join('|');
+  }
+
+  /// Privacy-preserving strategy profile. Raw host, UUID, credentials, and
+  /// raw config are never persisted. Operator/ASN context separates Wi-Fi and
+  /// carrier-specific learning while the legacy profile remains a read fallback.
+  static String profileKey(Server s) {
+    final protocol = s.link.contains('://')
+        ? s.link.substring(0, s.link.indexOf('://')).toLowerCase()
+        : 'unknown';
+    final network = nationalMode ? 'national' : 'global';
+    final operator = natOpKey.trim().replaceAll(
+      RegExp(r'[^a-zA-Z0-9_|:-]'), '',
+    );
+    final operatorKey = operator.isEmpty || operator == 'x'
+        ? 'unknown'
+        : operator;
+    final transport = s.net.toLowerCase();
+    final security = s.reality ? 'reality' : (s.cdn ? 'cdn-tls' : 'direct');
+    final hostHash =
+        sha256.convert(utf8.encode(s.host.toLowerCase())).toString().substring(0, 16);
+    return <String>[
+      network, operatorKey, protocol, transport, security, s.port.toString(), hostHash
     ].join('|');
   }
 
@@ -431,7 +454,9 @@ class KingNationalScannerEngine {
       if (baseAt > 0) result.insert(0, result.removeAt(baseAt));
     }
 
-    final profile = _history[profileKey(server)];
+    final activeProfileKey = profileKey(server);
+    final legacyProfileKey = _legacyProfileKey(server);
+    final profile = _history[activeProfileKey] ?? _history[legacyProfileKey];
     if (profile != null && profile.isNotEmpty && result.length > 3) {
       // Preserve the original config and the first cached/priority candidate.
       final fixedPrefix = result.take(2).toList();
@@ -449,9 +474,11 @@ class KingNationalScannerEngine {
               (position * 0.001);
           final latency = stats.latencyEwmaMs;
           if (latency != null) value -= min(20.0, latency / 100.0).toDouble();
-          final preferredSni = _sniPreferences[profileKey(server)];
+          final preferredSni = _sniPreferences[activeProfileKey] ??
+              _sniPreferences[legacyProfileKey];
           if (preferredSni != null && _natSpecs[variant].sniSwap == preferredSni) value += 18;
-          final preferredAlpn = _alpnPreferences[profileKey(server)];
+          final preferredAlpn = _alpnPreferences[activeProfileKey] ??
+              _alpnPreferences[legacyProfileKey];
           final candidateAlpn = _natSpecs[variant].alpn;
           if (preferredAlpn != null && candidateAlpn != null &&
               candidateAlpn.split(',').contains(preferredAlpn)) value += 8;
