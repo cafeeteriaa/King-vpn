@@ -1163,6 +1163,14 @@ class KingNationalScannerEngine {
         ]).timeout(const Duration(seconds: 12));
         networkEvidence = samples[1] as NetworkEvidence;
         ipv6Evidence = PilotIpv6Probe.current;
+        // Store only the hash of the physical-interface/default-route
+        // fingerprint. The raw addresses and interface identifiers never
+        // enter engine diagnostics or persistent strategy state.
+        final networkIdentity = await NatNetworkDiagnosis._identityHash();
+        KingNatSubsystemEngine.recordNetworkIdentity(networkIdentity);
+        if (networkIdentity.isEmpty) {
+          warnings.add('network_identity_unavailable');
+        }
         KingNatSubsystemEngine.recordNetworkEvidence(
           domesticTls: networkEvidence.domesticSuccesses,
           globalTls: networkEvidence.globalSuccesses,
