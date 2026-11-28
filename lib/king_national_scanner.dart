@@ -2343,8 +2343,10 @@ class KingNatSubsystemEngine {
         _pendingRepairStrategyId != null && coverageComplete;
     final engine = _get('ai_repair_optimization');
     engine.record(_validatedRepairs.length,
-      'evaluated_${_adapterEvidence['repairEvaluations']}_validated_improvements_${_validatedRepairs.length}',
-      complete: coverageComplete && _validatedRepairs.isNotEmpty);
+      'evaluated_${_adapterEvidence['repairEvaluations']}_validated_improvements_${_validatedRepairs.length}_awaiting_fresh_tunnel_proof',
+      // Only recordTrafficValidation may promote this engine after consuming
+      // the exact pending strategy with a fresh stable multi-destination pass.
+      complete: false);
   }
 
   static void recordCompatibilityEvaluation({
