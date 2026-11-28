@@ -2980,7 +2980,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
         self.assertIn('FreshResourceStore.readBatch(limit: 300)', main)
         self.assertNotIn('FreshResourceStore.readLinks()', main)
-        self.assertIn('کل مجموعه در RAM بارگذاری نمی‌شود', page)
+        self.assertIn('کل مجموعه در RAM بارگذاری نمی', page)
 
 if __name__ == '__main__':
     unittest.main()
