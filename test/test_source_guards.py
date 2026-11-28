@@ -2336,8 +2336,13 @@ class KingVpnSourceGuardTests(unittest.TestCase):
 
     def test_nat_ip_scan_uses_monotonic_budget_and_integer_concurrency(self):
         source = (ROOT / 'lib' / 'nat_ip_scan.dart').read_text(encoding='utf-8')
-        self.assertIn('(cores * 4).clamp(16, 256).toInt()', source)
-        self.assertIn('(cores * 2).clamp(8, 64).toInt()', source)
+        self.assertIn('int natAdaptiveConcurrency(int requested)', source)
+        self.assertIn('Platform.numberOfProcessors', source)
+        self.assertIn('final safeMax = availableCores * 4;', source)
+        self.assertIn('if (requested <= 0) return availableCores * 2;', source)
+        self.assertIn('return requested.clamp(1, safeMax).toInt();', source)
+        self.assertNotIn('(cores * 4).clamp(16, 256).toInt()', source)
+        self.assertNotIn('(cores * 2).clamp(8, 64).toInt()', source)
         self.assertIn('port < 1 || port > 65535', source)
         self.assertIn('final elapsed = Stopwatch()..start();', source)
         self.assertIn('if (budget != null && elapsed.elapsed >= budget) return;', source)
