@@ -2585,6 +2585,46 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn('_domMemMax', source)
         self.assertNotIn('Duration(days: 14)', source)
 
+    def test_net_melli_refreshes_country_and_active_asn_prefix_inventory(self):
+        nat = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
+        start = nat.index('Future<bool> natRefreshIranRangeInventory(')
+        end = nat.index('const List<int> natCommonPorts', start)
+        body = nat[start:end]
+        self.assertIn('country-resource-list/data.json', body)
+        self.assertIn('announced-prefixes/data.json', body)
+        self.assertIn('...kIrIspRanges', body)
+        self.assertIn('...country.ipv4', body)
+        self.assertIn('...announced', body)
+        self.assertIn('country.ipv6', body)
+        self.assertIn('king_nat_country_prefix_sources.json', body)
+        self.assertIn('king_nat_configured_ranges.json', body)
+        self.assertIn('natIranRangeRefreshSuccessMs', body)
+        self.assertIn('if (merged.isEmpty) return false;', body)
+        self.assertLess(
+            body.index("await _natWriteJsonSnapshot('king_nat_configured_ranges.json', merged);"),
+            body.index('natRanges = merged;'),
+        )
+        self.assertIn('...natRanges', body)
+
+        scanner = (ROOT / 'lib' / 'king_national_scanner.dart').read_text(encoding='utf-8')
+        phase = scanner.index("status(KingNatScanPhase.ip, 'اسکنر: پیمایش پیوسته")
+        refresh = scanner.index('await natRefreshIranRangeInventory();', phase)
+        begin = scanner.index('await natRangeStartNextPass();', phase)
+        self.assertLess(refresh, begin)
+
+    def test_country_prefix_parser_keeps_ipv6_prefixes_unexpanded(self):
+        source = (ROOT / 'lib' / 'nat_ip_scan.dart').read_text(encoding='utf-8')
+        start = source.index('class NatCountryPrefixSnapshot')
+        end = source.index('class NatIpHit', start)
+        parser = source[start:end]
+        self.assertIn("resources['ipv4']", parser)
+        self.assertIn("resources['ipv6']", parser)
+        self.assertIn("resources['asn']", parser)
+        self.assertIn('prefix > 128', parser)
+        self.assertIn("address.type != InternetAddressType.IPv6", parser)
+        self.assertIn('parseAnnouncedIpv4', parser)
+        self.assertNotIn('NatAddressRangeCursor.parse(value)', parser[parser.index('void readIpv6'):parser.index('void readAsns')])
+
     def test_strategy_history_has_unbounded_disk_backed_persistence(self):
         source = (ROOT / 'lib' / 'king_national_scanner.dart').read_text(encoding='utf-8')
         self.assertIn('getApplicationSupportDirectory()', source)
