@@ -8917,6 +8917,13 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                     total: Duration(seconds: nationalMode ? 12 : 9),
                     direct: true, networkAware: true) != null;
         if (!accepted) {
+          KingNatSubsystemEngine.recordRepairEvaluation(
+            strategyId: 'nat_ladder_variant_$v',
+            evaluated: true,
+            changed: true,
+            tunnelImproved: false,
+            coverageComplete: false,
+          );
           final failedElapsedMs = _nnieFinishAttempt(s) ?? 0;
           dbg('نردبان: ${s.name} با حالت «${_natSpecs[v].name}» ترافیک تونل نداد؛ حالت بعدی');
           // NNIE: only a started candidate with failed tunnel traffic is a server failure.
@@ -8942,6 +8949,13 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           natSaveSoon(); // NORMALCACHE: پایدار کن
         }
         natWinCount[v] = (natWinCount[v] ?? 0) + 1;
+        KingNatSubsystemEngine.recordRepairEvaluation(
+          strategyId: 'nat_ladder_variant_$v',
+          evaluated: true,
+          changed: true,
+          tunnelImproved: true,
+          coverageComplete: false,
+        );
         dbg('نردبان: ${s.name} با حالت «${_natSpecs[v].name}» از تونل واقعی جواب داد');
         return true;
       }
@@ -9047,6 +9061,24 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       destinations: passed,
       stable: true,
     );
+    if (stable) {
+      // The exact variant is credited only after two real destinations passed
+      // through the active core/TUN, not after parsing or a handshake alone.
+      KingNationalScannerEngine.recordVariantOutcome(
+        natVarFor(server),
+        true,
+        profile: NationalNetworkIntelligence.keyOfServer(server),
+        latencyMs: server.ping,
+      );
+      if (server.cdn && !server.reality) {
+        KingNatSubsystemEngine.recordCdnValidation(
+          candidates: 1,
+          successfulHandshakes: 1,
+          tunnelPasses: 1,
+          inventoryComplete: false,
+        );
+      }
+    }
     return stable;
   }
 
