@@ -1608,6 +1608,7 @@ class KingNatSubsystemEngine {
   static double _confidence = 0;
   static String _operatorIdentity = 'unknown';
   static String _lastFailure = '';
+  static final Set<String> _completedPhases = <String>{};
 
   static _KingNatSubsystemRuntime _get(String id) =>
       _engines.firstWhere((engine) => engine.id == id);
@@ -1632,6 +1633,7 @@ class KingNatSubsystemEngine {
     _confidence = 0;
     _operatorIdentity = 'unknown';
     _lastFailure = '';
+    _completedPhases.clear();
     for (final engine in _engines) {
       engine.state = KingNatSubsystemState.idle;
       engine.evidence = 0;
@@ -1660,6 +1662,9 @@ class KingNatSubsystemEngine {
   }
 
   static void phaseCompleted(String phase, {required int evidence}) {
+    _completedPhases.add(phase);
+    // A phase finishing means this slice finished that phase; it does not
+    // prove the complete discovery inventory or the whole scanner pipeline.
     final ids = switch (phase) {
       'dns' => const ['discovery', 'scanner'],
       'domain' => const ['discovery', 'scanner', 'multi_engine_connector'],
@@ -1670,13 +1675,24 @@ class KingNatSubsystemEngine {
       _ => const <String>[],
     };
     for (final id in ids) {
-      _get(id).record(evidence, 'phase_$phase completed');
+      final engine = _get(id);
+      final isPhaseLocalCompletion =
+          phase == 'config' || phase == 'complete';
+      engine.record(
+        evidence,
+        'phase_$phase completed${isPhaseLocalCompletion ? '' : '_slice_only'}',
+        complete: isPhaseLocalCompletion,
+      );
     }
     if (phase == 'sni' || phase == 'config') {
       for (final id in const ['compatibility', 'dpi_traffic_transformation', 'ai_repair_optimization']) {
         final engine = _get(id);
         if (engine.state != KingNatSubsystemState.completed) {
-          engine.record(evidence, 'structural_or_handshake_evidence_only_not_end_to_end_verified', complete: false);
+          engine.record(
+            evidence,
+            'structural_or_handshake_evidence_only_not_end_to_end_verified',
+            complete: false,
+          );
         }
       }
     }
@@ -1702,10 +1718,12 @@ class KingNatSubsystemEngine {
   static void recordDiscoveryInventory({required int ipv4Resources, required int ipv6Resources}) {
     _ipv4Resources = ipv4Resources < 0 ? 0 : ipv4Resources;
     _ipv6Resources = ipv6Resources < 0 ? 0 : ipv6Resources;
+    // A non-empty prefix list is an inventory hint, not proof that every
+    // durable cursor/range has been traversed.
     _get('discovery').record(
       _ipv4Resources + _ipv6Resources,
-      'ipv4_resources_${_ipv4Resources}_ipv6_prefixes_${_ipv6Resources}',
-      complete: _ipv4Resources + _ipv6Resources > 0,
+      'inventory_observed_ipv4_${_ipv4Resources}_ipv6_prefixes_${_ipv6Resources}_completion_pending',
+      complete: false,
     );
   }
 
@@ -1720,12 +1738,16 @@ class KingNatSubsystemEngine {
   }
 
   static void recordResourceBudget({required int workers, required int sliceBudgetMs, required int batchPorts}) {
-    _workers = workers.clamp(1, 128).toInt();
-    _sliceBudgetMs = sliceBudgetMs.clamp(1000, 3600000).toInt();
-    _batchPorts = batchPorts.clamp(1, 65536).toInt();
+    // The scheduler computes these values from live device capacity. Preserve
+    // them exactly here; policy caps belong in the adaptive scheduler, not in
+    // this diagnostics/coordinator layer.
+    _workers = workers > 0 ? workers : 0;
+    _sliceBudgetMs = sliceBudgetMs > 0 ? sliceBudgetMs : 0;
+    _batchPorts = batchPorts > 0 ? batchPorts : 0;
     _get('resource_health_manager').record(
       _workers,
       'workers_${_workers}_ports_${_batchPorts}_slice_ms_${_sliceBudgetMs}',
+      complete: _workers > 0 && _sliceBudgetMs > 0 && _batchPorts > 0,
     );
   }
 
@@ -1791,9 +1813,31 @@ class KingNatSubsystemEngine {
       resource.detail = 'yielded_with_cursor_preserved';
     }
     final discovery = _get('discovery');
-    if (!inventoryComplete && discovery.state == KingNatSubsystemState.completed) {
-      discovery.state = KingNatSubsystemState.partial;
+    if (inventoryComplete && !partial) {
+      discovery.record(
+        _ipv4Resources + _ipv6Resources,
+        'durable_inventory_pass_complete',
+        complete: true,
+      );
+    } else {
+      discovery.state = partial
+          ? KingNatSubsystemState.deferred
+          : KingNatSubsystemState.partial;
       discovery.detail = 'inventory_continues_from_durable_cursor';
+    }
+    final scanner = _get('scanner');
+    const requiredScanPhases = <String>{'dns', 'domain', 'ip', 'sni'};
+    if (!partial && _completedPhases.containsAll(requiredScanPhases)) {
+      scanner.record(
+        _completedPhases.length,
+        'all_required_scan_phases_completed',
+        complete: true,
+      );
+    } else if (scanner.state != KingNatSubsystemState.failed) {
+      scanner.state = partial
+          ? KingNatSubsystemState.deferred
+          : KingNatSubsystemState.partial;
+      scanner.detail = 'scan_pipeline_incomplete_or_resumable';
     }
     final validator = _get('real_traffic_validator');
     if (validator.state == KingNatSubsystemState.idle) {
@@ -1843,6 +1887,7 @@ class KingNatSubsystemEngine {
       'stablePassed': _stableTrafficPasses, 'stableFailed': _stableTrafficFailures,
     },
     'plannedVariants': _plannedVariants,
+    'completedPhases': _completedPhases.toList()..sort(),
     'lastFailure': _lastFailure,
     'engines': _engines.map((engine) => engine.toMap()).toList(growable: false),
   };
