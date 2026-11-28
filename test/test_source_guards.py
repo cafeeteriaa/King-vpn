@@ -2903,7 +2903,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('result = await natScanAddressRanges(', body)
         self.assertIn('validRanges,', body)
         self.assertIn('additionalAddresses: savedGoldIps,', body)
-        self.assertIn('Slice size bounds temporary RAM only', body)
+        self.assertIn('size bounds temporary RAM only; it never truncates total coverage', body)
         self.assertNotIn('want: 1000', body)
         self.assertNotIn('Duration(minutes: userRanges.length', body)
 
