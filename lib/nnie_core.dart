@@ -147,6 +147,10 @@ class NatDnsWireProbe {
   static bool publicV6(List<int> b, int p) {
     if (p + 16 > b.length) return false;
     final address = b.sublist(p, p + 16);
+    // Only the currently allocated global-unicast block 2000::/3 is
+    // acceptable as a public Internet answer. This rejects translation,
+    // discard-only, transition and other non-global address spaces by default.
+    if ((address[0] & 0xe0) != 0x20) return false;
     final allZero = address.every((byte) => byte == 0);
     if (allZero) return false; // ::
     final loopback = address.take(15).every((byte) => byte == 0) && address[15] == 1;
@@ -167,6 +171,14 @@ class NatDnsWireProbe {
     if (address[0] == 0x20 && address[1] == 0x01 &&
         address[2] == 0x00 && (address[3] & 0xf0) == 0x10) {
       return false; // ORCHID special-purpose range
+    }
+    if (address[0] == 0x20 && address[1] == 0x01 &&
+        address[2] == 0x00 && (address[3] & 0xfe) == 0x00) {
+      return false; // IETF protocol assignments 2001:0000::/23
+    }
+    if (address[0] == 0x3f && address[1] == 0xff &&
+        (address[2] & 0xf0) == 0x00) {
+      return false; // 3fff::/20 documentation prefix
     }
     return true;
   }
