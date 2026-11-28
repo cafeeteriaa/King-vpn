@@ -8874,7 +8874,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     if (!nationalMode) natVarNormal.remove(s.key);
     // IPSWEEP-PROJECT: فقط در نت ملی
     if (nationalMode && socialGate != null && cleanIps.isEmpty) {
-      final w = await _atIpSweep(_usable()); // پیمایش مرحله‌ای با Cursor پایدار؛ بدون مهلت مصنوعی
+      final w = await _atIpSweep(_usable(), timeSlice: const Duration(seconds: 45)); // هر نوبت ۴۵ ثانیه؛ Cursor باقی می‌ماند تا کل موجودی تکمیل شود
       if (abort || !wantVpn) return false; // FIXLADDERABORT: کاربر وسط اسکن لغو کرده
       if (w.isNotEmpty) {
         cleanIps = List<CleanIp>.of(w);
@@ -17525,7 +17525,7 @@ extension ProjectNatSweep on _HomePageState {
   // IPSWEEP: lazily traverse every configured range for every configured CDN
   // port. TCP hits are streamed slice-by-slice into the real tunnel validator;
   // no sampled IP list, per-port hit ceiling, wall-clock cutoff, or winner cap.
-  Future<List<CleanIp>> _atIpSweep(List<Server> pool) async {
+  Future<List<CleanIp>> _atIpSweep(List<Server> pool, {Duration? timeSlice}) async {
     Server? server;
     for (final x in pool) {
       if (_natCdnNets.contains(x.net)) {
@@ -17578,11 +17578,16 @@ extension ProjectNatSweep on _HomePageState {
     final key = _nk(sv);
     final prevNatVar = natVar[key];
     final prevWant = wantVpn;
+    final sliceWatch = Stopwatch()..start();
+    bool userCancelled() => abort || AutoTestEngine._abortRequested ||
+        AutoTestEngine._phase != _AtPhase.running;
+    bool sliceExpired() =>
+        timeSlice != null && sliceWatch.elapsed >= timeSlice;
+    bool shouldStopSweep() => userCancelled() || sliceExpired();
 
     Future<void> validateHits(List<NatIpHit> hits, int port) async {
       for (final hit in hits) {
-        if (abort || AutoTestEngine._abortRequested ||
-            AutoTestEngine._phase != _AtPhase.running) return;
+        if (shouldStopSweep()) return;
         final candidate = CleanIp(hit.ip, hit.ms, port);
         cleanIps = <CleanIp>[candidate];
         natVar[key] = vIdx;
@@ -17608,8 +17613,7 @@ extension ProjectNatSweep on _HomePageState {
       for (var portIndex = startPortIndex;
           portIndex < _natCfPorts.length;
           portIndex++) {
-        if (abort || AutoTestEngine._abortRequested ||
-            AutoTestEngine._phase != _AtPhase.running) break;
+        if (shouldStopSweep()) break;
         final port = _natCfPorts[portIndex];
         final resumeThisPort = portIndex == startPortIndex;
         await natScanAddressRanges(
@@ -17617,8 +17621,7 @@ extension ProjectNatSweep on _HomePageState {
           port: port,
           concurrency: natAdaptiveWorkers(),
           timeout: const Duration(milliseconds: 1500),
-          cancelled: () => abort || AutoTestEngine._abortRequested ||
-              AutoTestEngine._phase != _AtPhase.running,
+          cancelled: shouldStopSweep,
           randomizeWithinSlice: true,
           collectHits: false,
           startRangeIndex: resumeThisPort ? startRangeIndex : 0,
@@ -17652,15 +17655,13 @@ extension ProjectNatSweep on _HomePageState {
           },
           onHits: (batch) => validateHits(batch, port),
         );
-        if (abort || AutoTestEngine._abortRequested ||
-            AutoTestEngine._phase != _AtPhase.running) break;
+        if (shouldStopSweep()) break;
         startRangeIndex = 0;
         startOffset = 0;
         startPortIndex = portIndex + 1;
       }
 
-      final sweepWasCancelled = abort || AutoTestEngine._abortRequested ||
-          AutoTestEngine._phase != _AtPhase.running;
+      final sweepWasCancelled = shouldStopSweep();
       if (!sweepWasCancelled) {
         try {
           await preferences.remove(checkpointKey);
