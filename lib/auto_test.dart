@@ -1907,8 +1907,7 @@ static void _resetCoreDeadStreak() { _atCoreDeadStreak = 0; }
         .toList();
     // IPSWEEP: IP‌ها اول با ترافیک تونل سنجیده می‌شوند؛ فقط IP‌های ترافیک‌دار در پروژه می‌مانند
     autoTestText.value = 'سنجش IP تمیز با تونل...';
-    final ipWin = await _atIpSweep(
-        healthy, _atCap(const Duration(minutes: 30))); // جدید: رزرو ۶۰ دقیقه‌ای مال خلبان بود و حذف شد
+    final ipWin = await _atIpSweep(healthy); // Full range inventory; cancellation remains authoritative.
     if (ipWin.isNotEmpty) {
       cleanIps = List<CleanIp>.of(ipWin);
       cleanIpsAt = DateTime.now();
