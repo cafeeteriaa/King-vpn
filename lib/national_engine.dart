@@ -208,6 +208,11 @@ class NatNetworkDiagnosis {
 
   /// Network identity from local interfaces (no native code). Hashed, so the
   /// cache can tell "same network" from "network changed" without storing IPs.
+  /// Public privacy-safe fingerprint for the 13-engine identity registry.
+  /// Uses the shared physical-interface + default-route snapshot and returns
+  /// only SHA-256; raw interface addresses never leave this method.
+  static Future<String> identityFingerprint() => _identityHash();
+
   static Future<String> _identityHash() async {
     try {
       // Include active IPv4/IPv6 default routes. Interface addresses alone
