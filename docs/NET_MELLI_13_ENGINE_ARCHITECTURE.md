@@ -64,6 +64,8 @@ states partial/deferred until the implementation and tests exist.
 
 - A successful request to one destination is recorded as connectivity probe evidence only.
 - The validator becomes `completed` only after the stable-check path reports at least two successful destinations through the active core/TUN.
+- The Connection Orchestrator cannot become `completed` from finishing the preflight scan; it waits for stable multi-destination tunnel proof.
+- The Multi-Engine Connector additionally requires every durable scan phase, the complete IP inventory pass, restored phase-adapter edges, and stable tunnel proof. A successful individual adapter or a caller-provided aggregate boolean is insufficient.
 - Failed stable checks and stable checks with fewer than two destinations remain non-complete.
 - Diagnostics expose probe totals separately from stable pass/failure totals; route classification, DNS, SNI/ALPN, and config parsing cannot promote tunnel validation.
 
