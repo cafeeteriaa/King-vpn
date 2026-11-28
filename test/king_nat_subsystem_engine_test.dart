@@ -76,7 +76,9 @@ void main() {
       expect(engines['real_traffic_validator']['state'], 'completed');
       expect(engines['resource_health_manager']['state'], 'deferred');
       expect(engines['config_intelligence']['state'], 'completed');
-      expect(engines['dpi_traffic_transformation']['state'], 'completed');
+      expect(engines['dpi_traffic_transformation']['state'], 'partial');
+      expect(engines['ai_repair_optimization']['state'], 'partial');
+      expect(engines['compatibility']['state'], 'partial');
     });
 
     test('does not mark preflight-only work as real tunnel validation', () {
